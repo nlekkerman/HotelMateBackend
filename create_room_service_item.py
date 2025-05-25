@@ -2,10 +2,10 @@ import os
 import django
 
 # Set up Django environment
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "porterproject.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "HotelMateBackend.settings")
 django.setup()
 
-from room.models import RoomServiceItem
+from room_services.models import RoomServiceItem
 
 def create_room_service_items():
     food_items = [
@@ -23,15 +23,50 @@ def create_room_service_items():
     ]
 
     drinks_items = [
-        {'name': 'Cappuccino', 'price': 3.95, 'description': 'A rich and creamy cappuccino with a perfect foam.'},
-        {'name': 'Irish Coffee', 'price': 7.00, 'description': 'A warm Irish coffee made with whiskey, coffee, sugar, and cream.'},
-        {'name': 'Guinness', 'price': 5.90, 'description': 'A pint of the famous Irish stout, rich and smooth.'},
-        {'name': 'Mineral Water', 'price': 2.00, 'description': 'Refreshing still or sparkling water.'},
-        {'name': 'Coca-Cola', 'price': 3.60, 'description': 'Classic Coca-Cola served chilled.'},
-        {'name': 'Orange Juice', 'price': 3.60, 'description': 'Freshly squeezed orange juice.'},
-        {'name': 'Hot Chocolate', 'price': 3.50, 'description': 'Rich and creamy hot chocolate with whipped cream.'},
-        {'name': 'Sparkling Wine', 'price': 8.00, 'description': 'A glass of refreshing sparkling wine.'},
+        # Cocktail Selection
+        {"name": "At The Beach", "price": 14.00, "description": "Fruity mix of Smirnoff, schnapps, orange, cranberry & grenadine."},
+        {"name": "Cosmopolitan", "price": 14.00, "description": "Classic cocktail with vodka, triple sec, cranberry & lime."},
+        {"name": "Strawberry Fiz", "price": 14.00, "description": "Refreshing sloe gin with strawberry, lime, and soda."},
+        {"name": "Classic Negroni", "price": 14.00, "description": "Strong blend of Bombay gin, vermouth, and Campari."},
+        {"name": "Passionfruit Martini", "price": 14.00, "description": "Tropical mix of vanilla vodka, Passoa, and passionfruit."},
+
+        # Aperitif & Liqueur’s
+        {"name": "Pernod/Campari", "price": 6.00, "description": "Classic aperitif with a bitter, herbal taste."},
+        {"name": "Sweet/Dry Martini", "price": 6.00, "description": "Traditional vermouth-based aperitif."},
+        {"name": "Baileys", "price": 6.00, "description": "Creamy Irish liqueur with hints of chocolate and whiskey."},
+        {"name": "Kahlua/Tia Maria", "price": 6.00, "description": "Coffee-flavored liqueurs with a rich, sweet finish."},
+
+        # Bottled Beers & Ciders
+        {"name": "Heineken/Coors/Sol/Bud", "price": 5.70, "description": "Selection of light, refreshing bottled beers."},
+        {"name": "Killarney Blonde Ale/IPA", "price": 7.50, "description": "Craft beer with smooth and hoppy flavor."},
+        {"name": "West Coast Cooler Org/Rose", "price": 7.50, "description": "Light wine-based spritzers, original or rosé."},
+        {"name": "WKD Blue", "price": 7.20, "description": "Fruity and fizzy blue alcopop."},
+        {"name": "Smirnoff Ice", "price": 7.20, "description": "Lemon-flavored vodka-based cooler."},
+        {"name": "Bulmer’s Pt Bt/Light", "price": 7.30, "description": "Classic or light Irish apple cider."},
+        {"name": "Long Neck Bulmer’s", "price": 6.20, "description": "Single-serve Bulmer’s Irish cider."},
+        {"name": "Cronin’s", "price": 7.30, "description": "Artisan Irish cider with crisp apple flavor."},
+        {"name": "Kopparberg", "price": 7.30, "description": "Swedish fruit cider with bold flavors."},
+
+        # Non-Alcoholic
+        {"name": "Heineken/Erdinger Free", "price": 5.50, "description": "Alcohol-free beers with great taste."},
+        {"name": "Cronin’s Cider Free", "price": 5.50, "description": "Refreshing non-alcoholic Irish cider."},
+
+        # House Red Wine
+        {"name": "Marques De Plata (Spain)", "price": 30.00, "description": "Smooth Syrah-Cabernet blend from Spain."},
+        {"name": "Les Roucas Merlot (France)", "price": 31.00, "description": "Fruity and soft French Merlot."},
+        {"name": "Roquende Reserve Cabernet (France)", "price": 34.00, "description": "Full-bodied French Cabernet Sauvignon."},
+        {"name": "Equino Malbec (Argentina)", "price": 34.00, "description": "Rich and spicy Argentinian Malbec."},
+        {"name": "EL Somo Rioja (Spain)", "price": 34.00, "description": "Traditional Spanish red with oaky finish."},
+
+        # House White Wine
+        {"name": "Marques De Plata Sauvignon Blanc (Spain)", "price": 30.00, "description": "Crisp and zesty white from Spain."},
+        {"name": "Tini Pinot Grigio (Italy)", "price": 31.00, "description": "Light and fresh Italian Pinot Grigio."},
+        {"name": "La Chevaliere Chardonnay (France)", "price": 34.00, "description": "Elegant French Chardonnay with citrus notes."},
+
+        # Rose Wine
+        {"name": "La Chevaliere Rose (France)", "price": 36.00, "description": "Delicate and fruity French rosé wine."},
     ]
+
 
     for item in food_items:
         room_service_item = RoomServiceItem(

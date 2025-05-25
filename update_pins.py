@@ -4,10 +4,10 @@ import random
 import string
 
 # Set up Django
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "porterproject.settings")
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "HotelMateBackend.settings")
 django.setup()
 
-from room.models import Room
+from rooms.models import Room
 
 
 def generate_unique_pin(existing_pins, length=4):
