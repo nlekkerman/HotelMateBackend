@@ -140,6 +140,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # CORS (adjust if deploying React frontend)
 CORS_ALLOWED_ORIGINS = [
+    "https://dashing-klepon-d9f0c6.netlify.app",
+    "https://hotel-porter-d25ad83b12cf.herokuapp.com",
     "http://localhost:5173",
 ]
 
