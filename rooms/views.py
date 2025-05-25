@@ -1,13 +1,26 @@
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework import viewsets
+from rest_framework import viewsets, filters, status
 from .models import Room
 from .serializers import RoomSerializer
+from guests.serializers import GuestSerializer
+from rest_framework.pagination import PageNumberPagination
+
+
+class RoomPagination(PageNumberPagination):
+    page_size = 10  # items per page
+    page_size_query_param = 'page_size'  # allow client to set page size with ?page_size=xx
+    max_page_size = 100
 
 
 class RoomViewSet(viewsets.ModelViewSet):
-    queryset = Room.objects.all()
+    queryset = Room.objects.all().order_by('room_number')
     serializer_class = RoomSerializer
+    pagination_class = RoomPagination
+    lookup_field = 'room_number'
+
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['room_number', 'is_occupied']  # fields to search in
 
     @action(detail=True, methods=['post'])
     def generate_pin(self, request, pk=None):
@@ -22,3 +35,26 @@ class RoomViewSet(viewsets.ModelViewSet):
         room.generate_qr_code(qr_type=qr_type)
         qr_url = getattr(room, f"{qr_type}_qr_code", None)
         return Response({'qr_url': qr_url})
+
+    @action(detail=True, methods=['post'])
+    def add_guest(self, request, room_number=None):
+        room = self.get_object()
+        serializer = GuestSerializer(data=request.data)
+
+        if serializer.is_valid():
+            guest = serializer.save()
+            
+            # Assign room and PIN from room to guest
+            guest.room = room
+            if room.guest_id_pin:
+                guest.id_pin = room.guest_id_pin
+            
+            guest.save()
+
+            # Mark room as occupied
+            room.is_occupied = True
+            room.save()
+
+            return Response(GuestSerializer(guest).data, status=status.HTTP_201_CREATED)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
