@@ -29,9 +29,10 @@ class Room(models.Model):
 
     def generate_qr_code(self, qr_type="room_service"):
         path_map = {
-            "room_service": f"https://hotel-porter-d25ad83b12cf.herokuapp.com/room/{self.room_number}/menu/",
-            "in_room_breakfast": f"https://hotel-porter-d25ad83b12cf.herokuapp.com/room/{self.room_number}/breakfast/",
+            "room_service": f"https://dashing-klepon-d9f0c6.netlify.app/room/{self.room_number}/menu/",
+            "in_room_breakfast": f"https://dashing-klepon-d9f0c6.netlify.app/breakfast/{self.room_number}",
         }
+
 
         qr_field_map = {
             "room_service": "room_service_qr_code",

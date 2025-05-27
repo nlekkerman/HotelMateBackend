@@ -5,6 +5,7 @@ from .views import (
     BreakfastItemViewSet,
     OrderViewSet,
     BreakfastOrderViewSet,
+    validate_pin,
 )
 
 router = DefaultRouter()
@@ -19,4 +20,5 @@ urlpatterns = [
     path('', include(router.urls)),
     path('room/<int:room_number>/menu/', room_service_items, name='room-service-menu'),
     path('room/<int:room_number>/breakfast/', breakfast_items, name='breakfast-menu'),
+    path('<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
 ]

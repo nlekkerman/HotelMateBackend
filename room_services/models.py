@@ -19,7 +19,7 @@ class RoomServiceItem(models.Model):
     image = models.ImageField(upload_to='room_service_items/', null=True, blank=True)
     description = models.TextField()
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='Others')
-
+    is_on_stock = models.BooleanField(default=True)
     def __str__(self):
         return self.name
 
@@ -78,6 +78,7 @@ class BreakfastItem(models.Model):
     description = models.TextField()
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='Mains')
     quantity = models.PositiveIntegerField(default=1)
+    is_on_stock = models.BooleanField(default=True)
 
     def __str__(self):
         return self.name
@@ -94,9 +95,17 @@ class BreakfastOrder(models.Model):
         ('pending', 'Pending'),
         ('completed', 'Completed'),
     ]
-
+    TIME_SLOT_CHOICES = [
+        ('7:00-8:00', '7:00 - 8:00'),
+        ('8:00-8:30', '8:00 - 8:30'),
+        ('8:30-9:00', '8:30 - 9:00'),
+        ('9:00-9:30', '9:00 - 9:30'),
+        ('9:30-10:00', '9:30 - 10:00'),
+        ('10:00-10:30', '10:00 - 10:30'),
+    ]
     room_number = models.IntegerField()
     items = models.ManyToManyField(BreakfastItem, through='BreakfastOrderItem')
+    delivery_time = models.CharField(max_length=20, choices=TIME_SLOT_CHOICES, null=True, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
 

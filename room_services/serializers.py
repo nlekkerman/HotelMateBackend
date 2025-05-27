@@ -8,7 +8,8 @@ from .models import (
 class RoomServiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomServiceItem
-        fields = '__all__'
+        fields = '__all__'  # includes is_on_stock automatically
+
 
 # OrderItem Serializer (nested)
 class OrderItemSerializer(serializers.ModelSerializer):
@@ -22,6 +23,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrderItem
         fields = ['id', 'item', 'item_id', 'quantity', 'notes']
+
 
 # Order Serializer with nested items
 class OrderSerializer(serializers.ModelSerializer):
@@ -51,11 +53,13 @@ class OrderSerializer(serializers.ModelSerializer):
 
         return instance
 
+
 # BreakfastItem Serializer
 class BreakfastItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = BreakfastItem
-        fields = '__all__'
+        fields = '__all__'  # includes is_on_stock automatically
+
 
 # BreakfastOrderItem Serializer (nested)
 class BreakfastOrderItemSerializer(serializers.ModelSerializer):
@@ -69,6 +73,7 @@ class BreakfastOrderItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = BreakfastOrderItem
         fields = ['id', 'item', 'item_id', 'quantity']
+
 
 # BreakfastOrder Serializer with nested items
 class BreakfastOrderSerializer(serializers.ModelSerializer):
