@@ -1,5 +1,8 @@
 from rest_framework import viewsets, mixins, permissions
-from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
+from django.shortcuts import get_object_or_404
+from rooms.models import Room
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .models import RoomServiceItem, BreakfastItem, Order, BreakfastOrder
 from .serializers import (
@@ -47,3 +50,13 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
     queryset = BreakfastOrder.objects.all()
     serializer_class = BreakfastOrderSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+# views.py
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def validate_pin(request, room_number):
+    room = get_object_or_404(Room, room_number=room_number)
+    pin = request.data.get('pin')
+    if pin == room.guest_id_pin:
+        return Response({'valid': True})
+    return Response({'valid': False}, status=401)
