@@ -77,17 +77,20 @@ class BreakfastOrderItemSerializer(serializers.ModelSerializer):
 
 # BreakfastOrder Serializer with nested items
 class BreakfastOrderSerializer(serializers.ModelSerializer):
+    delivery_time = serializers.CharField(allow_blank=True, required=False)
     items = BreakfastOrderItemSerializer(source='breakfastorderitem_set', many=True)
 
     class Meta:
         model = BreakfastOrder
-        fields = ['id', 'room_number', 'status', 'created_at', 'items']
+        fields = ['id', 'room_number', 'status', 'created_at', 'delivery_time', 'items']
 
     def create(self, validated_data):
+        print("Validated data:", validated_data)
         items_data = validated_data.pop('breakfastorderitem_set')
         order = BreakfastOrder.objects.create(**validated_data)
         for item_data in items_data:
             BreakfastOrderItem.objects.create(order=order, **item_data)
+            print("Created order:", order, "with delivery_time:", order.delivery_time)
         return order
 
     def update(self, instance, validated_data):

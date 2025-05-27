@@ -68,7 +68,7 @@ class BreakfastOrderItemInline(admin.TabularInline):
 
 # --- BreakfastOrder admin ---
 class BreakfastOrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'room_number', 'status', 'created_at', 'total_price', 'delivery_time')
+    list_display = ('id', 'room_number', 'status', 'created_at', 'delivery_time')
     ordering = ('-created_at',)
     list_filter = ('status', 'created_at')
     search_fields = ('room_number',)
