@@ -53,7 +53,7 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
 
 # views.py
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([])
 def validate_pin(request, room_number):
     room = get_object_or_404(Room, room_number=room_number)
     pin = request.data.get('pin')
