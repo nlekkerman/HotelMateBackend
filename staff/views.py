@@ -86,6 +86,7 @@ class CreateStaffAPIView(APIView):
 # ✅ Login View (Token Based)
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
+        print("Login POST data:", request.data)
         response = super().post(request, *args, **kwargs)
         token = Token.objects.get(key=response.data['token'])
         user = token.user
