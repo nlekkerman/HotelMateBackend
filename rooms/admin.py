@@ -1,17 +1,17 @@
 from django.contrib import admin
-from django.http import HttpResponseRedirect
-from .models import  Room
-from django.utils.html import mark_safe, format_html
+from django.utils.html import format_html
+from .models import Room
+
 
 class RoomAdmin(admin.ModelAdmin):
     list_display = (
-        'room_number', 'is_occupied', 'get_guests_count',
-        'room_service_qr_link',  'breakfast_qr_link',
+        'room_number', 'hotel', 'is_occupied', 'get_guests_count',
+        'room_service_qr_link', 'breakfast_qr_link',
         'generate_qr_buttons'
     )
 
-    search_fields = ('room_number',)
-    list_filter = ('is_occupied',)
+    search_fields = ('room_number', 'hotel__name')
+    list_filter = ('is_occupied', 'hotel')
 
     def get_guests_count(self, obj):
         return obj.guests.count()
@@ -23,7 +23,6 @@ class RoomAdmin(admin.ModelAdmin):
         return 'Not Generated'
     room_service_qr_link.short_description = 'Room Service QR'
 
-
     def breakfast_qr_link(self, obj):
         if obj.in_room_breakfast_qr_code:
             return format_html('<a href="{}" target="_blank">Breakfast</a>', obj.in_room_breakfast_qr_code)
@@ -34,7 +33,6 @@ class RoomAdmin(admin.ModelAdmin):
         buttons = []
         if not obj.room_service_qr_code:
             buttons.append('Room Service')
-        
         if not obj.in_room_breakfast_qr_code:
             buttons.append('Breakfast')
         return ", ".join(buttons) if buttons else "All Generated"
@@ -49,7 +47,4 @@ class RoomAdmin(admin.ModelAdmin):
     actions = ['generate_all_qrs']
 
 
-# Register Room model with the custom admin interface
 admin.site.register(Room, RoomAdmin)
-
-

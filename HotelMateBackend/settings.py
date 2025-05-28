@@ -50,12 +50,15 @@ INSTALLED_APPS = [
     'staff',
     'hotel_info',
     'room_services',
+    'hotel',
+    
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware',  # WhiteNoise before others
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
+    'hotel.middleware.HotelMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -120,6 +123,11 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',
     ],
 }
+
+AUTHENTICATION_BACKENDS = [
+    'hotel.auth_backends.HotelSubdomainBackend',
+    # optionally add default backends here if needed
+]
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'

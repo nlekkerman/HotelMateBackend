@@ -3,6 +3,7 @@ from django.db import models
 
 class Staff(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='staff_profile', null=True, blank=True)
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE)
 
     DEPARTMENT_CHOICES = [
         ('front_office', 'Front Office'),

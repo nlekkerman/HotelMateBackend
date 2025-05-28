@@ -1,13 +1,14 @@
 from django.db import models
 
 class HotelInfo(models.Model):
+    
     CATEGORY_CHOICES = [
         ('info_board', 'Info Board'),
         ('kid_entertainment', 'Kid Entertainment'),
         ('dining', 'Dining'),
         ('offers', 'Offers'),
     ]
-
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES)
     title = models.CharField(max_length=200)
     description = models.TextField()
