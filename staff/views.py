@@ -119,6 +119,7 @@ class StaffViewSet(viewsets.ModelViewSet):
 
     def create(self, request, *args, **kwargs):
         user_id = request.data.get('user_id')
+        hotel_id = request.data.get('hotel')
         if not user_id:
             return Response({'user_id': 'User ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -131,6 +132,14 @@ class StaffViewSet(viewsets.ModelViewSet):
         if hasattr(user, 'staff_profile'):
             return Response({'detail': 'Staff profile for this user already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        if not hotel_id:
+            return Response({'hotel': 'Hotel ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            hotel = Hotel.objects.get(id=hotel_id)  # <-- This defines `hotel`
+        except Hotel.DoesNotExist:
+            return Response({'hotel': 'Hotel not found.'}, status=status.HTTP_404_NOT_FOUND)
+        
         # Extract other staff data from request.data
         first_name = request.data.get('first_name', '')
         last_name = request.data.get('last_name', '')
@@ -144,6 +153,7 @@ class StaffViewSet(viewsets.ModelViewSet):
         # Create Staff linked to user
         staff = Staff.objects.create(
             user=user,
+            hotel=hotel,
             first_name=first_name,
             last_name=last_name,
             department=department,
