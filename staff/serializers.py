@@ -6,7 +6,6 @@ from hotel.models import Hotel
 
 class StaffMinimalSerializer(serializers.ModelSerializer):
     hotel = HotelSerializer(read_only=True)  # show hotel details in minimal too
-
     class Meta:
         model = Staff
         fields = [
