@@ -8,6 +8,7 @@ apps = [
     'staff',
     'hotel_info',
     'room_services',
+    'hotel',
     # 'notifications',
     # 'common',
 ]

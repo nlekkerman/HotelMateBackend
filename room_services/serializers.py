@@ -3,12 +3,15 @@ from .models import (
     RoomServiceItem, Order, OrderItem,
     BreakfastItem, BreakfastOrder, BreakfastOrderItem
 )
+import logging
+
+logger = logging.getLogger(__name__)
 
 # RoomServiceItem Serializer
 class RoomServiceItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomServiceItem
-        fields = '__all__'  # includes is_on_stock automatically
+        fields = '__all__'  # includes hotel, is_on_stock, etc.
 
 
 # OrderItem Serializer (nested)
@@ -19,24 +22,33 @@ class OrderItemSerializer(serializers.ModelSerializer):
         source='item',
         write_only=True
     )
+    hotel = serializers.PrimaryKeyRelatedField(
+        queryset=Order.objects.values_list('hotel', flat=True),
+        required=False,
+        allow_null=True
+    )
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'item', 'item_id', 'quantity', 'notes']
+        fields = ['id', 'item', 'item_id', 'quantity', 'notes', 'hotel']
 
 
 # Order Serializer with nested items
 class OrderSerializer(serializers.ModelSerializer):
+    hotel = serializers.PrimaryKeyRelatedField(queryset=Order.objects.values_list('hotel', flat=True), required=False, allow_null=True)
     items = OrderItemSerializer(source='orderitem_set', many=True)
 
     class Meta:
         model = Order
-        fields = ['id', 'room_number', 'status', 'created_at', 'items']
+        fields = ['id', 'hotel', 'room_number', 'status', 'created_at', 'items']
 
     def create(self, validated_data):
         items_data = validated_data.pop('orderitem_set')
         order = Order.objects.create(**validated_data)
         for item_data in items_data:
+            # Ensure hotel is set on OrderItem from parent Order if missing
+            if not item_data.get('hotel'):
+                item_data['hotel'] = order.hotel
             OrderItem.objects.create(order=order, **item_data)
         return order
 
@@ -44,11 +56,14 @@ class OrderSerializer(serializers.ModelSerializer):
         items_data = validated_data.pop('orderitem_set', [])
         instance.room_number = validated_data.get('room_number', instance.room_number)
         instance.status = validated_data.get('status', instance.status)
+        instance.hotel = validated_data.get('hotel', instance.hotel)
         instance.save()
 
         if items_data:
             instance.orderitem_set.all().delete()
             for item_data in items_data:
+                if not item_data.get('hotel'):
+                    item_data['hotel'] = instance.hotel
                 OrderItem.objects.create(order=instance, **item_data)
 
         return instance
@@ -58,7 +73,7 @@ class OrderSerializer(serializers.ModelSerializer):
 class BreakfastItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = BreakfastItem
-        fields = '__all__'  # includes is_on_stock automatically
+        fields = '__all__'  # includes hotel, is_on_stock, etc.
 
 
 # BreakfastOrderItem Serializer (nested)
@@ -69,39 +84,48 @@ class BreakfastOrderItemSerializer(serializers.ModelSerializer):
         source='item',
         write_only=True
     )
+    hotel = serializers.PrimaryKeyRelatedField(
+        queryset=BreakfastOrder.objects.values_list('hotel', flat=True),
+        required=False,
+        allow_null=True
+    )
 
     class Meta:
         model = BreakfastOrderItem
-        fields = ['id', 'item', 'item_id', 'quantity']
+        fields = ['id', 'item', 'item_id', 'quantity', 'hotel']
 
 
 # BreakfastOrder Serializer with nested items
 class BreakfastOrderSerializer(serializers.ModelSerializer):
+    hotel = serializers.PrimaryKeyRelatedField(queryset=BreakfastOrder.objects.values_list('hotel', flat=True), required=False, allow_null=True)
     delivery_time = serializers.CharField(allow_blank=True, required=False)
     items = BreakfastOrderItemSerializer(source='breakfastorderitem_set', many=True)
 
     class Meta:
         model = BreakfastOrder
-        fields = ['id', 'room_number', 'status', 'created_at', 'delivery_time', 'items']
+        fields = ['id', 'hotel', 'room_number', 'status', 'created_at', 'delivery_time', 'items']
 
     def create(self, validated_data):
-        print("Validated data:", validated_data)
         items_data = validated_data.pop('breakfastorderitem_set')
         order = BreakfastOrder.objects.create(**validated_data)
         for item_data in items_data:
+            if not item_data.get('hotel'):
+                item_data['hotel'] = order.hotel
             BreakfastOrderItem.objects.create(order=order, **item_data)
-            print("Created order:", order, "with delivery_time:", order.delivery_time)
         return order
 
     def update(self, instance, validated_data):
         items_data = validated_data.pop('breakfastorderitem_set', [])
         instance.room_number = validated_data.get('room_number', instance.room_number)
         instance.status = validated_data.get('status', instance.status)
+        instance.hotel = validated_data.get('hotel', instance.hotel)
         instance.save()
 
         if items_data:
             instance.breakfastorderitem_set.all().delete()
             for item_data in items_data:
+                if not item_data.get('hotel'):
+                    item_data['hotel'] = instance.hotel
                 BreakfastOrderItem.objects.create(order=instance, **item_data)
 
         return instance

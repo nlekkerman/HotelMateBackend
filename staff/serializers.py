@@ -1,9 +1,12 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Staff
-
+from hotel.serializers import HotelSerializer
+from hotel.models import Hotel
 
 class StaffMinimalSerializer(serializers.ModelSerializer):
+    hotel = HotelSerializer(read_only=True)  # show hotel details in minimal too
+
     class Meta:
         model = Staff
         fields = [
@@ -17,9 +20,8 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
             'phone_number',
             'is_active',
             'is_on_duty',
+            'hotel',  # added
         ]
-        # Note: no nested user field here to prevent recursion
-
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -61,9 +63,9 @@ class UserSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
-
 class StaffSerializer(serializers.ModelSerializer):
     user = UserSerializer()
+    hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
 
     class Meta:
         model = Staff
@@ -79,6 +81,7 @@ class StaffSerializer(serializers.ModelSerializer):
             'phone_number',
             'is_active',
             'is_on_duty',
+            'hotel',  # added
         ]
 
     def create(self, validated_data):

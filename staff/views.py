@@ -9,6 +9,7 @@ from .models import Staff
 from .serializers import StaffSerializer, UserSerializer
 from rest_framework.decorators import action
 from django.urls import reverse
+from hotel.models import Hotel
 
 
 
@@ -27,20 +28,30 @@ class CreateStaffAPIView(APIView):
 
     def post(self, request):
         user_id = request.data.get('user_id')
+        hotel_id = request.data.get('hotel')  # Step 1: Extract hotel ID
+
         if not user_id:
             return Response({'user_id': 'User ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not hotel_id:
+            return Response({'hotel': 'Hotel ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response({'user_id': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
+        try:
+            hotel = Hotel.objects.get(id=hotel_id)  # Step 2: Validate hotel ID
+        except Hotel.DoesNotExist:
+            return Response({'hotel': 'Hotel not found.'}, status=status.HTTP_404_NOT_FOUND)
+
         if hasattr(user, 'staff_profile'):
             return Response({'detail': 'Staff profile for this user already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Collect data from request
+        # Step 3: Include hotel in the data
         data = {
             'user': user,
+            'hotel': hotel,
             'first_name': request.data.get('first_name', ''),
             'last_name': request.data.get('last_name', ''),
             'department': request.data.get('department', ''),
@@ -62,6 +73,7 @@ class CreateStaffAPIView(APIView):
         return Response({
             'staff_id': staff.id,
             'user_id': user.id,
+            'hotel': {'id': hotel.id, 'name': hotel.name},  # Optional: include hotel info in response
             'first_name': staff.first_name,
             'last_name': staff.last_name,
             'department': staff.department,
@@ -71,8 +83,6 @@ class CreateStaffAPIView(APIView):
             'phone_number': staff.phone_number,
             'is_active': staff.is_active,
         }, status=status.HTTP_201_CREATED)
-
-
 # ✅ Login View (Token Based)
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):

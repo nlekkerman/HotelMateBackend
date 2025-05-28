@@ -13,13 +13,14 @@ class RoomServiceItem(models.Model):
         ('Drinks', 'Drinks'),
         ('Others', 'Others'),
     ]
-
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     name = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=6, decimal_places=2)
     image = models.ImageField(upload_to='room_service_items/', null=True, blank=True)
     description = models.TextField()
     category = models.CharField(max_length=50, choices=CATEGORY_CHOICES, default='Others')
     is_on_stock = models.BooleanField(default=True)
+
     def __str__(self):
         return self.name
 
@@ -38,7 +39,7 @@ class Order(models.Model):
         ('pending', 'Pending'),
         ('completed', 'Completed'),
     ]
-
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     room_number = models.IntegerField()
     items = models.ManyToManyField(RoomServiceItem, through='OrderItem')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
@@ -49,6 +50,7 @@ class Order(models.Model):
 
 
 class OrderItem(models.Model):
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     item = models.ForeignKey(RoomServiceItem, on_delete=models.CASCADE)
     notes = models.TextField(blank=True, null=True)
@@ -69,10 +71,8 @@ class BreakfastItem(models.Model):
         ('Breads', 'Breads'),
         ('Condiments', 'Condiments'),
         ('Drinks', 'Drinks'),
-        
     ]
-
-
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     name = models.CharField(max_length=255)
     image = models.ImageField(upload_to='breakfast_items/', null=True, blank=True)
     description = models.TextField()
@@ -103,6 +103,7 @@ class BreakfastOrder(models.Model):
         ('9:30-10:00', '9:30 - 10:00'),
         ('10:00-10:30', '10:00 - 10:30'),
     ]
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     room_number = models.IntegerField()
     items = models.ManyToManyField(BreakfastItem, through='BreakfastOrderItem')
     delivery_time = models.CharField(max_length=20, choices=TIME_SLOT_CHOICES, null=True, blank=True)

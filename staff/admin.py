@@ -1,11 +1,11 @@
 from django.contrib import admin
 from .models import Staff
 
-
 @admin.register(Staff)
 class StaffAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 
+        'user',
+        'hotel',          # show hotel in list
         'first_name', 
         'last_name', 
         'department', 
@@ -17,6 +17,7 @@ class StaffAdmin(admin.ModelAdmin):
         'is_on_duty', 
     )
     list_filter = (
+        'hotel',          # filter by hotel
         'department', 
         'role', 
         'is_active',
@@ -31,6 +32,7 @@ class StaffAdmin(admin.ModelAdmin):
         'user__username'
     )
     ordering = (
+        'hotel',          # order by hotel too
         'department', 
         'last_name'
     )
@@ -39,14 +41,11 @@ class StaffAdmin(admin.ModelAdmin):
         'role',
         'is_on_duty',
     )
-    readonly_fields = (
-        # add 'email', 'phone_number' if you want them read-only
-    )
 
     fieldsets = (
         (None, {
             'fields': (
-                ('user', 'first_name', 'last_name'),
+                ('user', 'hotel', 'first_name', 'last_name'),  # add hotel here
                 ('email', 'phone_number'),
                 ('department', 'role', 'position'),
                 'is_active', 'is_on_duty'
@@ -54,7 +53,16 @@ class StaffAdmin(admin.ModelAdmin):
         }),
     )
 
-    actions = ['mark_as_inactive','mark_as_on_duty', 'mark_as_off_duty']
+    actions = ['mark_as_inactive', 'mark_as_on_duty', 'mark_as_off_duty']
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        hotel = getattr(request, 'hotel', None)
+        if hotel:
+            return qs.filter(hotel=hotel)
+        return qs.none()
 
     @admin.action(description="Mark selected staff as inactive")
     def mark_as_inactive(self, request, queryset):

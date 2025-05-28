@@ -5,6 +5,7 @@ from .models import Room
 from .serializers import RoomSerializer
 from guests.serializers import GuestSerializer
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.exceptions import PermissionDenied
 
 
 class RoomPagination(PageNumberPagination):
@@ -14,13 +15,25 @@ class RoomPagination(PageNumberPagination):
 
 
 class RoomViewSet(viewsets.ModelViewSet):
-    queryset = Room.objects.all().order_by('room_number')
     serializer_class = RoomSerializer
     pagination_class = RoomPagination
     lookup_field = 'room_number'
-
     filter_backends = [filters.SearchFilter]
-    search_fields = ['room_number', 'is_occupied']  # fields to search in
+    search_fields = ['room_number', 'is_occupied']
+
+    def get_queryset(self):
+        user = self.request.user
+        staff = getattr(user, 'staff_profile', None)
+        if staff and staff.hotel:
+            return Room.objects.filter(hotel=staff.hotel).order_by('room_number')
+        return Room.objects.none()
+
+    def perform_create(self, serializer):
+        staff = getattr(self.request.user, 'staff_profile', None)
+        if staff and staff.hotel:
+            serializer.save(hotel=staff.hotel)
+        else:
+            raise PermissionDenied("You must be assigned to a hotel to create a room.")
 
     @action(detail=True, methods=['post'])
     def generate_pin(self, request, pk=None):
@@ -43,18 +56,12 @@ class RoomViewSet(viewsets.ModelViewSet):
 
         if serializer.is_valid():
             guest = serializer.save()
-            
-            # Assign room and PIN from room to guest
             guest.room = room
             if room.guest_id_pin:
                 guest.id_pin = room.guest_id_pin
-            
             guest.save()
-
-            # Mark room as occupied
             room.is_occupied = True
             room.save()
-
             return Response(GuestSerializer(guest).data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

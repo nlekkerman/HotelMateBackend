@@ -8,9 +8,9 @@ from .models import (
 
 # --- RoomServiceItem admin ---
 class RoomServiceItemAdmin(admin.ModelAdmin):
-    list_display = ('name', 'category', 'price', 'description', 'image_preview')
+    list_display = ('name', 'category', 'price', 'description', 'hotel', 'image_preview')
     search_fields = ('name', 'description')
-    list_filter = ('category', 'price')
+    list_filter = ('category', 'price', 'hotel')
     ordering = ('category', 'name')
     list_per_page = 20
 
@@ -26,17 +26,21 @@ class OrderItemInline(admin.TabularInline):
     model = OrderItem
     extra = 1
     autocomplete_fields = ['item']
-    readonly_fields = ['item_price']
+    readonly_fields = ['item_price', 'hotel']
 
     def item_price(self, obj):
         return obj.item.price if obj.item else "-"
     item_price.short_description = "Unit Price"
 
+    def hotel(self, obj):
+        return obj.order.hotel if obj.order else "-"
+    hotel.short_description = 'Hotel'
+
 
 # --- Order admin ---
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'room_number', 'status', 'created_at', 'total_price')
-    list_filter = ('status', 'created_at')
+    list_display = ('id', 'hotel', 'room_number', 'status', 'created_at', 'total_price')
+    list_filter = ('status', 'created_at', 'hotel')
     search_fields = ('room_number',)
     inlines = [OrderItemInline]
 
@@ -47,9 +51,9 @@ class OrderAdmin(admin.ModelAdmin):
 
 # --- BreakfastItem admin ---
 class BreakfastItemAdmin(admin.ModelAdmin):
-    list_display = ('name', 'category', 'description', 'image_preview', 'is_on_stock')
+    list_display = ('name', 'category', 'description', 'hotel', 'image_preview', 'is_on_stock')
     search_fields = ('name', 'description')
-    list_filter = ('category',)
+    list_filter = ('category', 'hotel')
     ordering = ('category', 'name')
 
     def image_preview(self, obj):
@@ -64,13 +68,18 @@ class BreakfastOrderItemInline(admin.TabularInline):
     model = BreakfastOrderItem
     extra = 1
     autocomplete_fields = ['item']
+    readonly_fields = ['hotel']
+
+    def hotel(self, obj):
+        return obj.order.hotel if obj.order else "-"
+    hotel.short_description = 'Hotel'
 
 
 # --- BreakfastOrder admin ---
 class BreakfastOrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'room_number', 'status', 'created_at', 'delivery_time')
+    list_display = ('id', 'hotel', 'room_number', 'status', 'created_at', 'delivery_time', 'total_price')
     ordering = ('-created_at',)
-    list_filter = ('status', 'created_at')
+    list_filter = ('status', 'created_at', 'hotel')
     search_fields = ('room_number',)
     inlines = [BreakfastOrderItemInline]
 
