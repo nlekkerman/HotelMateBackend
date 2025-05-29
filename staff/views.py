@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Staff
-from .serializers import StaffSerializer, UserSerializer
+from .serializers import StaffSerializer, UserSerializer,StaffLoginOutputSerializer
 from rest_framework.decorators import action
 from django.urls import reverse
 from hotel.models import Hotel
@@ -84,21 +84,46 @@ class CreateStaffAPIView(APIView):
             'is_active': staff.is_active,
         }, status=status.HTTP_201_CREATED)
 # ✅ Login View (Token Based)
+
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
         print("Login POST data:", request.data)
+        
         response = super().post(request, *args, **kwargs)
-        token = Token.objects.get(key=response.data['token'])
+        print("Response data from ObtainAuthToken:", response.data)
+        
+        token_key = response.data.get('token')
+        print("Token key:", token_key)
+        
+        token = Token.objects.get(key=token_key)
         user = token.user
+        print("Authenticated user:", user.username, "ID:", user.id)
+        
         staff = Staff.objects.filter(user=user).first()
-        return Response({
+        print("Staff object:", staff)
+        
+        hotel_id = staff.hotel.id if staff and staff.hotel else None
+        hotel_name = staff.hotel.name if staff and staff.hotel else None
+        
+        print("Hotel ID:", hotel_id)
+        print("Hotel Name:", hotel_name)
+        
+        data = {
             'token': token.key,
             'user_id': user.id,
             'username': user.username,
             'staff_id': staff.id if staff else None,
+            'hotel_id': hotel_id,
+            'hotel_name': hotel_name,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
-        })
+        }
+        
+        serializer = StaffLoginOutputSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        print("Serialized output data:", serializer.data)
+        
+        return Response(serializer.data)
 
 class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.select_related('user').all()
