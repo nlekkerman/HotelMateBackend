@@ -100,3 +100,14 @@ class StaffSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+class StaffLoginInputSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+class StaffLoginOutputSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    token = serializers.CharField()
+    hotel_id = serializers.IntegerField(allow_null=True, required=False)
+    hotel_name = serializers.CharField(allow_null=True, required=False)
+    is_staff = serializers.BooleanField()
+    is_superuser = serializers.BooleanField()
