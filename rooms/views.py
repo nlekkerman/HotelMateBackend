@@ -6,6 +6,8 @@ from .serializers import RoomSerializer
 from guests.serializers import GuestSerializer
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend
 
 
 class RoomPagination(PageNumberPagination):
@@ -16,6 +18,9 @@ class RoomPagination(PageNumberPagination):
 
 class RoomViewSet(viewsets.ModelViewSet):
     serializer_class = RoomSerializer
+    permission_classes = [IsAuthenticated]  # Optional: restrict access to authenticated users
+
+    serializer_class = RoomSerializer
     pagination_class = RoomPagination
     lookup_field = 'room_number'
     filter_backends = [filters.SearchFilter]
@@ -24,9 +29,23 @@ class RoomViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         user = self.request.user
         staff = getattr(user, 'staff_profile', None)
+
+        # Start with all rooms or none if no hotel context
+        queryset = Room.objects.none()
+
         if staff and staff.hotel:
-            return Room.objects.filter(hotel=staff.hotel).order_by('room_number')
-        return Room.objects.none()
+            queryset = Room.objects.filter(hotel=staff.hotel)
+
+        # Optional: allow filtering by query param if needed
+        hotel_id = self.request.query_params.get('hotel_id')
+        if hotel_id:
+            queryset = Room.objects.filter(hotel_id=hotel_id)
+
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(room_number__icontains=search)
+
+        return queryset.order_by('room_number')
 
     def perform_create(self, serializer):
         staff = getattr(self.request.user, 'staff_profile', None)
@@ -65,3 +84,4 @@ class RoomViewSet(viewsets.ModelViewSet):
             return Response(GuestSerializer(guest).data, status=status.HTTP_201_CREATED)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+

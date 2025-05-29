@@ -10,7 +10,7 @@ from .serializers import StaffSerializer, UserSerializer,StaffLoginOutputSeriali
 from rest_framework.decorators import action
 from django.urls import reverse
 from hotel.models import Hotel
-
+from django.db import transaction
 
 
 
@@ -23,67 +23,6 @@ class UserListAPIView(generics.ListAPIView):
         print("Authenticated user:", self.request.user)
         return super().get_queryset()
 
-class CreateStaffAPIView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        user_id = request.data.get('user_id')
-        hotel_id = request.data.get('hotel')  # Step 1: Extract hotel ID
-
-        if not user_id:
-            return Response({'user_id': 'User ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
-        if not hotel_id:
-            return Response({'hotel': 'Hotel ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({'user_id': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-        try:
-            hotel = Hotel.objects.get(id=hotel_id)  # Step 2: Validate hotel ID
-        except Hotel.DoesNotExist:
-            return Response({'hotel': 'Hotel not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-        if hasattr(user, 'staff_profile'):
-            return Response({'detail': 'Staff profile for this user already exists.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Step 3: Include hotel in the data
-        data = {
-            'user': user,
-            'hotel': hotel,
-            'first_name': request.data.get('first_name', ''),
-            'last_name': request.data.get('last_name', ''),
-            'department': request.data.get('department', ''),
-            'role': request.data.get('role', None),
-            'position': request.data.get('position', None),
-            'email': request.data.get('email', user.email),
-            'phone_number': request.data.get('phone_number', None),
-            'is_active': request.data.get('is_active', True),
-        }
-
-        try:
-            staff = Staff.objects.create(**data)
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        user.is_staff = True
-        user.save()
-
-        return Response({
-            'staff_id': staff.id,
-            'user_id': user.id,
-            'hotel': {'id': hotel.id, 'name': hotel.name},  # Optional: include hotel info in response
-            'first_name': staff.first_name,
-            'last_name': staff.last_name,
-            'department': staff.department,
-            'role': staff.role,
-            'position': staff.position,
-            'email': staff.email,
-            'phone_number': staff.phone_number,
-            'is_active': staff.is_active,
-        }, status=status.HTTP_201_CREATED)
-# ✅ Login View (Token Based)
 
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
@@ -225,32 +164,64 @@ class StaffViewSet(viewsets.ModelViewSet):
         except Staff.DoesNotExist:
             return Response({'detail': 'Staff profile not found for the current user.'}, status=status.HTTP_404_NOT_FOUND)
 
-
-class RegisterNormalUserAPIView(APIView):
+class StaffRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
-
     def post(self, request):
-        # No .get('user'), use request.data directly
-        user_data = request.data
+        data = request.data
 
+        user_data = data.get('user', {})
         username = user_data.get('username')
         password = user_data.get('password')
         email = user_data.get('email')
 
         if not username or not password:
-            return Response({'user': 'Username and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Username and password required.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if User.objects.filter(username=username).exists():
-            return Response({'user': 'Username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'Username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        user = User.objects.create_user(username=username, email=email, password=password)
-        user.save()
+        hotel_id = data.get('hotel')
+        try:
+            hotel = Hotel.objects.get(id=hotel_id)
+        except Hotel.DoesNotExist:
+            return Response({'error': 'Hotel not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Wrap in a transaction to ensure atomicity
+        with transaction.atomic():
+            # Create User
+            user = User.objects.create_user(username=username, password=password, email=email)
+            user.is_staff = True
+            user.save()
+
+            # Create Staff Profile linked to User
+            staff = Staff.objects.create(
+                user=user,
+                hotel=hotel,
+                first_name=data.get('first_name', ''),
+                last_name=data.get('last_name', ''),
+                department=data.get('department', ''),
+                role=data.get('role', ''),
+                position=data.get('position', ''),
+                email=data.get('email', email),
+                phone_number=data.get('phone_number', ''),
+                is_active=data.get('is_active', True),
+                is_on_duty=data.get('is_on_duty', False),
+            )
 
         token, _ = Token.objects.get_or_create(user=user)
 
         return Response({
-            'token': token.key,
+            'staff_id': staff.id,
             'user_id': user.id,
+            'token': token.key,
             'username': user.username,
-            'is_staff': user.is_staff,
+            'hotel': {'id': hotel.id, 'name': hotel.name},
+            'first_name': staff.first_name,
+            'last_name': staff.last_name,
+            'department': staff.department,
+            'role': staff.role,
+            'position': staff.position,
+            'email': staff.email,
+            'phone_number': staff.phone_number,
+            'is_active': staff.is_active,
         }, status=status.HTTP_201_CREATED)
