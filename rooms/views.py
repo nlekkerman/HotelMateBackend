@@ -28,18 +28,17 @@ class RoomViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        print("Search param:", self.request.query_params.get('search'))
         staff = getattr(user, 'staff_profile', None)
 
-        # Start with all rooms or none if no hotel context
         queryset = Room.objects.none()
 
         if staff and staff.hotel:
             queryset = Room.objects.filter(hotel=staff.hotel)
 
-        # Optional: allow filtering by query param if needed
         hotel_id = self.request.query_params.get('hotel_id')
         if hotel_id:
-            queryset = Room.objects.filter(hotel_id=hotel_id)
+            queryset = queryset.filter(hotel_id=hotel_id)
 
         search = self.request.query_params.get('search')
         if search:
