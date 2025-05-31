@@ -2,6 +2,7 @@ import os
 import django
 import random
 import string
+from django.db.models import Q
 
 # Set up Django
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "HotelMateBackend.settings")
@@ -18,7 +19,7 @@ def generate_unique_pin(existing_pins, length=4):
             return pin
 
 
-def update_guest_id_pins():
+def update_guest_id_pins_and_generate_qr():
     updated = 0
     skipped = 0
 
@@ -28,18 +29,26 @@ def update_guest_id_pins():
         .values_list('guest_id_pin', flat=True)
     )
 
-    rooms = Room.objects.filter(guest_id_pin__isnull=True) | Room.objects.filter(guest_id_pin__exact="")
+    # Filter rooms only for hotel id 34 and missing/empty guest_id_pin
+    rooms = Room.objects.filter(hotel_id=34).filter(
+            Q(guest_id_pin__isnull=True) | Q(guest_id_pin__exact="")
+    )
 
     for room in rooms:
         pin = generate_unique_pin(existing_pins)
         room.guest_id_pin = pin
         room.save()
         existing_pins.add(pin)
+
+        # Generate all QR codes for this room
+        room.generate_qr_code('room_service')
+        room.generate_qr_code('in_room_breakfast')
+
         updated += 1
-        print(f"Updated Room {room.room_number} with PIN: {pin}")
+        print(f"Updated Room {room.room_number} with PIN: {pin} and generated QR codes.")
 
     print(f"\nDone. {updated} rooms updated. {skipped} skipped.")
 
 
 if __name__ == "__main__":
-    update_guest_id_pins()
+    update_guest_id_pins_and_generate_qr()

@@ -32,15 +32,18 @@ class Room(models.Model):
         self.save()
 
     def generate_qr_code(self, qr_type="room_service"):
-        if not self.hotel or not self.hotel.subdomain:
-            return  # Can't generate QR without hotel subdomain
+        if not self.hotel:
+            return  # Can't generate QR without hotel
 
-        hotel_subdomain = self.hotel.subdomain
+        # Use hotel slug or ID in URL path instead of subdomain
+        hotel_identifier = self.hotel.slug if self.hotel.slug else str(self.hotel.id)
+
+
 
         path_map = {
-            "room_service": f"https://{hotel_subdomain}.dashing-klepon-d9f0c6.netlify.app/room/{self.room_number}/menu/",
-            "in_room_breakfast": f"https://{hotel_subdomain}.dashing-klepon-d9f0c6.netlify.app/breakfast/{self.room_number}/",
-        }
+        "room_service": f"https://dashing-klepon-d9f0c6.netlify.app/hotel/{hotel_identifier}/room/{self.room_number}/menu/",
+        "in_room_breakfast": f"https://dashing-klepon-d9f0c6.netlify.app/hotel/{hotel_identifier}/breakfast/{self.room_number}/",
+    }
 
         qr_field_map = {
             "room_service": "room_service_qr_code",
