@@ -127,8 +127,7 @@ REST_FRAMEWORK = {
 }
 
 AUTHENTICATION_BACKENDS = [
-    'hotel.auth_backends.HotelSubdomainBackend',
-    # optionally add default backends here if needed
+    'django.contrib.auth.backends.ModelBackend',
 ]
 
 # Internationalization

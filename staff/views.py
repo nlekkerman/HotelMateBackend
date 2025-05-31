@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Staff
-from .serializers import StaffSerializer, UserSerializer,StaffLoginOutputSerializer
+from .serializers import StaffSerializer, UserSerializer, StaffLoginOutputSerializer, StaffLoginInputSerializer
 from rest_framework.decorators import action
 from django.urls import reverse
 from hotel.models import Hotel
@@ -27,42 +27,51 @@ class UserListAPIView(generics.ListAPIView):
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
         print("Login POST data:", request.data)
-        
+
+        # Validate input explicitly:
+        input_serializer = StaffLoginInputSerializer(data=request.data)
+        if not input_serializer.is_valid():
+            print("Input validation errors:", input_serializer.errors)
+            return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Now proceed with normal token authentication
         response = super().post(request, *args, **kwargs)
         print("Response data from ObtainAuthToken:", response.data)
-        
+
         token_key = response.data.get('token')
-        print("Token key:", token_key)
-        
+        if not token_key:
+            # No token, login failed
+            print("Login failed: No token returned")
+            return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+
         token = Token.objects.get(key=token_key)
         user = token.user
         print("Authenticated user:", user.username, "ID:", user.id)
-        
+
         staff = Staff.objects.filter(user=user).first()
         print("Staff object:", staff)
-        
+
         hotel_id = staff.hotel.id if staff and staff.hotel else None
         hotel_name = staff.hotel.name if staff and staff.hotel else None
-        
+
         print("Hotel ID:", hotel_id)
         print("Hotel Name:", hotel_name)
-        
+
         data = {
             'token': token.key,
-            'user_id': user.id,
             'username': user.username,
-            'staff_id': staff.id if staff else None,
             'hotel_id': hotel_id,
             'hotel_name': hotel_name,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
         }
-        
-        serializer = StaffLoginOutputSerializer(data=data)
-        serializer.is_valid(raise_exception=True)
-        print("Serialized output data:", serializer.data)
-        
-        return Response(serializer.data)
+
+        output_serializer = StaffLoginOutputSerializer(data=data)
+        output_serializer.is_valid(raise_exception=True)
+        print("Serialized output data:", output_serializer.data)
+
+        return Response(output_serializer.data)
+
 
 class StaffViewSet(viewsets.ModelViewSet):
     queryset = Staff.objects.select_related('user').all()
