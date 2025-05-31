@@ -22,6 +22,20 @@ def get_hotel_from_request(request):
     return hotel
 
 
+def get_hotel_from_request(request):
+    # Extract hotel_slug from URL kwargs in request
+    hotel_slug = None
+    if hasattr(request, 'parser_context'):
+        hotel_slug = request.parser_context['kwargs'].get('hotel_slug')
+    elif hasattr(request, 'resolver_match'):
+        hotel_slug = request.resolver_match.kwargs.get('hotel_slug')
+
+    if not hotel_slug:
+        raise Http404("Hotel slug not provided")
+
+    return get_object_or_404(Hotel, slug=hotel_slug)
+
+
 class RoomServiceItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = RoomServiceItemSerializer
     permission_classes = [permissions.AllowAny]
@@ -30,14 +44,13 @@ class RoomServiceItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         hotel = get_hotel_from_request(self.request)
         return RoomServiceItem.objects.filter(hotel=hotel)
 
-    @action(detail=False, methods=['get'], url_path='room/(?P<room_number>[^/.]+)/menu')
+    @action(detail=False, methods=['get'], url_path=r'room/(?P<room_number>[^/.]+)/menu')
     def menu(self, request, room_number=None):
         hotel = get_hotel_from_request(request)
-        # You could also filter items by availability to the room's hotel
-        items = self.get_queryset()
+        # Filter items by hotel only; optionally filter by room_number if needed
+        items = RoomServiceItem.objects.filter(hotel=hotel)
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
-
 
 class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = BreakfastItemSerializer
