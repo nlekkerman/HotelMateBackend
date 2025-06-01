@@ -3,6 +3,7 @@ from .models import (
     RoomServiceItem, Order, OrderItem,
     BreakfastItem, BreakfastOrder, BreakfastOrderItem
 )
+from hotel.models import Hotel
 import logging
 
 logger = logging.getLogger(__name__)
@@ -23,7 +24,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         write_only=True
     )
     hotel = serializers.PrimaryKeyRelatedField(
-        queryset=Order.objects.values_list('hotel', flat=True),
+        queryset=Hotel.objects.all(),
         required=False,
         allow_null=True
     )
@@ -97,7 +98,7 @@ class BreakfastOrderItemSerializer(serializers.ModelSerializer):
 
 # BreakfastOrder Serializer with nested items
 class BreakfastOrderSerializer(serializers.ModelSerializer):
-    hotel = serializers.PrimaryKeyRelatedField(queryset=BreakfastOrder.objects.values_list('hotel', flat=True), required=False, allow_null=True)
+    hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all(), required=False, allow_null=True)
     delivery_time = serializers.CharField(allow_blank=True, required=False)
     items = BreakfastOrderItemSerializer(source='breakfastorderitem_set', many=True)
 
