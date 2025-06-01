@@ -6,6 +6,8 @@ from hotel.models import Hotel  # Assuming you have a Hotel model
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .models import RoomServiceItem, BreakfastItem, Order, BreakfastOrder
+from django.http import Http404
+
 from .serializers import (
     RoomServiceItemSerializer,
     BreakfastItemSerializer,
@@ -13,13 +15,6 @@ from .serializers import (
     BreakfastOrderSerializer
 )
 
-
-def get_hotel_from_request(request):
-    # Extract subdomain from request, e.g. "hotel1.example.com"
-    host = request.get_host().split(':')[0]  # remove port if present
-    subdomain = host.split('.')[0]
-    hotel = get_object_or_404(Hotel, subdomain=subdomain)
-    return hotel
 
 
 def get_hotel_from_request(request):
