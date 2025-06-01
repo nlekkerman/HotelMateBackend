@@ -152,9 +152,12 @@ CORS_ALLOWED_ORIGINS = [
     "https://dashing-klepon-d9f0c6.netlify.app",
     "https://hotel-porter-d25ad83b12cf.herokuapp.com",
     "http://localhost:5173",
-]# Allow custom headers like x-hotel-id
+]
+
+# Allow custom headers like x-hotel-id
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-hotel-id',
+    'x-hotel-identifier',
 ]
 
 # Optional

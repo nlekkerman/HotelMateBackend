@@ -30,7 +30,6 @@ def get_hotel_from_request(request):
 
     return get_object_or_404(Hotel, slug=hotel_slug)
 
-
 class RoomServiceItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = RoomServiceItemSerializer
     permission_classes = [permissions.AllowAny]
@@ -40,9 +39,8 @@ class RoomServiceItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         return RoomServiceItem.objects.filter(hotel=hotel)
 
     @action(detail=False, methods=['get'], url_path=r'room/(?P<room_number>[^/.]+)/menu')
-    def menu(self, request, room_number=None):
+    def menu(self, request, hotel_slug=None, room_number=None):
         hotel = get_hotel_from_request(request)
-        # Filter items by hotel only; optionally filter by room_number if needed
         items = RoomServiceItem.objects.filter(hotel=hotel)
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
@@ -55,13 +53,12 @@ class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         hotel = get_hotel_from_request(self.request)
         return BreakfastItem.objects.filter(hotel=hotel)
 
-    @action(detail=False, methods=['get'], url_path='room/(?P<room_number>[^/.]+)/breakfast')
-    def menu(self, request, room_number=None):
+    @action(detail=False, methods=['get'], url_path=r'room/(?P<room_number>[^/.]+)/breakfast')
+    def menu(self, request, hotel_slug=None, room_number=None):
         hotel = get_hotel_from_request(request)
         items = self.get_queryset()
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
-
 
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
@@ -81,10 +78,9 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
         hotel = get_hotel_from_request(self.request)
         return BreakfastOrder.objects.filter(room__hotel=hotel)
 
-
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def validate_pin(request, room_number):
+def validate_pin(request, hotel_slug, room_number):  # add hotel_slug here
     hotel = get_hotel_from_request(request)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
     pin = request.data.get('pin')
