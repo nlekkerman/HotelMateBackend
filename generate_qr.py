@@ -7,7 +7,7 @@ django.setup()
 
 from rooms.models import Room
 
-def regenerate_qr_codes(hotel_id=34):
+def regenerate_qr_codes(hotel_id=2):
     rooms = Room.objects.filter(hotel_id=hotel_id)
     count = 0
 

@@ -77,15 +77,13 @@ class BreakfastOrderItemInline(admin.TabularInline):
 
 # --- BreakfastOrder admin ---
 class BreakfastOrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'hotel', 'room_number', 'status', 'created_at', 'delivery_time', 'total_price')
+    list_display = ('id', 'hotel', 'room_number', 'status', 'created_at', 'delivery_time')
     ordering = ('-created_at',)
     list_filter = ('status', 'created_at', 'hotel')
     search_fields = ('room_number',)
     inlines = [BreakfastOrderItemInline]
 
-    def total_price(self, obj):
-        return f"€{sum(item.item.price * item.quantity for item in obj.breakfastorderitem_set.all()):.2f}"
-    total_price.short_description = 'Total Price'
+    
 
 
 # --- Register models ---
