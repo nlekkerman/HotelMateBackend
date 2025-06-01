@@ -69,12 +69,11 @@ class OrderSerializer(serializers.ModelSerializer):
 
         return instance
 
-
 # BreakfastItem Serializer
 class BreakfastItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = BreakfastItem
-        fields = '__all__'  # includes hotel, is_on_stock, etc.
+        fields = '__all__'
 
 
 # BreakfastOrderItem Serializer (nested)
@@ -85,20 +84,26 @@ class BreakfastOrderItemSerializer(serializers.ModelSerializer):
         source='item',
         write_only=True
     )
-    hotel = serializers.PrimaryKeyRelatedField(
-        queryset=BreakfastOrder.objects.values_list('hotel', flat=True),
-        required=False,
-        allow_null=True
-    )
 
     class Meta:
         model = BreakfastOrderItem
-        fields = ['id', 'item', 'item_id', 'quantity', 'hotel']
+        fields = ['id', 'item', 'item_id', 'quantity']
+
+    def validate_item(self, item):
+        hotel = self.context.get('hotel')
+        if hotel and item.hotel_id != hotel.id:
+            raise serializers.ValidationError("This breakfast item does not belong to your hotel.")
+        return item
 
 
 # BreakfastOrder Serializer with nested items
 class BreakfastOrderSerializer(serializers.ModelSerializer):
-    hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all(), required=False, allow_null=True)
+    hotel = serializers.PrimaryKeyRelatedField(
+        queryset=Hotel.objects.all(),
+        required=False,
+        allow_null=True,
+        default=None
+    )
     delivery_time = serializers.CharField(allow_blank=True, required=False)
     items = BreakfastOrderItemSerializer(source='breakfastorderitem_set', many=True)
 
@@ -106,27 +111,43 @@ class BreakfastOrderSerializer(serializers.ModelSerializer):
         model = BreakfastOrder
         fields = ['id', 'hotel', 'room_number', 'status', 'created_at', 'delivery_time', 'items']
 
+    def validate(self, data):
+        if not data.get('hotel'):
+            hotel = self.context.get('hotel')
+            if hotel:
+                data['hotel'] = hotel
+        return data
+
+    
     def create(self, validated_data):
-        items_data = validated_data.pop('breakfastorderitem_set')
+        items_data = validated_data.pop('breakfastorderitem_set', [])
+
+        # Ensure hotel is always assigned
+        hotel = self.context.get('hotel')
+        if not hotel:
+            raise serializers.ValidationError("Missing hotel context")
+        validated_data['hotel'] = hotel
+
         order = BreakfastOrder.objects.create(**validated_data)
+
         for item_data in items_data:
-            if not item_data.get('hotel'):
-                item_data['hotel'] = order.hotel
             BreakfastOrderItem.objects.create(order=order, **item_data)
+
         return order
 
+    
+    
     def update(self, instance, validated_data):
         items_data = validated_data.pop('breakfastorderitem_set', [])
         instance.room_number = validated_data.get('room_number', instance.room_number)
         instance.status = validated_data.get('status', instance.status)
         instance.hotel = validated_data.get('hotel', instance.hotel)
+        instance.delivery_time = validated_data.get('delivery_time', instance.delivery_time)
         instance.save()
 
         if items_data:
             instance.breakfastorderitem_set.all().delete()
             for item_data in items_data:
-                if not item_data.get('hotel'):
-                    item_data['hotel'] = instance.hotel
+                # ❌ Do not pass 'hotel'
                 BreakfastOrderItem.objects.create(order=instance, **item_data)
-
         return instance

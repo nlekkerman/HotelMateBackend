@@ -1,5 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+from rest_framework.urlpatterns import format_suffix_patterns
 from .views import (
     RoomServiceItemViewSet,
     BreakfastItemViewSet,
@@ -7,10 +8,20 @@ from .views import (
     BreakfastOrderViewSet,
     validate_pin,
 )
+breakfast_order_list = BreakfastOrderViewSet.as_view({
+    'get': 'list',
+    'post': 'create',
+})
+
+breakfast_order_detail = BreakfastOrderViewSet.as_view({
+    'get': 'retrieve',
+    'put': 'update',
+    'patch': 'partial_update',
+    'delete': 'destroy',
+})
 
 router = DefaultRouter()
 router.register(r'orders', OrderViewSet, basename='order')
-router.register(r'breakfast-orders', BreakfastOrderViewSet, basename='breakfast-order')
 
 # Manual paths for custom @action routes
 room_service_items = RoomServiceItemViewSet.as_view({'get': 'menu'})
@@ -21,4 +32,7 @@ urlpatterns = [
     path('<str:hotel_slug>/room/<int:room_number>/menu/', room_service_items, name='room-service-menu'),
     path('<str:hotel_slug>/room/<int:room_number>/breakfast/', breakfast_items, name='breakfast-menu'),
     path('<str:hotel_slug>/room/<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
+    path('<str:hotel_slug>/breakfast-orders/', breakfast_order_list, name='breakfastorder-list'),
+    path('<str:hotel_slug>/breakfast-orders/<int:pk>/', breakfast_order_detail, name='breakfastorder-detail'),
+
 ]

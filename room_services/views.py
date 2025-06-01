@@ -69,14 +69,29 @@ class OrderViewSet(viewsets.ModelViewSet):
         # Filter orders for rooms in this hotel only
         return Order.objects.filter(room__hotel=hotel)
 
-
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        hotel = get_hotel_from_request(self.request)
-        return BreakfastOrder.objects.filter(room__hotel=hotel)
+        hotel_slug = self.kwargs.get('hotel_slug')
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        queryset = BreakfastOrder.objects.filter(hotel=hotel)
+        
+        room_number = self.request.query_params.get('room_number')
+        if room_number:
+            queryset = queryset.filter(room_number=room_number)
+        return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        hotel_slug = self.kwargs.get('hotel_slug')
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        context['hotel'] = hotel
+        return context
+
+    def perform_create(self, serializer):
+        hotel = self.get_serializer_context()['hotel']
+        serializer.save(hotel=hotel)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
