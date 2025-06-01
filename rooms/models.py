@@ -39,8 +39,8 @@ class Room(models.Model):
         hotel_identifier = self.hotel.slug if self.hotel.slug else str(self.hotel.id)
 
         path_map = {
-            "room_service": f"https://dashing-klepon-d9f0c6.netlify.app/{hotel_identifier}/room/{self.room_number}/menu/",
-            "in_room_breakfast": f"https://dashing-klepon-d9f0c6.netlify.app/{hotel_identifier}/room/{self.room_number}/breakfast/",
+            "room_service": f"https://dashing-klepon-d9f0c6.netlify.app/room_services/{hotel_identifier}/room/{self.room_number}/menu/",
+            "in_room_breakfast": f"https://dashing-klepon-d9f0c6.netlify.app/room_services/{hotel_identifier}/room/{self.room_number}/breakfast/",
         }
 
         qr_field_map = {
