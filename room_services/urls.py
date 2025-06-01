@@ -20,5 +20,5 @@ urlpatterns = [
     path('', include(router.urls)),
     path('<str:hotel_slug>/room/<int:room_number>/menu/', room_service_items, name='room-service-menu'),
     path('room/<int:room_number>/breakfast/', breakfast_items, name='breakfast-menu'),
-    path('<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
+    path('<str:hotel_slug>/room/<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
 ]
