@@ -27,4 +27,4 @@ class GuestSerializer(serializers.ModelSerializer):
             'hotel', 'hotel_slug', 'hotel_name',
             'room', 'room_number', 'room_label',
         ]
-        read_only_fields = ['hotel', 'room']
+        read_only_fields = ['hotel_slug', 'hotel_name', 'room_number', 'room_label']
