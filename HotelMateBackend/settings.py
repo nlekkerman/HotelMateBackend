@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'hotel_info',
     'room_services',
     'hotel',
+    'bookings',
     
 ]
 
