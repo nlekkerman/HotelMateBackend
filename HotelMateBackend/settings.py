@@ -58,11 +58,10 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
-    'hotel.middleware.HotelMiddleware',
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
@@ -155,11 +154,15 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
 ]
 
-# Allow custom headers like x-hotel-id
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-hotel-id',
     'x-hotel-identifier',
+    'authorization',
+    'content-type',
 ]
+
+CORS_ALLOW_ALL_ORIGINS = True
+
 
 # Optional
 HEROKU_HOST = env('HEROKU_HOST', default='')

@@ -74,14 +74,6 @@ class RoomViewSet(viewsets.ModelViewSet):
         qr_url = getattr(room, f"{qr_type}_qr_code", None)
         return Response({'qr_url': qr_url})
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.shortcuts import get_object_or_404
-from datetime import datetime, timedelta
-
-from .models import Guest, Hotel, Room
-from .serializers import GuestSerializer
 
 class AddGuestToRoomView(APIView):
     def post(self, request, hotel_identifier, room_number):
