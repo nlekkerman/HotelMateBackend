@@ -11,12 +11,14 @@ class RoomSerializer(serializers.ModelSerializer):
         read_only=True,
         slug_field='slug'
     )
+    hotel_name = serializers.CharField(source='hotel.name', read_only=True)
 
     class Meta:
         model = Room
         fields = [
             'id',
             'hotel',
+            'hotel_name',
             'room_number',
             'hotel_slug',
             'guests_in_room',

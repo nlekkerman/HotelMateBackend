@@ -10,6 +10,10 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from hotel.models import Hotel
+from guests.models import Guest
+from datetime import timedelta
+from datetime import datetime
+
 
 
 
@@ -70,17 +74,49 @@ class RoomViewSet(viewsets.ModelViewSet):
         qr_url = getattr(room, f"{qr_type}_qr_code", None)
         return Response({'qr_url': qr_url})
 
-    @action(detail=True, methods=['post'])
-    def add_guest(self, request, room_number=None):
-        room = self.get_object()
-        serializer = GuestSerializer(data=request.data)
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+from datetime import datetime, timedelta
 
+from .models import Guest, Hotel, Room
+from .serializers import GuestSerializer
+
+class AddGuestToRoomView(APIView):
+    def post(self, request, hotel_identifier, room_number):
+        hotel = get_object_or_404(Hotel, slug=hotel_identifier)
+        room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
+
+        guest_data = request.data.copy()
+        guest_data['hotel'] = hotel.id
+        guest_data['room'] = room.id
+
+        # Auto-calculate check_out_date if not provided
+        if (
+            guest_data.get('check_in_date') and
+            guest_data.get('days_booked') and
+            not guest_data.get('check_out_date')
+        ):
+            try:
+                check_in = datetime.strptime(guest_data['check_in_date'], '%Y-%m-%d').date()
+                days = int(guest_data['days_booked'])
+                check_out = check_in + timedelta(days=days)
+                guest_data['check_out_date'] = check_out.isoformat()
+            except Exception:
+                return Response(
+                    {"error": "Invalid check_in_date or days_booked for date calculation."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Use default room PIN if guest doesn't provide one
+        if not guest_data.get('id_pin') and room.guest_id_pin:
+            guest_data['id_pin'] = room.guest_id_pin
+
+        serializer = GuestSerializer(data=guest_data)
         if serializer.is_valid():
             guest = serializer.save()
-            guest.room = room
-            if room.guest_id_pin:
-                guest.id_pin = room.guest_id_pin
-            guest.save()
+            room.guests.add(guest)
             room.is_occupied = True
             room.save()
             return Response(GuestSerializer(guest).data, status=status.HTTP_201_CREATED)
