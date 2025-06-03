@@ -6,6 +6,11 @@ from guests.serializers import GuestSerializer
 class RoomSerializer(serializers.ModelSerializer):
     guests_in_room = GuestSerializer(many=True, read_only=True)
     hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())  # or use a nested serializer if you want details
+    hotel_slug = serializers.SlugRelatedField(
+        source='hotel',
+        read_only=True,
+        slug_field='slug'
+    )
 
     class Meta:
         model = Room
@@ -13,6 +18,7 @@ class RoomSerializer(serializers.ModelSerializer):
             'id',
             'hotel',
             'room_number',
+            'hotel_slug',
             'guests_in_room',
             'guest_id_pin',
             'guests',

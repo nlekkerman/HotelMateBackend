@@ -1,13 +1,16 @@
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import viewsets, filters, status
+from rest_framework.views import APIView
 from .models import Room
 from .serializers import RoomSerializer
 from guests.serializers import GuestSerializer
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
-from django_filters.rest_framework import DjangoFilterBackend
+from django.shortcuts import get_object_or_404
+from hotel.models import Hotel
+
 
 
 class RoomPagination(PageNumberPagination):
@@ -84,3 +87,9 @@ class RoomViewSet(viewsets.ModelViewSet):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+class RoomByHotelAndNumberView(APIView):
+    def get(self, request, hotel_identifier, room_number):
+        hotel = get_object_or_404(Hotel, slug=hotel_identifier)
+        room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
+        serializer = RoomSerializer(room)
+        return Response(serializer.data)
