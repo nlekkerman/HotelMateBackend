@@ -53,6 +53,7 @@ class CustomAuthToken(ObtainAuthToken):
 
         hotel_id = staff.hotel.id if staff and staff.hotel else None
         hotel_name = staff.hotel.name if staff and staff.hotel else None
+        hotel_slug = staff.hotel.slug if staff and staff.hotel else None
 
         print("Hotel ID:", hotel_id)
         print("Hotel Name:", hotel_name)
@@ -62,6 +63,7 @@ class CustomAuthToken(ObtainAuthToken):
             'username': user.username,
             'hotel_id': hotel_id,
             'hotel_name': hotel_name,
+            'hotel_slug': hotel_slug,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
         }

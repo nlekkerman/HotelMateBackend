@@ -109,5 +109,6 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     token = serializers.CharField()
     hotel_id = serializers.IntegerField(allow_null=True, required=False)
     hotel_name = serializers.CharField(allow_null=True, required=False)
+    hotel_slug = serializers.CharField(allow_null=True, required=False) 
     is_staff = serializers.BooleanField()
     is_superuser = serializers.BooleanField()
