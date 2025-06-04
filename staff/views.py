@@ -57,6 +57,7 @@ class CustomAuthToken(ObtainAuthToken):
 
         print("Hotel ID:", hotel_id)
         print("Hotel Name:", hotel_name)
+        print("Hotel Name:", hotel_slug)
 
         data = {
             'token': token.key,
