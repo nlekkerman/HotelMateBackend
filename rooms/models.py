@@ -15,6 +15,7 @@ class Room(models.Model):
 
     room_service_qr_code = models.URLField(blank=True, null=True)
     in_room_breakfast_qr_code = models.URLField(blank=True, null=True)
+    dinner_booking_qr_code = models.URLField(blank=True, null=True)
 
     class Meta:
         unique_together = ('hotel', 'room_number')
@@ -62,3 +63,36 @@ class Room(models.Model):
 
         setattr(self, qr_field_map[qr_type], qr_url)
         self.save()
+
+    def generate_booking_qr_for_restaurant(self, restaurant):
+        """
+        Generates and uploads a QR code for a booking at a specific restaurant
+        for this room. Saves the Cloudinary URL to dinner_booking_qr_code and returns it.
+        """
+
+        if not self.hotel or not restaurant:
+            return None
+
+        hotel_slug = self.hotel.slug or str(self.hotel.id)
+        restaurant_slug = restaurant.slug
+
+        url = f"https://dashing-klepon-d9f0c6.netlify.app/bookings/{hotel_slug}/restaurant/{restaurant_slug}/room/{self.room_number}/"
+
+        qr = qrcode.make(url)
+        img_io = BytesIO()
+        qr.save(img_io, 'PNG')
+        img_io.seek(0)
+
+        upload_result = cloudinary.uploader.upload(
+            img_io,
+            resource_type="image",
+            public_id=f"booking_qr/{hotel_slug}_room{self.room_number}_{restaurant_slug.replace('-', '_')}"
+        )
+
+        qr_url = upload_result['secure_url']
+
+        # ✅ Save to the Room model
+        self.dinner_booking_qr_code = qr_url
+        self.save()
+
+        return qr_url

@@ -156,6 +156,7 @@ CORS_ALLOWED_ORIGINS = [
 
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-hotel-id',
+    'x-hotel-slug',
     'x-hotel-identifier',
     'authorization',
     'content-type',

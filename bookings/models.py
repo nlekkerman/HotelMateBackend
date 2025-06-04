@@ -5,7 +5,8 @@ from hotel.models import Hotel
 class BookingSubcategory(models.Model):
     name = models.CharField(max_length=100)
     hotel = models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='subcategories')
-
+    slug = models.SlugField(unique=True, blank=True, null=True)
+    
     def __str__(self):
         return self.name
 
@@ -26,6 +27,13 @@ class Booking(models.Model):
     time = models.TimeField()
     note = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    restaurant = models.ForeignKey(
+        'Restaurant',
+        on_delete=models.CASCADE,
+        related_name='bookings',
+        null=True,  # allow non-restaurant bookings (e.g., spa, concierge)
+        blank=True
+    )
 
     def __str__(self):
         return f"{self.category.name} / {self.category.subcategory.name} @ {self.date}"
@@ -40,5 +48,22 @@ class Seats(models.Model):
 
     def __str__(self):
         return f"Seats for {self.booking} – Total: {self.total} | A:{self.adults} C:{self.children} I:{self.infants}"
-    
-    
+
+class Restaurant(models.Model):
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(unique=True, help_text="Slug used in URLs (e.g., strawberry-tree)")
+    hotel = models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='restaurants')
+    capacity = models.PositiveIntegerField(default=30, help_text="Max number of guests")
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+
+    opening_time = models.TimeField()
+    closing_time = models.TimeField()
+
+    def __str__(self):
+        return f"{self.name} at {self.hotel.name}"
+
+    def is_open_now(self):
+        from django.utils import timezone
+        now = timezone.localtime().time()
+        return self.opening_time <= now <= self.closing_time
