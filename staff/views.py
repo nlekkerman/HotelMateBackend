@@ -77,55 +77,91 @@ class CustomAuthToken(ObtainAuthToken):
 
 
 class StaffViewSet(viewsets.ModelViewSet):
-    queryset = Staff.objects.select_related('user').all()
     serializer_class = StaffSerializer
-  
-    
-    
+
+    def get_queryset(self):
+        """
+        - Superusers see every Staff.
+        - All other authenticated users only see staff belonging to their own hotel.
+        - Unauthenticated users see nothing.
+        """
+        qs = Staff.objects.select_related("user", "hotel")
+        user = self.request.user
+
+        if not user.is_authenticated:
+            return Staff.objects.none()
+
+        # Only superusers see all
+        if user.is_superuser:
+            return qs
+
+        # Otherwise, look up the Staff record for the logged‐in user
+        try:
+            my_staff_profile = Staff.objects.get(user=user)
+        except Staff.DoesNotExist:
+            return Staff.objects.none()
+
+        # Filter to everyone at the same hotel
+        return qs.filter(hotel=my_staff_profile.hotel)
+
     def retrieve(self, request, *args, **kwargs):
         print(f"Retrieve staff with pk={kwargs.get('pk')}")
         return super().retrieve(request, *args, **kwargs)
-    
-    
+
     def get_permissions(self):
-        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+        if self.action in ["create", "update", "partial_update", "destroy"]:
             permission_classes = [permissions.IsAdminUser]
         else:
             permission_classes = [permissions.IsAuthenticated]
         return [permission() for permission in permission_classes]
 
     def create(self, request, *args, **kwargs):
-        user_id = request.data.get('user_id')
-        hotel_id = request.data.get('hotel')
+        user_id = request.data.get("user_id")
+        hotel_id = request.data.get("hotel")
         if not user_id:
-            return Response({'user_id': 'User ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"user_id": "User ID is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
-            return Response({'user_id': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"user_id": "User not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         # Check if staff already exists for this user
-        if hasattr(user, 'staff_profile'):
-            return Response({'detail': 'Staff profile for this user already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        if hasattr(user, "staff_profile"):
+            return Response(
+                {"detail": "Staff profile for this user already exists."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         if not hotel_id:
-            return Response({'hotel': 'Hotel ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"hotel": "Hotel ID is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            hotel = Hotel.objects.get(id=hotel_id)  # <-- This defines `hotel`
+            hotel = Hotel.objects.get(id=hotel_id)
         except Hotel.DoesNotExist:
-            return Response({'hotel': 'Hotel not found.'}, status=status.HTTP_404_NOT_FOUND)
-        
+            return Response(
+                {"hotel": "Hotel not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         # Extract other staff data from request.data
-        first_name = request.data.get('first_name', '')
-        last_name = request.data.get('last_name', '')
-        department = request.data.get('department', '')
-        role = request.data.get('role', None)
-        position = request.data.get('position', None)
-        email = request.data.get('email', user.email)
-        phone_number = request.data.get('phone_number', None)
-        is_active = request.data.get('is_active', True)
+        first_name = request.data.get("first_name", "")
+        last_name = request.data.get("last_name", "")
+        department = request.data.get("department", "")
+        role = request.data.get("role", None)
+        position = request.data.get("position", None)
+        email = request.data.get("email", user.email)
+        phone_number = request.data.get("phone_number", None)
+        is_active = request.data.get("is_active", True)
 
         # Create Staff linked to user
         staff = Staff.objects.create(
@@ -141,30 +177,25 @@ class StaffViewSet(viewsets.ModelViewSet):
             is_active=is_active,
         )
 
-        # Optionally update user fields
-        is_staff = request.data.get('is_staff')
-        is_superuser = request.data.get('is_superuser')
-
-        if is_staff is not None:
-            user.is_staff = is_staff
-        if is_superuser is not None:
-            user.is_superuser = is_superuser
-
+        # Optionally update user flags
+        is_staff_flag = request.data.get("is_staff")
+        is_superuser_flag = request.data.get("is_superuser")
+        if is_staff_flag is not None:
+            user.is_staff = is_staff_flag
+        if is_superuser_flag is not None:
+            user.is_superuser = is_superuser_flag
         user.save()
 
         serializer = self.get_serializer(staff)
+        staff_detail_url = reverse("staff-detail", kwargs={"pk": staff.pk})
 
-        # Generate the URL for the staff detail view
-        staff_detail_url = reverse('staff-detail', kwargs={'pk': staff.pk})
-
-        # Include the URL in the response data
         data = serializer.data
-        data['url'] = staff_detail_url
-        data['id'] = staff.id
+        data["url"] = staff_detail_url
+        data["id"] = staff.id
 
         return Response(data, status=status.HTTP_201_CREATED)
-    
-    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+
+    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
     def me(self, request):
         """
         Returns the staff profile for the currently logged-in user.
@@ -174,8 +205,10 @@ class StaffViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(staff)
             return Response(serializer.data)
         except Staff.DoesNotExist:
-            return Response({'detail': 'Staff profile not found for the current user.'}, status=status.HTTP_404_NOT_FOUND)
-
+            return Response(
+                {"detail": "Staff profile not found for the current user."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 class StaffRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     def post(self, request):
