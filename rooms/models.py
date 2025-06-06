@@ -76,7 +76,7 @@ class Room(models.Model):
         hotel_slug = self.hotel.slug or str(self.hotel.id)
         restaurant_slug = restaurant.slug
 
-        url = f"https://dashing-klepon-d9f0c6.netlify.app/bookings/{hotel_slug}/restaurant/{restaurant_slug}/room/{self.room_number}/"
+        url = f"https://dashing-klepon-d9f0c6.netlify.app/guest-booking/{hotel_slug}/restaurant/{restaurant_slug}/room/{self.room_number}/"
 
         qr = qrcode.make(url)
         img_io = BytesIO()

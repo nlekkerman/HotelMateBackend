@@ -31,7 +31,7 @@ class Booking(models.Model):
         'Restaurant',
         on_delete=models.CASCADE,
         related_name='bookings',
-        null=True,  # allow non-restaurant bookings (e.g., spa, concierge)
+        null=True,
         blank=True
     )
 
