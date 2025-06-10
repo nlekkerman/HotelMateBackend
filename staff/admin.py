@@ -10,6 +10,7 @@ class StaffAdmin(admin.ModelAdmin):
         'last_name', 
         'department', 
         'role', 
+        'access_level',   # added access level
         'position', 
         'email', 
         'phone_number', 
@@ -20,6 +21,7 @@ class StaffAdmin(admin.ModelAdmin):
         'hotel',          # filter by hotel
         'department', 
         'role', 
+        'access_level',   # added access level filter
         'is_active',
         'is_on_duty',
     )
@@ -39,6 +41,7 @@ class StaffAdmin(admin.ModelAdmin):
     list_editable = (
         'is_active', 
         'role',
+        'access_level',   # added access level editable
         'is_on_duty',
     )
 
@@ -47,7 +50,7 @@ class StaffAdmin(admin.ModelAdmin):
             'fields': (
                 ('user', 'hotel', 'first_name', 'last_name'),  # add hotel here
                 ('email', 'phone_number'),
-                ('department', 'role', 'position'),
+                ('department', 'role', 'access_level', 'position'),  # added access level here
                 'is_active', 'is_on_duty'
             )
         }),
