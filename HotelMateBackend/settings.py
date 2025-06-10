@@ -162,8 +162,7 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
     'content-type',
 ]
 
-CORS_ALLOW_ALL_ORIGINS = True
-
+CORS_ALLOW_CREDENTIALS = True
 
 # Optional
 HEROKU_HOST = env('HEROKU_HOST', default='')
