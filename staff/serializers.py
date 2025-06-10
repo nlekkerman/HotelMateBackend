@@ -65,6 +65,7 @@ class UserSerializer(serializers.ModelSerializer):
 class StaffSerializer(serializers.ModelSerializer):
     user = UserSerializer()
     hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
+    access_level = serializers.CharField()  
 
     class Meta:
         model = Staff
@@ -80,7 +81,8 @@ class StaffSerializer(serializers.ModelSerializer):
             'phone_number',
             'is_active',
             'is_on_duty',
-            'hotel',  # added
+            'hotel',
+            'access_level',
         ]
 
     def create(self, validated_data):
@@ -100,6 +102,8 @@ class StaffSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         return instance
+
+
 class StaffLoginInputSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
@@ -112,3 +116,4 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     hotel_slug = serializers.CharField(allow_null=True, required=False) 
     is_staff = serializers.BooleanField()
     is_superuser = serializers.BooleanField()
+    access_level = serializers.CharField(allow_null=True, required=False)

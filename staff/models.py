@@ -25,12 +25,18 @@ class Staff(models.Model):
         ('manager', 'Manager'),
         ('technician', 'Technician'),
     ]
+    ACCESS_LEVEL_CHOICES = [
+        ('staff_admin', 'Staff Admin'),
+        ('super_staff_admin', 'Super Staff Admin'),
+        ('regular_staff', 'Regular Staff'),
+    ]
 
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
     department = models.CharField(max_length=20, choices=DEPARTMENT_CHOICES)
     role = models.CharField(max_length=50, choices=ROLE_CHOICES, null=True, blank=True)
     position = models.CharField(max_length=100, blank=True, null=True)
+    access_level = models.CharField(max_length=20, choices=ACCESS_LEVEL_CHOICES, default='regular_staff')
     email = models.EmailField(unique=True, null=True, blank=True)
     phone_number = models.CharField(max_length=15, null=True, blank=True)
     is_active = models.BooleanField(default=True)

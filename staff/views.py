@@ -67,6 +67,7 @@ class CustomAuthToken(ObtainAuthToken):
             'hotel_slug': hotel_slug,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
+            'access_level': staff.access_level if staff else None,
         }
 
         output_serializer = StaffLoginOutputSerializer(data=data)
@@ -209,6 +210,8 @@ class StaffViewSet(viewsets.ModelViewSet):
                 {"detail": "Staff profile not found for the current user."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+
 class StaffRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
     def post(self, request):
