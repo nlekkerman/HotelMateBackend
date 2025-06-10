@@ -8,7 +8,7 @@ import os
 import environ
 import dj_database_url
 from decouple import config
-from corsheaders.defaults import default_headers
+from corsheaders.defaults import default_headers, default_methods
 
 
 # Initialize environment variables
@@ -163,6 +163,10 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 ]
 
 CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_METHODS = list(default_methods) + [
+    "OPTIONS",
+]
 
 # Optional
 HEROKU_HOST = env('HEROKU_HOST', default='')
