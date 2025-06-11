@@ -13,6 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 
 class HotelInfoViewSet(viewsets.ModelViewSet):
     queryset = HotelInfo.objects.all()
+    permission_classes = [permissions.AllowAny]
 
     def get_serializer_class(self):
         if self.action == 'create':
@@ -29,6 +30,7 @@ class HotelInfoCategoryViewSet(viewsets.ModelViewSet):
     """
     queryset = HotelInfoCategory.objects.all()
     serializer_class = HotelInfoCategorySerializer
+    permission_classes = [permissions.AllowAny]
     filter_backends = [DjangoFilterBackend]
     # this lets you do ?infos__hotel__slug=<slug> to only get categories
     filterset_fields = ["infos__hotel__slug"]
