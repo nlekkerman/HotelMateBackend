@@ -153,7 +153,14 @@ CORS_ALLOWED_ORIGINS = [
     "https://hotel-porter-d25ad83b12cf.herokuapp.com",
     "http://localhost:5173",
 ]
-
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-hotel-id',
     'x-hotel-slug',
@@ -164,9 +171,6 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 
 CORS_ALLOW_CREDENTIALS = True
 
-CORS_ALLOW_METHODS = list(default_methods) + [
-    "OPTIONS",
-]
 
 # Optional
 HEROKU_HOST = env('HEROKU_HOST', default='')
