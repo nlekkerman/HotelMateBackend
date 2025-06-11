@@ -1,5 +1,6 @@
 from django.db import models
 import cloudinary.uploader
+from django.db.models import Sum, F, FloatField
 
 
 # =========================
@@ -46,6 +47,16 @@ class Order(models.Model):
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
 
+    @property
+    def total_price(self):
+        """
+        Sum of (quantity * item.price) for all OrderItems
+        """
+        agg = self.orderitem_set.aggregate(
+            total=Sum(F('quantity') * F('item__price'), output_field=FloatField())
+        )
+        return agg['total'] or 0.0
+    
     def __str__(self):
         return f"Order {self.id} for Room {self.room_number} - Status: {self.status}"
 
