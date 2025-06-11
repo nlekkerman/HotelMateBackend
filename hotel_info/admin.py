@@ -28,7 +28,7 @@ class HotelInfoAdmin(admin.ModelAdmin):
         "image_thumbnail",  # <-- Add this for image preview in list view
     )
     list_filter = ("category", "hotel", "active", "event_date")
-    readonly_fields = ("created_at",)
+    readonly_fields = ("created_at", 'image_preview')
 
     def get_fields(self, request, obj=None):
         base_fields = [
