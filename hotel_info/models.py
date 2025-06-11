@@ -49,7 +49,7 @@ class CategoryQRCode(models.Model):
         import cloudinary.uploader
 
         hotel_slug = self.hotel.slug or str(self.hotel.id)
-        url = f"https://your-frontend.app/hotel_info/{hotel_slug}/{self.category.slug}/"
+        url = f"https://dashing-klepon-d9f0c6.netlify.app/hotel_info/{hotel_slug}/{self.category.slug}"
 
         # build QR
         qr = qrcode.make(url)
