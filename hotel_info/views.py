@@ -14,6 +14,7 @@ from rest_framework.permissions import IsAuthenticated
 class HotelInfoViewSet(viewsets.ModelViewSet):
     queryset = HotelInfo.objects.all()
     permission_classes = [permissions.AllowAny]
+    pagination_class = None
 
     def get_serializer_class(self):
         if self.action == 'create':
