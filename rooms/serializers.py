@@ -26,5 +26,6 @@ class RoomSerializer(serializers.ModelSerializer):
             'guests',
             'is_occupied',
             'room_service_qr_code',
-            'in_room_breakfast_qr_code'
+            'in_room_breakfast_qr_code',
+            'dinner_booking_qr_code',
         ]
