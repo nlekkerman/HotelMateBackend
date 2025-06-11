@@ -18,6 +18,7 @@ class RoomServiceItemSerializer(serializers.ModelSerializer):
 # OrderItem Serializer (nested)
 class OrderItemSerializer(serializers.ModelSerializer):
     item = RoomServiceItemSerializer(read_only=True)
+    item_price = serializers.DecimalField(source='item.price', max_digits=8, decimal_places=2, read_only=True)
     item_id = serializers.PrimaryKeyRelatedField(
         queryset=RoomServiceItem.objects.all(),
         source='item',
@@ -31,18 +32,21 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OrderItem
-        fields = ['id', 'item', 'item_id', 'quantity', 'notes', 'hotel']
+        fields = ['id', 'item', 'item_id','item_price', 'quantity', 'notes', 'hotel']
 
 
 # Order Serializer with nested items
 class OrderSerializer(serializers.ModelSerializer):
     hotel = serializers.PrimaryKeyRelatedField(queryset=Order.objects.values_list('hotel', flat=True), required=False, allow_null=True)
     items = OrderItemSerializer(source='orderitem_set', many=True)
-
+    total_price = serializers.SerializerMethodField()
     class Meta:
         model = Order
-        fields = ['id', 'hotel', 'room_number', 'status', 'created_at', 'items']
+        fields = ['id', 'hotel', 'room_number', 'status', 'created_at','total_price', 'items']
 
+    def get_total_price(self, obj):
+        return obj.total_price
+    
     def create(self, validated_data):
         items_data = validated_data.pop('orderitem_set')
         order = Order.objects.create(**validated_data)

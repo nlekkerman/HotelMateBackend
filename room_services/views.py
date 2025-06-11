@@ -67,7 +67,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)
         # Filter orders for rooms in this hotel only
-        return Order.objects.filter(room__hotel=hotel)
+        return Order.objects.filter(hotel=hotel)
     
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
