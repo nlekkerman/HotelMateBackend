@@ -37,6 +37,7 @@ class RoomServiceItem(models.Model):
 class Order(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
         ('completed', 'Completed'),
     ]
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
