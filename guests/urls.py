@@ -8,4 +8,5 @@ guest_detail = GuestViewSet.as_view({'get': 'retrieve', 'put': 'update'})
 urlpatterns = [
     path('<str:hotel_slug>/guests/', guest_list, name='guests-by-hotel'),
     path('<str:hotel_slug>/guests/<int:pk>/', guest_detail, name='guest-detail'),
+   
     ]
