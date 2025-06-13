@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     'room_services',
     'hotel',
     'bookings',
+    'common',
     
 ]
 

@@ -18,3 +18,5 @@ class GuestViewSet(viewsets.ModelViewSet):
     def get_object(self):
         hotel_slug = self.request.headers.get('x-hotel-slug')
         return Guest.objects.get(pk=self.kwargs['pk'], hotel__slug=hotel_slug)
+    
+    

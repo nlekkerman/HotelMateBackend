@@ -13,8 +13,9 @@ from hotel.models import Hotel
 from guests.models import Guest
 from datetime import timedelta
 from datetime import datetime
-
-
+from room_services.models import Order, BreakfastOrder
+from rest_framework.decorators import api_view, permission_classes
+from django.db import transaction
 
 
 class RoomPagination(PageNumberPagination):
@@ -121,3 +122,64 @@ class RoomByHotelAndNumberView(APIView):
         room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
         serializer = RoomSerializer(room)
         return Response(serializer.data)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def checkout_rooms(request, hotel_slug):
+    """
+    POST /api/hotels/{hotel_slug}/rooms/checkout/
+    {
+      "room_ids": [3, 7, 11]
+    }
+    """
+    room_ids = request.data.get('room_ids')
+    if not isinstance(room_ids, list) or not room_ids:
+        return Response(
+            {"detail": "`room_ids` must be a non-empty list."},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    # Only rooms in this hotel that match the IDs
+    rooms = Room.objects.filter(
+        hotel__slug=hotel_slug,
+        id__in=room_ids,
+    )
+
+    if not rooms.exists():
+        return Response(
+            {"detail": "No matching rooms found for this hotel."},
+            status=status.HTTP_404_NOT_FOUND
+        )
+
+    with transaction.atomic():
+        for room in rooms:
+            # 1) Remove any explicit M2M links (clean up join table)
+            room.guests.clear()
+
+            # 2) **Delete** all Guest objects whose FK pointed here
+            #    (this removes them from the database entirely)
+            Guest.objects.filter(room=room).delete()
+
+            # 3) Mark room unoccupied
+            room.is_occupied = False
+            room.generate_guest_pin()
+            
+
+            # 4) Delete any open room‐service & breakfast orders
+            Order.objects.filter(
+                hotel=room.hotel,
+                room_number=room.room_number
+            ).delete()
+            BreakfastOrder.objects.filter(
+                hotel=room.hotel,
+                room_number=room.room_number
+            ).delete()
+            room.save()
+
+    return Response(
+        {"detail": f"Checked out {rooms.count()} room(s) in hotel '{hotel_slug}' and deleted their guests."},
+        status=status.HTTP_200_OK
+    )
+    
+

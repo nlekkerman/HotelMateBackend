@@ -10,8 +10,9 @@ apps = [
     'room_services',
     'hotel',
     'bookings',
+    'common',
     # 'notifications',
-    # 'common',
+    
 ]
 
 def home(request):

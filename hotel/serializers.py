@@ -4,7 +4,7 @@ from .models import Hotel
 class HotelSerializer(serializers.ModelSerializer):
     class Meta:
         model = Hotel
-        fields = ['id', 'name', 'slug']
+        fields = ['id', 'name', 'slug', 'subdomain', 'logo']
         extra_kwargs = {
             'slug': {'required': True}
         }
