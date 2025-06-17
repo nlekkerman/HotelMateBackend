@@ -10,6 +10,11 @@ class HotelInfoCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = HotelInfoCategory
         fields = ("slug", "name")
+    def create(self, validated_data):
+        # Auto-generate slug if not provided
+        if not validated_data.get("slug"):
+            validated_data["slug"] = slugify(validated_data["name"])
+        return super().create(validated_data)
 
 
 class HotelInfoSerializer(serializers.ModelSerializer):
