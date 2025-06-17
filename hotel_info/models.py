@@ -28,7 +28,7 @@ class CategoryQRCode(models.Model):
         related_name='category_qrcodes'
     )
     category = models.ForeignKey(
-        HotelInfoCategory, on_delete=models.CASCADE,
+        'HotelInfoCategory', on_delete=models.CASCADE,
         related_name='qrcodes'
     )
     qr_url = models.URLField(blank=True, null=True)
@@ -65,8 +65,6 @@ class CategoryQRCode(models.Model):
         )
         self.qr_url = upload.get('secure_url')
         self.generated_at = timezone.now()
-        self.save()
-        return self.qr_url
 
 
 class HotelInfo(models.Model):
@@ -75,7 +73,7 @@ class HotelInfo(models.Model):
         null=True, blank=True
     )
     category = models.ForeignKey(
-        HotelInfoCategory, on_delete=models.PROTECT,
+        HotelInfoCategory, on_delete=models.CASCADE,
         related_name="infos"
     )
     title = models.CharField(max_length=200)

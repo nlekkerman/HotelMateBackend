@@ -3,6 +3,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import HotelInfoCategory, HotelInfo, CategoryQRCode
+from django.contrib import messages 
 
 @admin.register(HotelInfoCategory)
 class HotelInfoCategoryAdmin(admin.ModelAdmin):
@@ -99,11 +100,10 @@ class CategoryQRCodeAdmin(admin.ModelAdmin):
                 self.message_user(
                     request,
                     f"Failed for {record.hotel.slug}/{record.category.slug}: {e}",
-                    level=admin.messages.ERROR,
+                    level=messages.ERROR,  # ← Use messages.ERROR
                 )
         self.message_user(
             request,
             f"Successfully generated QR for {successes} of {queryset.count()} records.",
-            level=admin.messages.INFO,
+            level=messages.INFO,  # ← Use messages.INFO
         )
-    generate_qr_for_selected.short_description = "Generate QR for selected categories"

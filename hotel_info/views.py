@@ -10,6 +10,8 @@ from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+from hotel.models import Hotel
 
 class HotelInfoViewSet(viewsets.ModelViewSet):
     queryset = HotelInfo.objects.all()
@@ -24,6 +26,7 @@ class HotelInfoViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["hotel__slug", "category__slug"]
 
+
 class HotelInfoCategoryViewSet(viewsets.ModelViewSet):
     """
     Returns all categories, or filter to only those with infos for a given hotel:
@@ -35,6 +38,19 @@ class HotelInfoCategoryViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     # this lets you do ?infos__hotel__slug=<slug> to only get categories
     filterset_fields = ["infos__hotel__slug"]
+    
+    def create(self, request, *args, **kwargs):
+        response = super().create(request, *args, **kwargs)
+        category = HotelInfoCategory.objects.get(slug=response.data["slug"])  
+        hotel_slug = request.data.get("hotel_slug")
+
+        if hotel_slug:
+            from hotel.models import Hotel
+            hotel = get_object_or_404(Hotel, slug=hotel_slug)
+            qr, _ = CategoryQRCode.objects.get_or_create(hotel=hotel, category=category)
+            qr.generate_qr()
+
+        return response
     def get_queryset(self):
         qs = super().get_queryset()
         hotel_slug = self.request.query_params.get("infos__hotel__slug")
@@ -47,36 +63,72 @@ class HotelInfoCategoryViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
 
+
 class HotelInfoCreateView(generics.CreateAPIView):
     serializer_class = HotelInfoCreateSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def create(self, request, *args, **kwargs):
+        # 1) Run the normal creation
+        create_serializer = self.get_serializer(data=request.data)
+        create_serializer.is_valid(raise_exception=True)
+        info = create_serializer.save()  # <– HotelInfo instance
+
+        # 2) Ensure a CategoryQRCode for this hotel/category
+        qr_obj, _ = CategoryQRCode.objects.get_or_create(
+            hotel=info.hotel,
+            category=info.category
+        )
+        # 3) Generate (or re‐generate) the actual QR
+        qr_obj.generate_qr()
+
+        # 4) Serialize full response (including any fields + qr_url)
+        #    if you want to include qr_url directly here:
+        out = HotelInfoSerializer(info, context=self.get_serializer_context()).data
+        out["qr_url"] = qr_obj.qr_url
+
+        return Response(out, status=status.HTTP_201_CREATED)
+    
 class CategoryQRView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         hotel_slug = request.query_params.get("hotel_slug")
         category_slug = request.query_params.get("category_slug")
-
         if not hotel_slug or not category_slug:
             return Response(
                 {"detail": "hotel_slug and category_slug are required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        try:
-            # Get the category
-            category = HotelInfoCategory.objects.get(slug=category_slug)
-        except HotelInfoCategory.DoesNotExist:
-            return Response({"detail": "Category not found"}, status=404)
-
-        try:
-            # Find the QR code for the hotel + category
-            qr = CategoryQRCode.objects.get(hotel__slug=hotel_slug, category=category)
-        except CategoryQRCode.DoesNotExist:
-            return Response({"detail": "QR code not found"}, status=404)
-
+        qr = get_object_or_404(
+            CategoryQRCode,
+            hotel__slug=hotel_slug,
+            category__slug=category_slug,
+        )
         if qr.qr_url:
             return Response({"qr_url": qr.qr_url})
-        else:
-            return Response({"detail": "QR code URL is missing"}, status=404)
+        return Response({"detail": "QR code URL is missing"}, status=status.HTTP_404_NOT_FOUND)
+
+    def post(self, request):
+        hotel_slug = request.data.get("hotel_slug")
+        category_slug = request.data.get("category_slug")
+        if not hotel_slug or not category_slug:
+            return Response(
+                {"detail": "hotel_slug and category_slug are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Fetch the Hotel and Category; 404 if not found
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        category = get_object_or_404(HotelInfoCategory, slug=category_slug)
+
+        # Create or fetch the QR record
+        qr_obj, created = CategoryQRCode.objects.get_or_create(
+            hotel=hotel,
+            category=category,
+        )
+        # Always regenerate the QR
+        qr_obj.generate_qr()
+
+        return Response({"qr_url": qr_obj.qr_url}, status=status.HTTP_200_OK)
