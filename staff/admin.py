@@ -15,7 +15,8 @@ class StaffAdmin(admin.ModelAdmin):
         'email', 
         'phone_number', 
         'is_active',
-        'is_on_duty', 
+        'is_on_duty',
+        'fcm_token',  # show FCM token
     )
     list_filter = (
         'hotel',          # filter by hotel
@@ -24,6 +25,8 @@ class StaffAdmin(admin.ModelAdmin):
         'access_level',   # added access level filter
         'is_active',
         'is_on_duty',
+        
+        
     )
     search_fields = (
         'first_name', 
@@ -32,12 +35,14 @@ class StaffAdmin(admin.ModelAdmin):
         'phone_number', 
         'position',
         'user__username'
+        'fcm_token',  # filter by FCM token presence
     )
     ordering = (
         'hotel',          # order by hotel too
         'department', 
         'last_name'
     )
+    readonly_fields = ['fcm_token'] 
     list_editable = (
         'is_active', 
         'role',

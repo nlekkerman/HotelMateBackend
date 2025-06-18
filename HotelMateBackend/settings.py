@@ -50,11 +50,11 @@ INSTALLED_APPS = [
     'rooms',
     'guests',
     'staff',
-    'room_services',
+    'room_services.apps.RoomServicesConfig',
     'hotel',
     'bookings',
     'common',
-    
+    'notifications',
     'hotel_info.apps.HotelInfoConfig',
     
 ]

@@ -11,7 +11,7 @@ apps = [
     'hotel',
     'bookings',
     'common',
-    # 'notifications',
+    'notifications',
     
 ]
 
