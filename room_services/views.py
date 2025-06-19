@@ -7,6 +7,8 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .models import RoomServiceItem, BreakfastItem, Order, BreakfastOrder
 from django.http import Http404
+from notifications.utils import notify_porters_of_room_service_order
+
 
 from .serializers import (
     RoomServiceItemSerializer,
@@ -71,7 +73,9 @@ class OrderViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
-        serializer.save(hotel=hotel)
+        order = serializer.save(hotel=hotel)  # Save and capture the order
+        notify_porters_of_room_service_order(order)  # Send notification
+
 
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer

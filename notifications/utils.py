@@ -62,6 +62,8 @@ def notify_porters_of_room_service_order(order):
         send_fcm_v1_notification(
             porter.fcm_token,
             title="New Room Service Order",
-            body=f"Room {order.room_number}: {order.summary()}",
-            data={"order_id": order.id, "type": "room_service"}
+            body=f"Room {order.room_number}: Total ${order.total_price:.2f}",
+            data={"order_id": str(order.id), "type": "room_service"}
+
         )
+
