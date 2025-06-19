@@ -4,6 +4,7 @@ from .models import (
     BreakfastItem, BreakfastOrder, BreakfastOrderItem
 )
 from hotel.models import Hotel
+from notifications.utils import notify_porters_of_room_service_order
 import logging
 
 logger = logging.getLogger(__name__)
@@ -55,6 +56,7 @@ class OrderSerializer(serializers.ModelSerializer):
             if not item_data.get('hotel'):
                 item_data['hotel'] = order.hotel
             OrderItem.objects.create(order=order, **item_data)
+
         return order
 
     def update(self, instance, validated_data):

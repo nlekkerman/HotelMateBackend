@@ -57,6 +57,7 @@ class Order(models.Model):
         )
         return agg['total'] or 0.0
     
+    
     def __str__(self):
         return f"Order {self.id} for Room {self.room_number} - Status: {self.status}"
 
