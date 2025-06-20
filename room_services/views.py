@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from .models import RoomServiceItem, BreakfastItem, Order, BreakfastOrder
 from django.http import Http404
 from notifications.utils import notify_porters_of_room_service_order
+from django.db import transaction
 
 
 from .serializers import (
@@ -69,12 +70,22 @@ class OrderViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)
         # Filter orders for rooms in this hotel only
-        return Order.objects.filter(hotel=hotel)
+        return Order.objects.filter(hotel=hotel).exclude(status="completed")
     
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
         order = serializer.save(hotel=hotel)  # Save and capture the order
         notify_porters_of_room_service_order(order)  # Send notification
+    
+    @action(detail=False, methods=["get"], url_path="pending-count")
+    def pending_count(self, request, *args, **kwargs):
+        """
+        GET /room_services/{hotel_slug}/orders/pending-count/
+        Returns JSON: { "count": <int> }
+        """
+        hotel = get_hotel_from_request(request)
+        count = Order.objects.filter(hotel=hotel).filter(status="pending").count()
+        return Response({"count": count})
 
 
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
