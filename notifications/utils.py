@@ -7,18 +7,20 @@ from staff.models import Staff
 
 FIREBASE_PROJECT_ID = "hotel-mate-d878f"
 LOCAL_KEY_RELATIVE_PATH = "HotelMateBackend/secrets/hotel-mate-d878f-07c59aad1fb8.json"
+import logging
+logger = logging.getLogger(__name__)
 
 def get_access_token():
-    """
-    Load Firebase service account info from:
-      1) FIREBASE_SERVICE_ACCOUNT_JSON env var (Heroku),
-      2) else from the local JSON file (dev).
-    """
     key_json = os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON")
+
     if key_json:
         info = json.loads(key_json)
+
+        # Fix the private key
+        if "private_key" in info:
+            info["private_key"] = info["private_key"].replace("\\n", "\n")
+
     else:
-        # Fall back to local file
         here = os.path.dirname(__file__)
         key_path = os.path.join(here, LOCAL_KEY_RELATIVE_PATH)
         with open(key_path, "r", encoding="utf-8") as f:

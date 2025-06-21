@@ -9,7 +9,7 @@ import environ
 import dj_database_url
 from decouple import config
 from corsheaders.defaults import default_headers, default_methods
-
+import json
 
 # Initialize environment variables
 env = environ.Env(
@@ -179,3 +179,5 @@ HEROKU_HOST = env('HEROKU_HOST', default='')
 
 # Optional for Heroku: disable collectstatic temporarily
 DISABLE_COLLECTSTATIC = env.bool('DISABLE_COLLECTSTATIC', default=False)
+
+FIREBASE_SERVICE_ACCOUNT = json.loads(os.environ.get("FIREBASE_SERVICE_ACCOUNT_JSON", "{}"))
