@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'common',
     'notifications',
     'hotel_info.apps.HotelInfoConfig',
+    'stock_tracker',
     
 ]
 

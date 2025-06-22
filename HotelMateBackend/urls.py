@@ -12,6 +12,7 @@ apps = [
     'bookings',
     'common',
     'notifications',
+    'stock_tracker',
     
 ]
 
