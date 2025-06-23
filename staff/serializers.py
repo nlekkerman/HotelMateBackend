@@ -63,7 +63,7 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 class StaffSerializer(serializers.ModelSerializer):
-    user = UserSerializer()
+    user = UserSerializer(read_only=True)
     hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
     access_level = serializers.CharField()  
 

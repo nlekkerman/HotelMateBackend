@@ -166,3 +166,4 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             "movements": StockMovementSerializer(movements, many=True).data,
             "low_stock_alerts": StockItemSerializer(low_stock_items, many=True).data
         }, status=status.HTTP_201_CREATED)
+        

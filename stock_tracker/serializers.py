@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import StockCategory, StockItem, Stock, StockInventory, StockMovement
+from staff.serializers import StaffSerializer  # Assuming you have a StaffSerializer defined
 
 class StockCategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -72,7 +73,41 @@ class StockSerializer(serializers.ModelSerializer):
                 quantity=line['quantity']
             )
         return instance
+
 class StockMovementSerializer(serializers.ModelSerializer):
+    staff_name = serializers.SerializerMethodField()
+    item = serializers.SerializerMethodField()  # or a nested serializer returning name
+
     class Meta:
         model = StockMovement
-        fields = ['id','hotel','stock','item','staff','direction','quantity','timestamp']
+        fields = ['id', 'hotel', 'stock', 'item', 'staff_name', 'direction', 'quantity', 'timestamp']
+
+    def get_staff_name(self, obj):
+        staff = obj.staff
+        if not staff:
+            return "—"
+
+        # If 'staff' is a User instance (has no attribute 'user'), use username directly
+        if hasattr(staff, 'username') and not hasattr(staff, 'user'):
+            # staff is already a User instance
+            return staff.username or "—"
+
+        # If staff is Staff instance
+        full_name = f"{getattr(staff, 'first_name', '')} {getattr(staff, 'last_name', '')}".strip()
+        if full_name:
+            return full_name
+
+        # fallback to related user username if exists
+        user = getattr(staff, 'user', None)
+        if user and hasattr(user, 'username'):
+            return user.username
+
+        return "—"
+
+    
+
+    def get_item(self, obj):
+        # Return only the name of the item, or a dict with name
+        if obj.item:
+            return {"name": obj.item.name}
+        return {"name": "—"}
