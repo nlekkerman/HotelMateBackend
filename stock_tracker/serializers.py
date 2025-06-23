@@ -16,6 +16,7 @@ class StockItemSerializer(serializers.ModelSerializer):
             'hotel',
             'name',
             'sku',
+            'active_stock_item', 
             'quantity',
             'alert_quantity',  # NEW FIELD
             'is_below_alert',  # Optional: boolean for alert status

@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.conf import settings
+from django.db.models import F
+from rest_framework.exceptions import ValidationError
 
 from .models import StockCategory, StockItem, Stock, StockMovement, StockInventory
 from .serializers import (
@@ -28,11 +30,65 @@ class StockItemViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockItem.
     """
-    queryset         = StockItem.objects.all()
+  
     serializer_class = StockItemSerializer
     filterset_fields = ['hotel', 'sku', 'name']
     search_fields    = ['name', 'sku']
     ordering_fields  = ['hotel', 'name', 'sku']
+    
+    def get_queryset(self):
+        queryset = StockItem.objects.all()
+        hotel_slug = self.request.query_params.get('hotel_slug')
+        print(f"Fetching StockItems with hotel_slug: {hotel_slug}")  # Debug print
+        if hotel_slug:
+            queryset = queryset.filter(hotel__slug=hotel_slug)
+        print(f"Number of StockItems found: {queryset.count()}")  # Debug print
+        return queryset
+
+    
+    @action(detail=False, methods=['get'])
+    def low_stock(self, request, hotel_slug=None):
+        low_items = StockItem.objects.filter(
+            hotel__slug=hotel_slug,
+            quantity__lt=F('alert_quantity')
+        )
+        serializer = self.get_serializer(low_items, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None, hotel_slug=None):
+        """
+        Activate this stock item (mark active and add to stock inventory).
+        Requires 'stock_id' and optional 'quantity' in POST data.
+        """
+        stock_item = self.get_object()
+        stock_id = request.data.get('stock_id')
+        quantity = int(request.data.get('quantity', 0))
+
+        if not stock_id:
+            return Response({"error": "Missing 'stock_id' in request data."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            stock = Stock.objects.get(pk=stock_id, hotel=stock_item.hotel)
+        except Stock.DoesNotExist:
+            return Response({"error": "Stock not found or does not belong to this hotel."},
+                            status=status.HTTP_404_NOT_FOUND)
+
+        # Call the model helper method
+        stock_item.activate_stock_item(stock=stock, quantity=quantity)
+        serializer = self.get_serializer(stock_item)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def deactivate(self, request, pk=None, hotel_slug=None):
+        """
+        Deactivate this stock item (remove from stock inventory).
+        """
+        stock_item = self.get_object()
+        stock_item.deactivate_stock_item()
+        serializer = self.get_serializer(stock_item)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class StockViewSet(viewsets.ModelViewSet):
@@ -78,7 +134,11 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             inventory = get_object_or_404(StockInventory, item=item, stock__hotel__slug=hotel_slug)
 
             qty_change = Decimal(t['qty']) if t['direction'] == 'in' else -Decimal(t['qty'])
-
+            # Validation: prevent removing more than available stock
+            if qty_change < 0 and inventory.quantity < abs(qty_change):
+                raise ValidationError({
+                    "detail": f"Insufficient stock for item {item.name}. Available: {inventory.quantity}, requested: {abs(qty_change)}"
+                })
             inventory.quantity += qty_change
             inventory.save()
 

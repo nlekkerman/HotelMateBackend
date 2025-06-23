@@ -46,6 +46,7 @@ class StockItem(models.Model):
     hotel = models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='stock_items')
     name = models.CharField(max_length=255, default='stock_item', blank=True, unique=True)
     sku = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    active_stock_item = models.BooleanField(default=False, help_text="Indicates if the item is active in stock inventory")
     quantity = models.IntegerField(default=0)
     alert_quantity = models.IntegerField(
         default=0,
@@ -59,6 +60,35 @@ class StockItem(models.Model):
     # Optional: Add a helper method
     def is_below_alert_level(self):
         return self.quantity < self.alert_quantity
+    def activate_stock_item(self, stock, quantity=0):
+        from .models import StockInventory  # avoid circular import
+
+        if not self.active_stock_item:
+            self.active_stock_item = True
+            self.save(update_fields=["active_stock_item"])
+
+        # Create or update inventory line
+        inventory, created = StockInventory.objects.get_or_create(
+            stock=stock,
+            item=self,
+            defaults={"quantity": quantity}
+        )
+        if not created:
+            inventory.quantity = quantity
+            inventory.save(update_fields=["quantity"])
+
+        # Also update total quantity on item level
+        self.quantity = quantity
+        self.save(update_fields=["quantity"])
+
+    def deactivate_stock_item(self):
+        from .models import StockInventory
+
+        # Delete all inventory lines (in case item is in multiple stocks)
+        StockInventory.objects.filter(item=self).delete()
+        self.quantity = 0
+        self.active_stock_item = False
+        self.save(update_fields=["quantity", "active_stock_item"])
 
 class Stock(models.Model):
     hotel= models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='stocks')
@@ -95,6 +125,18 @@ class StockInventory(models.Model):
 
     def __str__(self):
         return f"{self.stock} – {self.item.name}: {self.quantity}"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Keep StockItem quantity in sync
+        self.item.quantity = self.quantity
+        self.item.save(update_fields=['quantity'])
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        # Optionally reset item quantity on deletion
+        self.item.quantity = 0
+        self.item.save(update_fields=['quantity'])
 
 
 

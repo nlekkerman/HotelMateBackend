@@ -45,6 +45,8 @@ stock_movement_detail = StockMovementViewSet.as_view({
 # Include the bulk action endpoint
 bulk_stock_action = StockMovementViewSet.as_view({'post': 'bulk_stock_action'})
 
+low_stock = StockItemViewSet.as_view({'get': 'low_stock'})
+
 urlpatterns = [
     # StockCategory
     path(
@@ -99,5 +101,18 @@ urlpatterns = [
         '<slug:hotel_slug>/movements/bulk/',
         bulk_stock_action,
         name='bulk-stock-action'
+    ),
+    
+    path('<slug:hotel_slug>/items/low_stock/', low_stock, name='stockitem-low-stock'),
+    
+    path(
+        '<slug:hotel_slug>/items/<int:pk>/deactivate/',
+        StockItemViewSet.as_view({'post': 'deactivate'}),
+        name='stockitem-deactivate'
+    ),
+    path(
+        '<slug:hotel_slug>/items/<int:pk>/activate/',
+        StockItemViewSet.as_view({'post': 'activate'}),
+        name='stockitem-activate'
     ),
 ]

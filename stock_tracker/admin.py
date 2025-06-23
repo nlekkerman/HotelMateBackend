@@ -1,6 +1,23 @@
 from django.contrib import admin
+from django.forms.models import BaseInlineFormSet
+from django.core.exceptions import ValidationError
+
 from .models import StockCategory, StockItem, Stock, StockInventory, StockMovement
 
+# --- Custom FormSet to prevent duplicate items in inline ---
+class StockInventoryInlineFormSet(BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        seen = set()
+        for form in self.forms:
+            if not form.cleaned_data or form.cleaned_data.get('DELETE'):
+                continue
+            item = form.cleaned_data.get('item')
+            if item in seen:
+                raise ValidationError(f"Duplicate item '{item}' in stock inventory.")
+            seen.add(item)
+
+# --- Admin for StockCategory ---
 @admin.register(StockCategory)
 class StockCategoryAdmin(admin.ModelAdmin):
     list_display = ('id', 'hotel', 'name', 'slug')
@@ -9,6 +26,7 @@ class StockCategoryAdmin(admin.ModelAdmin):
     ordering = ('hotel', 'name')
     prepopulated_fields = {'slug': ('name',)}  # auto-fill slug from name
 
+# --- Admin for StockItem ---
 @admin.register(StockItem)
 class StockItemAdmin(admin.ModelAdmin):
     list_display = ('id', 'hotel', 'name', 'sku', 'quantity', 'alert_quantity', 'alert_status')
@@ -18,17 +36,18 @@ class StockItemAdmin(admin.ModelAdmin):
 
     @admin.display(description='Status')
     def alert_status(self, obj):
-        if obj.quantity < obj.alert_quantity:
-            return "⚠️ Low Stock"
-        return "✅ OK"
+        return "⚠️ Low Stock" if obj.quantity < obj.alert_quantity else "✅ OK"
 
+# --- Inline for StockInventory ---
 class StockInventoryInline(admin.TabularInline):
     model = StockInventory
     extra = 1
     fk_name = 'stock'
     autocomplete_fields = ('item',)
     fields = ('item', 'quantity')
+    formset = StockInventoryInlineFormSet
 
+# --- Admin for Stock ---
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):
     list_display = ('id', 'hotel', 'category')
@@ -37,19 +56,38 @@ class StockAdmin(admin.ModelAdmin):
     ordering = ('hotel', 'category')
     inlines = (StockInventoryInline,)
 
-    def save_model(self, request, obj, form, change):
-        super().save_model(request, obj, form, change)
+    def save_formset(self, request, form, formset, change):
+        """
+        Save formset and then auto-create missing inventory lines for this stock.
+        Also syncs item.quantity to match inventory.
+        """
+        instances = formset.save(commit=False)
 
-        # After saving the Stock, ensure it has inventory lines for all StockItems of the hotel
-        existing_item_ids = obj.inventory_lines.values_list('item_id', flat=True)
-        all_items = StockItem.objects.filter(hotel=obj.hotel).exclude(id__in=existing_item_ids)
+        for form_instance in instances:
+            form_instance.save()
+            # Sync item quantity with this stock line
+            form_instance.item.quantity = form_instance.quantity
+            form_instance.item.save(update_fields=['quantity'])
 
-        for item in all_items:
-            StockInventory.objects.create(stock=obj, item=item, quantity=0)
+        formset.save_m2m()
 
+        if formset.model == StockInventory:
+            stock = form.instance
+            existing_item_ids = stock.inventory_lines.values_list('item_id', flat=True)
+            all_items = StockItem.objects.filter(hotel=stock.hotel).exclude(id__in=existing_item_ids)
 
+            for item in all_items:
+                inventory, created = StockInventory.objects.get_or_create(
+                    stock=stock,
+                    item=item,
+                    defaults={'quantity': item.quantity}  # sync initial quantity
+                )
+
+        return instances
+
+# --- Admin for StockMovement ---
 @admin.register(StockMovement)
 class StockMovementAdmin(admin.ModelAdmin):
     list_display = ('timestamp', 'hotel', 'stock', 'item', 'direction', 'quantity', 'staff')
-    list_filter  = ('hotel', 'stock__category', 'direction', 'staff')
+    list_filter = ('hotel', 'stock__category', 'direction', 'staff')
     search_fields = ('item__name',)
