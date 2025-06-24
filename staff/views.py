@@ -11,7 +11,10 @@ from rest_framework.decorators import action
 from django.urls import reverse
 from hotel.models import Hotel
 from django.db import transaction
+from staff.permissions import IsSameHotelOrAdmin
 
+
+from staff.permissions import IsSameHotelOrAdmin
 
 
 class UserListAPIView(generics.ListAPIView):
@@ -110,12 +113,14 @@ class StaffViewSet(viewsets.ModelViewSet):
         return super().retrieve(request, *args, **kwargs)
 
     def get_permissions(self):
-        if self.action in ["create", "update", "partial_update", "destroy"]:
+        if self.action in ["update", "partial_update", "destroy"]:
+            permission_classes = [IsSameHotelOrAdmin]
+        elif self.action == "create":
             permission_classes = [permissions.IsAdminUser]
         else:
             permission_classes = [permissions.IsAuthenticated]
         return [permission() for permission in permission_classes]
-
+    
     def create(self, request, *args, **kwargs):
         user_id = request.data.get("user_id")
         hotel_id = request.data.get("hotel")
@@ -214,44 +219,44 @@ class StaffViewSet(viewsets.ModelViewSet):
 
 class StaffRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
+
     def post(self, request):
         data = request.data
 
-        user_data = data.get('user', {})
-        username = user_data.get('username')
-        password = user_data.get('password')
-        email = user_data.get('email')
+        # Instead of user_data with username/password, get existing user id or username
+        user_id = data.get('user_id')
+        if not user_id:
+            return Response({'error': 'user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not username or not password:
-            return Response({'error': 'Username and password required.'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        if User.objects.filter(username=username).exists():
-            return Response({'error': 'Username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
+        hotel_id = request.headers.get("X-Hotel-ID")
+        if not hotel_id:
+            return Response({'error': 'Hotel ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        hotel_id = data.get('hotel')
         try:
             hotel = Hotel.objects.get(id=hotel_id)
         except Hotel.DoesNotExist:
             return Response({'error': 'Hotel not found.'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Wrap in a transaction to ensure atomicity
-        with transaction.atomic():
-            # Create User
-            user = User.objects.create_user(username=username, password=password, email=email)
-            user.is_staff = True
-            user.save()
+        # Check if staff for this user already exists
+        if Staff.objects.filter(user=user).exists():
+            return Response({'error': 'Staff profile already exists for this user.'}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Create Staff Profile linked to User
+        with transaction.atomic():
             staff = Staff.objects.create(
                 user=user,
                 hotel=hotel,
                 first_name=data.get('first_name', ''),
                 last_name=data.get('last_name', ''),
                 department=data.get('department', ''),
-                role=data.get('role', ''),
-                position=data.get('position', ''),
-                email=data.get('email', email),
-                phone_number=data.get('phone_number', ''),
+                role=data.get('role', None),
+                position=data.get('position', None),
+                email=data.get('email', None),
+                phone_number=data.get('phone_number', None),
                 is_active=data.get('is_active', True),
                 is_on_duty=data.get('is_on_duty', False),
             )
