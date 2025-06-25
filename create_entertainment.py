@@ -6,7 +6,7 @@ from datetime import date, timedelta
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'porterproject.settings')
 django.setup()
 
-from informations.models import KidsEntertainment
+from hotel_info.models import KidsEntertainment
 
 # List of sample titles and descriptions for a week
 sample_data = [

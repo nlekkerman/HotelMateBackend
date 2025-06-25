@@ -21,7 +21,7 @@ cloudinary.config()  # reads from CLOUDINARY_URL
 
 # ─── 4. Configuration ─────────────────────────────────────────────────────────
 HOTEL_SLUG    = "hotel-killarney"
-CATEGORY_SLUG = "kid-entertainment"
+CATEGORY_SLUG = "hotel-leisure"
 EVENT_TIMES   = [time(10, 0), time(14, 0), time(18, 0)]
 DAYS_AHEAD    = 15
 IMAGE_PATH    = r"C:\Users\nlekk\Downloads\nasturtium.png"  # Local image file
@@ -65,8 +65,8 @@ def main():
                 event_date=event_date,
                 event_time=evt_time,
                 defaults={
-                    'title': f"Kids Activity #{idx} on {event_date}",
-                    'description': f"Fun activity #{idx} for our young guests.",
+                    'title': f"Aqua #{idx} on {event_date}",
+                    'description': f"Water fantasy #{idx} for our guests.",
                     'active': True,
                 }
             )
