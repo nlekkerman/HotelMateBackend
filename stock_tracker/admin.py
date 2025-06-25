@@ -26,13 +26,29 @@ class StockCategoryAdmin(admin.ModelAdmin):
     ordering = ('hotel', 'name')
     prepopulated_fields = {'slug': ('name',)}  # auto-fill slug from name
 
-# --- Admin for StockItem ---
 @admin.register(StockItem)
 class StockItemAdmin(admin.ModelAdmin):
-    list_display = ('id', 'hotel', 'name', 'sku', 'quantity', 'alert_quantity', 'alert_status')
-    list_filter = ('hotel',)
+    list_display = (
+        'id', 'hotel', 'name', 'sku', 'quantity', 'volume_per_unit_display', 'unit_display', 'alert_quantity', 'alert_status'
+    )
+    list_filter = ('hotel', 'unit')
     search_fields = ('name', 'sku')
     ordering = ('hotel', 'name')
+
+    # Use select_related if 'hotel' is ForeignKey and used frequently
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('hotel')
+
+    @admin.display(description='Volume per Item')
+    def volume_per_unit_display(self, obj):
+        if obj.volume_per_unit and obj.unit:
+            return f"{obj.volume_per_unit} {obj.unit}"
+        return "-"
+
+    @admin.display(description='Unit')
+    def unit_display(self, obj):
+        return dict(StockItem.UNIT_CHOICES).get(obj.unit, '-')
 
     @admin.display(description='Status')
     def alert_status(self, obj):
@@ -46,7 +62,9 @@ class StockInventoryInline(admin.TabularInline):
     autocomplete_fields = ('item',)
     fields = ('item', 'quantity')
     formset = StockInventoryInlineFormSet
-
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('item', 'item__hotel')
 # --- Admin for Stock ---
 @admin.register(Stock)
 class StockAdmin(admin.ModelAdmin):

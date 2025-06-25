@@ -64,6 +64,7 @@ class UserSerializer(serializers.ModelSerializer):
 class StaffSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
+    hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES) 
 
     class Meta:
@@ -81,6 +82,7 @@ class StaffSerializer(serializers.ModelSerializer):
             'is_on_duty',
             'hotel',
             'access_level',
+            'hotel_name',
         ]
 
     def create(self, validated_data):

@@ -9,7 +9,9 @@ class StockCategorySerializer(serializers.ModelSerializer):
 
 class StockItemSerializer(serializers.ModelSerializer):
     is_below_alert = serializers.SerializerMethodField()
-
+    volume_per_unit = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True
+    )
     class Meta:
         model = StockItem
         fields = [
@@ -20,7 +22,9 @@ class StockItemSerializer(serializers.ModelSerializer):
             'active_stock_item', 
             'quantity',
             'alert_quantity',  # NEW FIELD
-            'is_below_alert',  # Optional: boolean for alert status
+            'is_below_alert',
+            'volume_per_unit',
+            'unit',
         ]
 
     def get_is_below_alert(self, obj):

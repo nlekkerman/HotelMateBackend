@@ -24,7 +24,7 @@ from rest_framework.pagination import PageNumberPagination
 class StockItemPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = "page_size"
-    max_page_size = 100
+    max_page_size = 10000
 class StockCategoryViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockCategory (with slug support).
@@ -133,7 +133,8 @@ class StockViewSet(viewsets.ModelViewSet):
 class StockMovementViewSet(viewsets.ModelViewSet):
     queryset = StockMovement.objects.all()
     serializer_class = StockMovementSerializer
-    
+    pagination_class = StockItemPagination
+
     def get_queryset(self):
         queryset = super().get_queryset()
         request = self.request
@@ -187,11 +188,7 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             inventory = get_object_or_404(StockInventory, item=item, stock__hotel__slug=hotel_slug)
 
             qty_change = Decimal(t['qty']) if t['direction'] == 'in' else -Decimal(t['qty'])
-            # Validation: prevent removing more than available stock
-            if qty_change < 0 and inventory.quantity < abs(qty_change):
-                raise ValidationError({
-                    "detail": f"Insufficient stock for item {item.name}. Available: {inventory.quantity}, requested: {abs(qty_change)}"
-                })
+           
             inventory.quantity += qty_change
             inventory.save()
 

@@ -43,21 +43,46 @@ class StockCategory(models.Model):
         super().save(*args, **kwargs)
 
 class StockItem(models.Model):
+    UNIT_CHOICES = [
+        ('ml', 'Milliliters'),
+        ('l', 'Liters'),
+    ]
     hotel = models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='stock_items')
     name = models.CharField(max_length=255, default='stock_item', blank=True, unique=True)
     sku = models.CharField(max_length=100, unique=True, null=True, blank=True)
     active_stock_item = models.BooleanField(default=False, help_text="Indicates if the item is active in stock inventory")
-    quantity = models.IntegerField(default=0)
-    alert_quantity = models.IntegerField(
-        default=0,
-        help_text="Minimum quantity before alert is triggered"
+    quantity = models.IntegerField(default=0)  # number of bottles/items
+    alert_quantity = models.IntegerField(default=0, help_text="Minimum quantity before alert is triggered")
+    
+    # NEW: how much volume each bottle contains
+    volume_per_unit = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Volume per bottle/item (e.g., 330 for 330 ml)"
     )
+    
+    unit = models.CharField(
+        max_length=10,
+        choices=UNIT_CHOICES,  # e.g., [('ml', 'Milliliters'), ('l', 'Liters')]
+        null=True,
+        blank=True,
+        help_text="Unit for volume per bottle/item"
+    )
+
     class Meta:
         unique_together = ('hotel', 'name')
 
     def __str__(self):
         return f"{self.name} ({self.sku})"
-    # Optional: Add a helper method
+
+    @property
+    def total_volume(self):
+        if self.volume_per_unit and self.quantity and self.unit:
+            return f"{self.quantity * float(self.volume_per_unit)} {self.unit}"
+        return "N/A"
+
     def is_below_alert_level(self):
         return self.quantity < self.alert_quantity
     
@@ -85,6 +110,7 @@ class StockItem(models.Model):
         StockInventory.objects.filter(item=self).delete()
         self.active_stock_item = False
         self.save(update_fields=["active_stock_item"])  # No quantity update here
+
 
 class Stock(models.Model):
     hotel= models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='stocks')
