@@ -6,6 +6,10 @@ from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.db.models import F
 from rest_framework.exceptions import ValidationError
+from django.utils.dateparse import parse_date
+from django.utils.timezone import make_aware
+from datetime import datetime, timedelta
+
 
 from .models import StockCategory, StockItem, Stock, StockMovement, StockInventory
 from .serializers import (
@@ -122,7 +126,49 @@ class StockViewSet(viewsets.ModelViewSet):
 class StockMovementViewSet(viewsets.ModelViewSet):
     queryset = StockMovement.objects.all()
     serializer_class = StockMovementSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        request = self.request
 
+        # hotel_slug from URL kwargs (not query params)
+        hotel_slug = self.kwargs.get('hotel_slug')
+        stock_id = request.query_params.get('stock')
+        direction = request.query_params.get('direction')  # 'in' or 'out'
+        date_str = request.query_params.get('date')
+        staff_username = request.query_params.get('staff')
+        item_name = request.query_params.get('item_name')
+
+        if hotel_slug:
+            queryset = queryset.filter(hotel__slug=hotel_slug)
+
+        if stock_id:
+            queryset = queryset.filter(stock__id=stock_id)
+
+        if direction in ['in', 'out']:
+            queryset = queryset.filter(direction=direction)
+
+        if date_str:
+            # Parse date (date only, no time)
+            date_obj = parse_date(date_str)
+            if not date_obj:
+                raise ValidationError({"date": "Invalid date format. Use YYYY-MM-DD."})
+
+            # Convert to datetime range: from start of the day to end of the day
+            start_dt = make_aware(datetime.combine(date_obj, datetime.min.time()))
+            end_dt = start_dt + timedelta(days=1)
+
+            queryset = queryset.filter(timestamp__gte=start_dt, timestamp__lt=end_dt)
+     
+        
+        if staff_username:
+            queryset = queryset.filter(staff__username=staff_username)
+            
+        if item_name:  # 🔸 NEW
+            queryset = queryset.filter(item__name__icontains=item_name)
+
+        return queryset
+    
     @action(detail=False, methods=['post'], url_path=r'bulk/')
     def bulk_stock_action(self, request, hotel_slug):
         transactions = request.data.get('transactions', [])

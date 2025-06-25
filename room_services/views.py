@@ -65,7 +65,7 @@ class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)
