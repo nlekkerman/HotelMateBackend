@@ -18,7 +18,13 @@ from .serializers import (
     StockSerializer,
     StockMovementSerializer
 )
+# In pagination.py or views.py
+from rest_framework.pagination import PageNumberPagination
 
+class StockItemPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = "page_size"
+    max_page_size = 100
 class StockCategoryViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockCategory (with slug support).
@@ -39,6 +45,7 @@ class StockItemViewSet(viewsets.ModelViewSet):
     filterset_fields = ['hotel', 'sku', 'name']
     search_fields    = ['name', 'sku']
     ordering_fields  = ['hotel', 'name', 'sku']
+    pagination_class = StockItemPagination
     
     def get_queryset(self):
         queryset = StockItem.objects.all()
@@ -58,16 +65,12 @@ class StockItemViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(low_items, many=True)
         return Response(serializer.data)
-    
+
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None, hotel_slug=None):
-        """
-        Activate this stock item (mark active and add to stock inventory).
-        Requires 'stock_id' and optional 'quantity' in POST data.
-        """
         stock_item = self.get_object()
         stock_id = request.data.get('stock_id')
-        quantity = int(request.data.get('quantity', 0))
+        quantity = request.data.get('quantity')
 
         if not stock_id:
             return Response({"error": "Missing 'stock_id' in request data."},
@@ -79,7 +82,11 @@ class StockItemViewSet(viewsets.ModelViewSet):
             return Response({"error": "Stock not found or does not belong to this hotel."},
                             status=status.HTTP_404_NOT_FOUND)
 
-        # Call the model helper method
+        if quantity is None or int(quantity) == 0:
+            quantity = stock_item.quantity
+        else:
+            quantity = int(quantity)
+
         stock_item.activate_stock_item(stock=stock, quantity=quantity)
         serializer = self.get_serializer(stock_item)
         return Response(serializer.data, status=status.HTTP_200_OK)

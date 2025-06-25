@@ -164,7 +164,6 @@ class StaffViewSet(viewsets.ModelViewSet):
         last_name = request.data.get("last_name", "")
         department = request.data.get("department", "")
         role = request.data.get("role", None)
-        position = request.data.get("position", None)
         email = request.data.get("email", user.email)
         phone_number = request.data.get("phone_number", None)
         is_active = request.data.get("is_active", True)
@@ -177,7 +176,6 @@ class StaffViewSet(viewsets.ModelViewSet):
             last_name=last_name,
             department=department,
             role=role,
-            position=position,
             email=email,
             phone_number=phone_number,
             is_active=is_active,
@@ -254,8 +252,8 @@ class StaffRegisterAPIView(APIView):
                 last_name=data.get('last_name', ''),
                 department=data.get('department', ''),
                 role=data.get('role', None),
-                position=data.get('position', None),
                 email=data.get('email', None),
+                access_level=data.get('access_level', 'regular_staff'),
                 phone_number=data.get('phone_number', None),
                 is_active=data.get('is_active', True),
                 is_on_duty=data.get('is_on_duty', False),
@@ -273,8 +271,8 @@ class StaffRegisterAPIView(APIView):
             'last_name': staff.last_name,
             'department': staff.department,
             'role': staff.role,
-            'position': staff.position,
             'email': staff.email,
             'phone_number': staff.phone_number,
             'is_active': staff.is_active,
         }, status=status.HTTP_201_CREATED)
+

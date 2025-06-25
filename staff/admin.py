@@ -11,12 +11,11 @@ class StaffAdmin(admin.ModelAdmin):
         'department', 
         'role', 
         'access_level',   # added access level
-        'position', 
         'email', 
         'phone_number', 
         'is_active',
         'is_on_duty',
-        'fcm_token',  # show FCM token
+        'fcm_token',      # show FCM token
     )
     list_filter = (
         'hotel',          # filter by hotel
@@ -25,17 +24,14 @@ class StaffAdmin(admin.ModelAdmin):
         'access_level',   # added access level filter
         'is_active',
         'is_on_duty',
-        
-        
     )
     search_fields = (
         'first_name', 
         'last_name', 
         'email', 
         'phone_number', 
-        'position',
-        'user__username'
-        'fcm_token',  # filter by FCM token presence
+        'user__username',
+        'fcm_token',
     )
     ordering = (
         'hotel',          # order by hotel too
@@ -53,9 +49,9 @@ class StaffAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {
             'fields': (
-                ('user', 'hotel', 'first_name', 'last_name'),  # add hotel here
+                ('user', 'hotel', 'first_name', 'last_name'),  # grouped fields for clarity
                 ('email', 'phone_number'),
-                ('department', 'role', 'access_level', 'position'),  # added access level here
+                ('department', 'role', 'access_level'),  # added access level here
                 'is_active', 'is_on_duty'
             )
         }),

@@ -60,14 +60,15 @@ class StockItem(models.Model):
     # Optional: Add a helper method
     def is_below_alert_level(self):
         return self.quantity < self.alert_quantity
-    def activate_stock_item(self, stock, quantity=0):
-        from .models import StockInventory  # avoid circular import
+    
+    def activate_stock_item(self, stock, quantity=None):
+        from .models import StockInventory
 
         if not self.active_stock_item:
             self.active_stock_item = True
             self.save(update_fields=["active_stock_item"])
 
-        # Create or update inventory line
+        # Create or update inventory line, but do NOT update item quantity
         inventory, created = StockInventory.objects.get_or_create(
             stock=stock,
             item=self,
@@ -76,19 +77,14 @@ class StockItem(models.Model):
         if not created:
             inventory.quantity = quantity
             inventory.save(update_fields=["quantity"])
-
-        # Also update total quantity on item level
-        self.quantity = quantity
-        self.save(update_fields=["quantity"])
-
+            
     def deactivate_stock_item(self):
         from .models import StockInventory
 
         # Delete all inventory lines (in case item is in multiple stocks)
         StockInventory.objects.filter(item=self).delete()
-        self.quantity = 0
         self.active_stock_item = False
-        self.save(update_fields=["quantity", "active_stock_item"])
+        self.save(update_fields=["active_stock_item"])  # No quantity update here
 
 class Stock(models.Model):
     hotel= models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='stocks')

@@ -24,6 +24,11 @@ class Staff(models.Model):
         ('housekeeping_attendant', 'Housekeeping Attendant'),
         ('manager', 'Manager'),
         ('technician', 'Technician'),
+        ('security', 'Security'),
+        ('concierge', 'Concierge'),
+        ('leisure_staff', 'Leisure Staff'),
+        ('maintenance_staff', 'Maintenance Staff'),
+        ('other', 'Other'),
     ]
     ACCESS_LEVEL_CHOICES = [
         ('staff_admin', 'Staff Admin'),
@@ -35,7 +40,6 @@ class Staff(models.Model):
     last_name = models.CharField(max_length=100)
     department = models.CharField(max_length=20, choices=DEPARTMENT_CHOICES)
     role = models.CharField(max_length=50, choices=ROLE_CHOICES, null=True, blank=True)
-    position = models.CharField(max_length=100, blank=True, null=True)
     access_level = models.CharField(max_length=20, choices=ACCESS_LEVEL_CHOICES, default='regular_staff')
     email = models.EmailField(unique=True, null=True, blank=True)
     phone_number = models.CharField(max_length=15, null=True, blank=True)

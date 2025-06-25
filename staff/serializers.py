@@ -14,7 +14,6 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
             'last_name',
             'department',
             'role',
-            'position',
             'email',
             'phone_number',
             'is_active',
@@ -65,7 +64,7 @@ class UserSerializer(serializers.ModelSerializer):
 class StaffSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
-    access_level = serializers.CharField()  
+    access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES) 
 
     class Meta:
         model = Staff
@@ -76,7 +75,6 @@ class StaffSerializer(serializers.ModelSerializer):
             'last_name',
             'department',
             'role',
-            'position',
             'email',
             'phone_number',
             'is_active',
