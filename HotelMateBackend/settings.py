@@ -156,6 +156,8 @@ CORS_ALLOWED_ORIGINS = [
     "https://dashing-klepon-d9f0c6.netlify.app",
     "https://hotel-porter-d25ad83b12cf.herokuapp.com",
     "http://localhost:5173",
+    "https://hotelsmates.com",
+    "https://www.hotelsmates.com",
 ]
 CORS_ALLOW_METHODS = [
     "DELETE",
