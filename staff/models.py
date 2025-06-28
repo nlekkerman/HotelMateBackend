@@ -19,6 +19,7 @@ class Staff(models.Model):
         ('porter', 'Porter'),
         ('receptionist', 'Receptionist'),
         ('waiter', 'Waiter'),
+        ('bartender', 'Bartender'),
         ('chef', 'Chef'),
         ('supervisor', 'Supervisor'),
         ('housekeeping_attendant', 'Housekeeping Attendant'),

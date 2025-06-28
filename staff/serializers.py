@@ -86,8 +86,12 @@ class StaffSerializer(serializers.ModelSerializer):
         ]
 
     def create(self, validated_data):
-        user_data = validated_data.pop('user')
-        user = UserSerializer().create(user_data)
+        user_data = validated_data.pop('user', None)
+        if user_data:
+            user = UserSerializer().create(user_data)
+        else:
+            raise serializers.ValidationError({'user': 'User data is required to create staff.'})
+        
         staff = Staff.objects.create(user=user, **validated_data)
         return staff
 
@@ -117,3 +121,43 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     is_staff = serializers.BooleanField()
     is_superuser = serializers.BooleanField()
     access_level = serializers.CharField(allow_null=True, required=False)
+    hotel = serializers.DictField(required=False)
+    
+class RegisterStaffSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(write_only=True)
+    hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
+    hotel_name = serializers.CharField(source='hotel.name', read_only=True)
+    access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
+    user = UserSerializer(read_only=True)
+
+    class Meta:
+        model = Staff
+        fields = [
+            'id',
+            'user_id',
+            'user',
+            'first_name',
+            'last_name',
+            'department',
+            'role',
+            'email',
+            'phone_number',
+            'is_active',
+            'is_on_duty',
+            'hotel',
+            'access_level',
+            'hotel_name',
+        ]
+
+    def create(self, validated_data):
+        user_id = validated_data.pop('user_id')
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            raise serializers.ValidationError({'user_id': 'User not found.'})
+
+        if Staff.objects.filter(user=user).exists():
+            raise serializers.ValidationError({'user_id': 'Staff already exists for this user.'})
+
+        staff = Staff.objects.create(user=user, **validated_data)
+        return staff

@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Staff
-from .serializers import StaffSerializer, UserSerializer, StaffLoginOutputSerializer, StaffLoginInputSerializer
+from .serializers import StaffSerializer, UserSerializer, StaffLoginOutputSerializer, StaffLoginInputSerializer, RegisterStaffSerializer
 from rest_framework.decorators import action
 from django.urls import reverse
 from hotel.models import Hotel
@@ -53,6 +53,11 @@ class CustomAuthToken(ObtainAuthToken):
             'hotel_id': hotel_id,
             'hotel_name': hotel_name,
             'hotel_slug': hotel_slug,
+            'hotel': {  # 👈 Add this nested hotel object
+                'id': hotel_id,
+                'name': hotel_name,
+                'slug': hotel_slug,
+            },
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
             'access_level': access_level,
@@ -106,83 +111,20 @@ class StaffViewSet(viewsets.ModelViewSet):
         return [permission() for permission in permission_classes]
     
     def create(self, request, *args, **kwargs):
-        user_id = request.data.get("user_id")
-        hotel_id = request.data.get("hotel")
-        if not user_id:
-            return Response(
-                {"user_id": "User ID is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        serializer = RegisterStaffSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        staff = serializer.save()
 
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response(
-                {"user_id": "User not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Check if staff already exists for this user
-        if hasattr(user, "staff_profile"):
-            return Response(
-                {"detail": "Staff profile for this user already exists."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not hotel_id:
-            return Response(
-                {"hotel": "Hotel ID is required."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        try:
-            hotel = Hotel.objects.get(id=hotel_id)
-        except Hotel.DoesNotExist:
-            return Response(
-                {"hotel": "Hotel not found."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # Extract other staff data from request.data
-        first_name = request.data.get("first_name", "")
-        last_name = request.data.get("last_name", "")
-        department = request.data.get("department", "")
-        role = request.data.get("role", None)
-        email = request.data.get("email", user.email)
-        phone_number = request.data.get("phone_number", None)
-        is_active = request.data.get("is_active", True)
-
-        # Create Staff linked to user
-        staff = Staff.objects.create(
-            user=user,
-            hotel=hotel,
-            first_name=first_name,
-            last_name=last_name,
-            department=department,
-            role=role,
-            email=email,
-            phone_number=phone_number,
-            is_active=is_active,
-        )
-
-        # Optionally update user flags
-        is_staff_flag = request.data.get("is_staff")
-        is_superuser_flag = request.data.get("is_superuser")
-        if is_staff_flag is not None:
-            user.is_staff = is_staff_flag
-        if is_superuser_flag is not None:
-            user.is_superuser = is_superuser_flag
+    # Optional: update user flags here if you still want that in view
+        user = staff.user
+        if "is_staff" in request.data:
+            user.is_staff = request.data["is_staff"]
+        if "is_superuser" in request.data:
+            user.is_superuser = request.data["is_superuser"]
         user.save()
 
-        serializer = self.get_serializer(staff)
-        staff_detail_url = reverse("staff-detail", kwargs={"pk": staff.pk})
-
-        data = serializer.data
-        data["url"] = staff_detail_url
-        data["id"] = staff.id
-
-        return Response(data, status=status.HTTP_201_CREATED)
-
+        return Response(self.get_serializer(staff).data, status=status.HTTP_201_CREATED)
+    
     @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
     def me(self, request):
         """
