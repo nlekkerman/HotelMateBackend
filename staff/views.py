@@ -26,41 +26,26 @@ class UserListAPIView(generics.ListAPIView):
         print("Authenticated user:", self.request.user)
         return super().get_queryset()
 
-
 class CustomAuthToken(ObtainAuthToken):
     def post(self, request, *args, **kwargs):
-        print("Login POST data:", request.data)
-
-        # Validate input explicitly:
         input_serializer = StaffLoginInputSerializer(data=request.data)
         if not input_serializer.is_valid():
-            print("Input validation errors:", input_serializer.errors)
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        # Now proceed with normal token authentication
         response = super().post(request, *args, **kwargs)
-        print("Response data from ObtainAuthToken:", response.data)
-
         token_key = response.data.get('token')
         if not token_key:
-            # No token, login failed
-            print("Login failed: No token returned")
             return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
 
         token = Token.objects.get(key=token_key)
         user = token.user
-        print("Authenticated user:", user.username, "ID:", user.id)
 
+        # Optional staff info (if exists)
         staff = Staff.objects.filter(user=user).first()
-        print("Staff object:", staff)
-
         hotel_id = staff.hotel.id if staff and staff.hotel else None
         hotel_name = staff.hotel.name if staff and staff.hotel else None
         hotel_slug = staff.hotel.slug if staff and staff.hotel else None
-
-        print("Hotel ID:", hotel_id)
-        print("Hotel Name:", hotel_name)
-        print("Hotel Name:", hotel_slug)
+        access_level = staff.access_level if staff else None
 
         data = {
             'token': token.key,
@@ -70,12 +55,11 @@ class CustomAuthToken(ObtainAuthToken):
             'hotel_slug': hotel_slug,
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
-            'access_level': staff.access_level if staff else None,
+            'access_level': access_level,
         }
 
         output_serializer = StaffLoginOutputSerializer(data=data)
         output_serializer.is_valid(raise_exception=True)
-        print("Serialized output data:", output_serializer.data)
 
         return Response(output_serializer.data)
 
@@ -220,59 +204,20 @@ class StaffRegisterAPIView(APIView):
 
     def post(self, request):
         data = request.data
+        username = data.get('username')
+        password = data.get('password')
 
-        # Instead of user_data with username/password, get existing user id or username
-        user_id = data.get('user_id')
-        if not user_id:
-            return Response({'error': 'user_id is required.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not username or not password:
+            return Response({'error': 'Username and password are required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            user = User.objects.get(id=user_id)
-        except User.DoesNotExist:
-            return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        if User.objects.filter(username=username).exists():
+            return Response({'error': 'Username already exists.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        hotel_id = request.headers.get("X-Hotel-ID")
-        if not hotel_id:
-            return Response({'error': 'Hotel ID is required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            hotel = Hotel.objects.get(id=hotel_id)
-        except Hotel.DoesNotExist:
-            return Response({'error': 'Hotel not found.'}, status=status.HTTP_404_NOT_FOUND)
-
-        # Check if staff for this user already exists
-        if Staff.objects.filter(user=user).exists():
-            return Response({'error': 'Staff profile already exists for this user.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        with transaction.atomic():
-            staff = Staff.objects.create(
-                user=user,
-                hotel=hotel,
-                first_name=data.get('first_name', ''),
-                last_name=data.get('last_name', ''),
-                department=data.get('department', ''),
-                role=data.get('role', None),
-                email=data.get('email', None),
-                access_level=data.get('access_level', 'regular_staff'),
-                phone_number=data.get('phone_number', None),
-                is_active=data.get('is_active', True),
-                is_on_duty=data.get('is_on_duty', False),
-            )
-
+        user = User.objects.create_user(username=username, password=password)
         token, _ = Token.objects.get_or_create(user=user)
 
         return Response({
-            'staff_id': staff.id,
             'user_id': user.id,
-            'token': token.key,
             'username': user.username,
-            'hotel': {'id': hotel.id, 'name': hotel.name},
-            'first_name': staff.first_name,
-            'last_name': staff.last_name,
-            'department': staff.department,
-            'role': staff.role,
-            'email': staff.email,
-            'phone_number': staff.phone_number,
-            'is_active': staff.is_active,
+            'token': token.key,
         }, status=status.HTTP_201_CREATED)
-
