@@ -50,6 +50,11 @@ class CustomAuthToken(ObtainAuthToken):
         fcm_token = request.data.get("fcm_token")
         if staff and fcm_token:
             from .models import StaffFCMToken
+
+            # Remove this token if already tied to a different staff
+            StaffFCMToken.objects.filter(token=fcm_token).exclude(staff=staff).delete()
+
+            # Now create or update it safely
             StaffFCMToken.objects.update_or_create(
                 staff=staff,
                 token=fcm_token,

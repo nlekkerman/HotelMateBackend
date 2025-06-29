@@ -70,6 +70,7 @@ def send_fcm_data_message(token: str, data: dict):
     }
     return _post_fcm({"message": msg})
 
+
 def notify_porters_of_room_service_order(order):
     porters = (
         Staff.objects
@@ -78,30 +79,39 @@ def notify_porters_of_room_service_order(order):
             role="porter",
             is_active=True,
             is_on_duty=True,
+            fcm_tokens__token__isnull=False
         )
-        .exclude(fcm_token__in=[None, ""])
+        .exclude(fcm_tokens__token="")
+        .distinct()
     )
-    for p in porters:
-        send_fcm_v1_notification(
-            p.fcm_token,
-            title="New Room Service Order",
-            body=f"Room {order.room_number}: Total €{order.total_price:.2f}",
-            data={"order_id": str(order.id), "type": "room_service"},
-        )
+
+    for porter in porters:
+        tokens = porter.fcm_tokens.values_list("token", flat=True)
+        for token in tokens:
+            send_fcm_v1_notification(
+                token,
+                title="New Room Service Order",
+                body=f"Room {order.room_number}: Total €{order.total_price:.2f}",
+                data={"order_id": str(order.id), "type": "room_service"},
+            )
 
 def notify_porters_order_count(hotel):
     pending = hotel.order_set.filter(status="pending").count()
-    tokens = (
+    data = {"type": "order_count", "count": str(pending)}
+
+    porters = (
         Staff.objects
         .filter(
             hotel=hotel,
             role="porter",
             is_active=True,
             is_on_duty=True,
+            fcm_tokens__isnull=False
         )
-        .exclude(fcm_token__in=[None, ""])
-        .values_list("fcm_token", flat=True)
+        .distinct()
     )
-    data = {"type": "order_count", "count": str(pending)}
-    for t in tokens:
-        send_fcm_data_message(t, data)
+
+    for porter in porters:
+        tokens = porter.fcm_tokens.values_list("token", flat=True)
+        for t in tokens:
+            send_fcm_data_message(t, data)

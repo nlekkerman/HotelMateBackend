@@ -63,6 +63,8 @@ def _send_fcm_message(token: str, title: str, body: str, data: dict = None):
     except requests.exceptions.RequestException as e:
         logger.error(f"[FCM] Notification failed: {e}")
         return None
+
+
 def notify_super_admins_about_stock_movement(summary: str, hotel):
     print("[Stock Alert] Preparing to notify super staff admins about stock movement...")
 
@@ -72,7 +74,9 @@ def notify_super_admins_about_stock_movement(summary: str, hotel):
             hotel=hotel,
             access_level='super_staff_admin',
             is_active=True,
+            fcm_tokens__isnull=False
         )
+        .distinct()
     )
 
     print(f"[Stock Alert] Found {super_admins.count()} eligible super admins.")
