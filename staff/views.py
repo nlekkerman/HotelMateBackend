@@ -46,6 +46,15 @@ class CustomAuthToken(ObtainAuthToken):
         hotel_name = staff.hotel.name if staff and staff.hotel else None
         hotel_slug = staff.hotel.slug if staff and staff.hotel else None
         access_level = staff.access_level if staff else None
+        
+        fcm_token = request.data.get("fcm_token")
+        if staff and fcm_token:
+            from .models import StaffFCMToken
+            StaffFCMToken.objects.update_or_create(
+                staff=staff,
+                token=fcm_token,
+                defaults={'staff': staff},
+            )
 
         data = {
             'token': token.key,

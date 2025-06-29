@@ -180,7 +180,7 @@ class StockMovementViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], url_path=r'bulk/')
     def bulk_stock_action(self, request, hotel_slug):
         transactions = request.data.get('transactions', [])
-        movements = []
+        created_movements = []
         low_stock_items = []
 
         for t in transactions:
@@ -188,19 +188,18 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             inventory = get_object_or_404(StockInventory, item=item, stock__hotel__slug=hotel_slug)
 
             qty_change = Decimal(t['qty']) if t['direction'] == 'in' else -Decimal(t['qty'])
-           
+
             inventory.quantity += qty_change
             inventory.save()
 
-            # Also update total item quantity if needed
             item.quantity += qty_change
             item.save()
 
-            # Check for low stock
             if item.quantity < item.alert_quantity:
                 low_stock_items.append(item)
 
-            movement = StockMovement(
+            # This will trigger the post_save signal
+            movement = StockMovement.objects.create(
                 hotel=inventory.stock.hotel,
                 stock=inventory.stock,
                 item=item,
@@ -208,13 +207,10 @@ class StockMovementViewSet(viewsets.ModelViewSet):
                 direction=t['direction'],
                 quantity=Decimal(t['qty'])
             )
-            movements.append(movement)
+            created_movements.append(movement)
 
-        for m in movements:
-            m.save()
-        
         return Response({
-            "movements": StockMovementSerializer(movements, many=True).data,
+            "movements": StockMovementSerializer(created_movements, many=True).data,
             "low_stock_alerts": StockItemSerializer(low_stock_items, many=True).data
         }, status=status.HTTP_201_CREATED)
-        
+

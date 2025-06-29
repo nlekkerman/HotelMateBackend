@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Staff
+from .models import Staff, StaffFCMToken
 from hotel.serializers import HotelSerializer
 from hotel.models import Hotel
 
@@ -61,11 +61,19 @@ class UserSerializer(serializers.ModelSerializer):
         instance.save()
         return instance
 
+class StaffFCMTokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StaffFCMToken
+        fields = ['token', 'created_at', 'last_used_at']
+        read_only_fields = ['created_at', 'last_used_at']
+
+
 class StaffSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
     hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
-    access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES) 
+    access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
+    fcm_tokens = StaffFCMTokenSerializer(source='fcm_tokens.all', many=True, read_only=True)
 
     class Meta:
         model = Staff
@@ -83,6 +91,8 @@ class StaffSerializer(serializers.ModelSerializer):
             'hotel',
             'access_level',
             'hotel_name',
+            'fcm_tokens'
+            
         ]
 
     def create(self, validated_data):
@@ -129,6 +139,7 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
     user = UserSerializer(read_only=True)
+    fcm_tokens = StaffFCMTokenSerializer(source='fcm_tokens.all', many=True, read_only=True)
 
     class Meta:
         model = Staff
@@ -147,6 +158,7 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
             'hotel',
             'access_level',
             'hotel_name',
+            'fcm_tokens'
         ]
 
     def create(self, validated_data):
@@ -161,3 +173,4 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
 
         staff = Staff.objects.create(user=user, **validated_data)
         return staff
+

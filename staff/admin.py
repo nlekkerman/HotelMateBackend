@@ -1,61 +1,66 @@
 from django.contrib import admin
-from .models import Staff
+from .models import Staff, StaffFCMToken
+
+class StaffFCMTokenInline(admin.TabularInline):
+    model = StaffFCMToken
+    extra = 0
+    readonly_fields = ('token', 'created_at', 'last_used_at')
+    can_delete = True
 
 @admin.register(Staff)
 class StaffAdmin(admin.ModelAdmin):
     list_display = (
         'user',
-        'hotel',          # show hotel in list
-        'first_name', 
-        'last_name', 
-        'department', 
-        'role', 
-        'access_level',   # added access level
-        'email', 
-        'phone_number', 
+        'hotel',
+        'first_name',
+        'last_name',
+        'department',
+        'role',
+        'access_level',
+        'email',
+        'phone_number',
         'is_active',
         'is_on_duty',
-        'fcm_token',      # show FCM token
     )
     list_filter = (
-        'hotel',          # filter by hotel
-        'department', 
-        'role', 
-        'access_level',   # added access level filter
+        'hotel',
+        'department',
+        'role',
+        'access_level',
         'is_active',
         'is_on_duty',
     )
     search_fields = (
-        'first_name', 
-        'last_name', 
-        'email', 
-        'phone_number', 
+        'first_name',
+        'last_name',
+        'email',
+        'phone_number',
         'user__username',
-        'fcm_token',
     )
     ordering = (
-        'hotel',          # order by hotel too
-        'department', 
-        'last_name'
+        'hotel',
+        'department',
+        'last_name',
     )
-    readonly_fields = ['fcm_token'] 
     list_editable = (
-        'is_active', 
+        'is_active',
         'role',
-        'access_level',   # added access level editable
+        'access_level',
         'is_on_duty',
     )
 
     fieldsets = (
         (None, {
             'fields': (
-                ('user', 'hotel', 'first_name', 'last_name'),  # grouped fields for clarity
+                ('user', 'hotel', 'first_name', 'last_name'),
                 ('email', 'phone_number'),
-                ('department', 'role', 'access_level'),  # added access level here
+                ('department', 'role', 'access_level'),
                 'is_active', 'is_on_duty'
             )
         }),
     )
+
+    inlines = [StaffFCMTokenInline]
 
     actions = ['mark_as_inactive', 'mark_as_on_duty', 'mark_as_off_duty']
 
@@ -64,14 +69,12 @@ class StaffAdmin(admin.ModelAdmin):
         if request.user.is_superuser:
             return qs
         hotel = getattr(request, 'hotel', None)
-        if hotel:
-            return qs.filter(hotel=hotel)
-        return qs.none()
+        return qs.filter(hotel=hotel) if hotel else qs.none()
 
     @admin.action(description="Mark selected staff as inactive")
     def mark_as_inactive(self, request, queryset):
         queryset.update(is_active=False)
-    
+
     @admin.action(description="Mark selected staff as ON duty")
     def mark_as_on_duty(self, request, queryset):
         queryset.update(is_on_duty=True)

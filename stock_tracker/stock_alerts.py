@@ -26,11 +26,13 @@ def get_access_token():
         with open(key_path, "r", encoding="utf-8") as f:
             info = json.load(f)
 
+    print("[DEBUG] Firebase service account project ID:", info.get("project_id"))
     creds = service_account.Credentials.from_service_account_info(
         info,
         scopes=["https://www.googleapis.com/auth/firebase.messaging"],
     )
     creds.refresh(Request())
+    print("[DEBUG] Access token prefix:", creds.token[:20])
     return creds.token
 
 def _send_fcm_message(token: str, title: str, body: str, data: dict = None):
@@ -51,15 +53,16 @@ def _send_fcm_message(token: str, title: str, body: str, data: dict = None):
         message["data"] = data
 
     payload = {"message": message}
+    print("[DEBUG] Payload:", json.dumps(payload))
 
     try:
         response = requests.post(url, headers=headers, json=payload)
+        print(f"[DEBUG] Response Status Code: {response.status_code}")
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
         logger.error(f"[FCM] Notification failed: {e}")
         return None
-
 def notify_super_admins_about_stock_movement(summary: str, hotel):
     print("[Stock Alert] Preparing to notify super staff admins about stock movement...")
 
@@ -70,24 +73,25 @@ def notify_super_admins_about_stock_movement(summary: str, hotel):
             access_level='super_staff_admin',
             is_active=True,
         )
-        .exclude(fcm_token__in=[None, "", " "])
     )
 
     print(f"[Stock Alert] Found {super_admins.count()} eligible super admins.")
 
     for admin in super_admins:
-        token = admin.fcm_token
-        print(f"[DEBUG] Admin: {admin.email}, Token: {repr(token)}")
-        token_preview = token[:10] + "..." if token else "No Token"
-        print(f"[Stock Alert] Sending FCM to: {admin.email} ({token_preview})")
+        tokens = admin.fcm_tokens.values_list('token', flat=True)
+        for token in tokens:
+            print(f"[DEBUG] Admin: {admin.email}, Token: {repr(token)}")
+            token_preview = token[:10] + "..." if token else "No Token"
+            print(f"[Stock Alert] Sending FCM to: {admin.email} ({token_preview})")
 
-        result = _send_fcm_message(
-            token=token,
-            title="📦 Stock Movement Logged",
-            body=summary,
-            data={"type": "stock_movement"}
-        )
-        if result:
-            print(f"[Stock Alert] Notification sent successfully to {admin.email}")
-        else:
-            print(f"[Stock Alert] Failed to notify {admin.email}")
+            result = _send_fcm_message(
+                token=token,
+                title="📦 Stock Movement Logged",
+                body=summary,
+                data={"type": "stock_movement"}
+            )
+
+            if result:
+                print(f"[Stock Alert] Notification sent successfully to {admin.email}")
+            else:
+                print(f"[Stock Alert] Failed to notify {admin.email}")
