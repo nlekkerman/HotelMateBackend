@@ -40,8 +40,8 @@ class Room(models.Model):
         hotel_identifier = self.hotel.slug if self.hotel.slug else str(self.hotel.id)
 
         path_map = {
-            "room_service": f"https://dashing-klepon-d9f0c6.netlify.app/room_services/{hotel_identifier}/room/{self.room_number}/menu/",
-            "in_room_breakfast": f"https://dashing-klepon-d9f0c6.netlify.app/room_services/{hotel_identifier}/room/{self.room_number}/breakfast/",
+            "room_service": f"https://hotelsmates.com/room_services/{hotel_identifier}/room/{self.room_number}/menu/",
+            "in_room_breakfast": f"https://hotelsmates.com/room_services/{hotel_identifier}/room/{self.room_number}/breakfast/",
         }
 
         qr_field_map = {
@@ -76,7 +76,7 @@ class Room(models.Model):
         hotel_slug = self.hotel.slug or str(self.hotel.id)
         restaurant_slug = restaurant.slug
 
-        url = f"https://dashing-klepon-d9f0c6.netlify.app/guest-booking/{hotel_slug}/restaurant/{restaurant_slug}/room/{self.room_number}/"
+        url = f"https://hotelsmates.com/guest-booking/{hotel_slug}/restaurant/{restaurant_slug}/room/{self.room_number}/"
 
         qr = qrcode.make(url)
         img_io = BytesIO()

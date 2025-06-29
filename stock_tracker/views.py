@@ -9,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from django.utils.timezone import make_aware
 from datetime import datetime, timedelta
-
+from .stock_alerts import notify_super_admins_about_stock_movement
 
 from .models import StockCategory, StockItem, Stock, StockMovement, StockInventory
 from .serializers import (
@@ -210,8 +210,9 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             )
             movements.append(movement)
 
-        StockMovement.objects.bulk_create(movements)
-
+        for m in movements:
+            m.save()
+        
         return Response({
             "movements": StockMovementSerializer(movements, many=True).data,
             "low_stock_alerts": StockItemSerializer(low_stock_items, many=True).data
