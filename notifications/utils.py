@@ -53,32 +53,13 @@ def _post_fcm(payload: dict):
 def send_fcm_v1_notification(token: str, title: str, body: str, data: dict = None):
     msg = {
         "token": token,
-        "notification": {
-            "title": title,
-            "body": body,
-            "icon": "https://hotel-porter-d25ad83b12cf.herokuapp.com/static/notifications-icon.png",  # 👈 full URL to icon
-        },
-        "android": {
-            "priority": "high",
-            "notification": {
-                "icon": "notifications-icon"  # icon name without file extension (used if on Android native app)
-            }
-        },
-        "apns": {
-            "payload": {
-                "aps": {
-                    "sound": "default"
-                }
-            }
-        },
+        "notification": {"title": title, "body": body},
+        "android": {"priority": "high"},
+        "apns": {"payload": {"aps": {"sound": "default"}}},
     }
-
     if data:
         msg["data"] = data
-
     return _post_fcm({"message": msg})
-
-
 
 def send_fcm_data_message(token: str, data: dict):
     msg = {
