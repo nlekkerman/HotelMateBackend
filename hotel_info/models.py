@@ -65,6 +65,8 @@ class CategoryQRCode(models.Model):
         )
         self.qr_url = upload.get('secure_url')
         self.generated_at = timezone.now()
+        self.save()
+        return True
 
 
 class HotelInfo(models.Model):

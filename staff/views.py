@@ -4,17 +4,18 @@ from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.contrib.auth.models import User
-from django_filters.rest_framework import DjangoFilterBackend
 from .models import Staff
 from .serializers import StaffSerializer, UserSerializer, StaffLoginOutputSerializer, StaffLoginInputSerializer, RegisterStaffSerializer
 from rest_framework.decorators import action
-from django.urls import reverse
-from hotel.models import Hotel
-from django.db import transaction
-from staff.permissions import IsSameHotelOrAdmin
-
 
 from staff.permissions import IsSameHotelOrAdmin
+from staff.permissions import IsSameHotelOrAdmin
+
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.core.mail import send_mail
+from django.conf import settings
 
 
 class UserListAPIView(generics.ListAPIView):
@@ -177,3 +178,59 @@ class StaffRegisterAPIView(APIView):
             'username': user.username,
             'token': token.key,
         }, status=status.HTTP_201_CREATED)
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        frontend_base_url = request.data.get("frontend_base_url")
+
+        if not email or not frontend_base_url:
+            return Response({"error": "Email and frontend_base_url are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            # Return a generic response either way
+            return Response({"message": "If this email exists, a reset link has been sent."}, status=status.HTTP_200_OK)
+
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        reset_url = f"{frontend_base_url}/reset-password/{uid}/{token}/"
+
+        send_mail(
+            subject="Password Reset Request",
+            message=f"Hello {user.username},\n\nClick below to reset your password:\n{reset_url}",
+            from_email=settings.EMAIL_HOST_USER,
+            recipient_list=[user.email],
+        )
+
+        return Response({"message": "Password reset link sent."})
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        uid = request.data.get("uid")
+        token = request.data.get("token")
+        new_password = request.data.get("password")
+
+        if not all([uid, token, new_password]):
+            return Response({"error": "Missing fields."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=user_id)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({"error": "Invalid user."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not default_token_generator.check_token(user, token):
+            return Response({"error": "Invalid or expired token."}, status=status.HTTP_400_BAD_REQUEST)
+
+        user.set_password(new_password)
+        user.save()
+
+        return Response({"message": "Password reset successful."})

@@ -74,7 +74,8 @@ def notify_super_admins_about_stock_movement(summary: str, hotel):
             hotel=hotel,
             access_level='super_staff_admin',
             is_active=True,
-            fcm_tokens__isnull=False
+            fcm_tokens__isnull=False,
+            is_on_duty=True,
         )
         .distinct()
     )

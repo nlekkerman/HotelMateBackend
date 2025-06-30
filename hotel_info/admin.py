@@ -94,16 +94,24 @@ class CategoryQRCodeAdmin(admin.ModelAdmin):
         successes = 0
         for record in queryset:
             try:
-                if record.generate_qr():
+                result = record.generate_qr()
+                if result:
                     successes += 1
+                else:
+                    self.message_user(
+                        request,
+                        f"generate_qr() returned False for {record}",
+                        level=messages.WARNING
+                    )
             except Exception as e:
                 self.message_user(
                     request,
                     f"Failed for {record.hotel.slug}/{record.category.slug}: {e}",
-                    level=messages.ERROR,  # ← Use messages.ERROR
+                    level=messages.ERROR
                 )
         self.message_user(
             request,
             f"Successfully generated QR for {successes} of {queryset.count()} records.",
-            level=messages.INFO,  # ← Use messages.INFO
+            level=messages.INFO
         )
+
