@@ -13,6 +13,7 @@ apps = [
     'common',
     'notifications',
     'stock_tracker',
+    'ar_navigation',
     
 ]
 
