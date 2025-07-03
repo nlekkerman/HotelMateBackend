@@ -90,3 +90,52 @@ class HotelInfo(models.Model):
 
     def __str__(self):
         return f"{self.category.name} – {self.title}"
+
+
+class GoodToKnowEntry(models.Model):
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='good_to_know_entries')
+    slug = models.SlugField(max_length=50, help_text="Slug for QR access (e.g. 'wifi-password')")
+    title = models.CharField(max_length=200)
+    content = models.TextField()
+    image = CloudinaryField('image', blank=True, null=True)  # Will store QR image ONLY
+    qr_url = models.URLField(blank=True, null=True)
+    generated_at = models.DateTimeField(blank=True, null=True)
+    extra_info = models.JSONField(blank=True, null=True)
+    active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('hotel', 'slug')
+
+    def __str__(self):
+        return f"{self.hotel.slug} / {self.title}"
+
+    def generate_qr(self):
+        import qrcode
+        from io import BytesIO
+        import cloudinary.uploader
+
+        # The URL the QR points to
+        url = f"https://hotelsmates.com/hotel_info/good_to_know/{self.hotel.slug}/{self.slug}"
+        
+        # Create QR image
+        qr = qrcode.make(url)
+        img_io = BytesIO()
+        qr.save(img_io, "PNG")
+        img_io.seek(0)
+
+        # Upload QR image to Cloudinary
+        upload = cloudinary.uploader.upload(
+            img_io,
+            resource_type="image",
+            public_id=f"good_to_know_qr/{self.hotel.slug}_{self.slug}",
+            overwrite=True,
+            invalidate=True,
+        )
+        # Set the QR URL and image field to the uploaded image URL
+        self.qr_url = upload.get("secure_url")
+        self.image = self.qr_url  # Set the image field to the Cloudinary URL of QR
+        self.generated_at = timezone.now()
+        self.save()
+        return True
+

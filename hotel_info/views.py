@@ -1,10 +1,9 @@
 # src/apps/hotel_info/views.py
 
 from rest_framework import viewsets
-from django_filters.rest_framework import DjangoFilterBackend
-from .models import HotelInfo, HotelInfoCategory, CategoryQRCode
-from .serializers import HotelInfoSerializer, HotelInfoCategorySerializer, HotelInfoCreateSerializer
-from rest_framework.decorators import action
+from .models import HotelInfo, HotelInfoCategory, CategoryQRCode, GoodToKnowEntry
+from .serializers import HotelInfoSerializer,HotelInfoCategorySerializer, HotelInfoCreateSerializer, GoodToKnowEntrySerializer
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import generics, permissions
 from rest_framework.views import APIView
@@ -12,6 +11,26 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from hotel.models import Hotel
+from django_filters.rest_framework import DjangoFilterBackend
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def download_all_qrs(request):
+    hotel_slug = request.query_params.get("hotel_slug")
+    if not hotel_slug:
+        return Response({"detail": "hotel_slug is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    qrs = CategoryQRCode.objects.filter(hotel__slug=hotel_slug).select_related("category")
+    data = [
+        {
+            "category": qr.category.name,
+            "category_slug": qr.category.slug,
+            "qr_url": qr.qr_url,
+        }
+        for qr in qrs if qr.qr_url
+    ]
+    return Response(data)
+
 
 class HotelInfoViewSet(viewsets.ModelViewSet):
     queryset = HotelInfo.objects.all()
@@ -132,3 +151,31 @@ class CategoryQRView(APIView):
         qr_obj.generate_qr()
 
         return Response({"qr_url": qr_obj.qr_url}, status=status.HTTP_200_OK)
+
+class GoodToKnowEntryViewSet(viewsets.ModelViewSet):
+    lookup_field = "slug"            # For URL kwarg 'slug'
+    lookup_url_kwarg = "slug"
+    serializer_class = GoodToKnowEntrySerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        queryset = GoodToKnowEntry.objects.all()
+        hotel_slug = self.kwargs.get("hotel_slug")
+        if hotel_slug:
+            queryset = queryset.filter(hotel__slug=hotel_slug)
+        return queryset
+
+    def get_object(self):
+        # Override to fetch object by both hotel_slug and slug
+        queryset = self.filter_queryset(self.get_queryset())
+        hotel_slug = self.kwargs.get("hotel_slug")
+        slug = self.kwargs.get("slug")
+
+        obj = get_object_or_404(queryset, hotel__slug=hotel_slug, slug=slug)
+        self.check_object_permissions(self.request, obj)
+        return obj
+
+    def perform_create(self, serializer):
+        hotel_slug = self.kwargs.get("hotel_slug")
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        serializer.save(hotel=hotel)

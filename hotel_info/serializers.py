@@ -1,11 +1,44 @@
 from rest_framework import serializers
-from .models import HotelInfo, HotelInfoCategory, CategoryQRCode
+from .models import HotelInfo, HotelInfoCategory, CategoryQRCode, GoodToKnowEntry
 from django.utils.text import slugify
 from hotel.models import Hotel
 from cloudinary.uploader import upload as cloudinary_upload
 from django.core.exceptions import ObjectDoesNotExist
 
+class GoodToKnowEntrySerializer(serializers.ModelSerializer):
+    hotel_slug = serializers.SlugField(write_only=True)
+    image = serializers.ImageField(required=False)
 
+    class Meta:
+        model = GoodToKnowEntry
+        fields = [
+            "hotel_slug",
+            "slug",
+            "title",
+            "content",
+            "image",
+            "qr_url",
+            "generated_at",
+            "extra_info",
+            "active",
+            "created_at",
+        ]
+        read_only_fields = ["qr_url", "generated_at", "created_at"]
+
+    def create(self, validated_data):
+        hotel_slug = validated_data.pop("hotel_slug")
+        hotel = Hotel.objects.get(slug=hotel_slug)
+        validated_data["hotel"] = hotel
+
+        # Auto-generate slug from title if not explicitly provided
+        if not validated_data.get("slug") and validated_data.get("title"):
+            validated_data["slug"] = slugify(validated_data["title"])
+
+        instance = super().create(validated_data)
+        instance.generate_qr()
+        return instance
+
+   
 class HotelInfoCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = HotelInfoCategory

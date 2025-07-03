@@ -2,7 +2,7 @@
 
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import HotelInfoCategory, HotelInfo, CategoryQRCode
+from .models import HotelInfoCategory, HotelInfo, CategoryQRCode, GoodToKnowEntry
 from django.contrib import messages 
 
 @admin.register(HotelInfoCategory)
@@ -114,4 +114,59 @@ class CategoryQRCodeAdmin(admin.ModelAdmin):
             f"Successfully generated QR for {successes} of {queryset.count()} records.",
             level=messages.INFO
         )
+
+@admin.register(GoodToKnowEntry)
+class GoodToKnowEntryAdmin(admin.ModelAdmin):
+    list_display = ("title", "hotel", "slug", "active", "created_at", "image_thumbnail", "qr_preview")
+    list_filter = ("hotel", "active")
+    readonly_fields = ("created_at", "qr_url", "generated_at", "image_preview")
+    actions = ["generate_qr_for_selected"]
+
+    fieldsets = (
+        (None, {
+            'fields': (
+                "hotel", "slug", "title", "content", "image",
+                "extra_info", "active"
+            )
+        }),
+        ("QR & Metadata", {
+            'fields': ("qr_url", "generated_at", "image_preview", "created_at"),
+            'classes': ("collapse",),
+        }),
+    )
+
+    def image_thumbnail(self, obj):
+        url = getattr(obj.image, 'url', obj.image)  # If obj.image is URL string, fallback to it
+        if url:
+            return format_html('<img src="{}" style="max-height:50px;" />', url)
+        return "-"
+    
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html(
+                '<img src="{}" style="max-height:200px;" />',
+                obj.image.url
+            )
+        return "No image"
+    image_preview.short_description = "Image Preview"
+
+    def qr_preview(self, obj):
+        if obj.qr_url:
+            return format_html(
+                '<img src="{}" style="max-height:80px;" />',
+                obj.qr_url
+            )
+        return "-"
+    qr_preview.short_description = "QR Code"
+
+    def generate_qr_for_selected(self, request, queryset):
+        count = 0
+        for obj in queryset:
+            try:
+                if obj.generate_qr():
+                    count += 1
+            except Exception as e:
+                self.message_user(request, f"⚠️ Failed to generate QR for {obj}: {e}", level=messages.ERROR)
+        self.message_user(request, f"🎉 Generated QR for {count} of {queryset.count()} entries.", level=messages.SUCCESS)
+
 
