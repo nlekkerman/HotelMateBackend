@@ -106,6 +106,7 @@ class BreakfastItem(models.Model):
 class BreakfastOrder(models.Model):
     STATUS_CHOICES = [
         ('pending', 'Pending'),
+        ('accepted', 'Accepted'),
         ('completed', 'Completed'),
     ]
     TIME_SLOT_CHOICES = [

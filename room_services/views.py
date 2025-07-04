@@ -94,7 +94,10 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        queryset = BreakfastOrder.objects.filter(hotel=hotel)
+        queryset = BreakfastOrder.objects.filter(
+            hotel=hotel,
+            status__in=["pending", "accepted"]
+        )
         
         room_number = self.request.query_params.get('room_number')
         if room_number:
@@ -112,10 +115,32 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
         hotel = self.get_serializer_context()['hotel']
         serializer.save(hotel=hotel)
     
-    @action(detail=False, methods=["get"], url_path="pending-count")
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        new_status = request.data.get("status")
+
+        valid_transitions = {
+            "pending": ["accepted"],
+            "accepted": ["completed"],
+            "completed": [],  # no further change allowed
+        }
+
+        if new_status and new_status != instance.status:
+            allowed = valid_transitions.get(instance.status, [])
+            if new_status not in allowed:
+                return Response(
+                    {"error": f"Invalid status transition from '{instance.status}' to '{new_status}'."},
+                    status=400
+                )
+
+        return super().partial_update(request, *args, **kwargs)
+
+    
+    @action(detail=False, methods=["get"], url_path="breakfast-pending-count")
     def pending_count(self, request, hotel_slug=None):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         count = BreakfastOrder.objects.filter(hotel=hotel, status="pending").count()
+        print("Breakfast pending orders:", BreakfastOrder.objects.filter(hotel=hotel).values_list("id", "status"))
         return Response({"count": count})
 
 @api_view(['POST'])

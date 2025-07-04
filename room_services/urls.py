@@ -51,5 +51,5 @@ urlpatterns = [
     path('<str:hotel_slug>/breakfast-orders/', breakfast_order_list, name='breakfastorder-list'),
     path('<str:hotel_slug>/breakfast-orders/<int:pk>/', breakfast_order_detail, name='breakfastorder-detail'),
     path('<str:hotel_slug>/orders/pending-count/', order_pending_count, name='hotel-order-pending-count'),
-    path('<str:hotel_slug>/breakfast-orders/pending-count/', breakfast_order_pending_count, name='breakfastorder-pending-count'),
+    path('<str:hotel_slug>/breakfast-orders/breakfast-pending-count/', breakfast_order_pending_count, name='breakfastorder-pending-count'),
 ]
