@@ -116,7 +116,7 @@ class GoodToKnowEntry(models.Model):
         import cloudinary.uploader
 
         # The URL the QR points to
-        url = f"https://hotelsmates.com/hotel_info/good_to_know/{self.hotel.slug}/{self.slug}"
+        url = f"https://hotelsmates.com/good_to_know/{self.hotel.slug}/{self.slug}"
         
         # Create QR image
         qr = qrcode.make(url)

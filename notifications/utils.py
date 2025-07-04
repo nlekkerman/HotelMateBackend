@@ -115,3 +115,50 @@ def notify_porters_order_count(hotel):
         tokens = porter.fcm_tokens.values_list("token", flat=True)
         for t in tokens:
             send_fcm_data_message(t, data)
+
+
+def notify_porters_of_breakfast_order(order):
+    porters = (
+        Staff.objects
+        .filter(
+            hotel=order.hotel,
+            role="porter",
+            is_active=True,
+            is_on_duty=True,
+            fcm_tokens__token__isnull=False
+        )
+        .exclude(fcm_tokens__token="")
+        .distinct()
+    )
+
+    for porter in porters:
+        tokens = porter.fcm_tokens.values_list("token", flat=True)
+        for token in tokens:
+            send_fcm_v1_notification(
+                token,
+                title="New Breakfast Order",
+                body=f"Room {order.room_number}",
+                data={"order_id": str(order.id), "type": "breakfast"},
+            )
+
+def notify_porters_breakfast_count(hotel):
+    from room_services.models import BreakfastOrder  # or adjust import path
+    pending = BreakfastOrder.objects.filter(hotel=hotel, status="pending").count()
+    data = {"type": "breakfast_count", "count": str(pending)}
+
+    porters = (
+        Staff.objects
+        .filter(
+            hotel=hotel,
+            role="porter",
+            is_active=True,
+            is_on_duty=True,
+            fcm_tokens__isnull=False
+        )
+        .distinct()
+    )
+
+    for porter in porters:
+        tokens = porter.fcm_tokens.values_list("token", flat=True)
+        for t in tokens:
+            send_fcm_data_message(t, data)

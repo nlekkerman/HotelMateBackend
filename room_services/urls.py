@@ -11,6 +11,10 @@ from .views import (
 order_pending_count = OrderViewSet.as_view({
     'get': 'pending_count'
 })
+
+breakfast_order_pending_count = BreakfastOrderViewSet.as_view({
+    'get': 'pending_count'
+})
 # Hotel-scoped room-service orders:
 order_list = OrderViewSet.as_view({
     'get': 'list','post': 'create'
@@ -46,5 +50,6 @@ urlpatterns = [
     path('<str:hotel_slug>/room/<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
     path('<str:hotel_slug>/breakfast-orders/', breakfast_order_list, name='breakfastorder-list'),
     path('<str:hotel_slug>/breakfast-orders/<int:pk>/', breakfast_order_detail, name='breakfastorder-detail'),
-    path('<str:hotel_slug>/orders/pending-count/', order_pending_count, name='hotel-order-pending-count')
+    path('<str:hotel_slug>/orders/pending-count/', order_pending_count, name='hotel-order-pending-count'),
+    path('<str:hotel_slug>/breakfast-orders/pending-count/', breakfast_order_pending_count, name='breakfastorder-pending-count'),
 ]

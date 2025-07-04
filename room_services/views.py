@@ -111,6 +111,12 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         hotel = self.get_serializer_context()['hotel']
         serializer.save(hotel=hotel)
+    
+    @action(detail=False, methods=["get"], url_path="pending-count")
+    def pending_count(self, request, hotel_slug=None):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        count = BreakfastOrder.objects.filter(hotel=hotel, status="pending").count()
+        return Response({"count": count})
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
