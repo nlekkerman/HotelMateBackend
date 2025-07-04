@@ -10,6 +10,8 @@ from .models import Restaurant, BookingSubcategory
 from hotel.models import Hotel
 from rooms.models import Room
 from .serializers import BookingCreateSerializer
+from django.utils import timezone
+today = timezone.localdate()
 
 class BookingViewSet(viewsets.ModelViewSet):
     queryset = Booking.objects.select_related('hotel', 'category', 'restaurant').all()
@@ -73,7 +75,7 @@ class GuestDinnerBookingView(APIView):
             )
 
         # Fetch all Booking objects whose category matches “dinner_cat”
-        qs = Booking.objects.filter(category=dinner_cat).select_related(
+        qs = Booking.objects.filter(category=dinner_cat, date__gte=today).select_related(
             "hotel", "category__subcategory", "restaurant", "seats"
         )
         serializer = BookingSerializer(qs, many=True)

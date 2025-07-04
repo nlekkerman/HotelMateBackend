@@ -7,6 +7,7 @@ class GuestSerializer(serializers.ModelSerializer):
     room_number = serializers.IntegerField(source='room.room_number', read_only=True)
     room_label = serializers.SerializerMethodField()
     in_house = serializers.SerializerMethodField()
+    full_name = serializers.SerializerMethodField()  # 👈 Add this line
 
     def get_room_label(self, obj):
         if obj.room and obj.hotel:
@@ -16,12 +17,16 @@ class GuestSerializer(serializers.ModelSerializer):
     def get_in_house(self, obj):
         return obj.in_house
 
+    def get_full_name(self, obj):  # 👈 Define this method
+        return f"{obj.first_name} {obj.last_name}".strip()
+
     class Meta:
         model = Guest
         fields = [
             'id',
             'first_name',
             'last_name',
+            'full_name',  # 👈 Include this
             'email',
             'phone_number',
             'id_pin',
@@ -32,4 +37,8 @@ class GuestSerializer(serializers.ModelSerializer):
             'room', 'room_number', 'room_label',
             'in_house',
         ]
-        read_only_fields = ['hotel_slug', 'hotel_name', 'room_number', 'room_label', 'in_house']
+        read_only_fields = [
+            'hotel_slug', 'hotel_name',
+            'room_number', 'room_label',
+            'in_house', 'full_name'  # 👈 Mark as read-only
+        ]

@@ -34,6 +34,13 @@ class Booking(models.Model):
         null=True,
         blank=True
     )
+    guest = models.ForeignKey(  # 👈 NEW FIELD
+        'guests.Guest',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings'
+    )
 
     def __str__(self):
         return f"{self.category.name} / {self.category.subcategory.name} @ {self.date}"

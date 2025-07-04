@@ -1,6 +1,8 @@
 from rest_framework import serializers
 from .models import Booking, BookingCategory, Seats, BookingSubcategory, Restaurant
 
+from rooms.serializers import RoomSerializer
+from guests.serializers import GuestSerializer
 class BookingSubcategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = BookingSubcategory
@@ -34,6 +36,8 @@ class BookingSerializer(serializers.ModelSerializer):
     restaurant = RestaurantSerializer(read_only=True)
     # Add nested seats
     seats = SeatsSerializer(read_only=True)
+    room = RoomSerializer(read_only=True)
+    guest = GuestSerializer(read_only=True)
 
     class Meta:
         model = Booking
@@ -48,6 +52,8 @@ class BookingSerializer(serializers.ModelSerializer):
             "created_at",
             "restaurant",
             "seats",
+            'room',
+            "guest",
         ]
 
 class BookingCreateSerializer(serializers.ModelSerializer):
