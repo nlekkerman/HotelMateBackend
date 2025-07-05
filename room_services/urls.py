@@ -7,6 +7,7 @@ from .views import (
     OrderViewSet,
     BreakfastOrderViewSet,
     validate_pin,
+    validate_dinner_pin
 )
 order_pending_count = OrderViewSet.as_view({
     'get': 'pending_count'
@@ -52,4 +53,9 @@ urlpatterns = [
     path('<str:hotel_slug>/breakfast-orders/<int:pk>/', breakfast_order_detail, name='breakfastorder-detail'),
     path('<str:hotel_slug>/orders/pending-count/', order_pending_count, name='hotel-order-pending-count'),
     path('<str:hotel_slug>/breakfast-orders/breakfast-pending-count/', breakfast_order_pending_count, name='breakfastorder-pending-count'),
+    path(
+        '<str:hotel_slug>/restaurant/<str:restaurant_slug>/room/<int:room_number>/validate-dinner-pin/',
+        validate_dinner_pin,
+        name='validate-dinner-pin'
+    ),
 ]

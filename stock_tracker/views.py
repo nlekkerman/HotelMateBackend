@@ -50,10 +50,8 @@ class StockItemViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = StockItem.objects.all()
         hotel_slug = self.request.query_params.get('hotel_slug')
-        print(f"Fetching StockItems with hotel_slug: {hotel_slug}")  # Debug print
         if hotel_slug:
             queryset = queryset.filter(hotel__slug=hotel_slug)
-        print(f"Number of StockItems found: {queryset.count()}")  # Debug print
         return queryset
 
     
