@@ -1,6 +1,8 @@
 from django.contrib import admin
 from django import forms
 from .models import Booking, BookingCategory, BookingSubcategory, Seats, Restaurant
+from hotel.models import Hotel
+from rooms.models import Room
 
 class BookingInline(admin.TabularInline):  # or StackedInline for more detail
     model = Booking
@@ -23,9 +25,11 @@ class BookingAdminForm(forms.ModelForm):
         # If editing an existing booking, filter restaurants by its hotel
         if self.instance and self.instance.pk and self.instance.hotel_id:
             self.fields['restaurant'].queryset = Restaurant.objects.filter(hotel=self.instance.hotel)
+            self.fields['room'].queryset = Room.objects.filter(hotel=self.instance.hotel)
         else:
             # On creation (no instance.pk yet), show all active restaurants by default
             self.fields['restaurant'].queryset = Restaurant.objects.filter(is_active=True)
+            self.fields['room'].queryset = Room.objects.none()
 
 
 # -----------------------
@@ -62,8 +66,8 @@ class SeatsInline(admin.StackedInline):
 # -----------------------
 @admin.register(Booking)
 class BookingAdmin(admin.ModelAdmin):
-    list_display = ('category', 'hotel', 'restaurant', 'date', 'time', 'created_at')
-    list_filter = ('category', 'category__subcategory', 'hotel', 'date')
+    list_display = ('category', 'hotel', 'room','restaurant', 'date', 'time', 'created_at')
+    list_filter = ('category', 'category__subcategory', 'hotel','room', 'date')
     search_fields = ('note',)
     ordering = ('-created_at',)
     inlines = [SeatsInline]

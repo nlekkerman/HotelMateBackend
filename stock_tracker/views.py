@@ -42,7 +42,7 @@ class StockItemViewSet(viewsets.ModelViewSet):
     """
   
     serializer_class = StockItemSerializer
-    filterset_fields = ['hotel', 'sku', 'name']
+    filterset_fields = ['hotel', 'sku', 'name', 'type']
     search_fields    = ['name', 'sku']
     ordering_fields  = ['hotel', 'name', 'sku']
     pagination_class = StockItemPagination

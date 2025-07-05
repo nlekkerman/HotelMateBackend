@@ -26,6 +26,13 @@ class Booking(models.Model):
     date = models.DateField()
     time = models.TimeField()
     note = models.TextField(blank=True, null=True)
+    room = models.ForeignKey(
+        'rooms.Room',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bookings'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     restaurant = models.ForeignKey(
         'Restaurant',

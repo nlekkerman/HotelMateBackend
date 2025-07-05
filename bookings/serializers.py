@@ -58,14 +58,19 @@ class BookingSerializer(serializers.ModelSerializer):
 
 class BookingCreateSerializer(serializers.ModelSerializer):
     seats = SeatsSerializer()
-
+    
     class Meta:
         model = Booking
-        fields = ['hotel', 'category', 'restaurant', 'date', 'time', 'note', 'seats']
+        fields = ['hotel', 'category', 'restaurant', 'date', 'time', 'note', 'room', 'seats', 'guest']
 
     def create(self, validated_data):
         seats_data = validated_data.pop('seats')
+        room = validated_data.get("room")
+
+        # ✅ Safely assign guest if not already passed
+        if "guest" not in validated_data and room:
+            validated_data["guest"] = room.guests.first()
+
         booking = Booking.objects.create(**validated_data)
         Seats.objects.create(booking=booking, **seats_data)
         return booking
-

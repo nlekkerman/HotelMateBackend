@@ -27,8 +27,6 @@ class GuestSerializer(serializers.ModelSerializer):
             'first_name',
             'last_name',
             'full_name',  # 👈 Include this
-            'email',
-            'phone_number',
             'id_pin',
             'check_in_date',
             'check_out_date',

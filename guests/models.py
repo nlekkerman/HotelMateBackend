@@ -6,13 +6,11 @@ class Guest(models.Model):
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    email = models.EmailField(unique=True, null=True, blank=True)
     room = models.ForeignKey('rooms.Room', related_name='guests_in_room', on_delete=models.SET_NULL, null=True, blank=True)
     days_booked = models.PositiveIntegerField(default=1)  # The number of days the guest has booked
     check_in_date = models.DateField(null=True, blank=True)  # The date the guest checked in
     check_out_date = models.DateField(null=True, blank=True)  # The date the guest checked out
     id_pin = models.CharField(max_length=4, unique=True, null=True, blank=True)  # Unique PIN for the guest
-    phone_number = models.CharField(max_length=15, null=True, blank=True)  # Optional phone number field
     
     def delete(self, *args, **kwargs):
         # Set room to unoccupied if this guest is assigned a room

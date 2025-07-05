@@ -2,8 +2,19 @@ from django.contrib import admin
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
 
-from .models import StockCategory, StockItem, Stock, StockInventory, StockMovement
+from .models import StockCategory, StockItem, Stock, StockInventory, StockMovement, StockItemType
 
+@admin.register(StockItemType)
+class StockItemTypeAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'slug')
+    search_fields = ('name', 'slug')
+    ordering = ('name',)
+    prepopulated_fields = {'slug': ('name',)}
+
+
+class StockItemTypeInline(admin.TabularInline):
+    model = StockItemType
+    extra = 1
 # --- Custom FormSet to prevent duplicate items in inline ---
 class StockInventoryInlineFormSet(BaseInlineFormSet):
     def clean(self):
@@ -29,9 +40,9 @@ class StockCategoryAdmin(admin.ModelAdmin):
 @admin.register(StockItem)
 class StockItemAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'hotel', 'name', 'sku', 'quantity', 'volume_per_unit_display', 'unit_display', 'alert_quantity', 'alert_status'
+        'id', 'hotel', 'name','type', 'sku', 'quantity', 'volume_per_unit_display', 'unit_display', 'alert_quantity', 'alert_status'
     )
-    list_filter = ('hotel', 'unit')
+    list_filter = ('hotel', 'unit', 'type')
     search_fields = ('name', 'sku')
     ordering = ('hotel', 'name')
 

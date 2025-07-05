@@ -12,6 +12,7 @@ class StockItemSerializer(serializers.ModelSerializer):
     volume_per_unit = serializers.DecimalField(
         max_digits=10, decimal_places=2, required=False, allow_null=True
     )
+    type = serializers.SerializerMethodField()
     class Meta:
         model = StockItem
         fields = [
@@ -25,10 +26,14 @@ class StockItemSerializer(serializers.ModelSerializer):
             'is_below_alert',
             'volume_per_unit',
             'unit',
+            'type'
         ]
 
     def get_is_below_alert(self, obj):
         return obj.quantity < obj.alert_quantity
+    
+    def get_type(self, obj):
+        return obj.type.name if obj.type else None
 
 
 class StockInventorySerializer(serializers.ModelSerializer):

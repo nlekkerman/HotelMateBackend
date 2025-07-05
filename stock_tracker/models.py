@@ -41,6 +41,17 @@ class StockCategory(models.Model):
                 count += 1
             self.slug = slug
         super().save(*args, **kwargs)
+class StockItemType(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    slug = models.SlugField(max_length=100, unique=True)
+
+    class Meta:
+        verbose_name = "Stock Item Type"
+        verbose_name_plural = "Stock Item Types"
+
+    def __str__(self):
+        return self.name
+
 
 class StockItem(models.Model):
     UNIT_CHOICES = [
@@ -53,7 +64,7 @@ class StockItem(models.Model):
     active_stock_item = models.BooleanField(default=False, help_text="Indicates if the item is active in stock inventory")
     quantity = models.IntegerField(default=0)  # number of bottles/items
     alert_quantity = models.IntegerField(default=0, help_text="Minimum quantity before alert is triggered")
-    
+    type = models.ForeignKey(StockItemType, on_delete=models.SET_NULL, null=True, blank=True)
     # NEW: how much volume each bottle contains
     volume_per_unit = models.DecimalField(
         max_digits=10,
