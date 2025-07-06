@@ -87,6 +87,18 @@ class OrderViewSet(viewsets.ModelViewSet):
         count = Order.objects.filter(hotel=hotel).filter(status="pending").count()
         return Response({"count": count})
 
+    @action(detail=False, methods=["get"], url_path="room-history", permission_classes=[AllowAny])
+    def room_order_history(self, request):
+        hotel_slug = request.query_params.get("hotel_slug")
+        room_number = request.query_params.get("room_number")
+
+        if not hotel_slug or not room_number:
+            return Response({"error": "hotel_slug and room_number are required"}, status=400)
+
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        queryset = Order.objects.filter(hotel=hotel, room_number=room_number)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
 
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer

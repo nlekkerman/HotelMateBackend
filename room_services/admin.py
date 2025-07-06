@@ -47,6 +47,10 @@ class OrderAdmin(admin.ModelAdmin):
     def total_price(self, obj):
         return f"€{sum(item.item.price * item.quantity for item in obj.orderitem_set.all()):.2f}"
     total_price.short_description = 'Total Price'
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.prefetch_related('orderitem_set__item')
 
 
 # --- BreakfastItem admin ---
