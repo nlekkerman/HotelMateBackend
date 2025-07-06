@@ -14,6 +14,7 @@ apps = [
     'notifications',
     'stock_tracker',
     'ar_navigation',
+    'maintenance',
     
 ]
 

@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     'hotel_info.apps.HotelInfoConfig',
     'stock_tracker',
     'ar_navigation',
+    'maintenance',
     
 ]
 
