@@ -5,12 +5,15 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from staff.serializers import StaffSerializer
 
 
 class MaintenanceRequestViewSet(viewsets.ModelViewSet):
     queryset = MaintenanceRequest.objects.all().order_by('-created_at')
     serializer_class = MaintenanceRequestSerializer
     permission_classes = [permissions.IsAuthenticated]
+    reported_by = StaffSerializer(read_only=True)
+    accepted_by = StaffSerializer(read_only=True)
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -40,6 +43,12 @@ class MaintenanceCommentViewSet(viewsets.ModelViewSet):
     queryset = MaintenanceComment.objects.all()
     serializer_class = MaintenanceCommentSerializer
     permission_classes = [permissions.AllowAny]
+    
+    def perform_create(self, serializer):
+        user = self.request.user
+        if not hasattr(user, 'staff_profile'):
+            raise PermissionDenied("Only staff can comment")
+        serializer.save(staff=user.staff_profile)
 
 
 class MaintenancePhotoViewSet(viewsets.ModelViewSet):

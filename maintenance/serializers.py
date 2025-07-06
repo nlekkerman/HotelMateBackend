@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from .models import MaintenanceRequest, MaintenanceComment, MaintenancePhoto
+from staff.serializers import StaffSerializer
 
 class MaintenancePhotoSerializer(serializers.ModelSerializer):
     image = serializers.ImageField(required=True)
@@ -27,13 +28,17 @@ class BulkMaintenancePhotoSerializer(serializers.Serializer):
         return photos
 
 class MaintenanceCommentSerializer(serializers.ModelSerializer):
+    staff = StaffSerializer(read_only=True)
     class Meta:
         model = MaintenanceComment
-        fields = ['id', 'message', 'staff', 'created_at']
+        fields = ['id', 'message', 'request', 'staff', 'created_at']
+        read_only_fields = ['id', 'staff', 'created_at']
 
 class MaintenanceRequestSerializer(serializers.ModelSerializer):
     comments = MaintenanceCommentSerializer(many=True, read_only=True)
     photos = MaintenancePhotoSerializer(many=True, read_only=True)
+    reported_by = StaffSerializer(read_only=True)
+    accepted_by = StaffSerializer(read_only=True)
 
     class Meta:
         model = MaintenanceRequest
