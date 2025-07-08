@@ -100,9 +100,11 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
+
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         new_status = request.data.get("status")
+        print(f"⏩ Received PATCH for Order {instance.id} with payload:", request.data)
 
         valid_transitions = {
             "pending": ["accepted"],
@@ -112,39 +114,43 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         if new_status and new_status != instance.status:
             allowed = valid_transitions.get(instance.status, [])
+            print(f"🔄 Trying transition {instance.status} → {new_status}; allowed: {allowed}")
             if new_status not in allowed:
+                print(f"❌ Invalid transition from '{instance.status}' to '{new_status}'")
                 return Response(
                     {"error": f"Invalid status transition from '{instance.status}' to '{new_status}'."},
                     status=400
                 )
 
-            # Update the instance and broadcast via WebSocket
+            # Commit status change
             instance.status = new_status
             instance.save()
+            print(f"💾 Order {instance.id} status updated to '{new_status}' in DB")
 
             # Broadcast using channels
             from channels.layers import get_channel_layer
             from asgiref.sync import async_to_sync
 
             channel_layer = get_channel_layer()
-            print("Broadcasting to group:", f"order_{instance.id}")
+            group_name = f"order_{instance.id}"
+            payload = {"id": instance.id, "status": instance.status}
+
+            print(f"🚀 Broadcasting to group '{group_name}':", payload)
             async_to_sync(channel_layer.group_send)(
-                f"order_{instance.id}",
+                group_name,
                 {
                     "type": "order_update",
-                    "data": {
-                        "id": instance.id,
-                        "status": instance.status,
-                    },
+                    "data": payload,
                 }
             )
-            print("Broadcasting WebSocket message:", instance.id, instance.status)
+            print(f"✅ Broadcast completed for group '{group_name}'")
 
             serializer = self.get_serializer(instance)
+            print(f"📦 Returning response payload:", serializer.data)
             return Response(serializer.data)
 
+        print(f"ℹ️ No status change (current: '{instance.status}'), falling back to super()")
         return super().partial_update(request, *args, **kwargs)
-
 
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer

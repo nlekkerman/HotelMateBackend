@@ -126,19 +126,13 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
-redis_ssl_context = ssl.create_default_context(cafile=certifi.where())
 
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [
-                {
-                    "address": REDIS_URL,
-                    "ssl": True,
-                    "ssl_ca_certs": redis_ssl_context,
-                },
-            ],
+            # the rediss:// URL you just set in Heroku
+            "hosts": [env("REDIS_URL")],
         },
     },
 }
