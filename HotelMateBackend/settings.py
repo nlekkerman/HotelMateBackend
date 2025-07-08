@@ -10,6 +10,7 @@ import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
 import redis
 import ssl
+from urllib.parse import urlparse
 
 
 
@@ -19,6 +20,7 @@ env = environ.Env(
     DISABLE_COLLECTSTATIC=(bool, False),
 )
 REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379")
+parsed_url = urlparse(REDIS_URL)
 
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -129,11 +131,21 @@ AUTH_PASSWORD_VALIDATORS = [
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
+# Set SSL context only if we're using rediss://
+ssl_context = None
+if parsed_url.scheme == "rediss":
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE  # <- Accept Heroku's self-signed cert
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [REDIS_URL],  # Use the full rediss:// URL directly
+            "hosts": [{
+                "address": REDIS_URL,
+                "ssl": ssl_context,
+            }],
         },
     },
 }
