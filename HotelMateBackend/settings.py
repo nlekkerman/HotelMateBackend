@@ -142,7 +142,7 @@ if parsed.scheme == "rediss":
             "CONFIG": {
                 "hosts": [{
                     "address": REDIS_URL,
-                    "ssl_context": ssl_context,
+                    "ssl": True,
                 }]
             }
         }
