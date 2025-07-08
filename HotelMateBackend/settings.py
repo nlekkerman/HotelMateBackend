@@ -131,7 +131,6 @@ AUTH_PASSWORD_VALIDATORS = [
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
-# Check if secure Redis
 if parsed.scheme == "rediss":
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
@@ -142,23 +141,25 @@ if parsed.scheme == "rediss":
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
                 "hosts": [{
-                    "address": (parsed.hostname, parsed.port),
-                    "password": parsed.password,
-                    "ssl_context": ssl_context
+                    "address": REDIS_URL,
+                    "ssl_context": ssl_context,
                 }]
-            },
+            }
         }
     }
+
 else:
     CHANNEL_LAYERS = {
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [REDIS_URL],
-            },
+                "hosts": [REDIS_URL]
+            }
         }
     }
-# REST Framework config
+
+
+
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
