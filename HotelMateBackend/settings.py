@@ -10,7 +10,6 @@ import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
 
 
-
 # Initialize environment variables
 env = environ.Env(
     DEBUG=(bool, False),
