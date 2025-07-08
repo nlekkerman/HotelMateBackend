@@ -129,7 +129,15 @@ AUTH_PASSWORD_VALIDATORS = [
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
-
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [REDIS_URL],
+            "ssl_cert_reqs": ssl.CERT_NONE if REDIS_URL.startswith("rediss://") else ssl.CERT_REQUIRED,
+        },
+    },
+}
 # REST Framework config
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
