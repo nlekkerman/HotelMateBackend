@@ -10,6 +10,7 @@ import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
 import certifi
 import ssl
+import sys
 
 # Initialize environment variables
 env = environ.Env(
@@ -205,3 +206,48 @@ HEROKU_HOST = env('HEROKU_HOST', default='')
 
 # Optional for Heroku: disable collectstatic temporarily
 DISABLE_COLLECTSTATIC = env.bool('DISABLE_COLLECTSTATIC', default=False)
+
+# at the bottom of settings.py
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "simple": {
+            "format": "[%(asctime)s] %(levelname)s %(name)s %(message)s",
+        },
+    },
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "stream": sys.stdout,
+            "formatter": "simple",
+        },
+    },
+    "loggers": {
+        # Catch anything in your room_services app
+        "room_services": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Channels internals (optional, if you want lower-level debug)
+        "channels": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        # Redis connection errors
+        "redis": {
+            "handlers": ["console"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+    },
+    # Make sure Django’s own logs don’t get lost
+    "root": {
+        "handlers": ["console"],
+        "level": "INFO",
+    },
+}

@@ -9,7 +9,14 @@ from .models import RoomServiceItem, BreakfastItem, Order, BreakfastOrder
 from django.http import Http404
 from notifications.utils import notify_porters_of_room_service_order
 from django.db import transaction
+import logging
+from channels.layers import get_channel_layer
 
+channel_layer = get_channel_layer()
+
+from asgiref.sync import async_to_sync
+
+logger = logging.getLogger(__name__)
 
 from .serializers import (
     RoomServiceItemSerializer,
@@ -100,58 +107,26 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
-
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
-        new_status = request.data.get("status")
-        print(f"⏩ Received PATCH for Order {instance.id} with payload:", request.data)
+        logger.info("🔽 [VIEW RECEIVED PATCH] order=%s payload=%r", instance.id, request.data)
 
-        valid_transitions = {
-            "pending": ["accepted"],
-            "accepted": ["completed"],
-            "completed": [],
-        }
+        # … your status-transition logic …
 
-        if new_status and new_status != instance.status:
-            allowed = valid_transitions.get(instance.status, [])
-            print(f"🔄 Trying transition {instance.status} → {new_status}; allowed: {allowed}")
-            if new_status not in allowed:
-                print(f"❌ Invalid transition from '{instance.status}' to '{new_status}'")
-                return Response(
-                    {"error": f"Invalid status transition from '{instance.status}' to '{new_status}'."},
-                    status=400
-                )
+        instance.save()
 
-            # Commit status change
-            instance.status = new_status
-            instance.save()
-            print(f"💾 Order {instance.id} status updated to '{new_status}' in DB")
+        # broadcast…
+        payload = {"id": instance.id, "status": instance.status}
+        logger.info("🚀 [VIEW BROADCASTING] order=%s payload=%r", instance.id, payload)
+        async_to_sync(channel_layer.group_send)(
+            f"order_{instance.id}",
+            {"type": "order_update", "data": payload}
+        )
 
-            # Broadcast using channels
-            from channels.layers import get_channel_layer
-            from asgiref.sync import async_to_sync
-
-            channel_layer = get_channel_layer()
-            group_name = f"order_{instance.id}"
-            payload = {"id": instance.id, "status": instance.status}
-
-            print(f"🚀 Broadcasting to group '{group_name}':", payload)
-            async_to_sync(channel_layer.group_send)(
-                group_name,
-                {
-                    "type": "order_update",
-                    "data": payload,
-                }
-            )
-            print(f"✅ Broadcast completed for group '{group_name}'")
-
-            serializer = self.get_serializer(instance)
-            print(f"📦 Returning response payload:", serializer.data)
-            return Response(serializer.data)
-
-        print(f"ℹ️ No status change (current: '{instance.status}'), falling back to super()")
-        return super().partial_update(request, *args, **kwargs)
-
+        serializer = self.get_serializer(instance)
+        logger.info("🔼 [VIEW RESPONDING] order=%s response=%r", instance.id, serializer.data)
+        return Response(serializer.data)
+    
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer
 
