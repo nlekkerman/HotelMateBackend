@@ -9,6 +9,7 @@ import environ
 import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
 import certifi
+import ssl
 
 # Initialize environment variables
 env = environ.Env(
@@ -126,23 +127,26 @@ AUTH_PASSWORD_VALIDATORS = [
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
+
 CHANNEL_LAYERS = {
-  "default": {
-    "BACKEND": "channels_redis.core.RedisChannelLayer",
-    "CONFIG": {
-      "hosts": [
-        (
-          REDIS_URL,
-          {
-            # for real TLS validation:
-            "ssl_ca_certs": certifi.where(),
-            "ssl_cert_reqs": "required",
-          }
-        ),
-      ],
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [
+                (
+                    # your REDIS_URL is the rediss://… string from Heroku
+                    REDIS_URL,
+                    {
+                        # point at the certifi bundle so Python trusts Heroku’s SSL cert
+                        "ssl_ca_certs": certifi.where(),
+                        "ssl_cert_reqs": ssl.CERT_REQUIRED,
+                    },
+                ),
+            ],
+        },
     },
-  },
 }
+
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
