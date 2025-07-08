@@ -132,7 +132,8 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "url": env("REDIS_URL"),
+            # the rediss:// URL you just set in Heroku
+            "hosts": [env("REDIS_URL")],
         },
     },
 }
