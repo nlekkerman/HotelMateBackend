@@ -8,9 +8,6 @@ import os
 import environ
 import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
-import redis
-import ssl
-from urllib.parse import urlparse
 
 
 
@@ -20,7 +17,6 @@ env = environ.Env(
     DISABLE_COLLECTSTATIC=(bool, False),
 )
 REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379")
-parsed = urlparse(REDIS_URL)
 
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
