@@ -99,6 +99,50 @@ class OrderViewSet(viewsets.ModelViewSet):
         queryset = Order.objects.filter(hotel=hotel, room_number=room_number)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+    
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        new_status = request.data.get("status")
+
+        valid_transitions = {
+            "pending": ["accepted"],
+            "accepted": ["completed"],
+            "completed": [],
+        }
+
+        if new_status and new_status != instance.status:
+            allowed = valid_transitions.get(instance.status, [])
+            if new_status not in allowed:
+                return Response(
+                    {"error": f"Invalid status transition from '{instance.status}' to '{new_status}'."},
+                    status=400
+                )
+
+            # Update the instance and broadcast via WebSocket
+            instance.status = new_status
+            instance.save()
+
+            # Broadcast using channels
+            from channels.layers import get_channel_layer
+            from asgiref.sync import async_to_sync
+
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                f"order_{instance.id}",
+                {
+                    "type": "order_update",
+                    "data": {
+                        "id": instance.id,
+                        "status": instance.status,
+                    },
+                }
+            )
+
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+
+        return super().partial_update(request, *args, **kwargs)
+
 
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer

@@ -1,1 +1,1 @@
-web: gunicorn HotelMateBackend.wsgi
+web: daphne HotelMateBackend.asgi:application

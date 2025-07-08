@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     'stock_tracker',
     'ar_navigation',
     'maintenance',
+    "channels",
     
 ]
 
@@ -120,6 +121,15 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+
+ASGI_APPLICATION = "HotelMateBackend.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels.layers.InMemoryChannelLayer",
+    },
+}
 
 # REST Framework config
 REST_FRAMEWORK = {
