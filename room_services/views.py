@@ -127,6 +127,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             from asgiref.sync import async_to_sync
 
             channel_layer = get_channel_layer()
+            print("Broadcasting to group:", f"order_{instance.id}")
             async_to_sync(channel_layer.group_send)(
                 f"order_{instance.id}",
                 {
@@ -137,6 +138,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                     },
                 }
             )
+            print("Broadcasting WebSocket message:", instance.id, instance.status)
 
             serializer = self.get_serializer(instance)
             return Response(serializer.data)
