@@ -8,6 +8,10 @@ import os
 import environ
 import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
+import redis
+import ssl
+REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
+
 
 
 # Initialize environment variables
@@ -124,18 +128,6 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
-
-import os
-
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [os.environ.get("REDIS_URL", "redis://localhost:6379")],
-        },
-    },
-}
-
 
 
 # REST Framework config
