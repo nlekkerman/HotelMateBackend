@@ -16,7 +16,7 @@ env = environ.Env(
     DEBUG=(bool, False),
     DISABLE_COLLECTSTATIC=(bool, False),
 )
-REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379")
+REDIS_URL = env("REDIS_URL")
 
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -133,20 +133,11 @@ CHANNEL_LAYERS = {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [
-                (
-                    # your REDIS_URL is the rediss://… string from Heroku
-                    REDIS_URL,
-                    {
-                        # point at the certifi bundle so Python trusts Heroku’s SSL cert
-                        "ssl_ca_certs": certifi.where(),
-                        "ssl_cert_reqs": ssl.CERT_REQUIRED,
-                    },
-                ),
+                REDIS_URL,    # ← exactly this, nothing else
             ],
         },
     },
 }
-
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
