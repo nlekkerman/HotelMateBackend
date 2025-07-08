@@ -131,33 +131,15 @@ AUTH_PASSWORD_VALIDATORS = [
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
-if parsed.scheme == "rediss":
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [{
-                    "address": REDIS_URL,
-                    "ssl_context": ssl_context,
-                }]
-            }
-        }
-    }
-
-else:
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [REDIS_URL]
-            }
-        }
-    }
-
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            # Just hand it the URL — redis-py will do the TLS handshake for you.
+            "hosts": [REDIS_URL],
+        },
+    },
+}
 
 
 REST_FRAMEWORK = {
