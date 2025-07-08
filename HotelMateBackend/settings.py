@@ -133,16 +133,10 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [{
-                "address": REDIS_URL,
-                "ssl": True,
-                "ssl_cert_reqs": ssl.CERT_NONE,  # Allow self-signed certs
-            }],
+            "hosts": [REDIS_URL],  # Use the full rediss:// URL directly
         },
     },
 }
-
-
 # REST Framework config
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
