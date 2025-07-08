@@ -10,7 +10,6 @@ import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
 import redis
 import ssl
-REDIS_URL = os.getenv("REDIS_URL", "redis://127.0.0.1:6379")
 
 
 
@@ -19,6 +18,7 @@ env = environ.Env(
     DEBUG=(bool, False),
     DISABLE_COLLECTSTATIC=(bool, False),
 )
+REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379")
 
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
