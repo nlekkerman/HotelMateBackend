@@ -127,44 +127,26 @@ AUTH_PASSWORD_VALIDATORS = [
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
-u = urlparse(REDIS_URL)
-print(f"🔗 [REDIS] Parsed URL: {u}", flush=True, file=sys.stdout)
 
-if u.scheme == "rediss":
-    # Heroku Redis over TLS
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [
-                    {
-                        "host": u.hostname,
-                        "port": u.port or 6379,
-                        "password": u.password,
-                        "ssl": True,
-                        "ssl_cert_reqs": ssl.CERT_NONE,
+print(f"🔗 [REDISsssssssssssssss] Parsed URL: {REDIS_URL}")
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [
+                {
+                    "address": REDIS_URL,
+                    "ssl": {
+                        "ssl_cert_reqs": ssl.CERT_REQUIRED,
                         "ssl_ca_certs": certifi.where(),
                     },
-                ]
-            },
-        }
-    }
-else:
-    # Local Redis, no TLS
-    CHANNEL_LAYERS = {
-        "default": {
-            "BACKEND": "channels_redis.core.RedisChannelLayer",
-            "CONFIG": {
-                "hosts": [
-                    {
-                        "host": u.hostname or "127.0.0.1",
-                        "port": u.port or 6379,
-                        "password": u.password or None,
-                    },
-                ]
-            },
-        }
-    }
+                }
+            ],
+           
+        },
+    },
+}
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
