@@ -126,20 +126,21 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
+# Create a default context *without* enforcing certificate checks:
+REDIS_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+REDIS_SSL_CONTEXT.check_hostname = False
+REDIS_SSL_CONTEXT.verify_mode = ssl.CERT_NONE
 
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            # Use your TLS‐only URL from Heroku (should start with rediss://)
-            "hosts": [env("REDIS_URL")],
-
-            # ─── TOP-LEVEL TLS OPTIONS ──────────────────────────────
-            # Enforce certificate verification:
-            "ssl_cert_reqs": ssl.CERT_REQUIRED,
-            # Point to Mozilla’s CA bundle via certifi:
-            "ssl_ca_certs": certifi.where(),
-            # (You can also add ssl_keyfile, ssl_certfile here if needed)
+            "hosts": [
+                {
+                    "address": env("REDIS_URL"),
+                    "ssl_context": REDIS_SSL_CONTEXT,
+                },
+            ],
         },
     },
 }
