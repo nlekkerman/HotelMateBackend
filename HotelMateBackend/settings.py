@@ -128,21 +128,12 @@ AUTH_PASSWORD_VALIDATORS = [
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
-url = urlparse(REDIS_URL)
-
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [
-                {
-                    "host": url.hostname,
-                    "port": url.port or 6379,
-                    "password": url.password,
-                    "ssl": True,
-                    "ssl_cert_reqs": ssl.CERT_NONE,
-                    "ssl_ca_certs": certifi.where(),
-                },
+                env("REDIS_URL"),  # must start with rediss://
             ],
         },
     },
