@@ -17,13 +17,12 @@ env = environ.Env(
     DEBUG=(bool, False),
     DISABLE_COLLECTSTATIC=(bool, False),
 )
-REDIS_URL = env("REDIS_URL")
 
 # Build paths
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
-
+REDIS_URL = env("REDIS_URL")
 
 SECRET_KEY = env('SECRET_KEY')
 
@@ -132,8 +131,11 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            # the rediss:// URL you just set in Heroku
-            "hosts": [env("REDIS_URL")],
+            "hosts": [{
+                "address": env("REDIS_URL"),         # must start with rediss://
+                "ssl_cert_reqs": ssl.CERT_REQUIRED,  # enforce verification
+                "ssl_ca_certs": certifi.where(),     # use Mozilla’s CA store
+            }],
         },
     },
 }
