@@ -130,31 +130,18 @@ ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 print(f"🔗 [REDISsssssssssssssss] Parsed URL: {REDIS_URL}")
 
-u = urlparse(env("REDIS_URL"))
 
-if u.scheme == "rediss":
-    # Heroku TLS Redis
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    hosts = [{
-        "host":        u.hostname,
-        "port":        u.port or 6379,
-        "password":    u.password,
-        "ssl_context": ctx,
-    }]
-else:
-    # local Redis
-    hosts = [{
-        "host":     u.hostname or "127.0.0.1",
-        "port":     u.port or 6379,
-        "password": u.password or None,
-    }]
-
+# Use *just* the URL string. Channels-Redis will detect "rediss://" itself
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {"hosts": hosts},
+        "CONFIG": {
+            # pass the URL directly, not a dict with ssl or ssl_context
+            "hosts": [REDIS_URL],
+        },
     },
 }
+
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10,
