@@ -11,7 +11,7 @@ from corsheaders.defaults import default_headers, default_methods
 import certifi
 import ssl
 import sys
-
+from urllib.parse import urlparse
 # Initialize environment variables
 env = environ.Env(
     DEBUG=(bool, False),
@@ -128,22 +128,25 @@ AUTH_PASSWORD_VALIDATORS = [
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
+url = urlparse(REDIS_URL)
+
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
             "hosts": [
                 {
-                    "address": REDIS_URL,
+                    "host": url.hostname,
+                    "port": url.port or 6379,
+                    "password": url.password,
                     "ssl": True,
-                    "ssl_ca_certs": certifi.where(),
                     "ssl_cert_reqs": ssl.CERT_NONE,
+                    "ssl_ca_certs": certifi.where(),
                 },
             ],
         },
     },
 }
-
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
