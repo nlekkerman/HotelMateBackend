@@ -106,45 +106,40 @@ class OrderViewSet(viewsets.ModelViewSet):
     
 
     def partial_update(self, request, *args, **kwargs):
+        
+        
+        import sys
+        print("!!! [VIEW] partial_update() called", flush=True, file=sys.stdout)
+
         instance = self.get_object()
         new_status = request.data.get("status")
+  
 
-        valid_transitions = {
-            "pending": ["accepted"],
-            "accepted": ["completed"],
-            "completed": [],
-        }
+        instance.status = new_status
+        instance.save()
 
-        if new_status and new_status != instance.status:
-            allowed = valid_transitions.get(instance.status, [])
-            if new_status not in allowed:
-                return Response(
-                    {"error": f"Invalid status transition from '{instance.status}' to '{new_status}'."},
-                    status=400
-                )
-
-            instance.status = new_status
-            instance.save()
-
-            channel_layer = get_channel_layer()
-            group_name = f"order_{instance.id}"
-            logger.info("Broadcasting to group %s: %s → %s", group_name, instance.id, instance.status)
+        channel_layer = get_channel_layer()
+        group_name = f"order_{instance.id}"
+        print(f"→ [VIEW] Broadcasting to {group_name}: {instance.id} → {instance.status}")
+        try:
             async_to_sync(channel_layer.group_send)(
                 group_name,
                 {
                     "type": "order_update",
-                    "data": {
-                        "id": instance.id,
-                        "status": instance.status,
-                    },
-                }
+                    "data": {"id": instance.id, "status": instance.status},
+                },
             )
-            logger.info("Dispatched WebSocket message for order %s", instance.id)
+            print(f"→ [VIEW] group_send succeeded for order {instance.id}")
+        except Exception as e:
+            # Simple dump of the exception and config:
+            print(f"!!! [VIEW] group_send failed: {e!r}")
+            print(f"!!! [VIEW] channel_layer._config: {getattr(channel_layer, '_config', None)!r}")
+            raise
 
-            serializer = self.get_serializer(instance)
-            return Response(serializer.data)
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
-        return super().partial_update(request, *args, **kwargs)
+
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer
 
