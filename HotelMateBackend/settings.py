@@ -126,10 +126,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
-# Create a default context *without* enforcing certificate checks:
-REDIS_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
-REDIS_SSL_CONTEXT.check_hostname = False
-REDIS_SSL_CONTEXT.verify_mode = ssl.CERT_NONE
+
 
 CHANNEL_LAYERS = {
     "default": {
@@ -137,13 +134,16 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             "hosts": [
                 {
-                    "address": env("REDIS_URL"),
-                    "ssl_context": REDIS_SSL_CONTEXT,
+                    "address": REDIS_URL,
+                    "ssl": True,
+                    "ssl_ca_certs": certifi.where(),
+                    "ssl_cert_reqs": ssl.CERT_NONE,
                 },
             ],
         },
     },
 }
+
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
