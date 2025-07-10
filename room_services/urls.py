@@ -1,6 +1,5 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from rest_framework.urlpatterns import format_suffix_patterns
 from .views import (
     RoomServiceItemViewSet,
     BreakfastItemViewSet,
@@ -51,7 +50,6 @@ urlpatterns = [
     path('<str:hotel_slug>/room/<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
     path('<str:hotel_slug>/breakfast-orders/', breakfast_order_list, name='breakfastorder-list'),
     path('<str:hotel_slug>/breakfast-orders/<int:pk>/', breakfast_order_detail, name='breakfastorder-detail'),
-    path('<str:hotel_slug>/orders/pending-count/', order_pending_count, name='hotel-order-pending-count'),
     path('<str:hotel_slug>/breakfast-orders/breakfast-pending-count/', breakfast_order_pending_count, name='breakfastorder-pending-count'),
     path(
         '<str:hotel_slug>/restaurant/<str:restaurant_slug>/room/<int:room_number>/validate-dinner-pin/',
