@@ -12,7 +12,8 @@ from django.db import transaction
 import logging
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-from .signals import broadcast_counts 
+
+logger = logging.getLogger(__name__)
 
 from .serializers import (
     RoomServiceItemSerializer,
@@ -21,7 +22,6 @@ from .serializers import (
     BreakfastOrderSerializer
 )
 
-logger = logging.getLogger(__name__)
 
 
 def get_hotel_from_request(request):
@@ -67,69 +67,74 @@ class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
 
-# room_services/views.py
-
-
 class OrderViewSet(viewsets.ModelViewSet):
-    serializer_class   = OrderSerializer
+    serializer_class = OrderSerializer
     permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)
+        # Filter orders for rooms in this hotel only
         return Order.objects.filter(hotel=hotel).exclude(status="completed")
     
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
-        order = serializer.save(hotel=hotel)
-
-        # 1) Existing Firebase push
-        transaction.on_commit(lambda: notify_porters_of_room_service_order(order))
-
-        # 2) New: broadcast updated counts via WebSocket
-        transaction.on_commit(lambda: broadcast_counts(order.hotel.slug))
-
-
+        order = serializer.save(hotel=hotel)  # Save and capture the order
+        notify_porters_of_room_service_order(order)  # Send notification
+    
     @action(detail=False, methods=["get"], url_path="pending-count")
     def pending_count(self, request, *args, **kwargs):
+        """
+        GET /room_services/{hotel_slug}/orders/pending-count/
+        Returns JSON: { "count": <int> }
+        """
         hotel = get_hotel_from_request(request)
-        count = Order.objects.filter(hotel=hotel, status="pending").count()
+        count = Order.objects.filter(hotel=hotel).filter(status="pending").count()
         return Response({"count": count})
 
-    @action(detail=False, methods=["get"], url_path="room-history", permission_classes=[permissions.AllowAny])
+    @action(detail=False, methods=["get"], url_path="room-history", permission_classes=[AllowAny])
     def room_order_history(self, request):
-        hotel_slug  = request.query_params.get("hotel_slug")
+        hotel_slug = request.query_params.get("hotel_slug")
         room_number = request.query_params.get("room_number")
-        if not hotel_slug or not room_number:
-            return Response({"error":"hotel_slug and room_number are required"}, status=400)
 
-        hotel     = get_object_or_404(Hotel, slug=hotel_slug)
-        queryset  = Order.objects.filter(hotel=hotel, room_number=room_number)
+        if not hotel_slug or not room_number:
+            return Response({"error": "hotel_slug and room_number are required"}, status=400)
+
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        queryset = Order.objects.filter(hotel=hotel, room_number=room_number)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
+
     def partial_update(self, request, *args, **kwargs):
+        
+        
         import sys
         print("!!! [VIEW] partial_update() called", flush=True, file=sys.stdout)
 
-        instance   = self.get_object()
+        instance = self.get_object()
         new_status = request.data.get("status")
+  
+
         instance.status = new_status
         instance.save()
 
-        # --- existing per-order status broadcast (unchanged) ---
         channel_layer = get_channel_layer()
-        group_name    = f"order_{instance.id}"
-        async_to_sync(channel_layer.group_send)(
-            group_name,
-            {
-                "type": "order_update",
-                "data": {"id": instance.id, "status": instance.status},
-            },
-        )
-        print(f"→ [VIEW] order_update sent for order {instance.id}", file=sys.stdout)
-
-        # --- NEW: also broadcast updated pending-counts ---
-        transaction.on_commit(lambda: broadcast_counts(instance.hotel.slug))
+        group_name = f"order_{instance.id}"
+        print(f"→ [VIEW] Broadcasting to {group_name}: {instance.id} → {instance.status}")
+        try:
+            async_to_sync(channel_layer.group_send)(
+                group_name,
+                {
+                    "type": "order_update",
+                    "data": {"id": instance.id, "status": instance.status},
+                },
+            )
+            print(f"→ [VIEW] group_send succeeded for order {instance.id}")
+        except Exception as e:
+            # Simple dump of the exception and config:
+            print(f"!!! [VIEW] group_send failed: {e!r}")
+            print(f"!!! [VIEW] channel_layer._config: {getattr(channel_layer, '_config', None)!r}")
+            raise
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
