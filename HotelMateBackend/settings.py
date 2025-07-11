@@ -186,6 +186,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://hotelsmates.com",
     "https://www.hotelsmates.com",
 ]
+
 CORS_ALLOW_METHODS = [
     "DELETE",
     "GET",
@@ -194,6 +195,7 @@ CORS_ALLOW_METHODS = [
     "POST",
     "PUT",
 ]
+
 CORS_ALLOW_HEADERS = list(default_headers) + [
     'x-hotel-id',
     'x-hotel-slug',

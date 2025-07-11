@@ -4,7 +4,6 @@ from .models import (
     BreakfastItem, BreakfastOrder, BreakfastOrderItem
 )
 from hotel.models import Hotel
-from notifications.utils import notify_porters_of_room_service_order
 import logging
 
 logger = logging.getLogger(__name__)

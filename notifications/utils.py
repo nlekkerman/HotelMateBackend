@@ -95,27 +95,6 @@ def notify_porters_of_room_service_order(order):
                 data={"order_id": str(order.id), "type": "room_service"},
             )
 
-def notify_porters_order_count(hotel):
-    pending = hotel.order_set.filter(status="pending").count()
-    data = {"type": "order_count", "count": str(pending)}
-
-    porters = (
-        Staff.objects
-        .filter(
-            hotel=hotel,
-            role="porter",
-            is_active=True,
-            is_on_duty=True,
-            fcm_tokens__isnull=False
-        )
-        .distinct()
-    )
-
-    for porter in porters:
-        tokens = porter.fcm_tokens.values_list("token", flat=True)
-        for t in tokens:
-            send_fcm_data_message(t, data)
-
 
 def notify_porters_of_breakfast_order(order):
     porters = (
@@ -141,24 +120,3 @@ def notify_porters_of_breakfast_order(order):
                 data={"order_id": str(order.id), "type": "breakfast"},
             )
 
-def notify_porters_breakfast_count(hotel):
-    from room_services.models import BreakfastOrder  # or adjust import path
-    pending = BreakfastOrder.objects.filter(hotel=hotel, status="pending").count()
-    data = {"type": "breakfast_count", "count": str(pending)}
-
-    porters = (
-        Staff.objects
-        .filter(
-            hotel=hotel,
-            role="porter",
-            is_active=True,
-            is_on_duty=True,
-            fcm_tokens__isnull=False
-        )
-        .distinct()
-    )
-
-    for porter in porters:
-        tokens = porter.fcm_tokens.values_list("token", flat=True)
-        for t in tokens:
-            send_fcm_data_message(t, data)
