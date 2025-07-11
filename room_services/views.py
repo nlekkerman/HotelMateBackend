@@ -78,9 +78,19 @@ class OrderViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
-        serializer.save(hotel=hotel)
+        order = serializer.save(hotel=hotel)  # Save and capture the order
+        notify_porters_of_room_service_order(order)  # Send notification
     
-   
+    @action(detail=False, methods=["get"], url_path="pending-count")
+    def pending_count(self, request, *args, **kwargs):
+        """
+        GET /room_services/{hotel_slug}/orders/pending-count/
+        Returns JSON: { "count": <int> }
+        """
+        hotel = get_hotel_from_request(request)
+        count = Order.objects.filter(hotel=hotel).filter(status="pending").count()
+        return Response({"count": count})
+
     @action(detail=False, methods=["get"], url_path="room-history", permission_classes=[AllowAny])
     def room_order_history(self, request):
         hotel_slug = request.query_params.get("hotel_slug")
@@ -178,7 +188,13 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
         return super().partial_update(request, *args, **kwargs)
 
     
-    
+    @action(detail=False, methods=["get"], url_path="breakfast-pending-count")
+    def pending_count(self, request, hotel_slug=None):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        count = BreakfastOrder.objects.filter(hotel=hotel, status="pending").count()
+        print("Breakfast pending orders:", BreakfastOrder.objects.filter(hotel=hotel).values_list("id", "status"))
+        return Response({"count": count})
+
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def validate_pin(request, hotel_slug,room_number):  # add hotel_slug here
