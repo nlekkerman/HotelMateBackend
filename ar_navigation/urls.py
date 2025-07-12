@@ -1,8 +1,11 @@
-from django.urls import path
-from .views import ARNavigationView, ARAnchorDetailView
+# ar_navigation/urls.py
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import ARAnchorViewSet
+
+router = DefaultRouter()
+router.register(r'ar-anchors', ARAnchorViewSet, basename='ar-anchor')
 
 urlpatterns = [
-    path('anchor/<int:id>/', ARAnchorDetailView.as_view(), name='ar-anchor-detail'),
-
-    path('ar-navigation/<slug:hotel_slug>/room/<str:room_number>/', ARNavigationView.as_view(), name='ar-navigation'),
+    path('', include(router.urls)),
 ]

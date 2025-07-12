@@ -1,24 +1,19 @@
 # ar_navigation/serializers.py
-
 from rest_framework import serializers
 from .models import ARAnchor
 
 class ARAnchorSerializer(serializers.ModelSerializer):
-    image_url = serializers.SerializerMethodField()
+    url = serializers.ReadOnlyField()
+    instruction = serializers.CharField(read_only=True)
 
     class Meta:
         model = ARAnchor
-        fields = [
+        fields = (
             "id",
-            "name",
-            "floor",
-            "image_url",
-            "position_hint",
+            "hotel",
+            "restaurant",
             "instruction",
-            "order",
-            "marker_type",
-            "next_anchor",
-        ]
-
-    def get_image_url(self, obj):
-        return obj.image.url if obj.image else ""
+            "url",
+            "qr_code_url",
+        )
+        read_only_fields = ("instruction", "url", "qr_code_url")
