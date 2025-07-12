@@ -99,7 +99,8 @@ def send_fcm_data_message(token: str, data: dict):
 
 def notify_porters_of_room_service_order(order):
     """
-    Notify all active, on-duty porters of a new room service order with a visible notification.
+    Notify all active, on-duty porters of a new room service order 
+    via a data-only FCM message so that the service worker shows it.
     """
     porters = (
         Staff.objects
@@ -113,20 +114,22 @@ def notify_porters_of_room_service_order(order):
         .exclude(fcm_tokens__token="")
         .distinct()
     )
+
     for porter in porters:
-        tokens = porter.fcm_tokens.values_list("token", flat=True)
-        for token in tokens:
+        for token in porter.fcm_tokens.values_list("token", flat=True):
             try:
-                send_fcm_v1_notification(
+                # send only data—no top-level "notification" field
+                send_fcm_data_message(
                     token,
-                    title="New Room Service Order",
-                    body=f"Room {order.room_number}: Total €{order.total_price:.2f}",
-                    data={"order_id": str(order.id), "type": "room_service"},
+                    {
+                        "title": f"New Room Service Order",
+                        "body": f"Room {order.room_number}: Total €{order.total_price:.2f}",
+                        "type": "room_service",
+                        "order_id": str(order.id),
+                    }
                 )
             except Exception:
-                # Log and continue
-                logger.exception("Failed to send room service notification to %s", token)
-
+                logger.exception("Failed to send room service data‐only message to %s", token)
 
 def notify_porters_order_count(hotel):
     """
