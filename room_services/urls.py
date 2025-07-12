@@ -56,4 +56,14 @@ urlpatterns = [
         validate_dinner_pin,
         name='validate-dinner-pin'
     ),
+    path(
+        '<str:hotel_slug>/orders/pending-count/',
+        order_pending_count,
+        name='hotel-order-pending-count'
+    ),
+    path(
+        '<str:hotel_slug>/orders/pending-count.<str:format>/',
+        order_pending_count,
+        name='hotel-order-pending-count-format'
+    ),
 ]
