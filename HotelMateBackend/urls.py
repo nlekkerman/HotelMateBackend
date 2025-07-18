@@ -1,6 +1,7 @@
 from django.contrib import admin
-from django.urls import path, include, reverse
+from django.urls import path, include, re_path
 from django.http import HttpResponse
+from django.views.generic import TemplateView
 
 apps = [
     'rooms',
@@ -13,10 +14,10 @@ apps = [
     'common',
     'notifications',
     'stock_tracker',
-    'ar_navigation',
     'maintenance',
-    
+    'home',
 ]
+
 
 def home(request):
     # Create list of API URLs for each app
@@ -25,9 +26,22 @@ def home(request):
     urls_html = "<ul>" + "".join(f'<li><a href="{url}">{url}</a></li>' for url in urls) + "</ul>"
     return HttpResponse(f"<h1>Welcome to HotelMate API</h1><p>Available API endpoints:</p>{urls_html}")
 
+# --- custom 404 handler ---
+# Place this above urlpatterns
+handler404 = 'common.views.custom_404'
+
+
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', home),  # root URL shows home page
 ]
 
 urlpatterns += [path(f'api/{app}/', include(f'{app}.urls')) for app in apps]
+
+urlpatterns += [
+    re_path(
+        r'^(?!api/|admin/|static/).*$',
+        TemplateView.as_view(template_name="index.html"),
+        name='spa-fallback'
+    ),
+]

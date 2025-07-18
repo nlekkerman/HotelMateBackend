@@ -4,6 +4,8 @@ from .models import ThemePreference
 from .serializers import ThemePreferenceSerializer
 from django.shortcuts import get_object_or_404
 from hotel.models import Hotel
+from django.http import JsonResponse
+from django.shortcuts import render
 
 
 class ThemePreferenceViewSet(viewsets.ModelViewSet):
@@ -22,3 +24,9 @@ class ThemePreferenceViewSet(viewsets.ModelViewSet):
         hotel = get_object_or_404(Hotel, slug=self.kwargs["hotel_slug"])
         theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
         return theme
+
+def custom_404(request, exception):
+    # Return JSON for API paths, HTML for everything else
+    if request.path.startswith('/api/'):
+        return JsonResponse({'detail': 'Not found.'}, status=404)
+    return render(request, '404.html', status=404)
