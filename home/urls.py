@@ -1,13 +1,22 @@
-# home/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import PostViewSet
+from .views import PostViewSet, CommentViewSet
 
 router = DefaultRouter()
-# Register 'posts' on the router, but wrap it in a slug-based path
-router.register(r'posts', PostViewSet, basename='hotel-posts')
+router.register(r'(?P<hotel_slug>[\w-]+)/posts', PostViewSet, basename='post')
 
 urlpatterns = [
-    # /api/<hotel_slug>/posts/ ...
-    path('<str:hotel_slug>/', include(router.urls)),
+    path('', include(router.urls)),
+
+    # Comments by hotel and post context
+    path(
+        '<str:hotel_slug>/posts/<int:post_pk>/comments/',
+        CommentViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='comment-list-create'
+    ),
+    path(
+        '<str:hotel_slug>/posts/<int:post_pk>/comments/<int:pk>/',
+        CommentViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
+        name='comment-detail'
+    ),
 ]
