@@ -38,10 +38,3 @@ urlpatterns = [
 
 urlpatterns += [path(f'api/{app}/', include(f'{app}.urls')) for app in apps]
 
-urlpatterns += [
-    re_path(
-        r'^(?!api/|admin/|static/).*$',
-        TemplateView.as_view(template_name="index.html"),
-        name='spa-fallback'
-    ),
-]

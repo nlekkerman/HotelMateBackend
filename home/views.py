@@ -1,28 +1,52 @@
+# src/home/views.py
+
 from rest_framework import viewsets, permissions, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
-from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework.decorators import action
-from .models import Like 
+from rest_framework.exceptions import ValidationError, PermissionDenied
+from django.shortcuts import get_object_or_404
+from django.db.models import Prefetch
 
-from .models import Post, Comment
-from .serializers import PostSerializer, CommentSerializer
+from .models import Post, Comment, CommentReply, Like
+from .serializers import (
+    PostSerializer,
+    CommentSerializer,
+    CommentReplySerializer,
+)
 from hotel.models import Hotel
 
 
 class PostViewSet(viewsets.ModelViewSet):
-    serializer_class = PostSerializer
+    """
+    list/retrieve/create/update/destroy Posts for a given hotel_slug,
+    including their top‐level Comments (each with nested replies).
+    """
+    serializer_class   = PostSerializer
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]
+    parser_classes     = [MultiPartParser, FormParser]
 
     def get_queryset(self):
         hotel_slug = self.kwargs['hotel_slug']
-        return Post.objects.filter(hotel__slug=hotel_slug).select_related('author', 'hotel').prefetch_related('likes', 'comments')
+        # Prefetch comments with their replies and authors
+        comment_qs = (
+            Comment.objects
+                   .filter(post__hotel__slug=hotel_slug)
+                   .select_related('author')
+                   .prefetch_related('replies__author')
+        )
+        return (
+            Post.objects
+                .filter(hotel__slug=hotel_slug)
+                .select_related('author', 'hotel')
+                .prefetch_related(
+                    'likes',
+                    Prefetch('comments', queryset=comment_qs)
+                )
+        )
 
     def perform_create(self, serializer):
-        hotel_slug = self.kwargs['hotel_slug']
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        hotel = get_object_or_404(Hotel, slug=self.kwargs['hotel_slug'])
         staff = getattr(self.request.user, 'staff_profile', None)
         if not staff:
             raise ValidationError("Your user account is not linked to a staff profile.")
@@ -33,69 +57,77 @@ class PostViewSet(viewsets.ModelViewSet):
         if self.request.method in ['PUT', 'PATCH', 'DELETE'] and post.author != getattr(self.request.user, 'staff_profile', None):
             raise PermissionDenied("You can only modify your own posts.")
         return post
-    
+
     @action(detail=True, methods=['post'])
     def like(self, request, hotel_slug=None, pk=None):
-        post = get_object_or_404(Post, id=pk, hotel__slug=hotel_slug)
+        post  = get_object_or_404(Post, id=pk, hotel__slug=hotel_slug)
         staff = getattr(request.user, 'staff_profile', None)
         if not staff:
             raise ValidationError("Your user account is not linked to a staff profile.")
-        
         like, created = Like.objects.get_or_create(post=post, staff=staff)
         if not created:
-            like.delete()  # Toggle like
+            like.delete()
             return Response({'liked': False, 'like_count': post.likes.count()})
-        
-        return Response({'liked': True, 'like_count': post.likes.count()})
+        return Response({'liked': True,  'like_count': post.likes.count()})
 
-class CommentViewSet(viewsets.ViewSet):
+
+class CommentViewSet(viewsets.ModelViewSet):
+    """
+    list/retrieve/create/update/destroy root-level Comments for a given post.
+    """
+    serializer_class   = CommentSerializer
     permission_classes = [permissions.IsAuthenticated]
-    parser_classes = [MultiPartParser, FormParser]  # ✅ for image upload
+    parser_classes     = [MultiPartParser, FormParser]
 
-    def list(self, request, hotel_slug=None, post_pk=None):
-        comments = Comment.objects.filter(post_id=post_pk).select_related('author')
-        serializer = CommentSerializer(comments, many=True)
-        return Response(serializer.data)
+    def get_queryset(self):
+        hotel_slug = self.kwargs['hotel_slug']
+        post_pk    = self.kwargs['post_pk']
+        return (
+            Comment.objects
+                   .filter(post__id=post_pk, post__hotel__slug=hotel_slug)
+                   .select_related('author')
+                   .prefetch_related('replies__author')
+        )
 
-    def create(self, request, hotel_slug=None, post_pk=None):
+    def perform_create(self, serializer):
+        hotel_slug = self.kwargs['hotel_slug']
+        post_pk    = self.kwargs['post_pk']
         post = get_object_or_404(Post, id=post_pk, hotel__slug=hotel_slug)
-        serializer = CommentSerializer(data=request.data, context={'request': request})
-        if serializer.is_valid():
-            staff = getattr(request.user, 'staff_profile', None)
-            if not staff:
-                raise ValidationError("Your user account is not linked to a staff profile.")
-            serializer.save(author=staff, post=post)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        staff = getattr(self.request.user, 'staff_profile', None)
+        if not staff:
+            raise ValidationError("Your user account is not linked to a staff profile.")
+        serializer.save(author=staff, post=post)
 
-    def retrieve(self, request, hotel_slug=None, post_pk=None, pk=None):
-        comment = get_object_or_404(Comment, id=pk, post_id=post_pk)
-        serializer = CommentSerializer(comment)
-        return Response(serializer.data)
 
-    def update(self, request, hotel_slug=None, post_pk=None, pk=None):
-        comment = get_object_or_404(Comment, id=pk, post_id=post_pk)
-        if comment.author != getattr(request.user, 'staff_profile', None):
-            raise PermissionDenied("You can only update your own comments.")
-        serializer = CommentSerializer(comment, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+class CommentReplyViewSet(viewsets.ModelViewSet):
+    """
+    list/retrieve/create/update/destroy replies to a specific comment.
+    """
+    serializer_class   = CommentReplySerializer
+    permission_classes = [permissions.IsAuthenticated]
+    parser_classes     = [MultiPartParser, FormParser]
 
-    def partial_update(self, request, hotel_slug=None, post_pk=None, pk=None):
-        comment = get_object_or_404(Comment, id=pk, post_id=post_pk)
-        if comment.author != getattr(request.user, 'staff_profile', None):
-            raise PermissionDenied("You can only partially update your own comments.")
-        serializer = CommentSerializer(comment, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def get_queryset(self):
+        hotel_slug = self.kwargs['hotel_slug']
+        comment_pk = self.kwargs['comment_pk']
+        return (
+            CommentReply.objects
+                        .filter(comment__id=comment_pk, comment__post__hotel__slug=hotel_slug)
+                        .select_related('author', 'comment')
+        )
 
-    def destroy(self, request, hotel_slug=None, post_pk=None, pk=None):
-        comment = get_object_or_404(Comment, id=pk, post_id=post_pk)
-        if comment.author != getattr(request.user, 'staff_profile', None):
-            raise PermissionDenied("You can only delete your own comments.")
-        comment.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    def perform_create(self, serializer):
+        hotel_slug = self.kwargs['hotel_slug']
+        post_pk    = self.kwargs['post_pk']
+        comment_pk = self.kwargs['comment_pk']
+
+        comment = get_object_or_404(
+            Comment,
+            id=comment_pk,
+            post__id=post_pk,
+            post__hotel__slug=hotel_slug
+        )
+        staff = getattr(self.request.user, 'staff_profile', None)
+        if not staff:
+            raise ValidationError("Your user account is not linked to a staff profile.")
+        serializer.save(author=staff, comment=comment)

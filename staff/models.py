@@ -1,5 +1,6 @@
 from django.contrib.auth.models import User
 from django.db import models
+from cloudinary.models import CloudinaryField
 
 
 class Staff(models.Model):
@@ -32,6 +33,7 @@ class Staff(models.Model):
         ('maintenance_staff', 'Maintenance Staff'),
         ('other', 'Other'),
     ]
+    
     ACCESS_LEVEL_CHOICES = [
         ('staff_admin', 'Staff Admin'),
         ('super_staff_admin', 'Super Staff Admin'),
@@ -47,7 +49,19 @@ class Staff(models.Model):
     phone_number = models.CharField(max_length=15, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_on_duty = models.BooleanField(default=False)
-
+    profile_image = CloudinaryField(
+        "profile image",
+        blank=True,
+        null=True,
+        folder="hotel_staff_profiles/",
+        transformation={
+          "width": 200,
+          "height": 200,
+          "crop": "thumb",
+          "gravity": "face"
+        }
+    )
+    
     def __str__(self):
         return f"{self.first_name} {self.last_name} - {self.get_department_display()}"
 

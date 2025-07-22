@@ -5,7 +5,8 @@ from hotel.serializers import HotelSerializer
 from hotel.models import Hotel
 
 class StaffMinimalSerializer(serializers.ModelSerializer):
-    hotel = HotelSerializer(read_only=True)  # show hotel details in minimal too
+    hotel = HotelSerializer(read_only=True)
+    profile_image_url = serializers.SerializerMethodField() 
     class Meta:
         model = Staff
         fields = [
@@ -18,8 +19,15 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
             'phone_number',
             'is_active',
             'is_on_duty',
-            'hotel',  # added
+            'hotel',
+            'profile_image_url',
         ]
+    def get_profile_image_url(self, obj):
+        url = obj.profile_image.url if obj.profile_image else None
+        request = self.context.get('request')
+        if url and request:
+            return request.build_absolute_uri(url)
+        return url
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
@@ -74,7 +82,13 @@ class StaffSerializer(serializers.ModelSerializer):
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
     fcm_tokens = StaffFCMTokenSerializer(source='fcm_tokens.all', many=True, read_only=True)
-
+    # ■ New fields for image:
+    profile_image = serializers.ImageField(
+        required=False, allow_null=True, use_url=True
+    )
+    profile_image_url = serializers.CharField(
+        source='profile_image.url', read_only=True
+    )
     class Meta:
         model = Staff
         fields = [
@@ -91,8 +105,10 @@ class StaffSerializer(serializers.ModelSerializer):
             'hotel',
             'access_level',
             'hotel_name',
-            'fcm_tokens'
-            
+            'fcm_tokens',
+            'profile_image',
+            'profile_image_url',
+
         ]
 
     def create(self, validated_data):
@@ -132,6 +148,8 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     is_superuser = serializers.BooleanField()
     access_level = serializers.CharField(allow_null=True, required=False)
     hotel = serializers.DictField(required=False)
+    profile_image_url = serializers.CharField(allow_null=True, required=False)
+    
     
 class RegisterStaffSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(write_only=True)

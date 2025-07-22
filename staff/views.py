@@ -48,7 +48,19 @@ class CustomAuthToken(ObtainAuthToken):
         hotel_slug = staff.hotel.slug if staff and staff.hotel else None
         access_level = staff.access_level if staff else None
         
+        profile_image_url = None
+        if staff:
+            print("🖼 profile_image field raw value:", staff.profile_image)
+            if staff.profile_image:
+                profile_image_url = str(staff.profile_image)
+                print("✅ profile_image_url set to:", profile_image_url)
+            else:
+                print("⚠️ No profile image found.")
+        else:
+            print("⚠️ No staff profile found for user.")
+
         fcm_token = request.data.get("fcm_token")
+        
         if staff and fcm_token:
             from .models import StaffFCMToken
 
@@ -76,11 +88,12 @@ class CustomAuthToken(ObtainAuthToken):
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
             'access_level': access_level,
+            'profile_image_url': profile_image_url,
         }
 
-        output_serializer = StaffLoginOutputSerializer(data=data)
+        print(data)
+        output_serializer = StaffLoginOutputSerializer(data=data, context={'request': request})
         output_serializer.is_valid(raise_exception=True)
-
         return Response(output_serializer.data)
 
 

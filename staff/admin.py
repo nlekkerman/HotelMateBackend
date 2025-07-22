@@ -1,5 +1,6 @@
 from django.contrib import admin
 from .models import Staff, StaffFCMToken
+from django.utils.html import format_html
 
 class StaffFCMTokenInline(admin.TabularInline):
     model = StaffFCMToken
@@ -55,12 +56,23 @@ class StaffAdmin(admin.ModelAdmin):
                 ('user', 'hotel', 'first_name', 'last_name'),
                 ('email', 'phone_number'),
                 ('department', 'role', 'access_level'),
-                'is_active', 'is_on_duty'
+                'is_active', 'is_on_duty', 'profile_image', 'profile_image_preview',
             )
         }),
     )
+    readonly_fields = ('profile_image_preview',)
 
     inlines = [StaffFCMTokenInline]
+    
+    def profile_image_preview(self, obj):
+        if obj.profile_image:
+            return format_html(
+                '<img src="{}" style="height:60px; width:60px; object-fit:cover; '
+                'border-radius:50%;" />',
+                obj.profile_image.url
+            )
+        return "-"
+    profile_image_preview.short_description = "Profile Image"
 
     actions = ['mark_as_inactive', 'mark_as_on_duty', 'mark_as_off_duty']
 
