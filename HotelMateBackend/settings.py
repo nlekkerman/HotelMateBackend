@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'maintenance',
     'channels',
     'home',
+    'attendance',
     
 ]
 

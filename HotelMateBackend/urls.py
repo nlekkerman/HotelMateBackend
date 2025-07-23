@@ -16,6 +16,7 @@ apps = [
     'stock_tracker',
     'maintenance',
     'home',
+    'attendance',
 ]
 
 
