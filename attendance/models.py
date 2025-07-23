@@ -12,11 +12,11 @@ class StaffFace(models.Model):
         related_name="face_data"
     )
     image = models.ImageField(upload_to="staff_faces/")
-    encoding = models.BinaryField()
+    encoding = models.BinaryField()  # Optional if you later use pre-encoded vectors
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return f"Face data for {self.staff.first_name} {self.staff.last_name} @ {self.hotel.slug}"
+        return f"Face data for {self.staff} @ {self.hotel.slug}"
 
 
 class ClockLog(models.Model):
