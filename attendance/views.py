@@ -8,6 +8,9 @@ from .models import ClockLog, StaffFace
 from .serializers import ClockLogSerializer
 from hotel.models import Hotel
 
+from django.utils.timezone import now
+from datetime import timedelta
+
 from deepface import DeepFace
 import tempfile
 import os
@@ -75,7 +78,6 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                     known_temp.write(face_entry.image.read())
                     known_temp_path = known_temp.name
 
-                # Perform face verification
                 result = DeepFace.verify(
                     img1_path=uploaded_temp_path,
                     img2_path=known_temp_path,
@@ -86,26 +88,71 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                 )
 
                 if result.get("verified"):
-                    log = ClockLog.objects.create(
+                    staff = face_entry.staff
+                    today = now().date()
+
+                    # Check if already clocked in but not out
+                    existing_log = ClockLog.objects.filter(
                         hotel=hotel,
-                        staff=face_entry.staff,
-                        verified_by_face=True
-                    )
+                        staff=staff,
+                        created_at__date=today,
+                        clock_out__isnull=True
+                    ).first()
+
+                    if existing_log:
+                        # Clock-out
+                        existing_log.clock_out = now()
+                        existing_log.save()
+                        action_message = "Clock-out"
+                    else:
+                        # Clock-in
+                        existing_log = ClockLog.objects.create(
+                            hotel=hotel,
+                            staff=staff,
+                            verified_by_face=True
+                        )
+                        action_message = "Clock-in"
+
+                    # Clean up temp files
                     os.remove(uploaded_temp_path)
                     os.remove(known_temp_path)
 
                     return Response({
-                        "message": f"Clock-in successful for {face_entry.staff.first_name}",
-                        "log": ClockLogSerializer(log).data
+                        "message": f"{action_message} successful for {staff.first_name}",
+                        "log": ClockLogSerializer(existing_log).data
                     })
 
                 os.remove(known_temp_path)
 
             except Exception as e:
-                continue  # skip failed comparisons
+                continue
 
-        # Final cleanup
         if os.path.exists(uploaded_temp_path):
             os.remove(uploaded_temp_path)
 
         return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    @action(detail=False, methods=["get"], url_path="status")
+    def current_status(self, request):
+        staff = getattr(request.user, "staff_profile", None)
+        hotel_slug = request.query_params.get("hotel_slug")
+
+        if not staff or not hotel_slug:
+            return Response({"error": "Missing staff or hotel."}, status=400)
+
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+        latest_log = (
+            ClockLog.objects.filter(hotel=hotel, staff=staff)
+            .order_by("-time_in")
+            .first()
+        )
+
+        if not latest_log:
+            return Response({"status": "not_clocked_in"})
+
+        if latest_log.time_out:
+            return Response({"status": "clocked_out", "last_log": latest_log.time_out})
+
+        return Response({"status": "clocked_in", "since": latest_log.time_in})
+

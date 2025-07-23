@@ -49,6 +49,8 @@ class Staff(models.Model):
     phone_number = models.CharField(max_length=15, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_on_duty = models.BooleanField(default=False)
+    has_registered_face = models.BooleanField(default=False, null=True)
+
     profile_image = CloudinaryField(
         "profile image",
         blank=True,
