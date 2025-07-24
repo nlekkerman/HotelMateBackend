@@ -12,7 +12,10 @@ class StaffFace(models.Model):
         related_name="face_data"
     )
     image = models.ImageField(upload_to="staff_faces/")
-    encoding = models.BinaryField()  # Optional if you later use pre-encoded vectors
+    encoding = models.JSONField(
+        help_text="128‑dim face descriptor (list of floats)",
+        default=list,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
