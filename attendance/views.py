@@ -186,3 +186,4 @@ class ClockLogViewSet(viewsets.ModelViewSet):
             os.remove(uploaded_temp_path)
 
         return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
+
