@@ -230,7 +230,43 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
             "errors": errors
         }, status=201 if not errors else 207)
 
+    @action(detail=False, methods=['post'], url_path='create-for-week')
+    def create_for_week(self, request, *args, **kwargs):
+        """
+        Create or return existing RosterPeriod for the week of the provided date.
+        Expected payload:
+        {
+          "date": "2025-07-21",
+          "hotel_slug": "hotel-killarney"
+        }
+        """
+        input_date = request.data.get("date")
+        hotel_slug = request.data.get("hotel_slug")
 
+        if not input_date or not hotel_slug:
+            return Response({"error": "Both 'date' and 'hotel_slug' are required."}, status=400)
+
+        parsed_date = parse_date(input_date)
+        if not parsed_date:
+            return Response({"error": "Invalid date format."}, status=400)
+
+        start_date = parsed_date - timedelta(days=parsed_date.weekday() + 1)  # Sunday
+        end_date = start_date + timedelta(days=6)
+
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+        period, created = RosterPeriod.objects.get_or_create(
+            hotel=hotel,
+            start_date=start_date,
+            defaults={
+                "end_date": end_date,
+                "title": f"Week of {start_date.strftime('%b %d')}"
+            }
+        )
+
+        serializer = self.get_serializer(period)
+        return Response(serializer.data, status=201 if created else 200)
+    
 class StaffRosterViewSet(viewsets.ModelViewSet):
     queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by').all()
     serializer_class = StaffRosterSerializer

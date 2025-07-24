@@ -16,8 +16,16 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail
 from django.conf import settings
+from rest_framework.permissions import IsAuthenticated
+class StaffMetadataView(APIView):
+    permission_classes = [IsAuthenticated]
 
-
+    def get(self, request):
+        return Response({
+            "departments": Staff.DEPARTMENT_CHOICES,
+            "roles": Staff.ROLE_CHOICES,
+            "access_levels": Staff.ACCESS_LEVEL_CHOICES,
+        })
 class UserListAPIView(generics.ListAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
