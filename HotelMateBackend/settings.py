@@ -52,7 +52,8 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'corsheaders',
-
+    'dal',
+    'dal_select2',
     # Custom apps
     'rooms',
     'guests',

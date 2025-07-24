@@ -4,8 +4,8 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 
-from .models import ClockLog, StaffFace
-from .serializers import ClockLogSerializer
+from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster
+from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer
 from hotel.models import Hotel
 
 
@@ -95,6 +95,9 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                 existing_log.save()
                 action_message = "Clock‑out"
                 log = existing_log
+                staff.is_on_duty = False
+                staff.save(update_fields=["is_on_duty"])
+
             else:
                 log = ClockLog.objects.create(
                     hotel=hotel,
@@ -102,6 +105,10 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                     verified_by_face=True
                 )
                 action_message = "Clock‑in"
+                
+                staff.is_on_duty = True
+                staff.save(update_fields=["is_on_duty"])
+
 
             return Response({
                 "message": f"{action_message} successful for {staff.first_name}",
@@ -165,3 +172,69 @@ class ClockLogViewSet(viewsets.ModelViewSet):
             })
 
         return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
+
+class RosterPeriodViewSet(viewsets.ModelViewSet):
+    queryset = RosterPeriod.objects.select_related('hotel', 'created_by').all()
+    serializer_class = RosterPeriodSerializer
+
+    @action(detail=True, methods=['post'], url_path='add-shift')
+    def add_shift(self, request, pk=None):
+        """
+        Add a single shift to this RosterPeriod
+        """
+        period = self.get_object()
+        serializer = StaffRosterSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save(period=period, hotel=period.hotel)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='create-department-roster')
+    def create_department_roster(self, request, pk=None):
+        """
+        Bulk-create shifts for a department within a roster period.
+        {
+          "department": "kitchen",
+          "shifts": [
+            {
+              "staff": 7,
+              "shift_date": "2025-07-26",
+              "shift_start": "08:00",
+              "shift_end": "16:00"
+            },
+            ...
+          ]
+        }
+        """
+        period = self.get_object()
+        hotel = period.hotel
+        department = request.data.get("department")
+        shifts = request.data.get("shifts", [])
+        created, errors = [], []
+
+        for entry in shifts:
+            entry.update({
+                "department": department,
+                "hotel": hotel.id,
+                "period": period.id,
+            })
+            serializer = StaffRosterSerializer(data=entry)
+            if serializer.is_valid():
+                serializer.save()
+                created.append(serializer.data)
+            else:
+                errors.append({"data": entry, "errors": serializer.errors})
+
+        return Response({
+            "created": created,
+            "errors": errors
+        }, status=201 if not errors else 207)
+
+
+class StaffRosterViewSet(viewsets.ModelViewSet):
+    queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by').all()
+    serializer_class = StaffRosterSerializer
+
+    def perform_create(self, serializer):
+        staff = getattr(self.request.user, "staff_profile", None)
+        serializer.save(approved_by=staff)

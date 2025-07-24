@@ -1,46 +1,85 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import StaffFace, ClockLog
+from dal import autocomplete
+from django import forms
 
+from .models import (
+    StaffFace, ClockLog, RosterPeriod, StaffRoster,
+    StaffAvailability, ShiftTemplate, RosterRequirement
+)
+
+# ──────────────── Face Recognition Admin ──────────────── #
 
 @admin.register(StaffFace)
 class StaffFaceAdmin(admin.ModelAdmin):
-    list_display   = ('staff', 'hotel', 'created_at', 'image_preview')
-    list_filter    = ('hotel',)
-    search_fields  = ('staff__first_name', 'staff__last_name', 'hotel__name')
+    list_display = ('staff', 'hotel', 'created_at', 'image_preview')
+    list_filter = ('hotel',)
+    search_fields = ('staff__first_name', 'staff__last_name', 'hotel__name')
     readonly_fields = ('created_at', 'encoding', 'image_preview')
-    fields = (
-        'hotel',
-        'staff',
-        'image',
-        'image_preview',
-        'encoding',
-        'created_at',
-    )
 
     def image_preview(self, obj):
         if obj.image:
-            return format_html(
-                '<img src="{}" style="max-height:100px; max-width:100px;"/>',
-                obj.image.url
-            )
+            return format_html('<img src="{}" style="max-height:100px; max-width:100px;"/>', obj.image.url)
         return "(no image)"
     image_preview.short_description = 'Preview'
 
 
+# ──────────────── Clock Logs Admin ──────────────── #
+
 @admin.register(ClockLog)
 class ClockLogAdmin(admin.ModelAdmin):
-    list_display   = ('staff', 'hotel', 'time_in', 'time_out', 'verified_by_face')
-    list_filter    = ('hotel', 'verified_by_face')
-    search_fields  = ('staff__first_name', 'staff__last_name', 'hotel__name')
+    list_display = ('staff', 'hotel', 'time_in', 'time_out', 'verified_by_face', 'auto_clock_out')
+    list_filter = ('hotel', 'verified_by_face', 'auto_clock_out')
+    search_fields = ('staff__first_name', 'staff__last_name', 'hotel__name')
     readonly_fields = ('time_in',)
+    fields = ('hotel', 'staff', 'time_in', 'time_out', 'verified_by_face', 'location_note', 'auto_clock_out')
 
-    # If you’d like to see location_note or verified_by_face on the detail page:
-    fields = (
-        'hotel',
-        'staff',
-        'time_in',
-        'time_out',
-        'verified_by_face',
-        'location_note',
-    )
+
+# ──────────────── Staff Roster Admin with Autocomplete ──────────────── #
+
+class StaffRosterForm(forms.ModelForm):
+    class Meta:
+        model = StaffRoster
+        fields = '__all__'
+        widgets = {
+            'staff': autocomplete.ModelSelect2(url='staff-autocomplete'),
+            'period': autocomplete.ModelSelect2(url='rosterperiod-autocomplete'),
+        }
+
+@admin.register(StaffRoster)
+class StaffRosterAdmin(admin.ModelAdmin):
+    form = StaffRosterForm
+    list_display = ('staff', 'department', 'shift_date', 'shift_start', 'shift_end', 'shift_type')
+    list_filter = ('department', 'shift_type', 'is_night_shift')
+    search_fields = ('staff__first_name', 'staff__last_name')
+    ordering = ('-shift_date',)
+
+
+# ──────────────── Other Admin Models ──────────────── #
+
+@admin.register(RosterPeriod)
+class RosterPeriodAdmin(admin.ModelAdmin):
+    list_display = ('title', 'hotel', 'start_date', 'end_date', 'published')
+    list_filter = ('hotel', 'published')
+    search_fields = ('title', 'hotel__name')
+
+
+@admin.register(StaffAvailability)
+class StaffAvailabilityAdmin(admin.ModelAdmin):
+    list_display = ('staff', 'date', 'available', 'reason')
+    list_filter = ('available',)
+    search_fields = ('staff__first_name', 'staff__last_name')
+
+
+@admin.register(ShiftTemplate)
+class ShiftTemplateAdmin(admin.ModelAdmin):
+    list_display = ('name', 'hotel', 'start_time', 'end_time', 'is_night')
+    list_filter = ('hotel', 'is_night')
+    search_fields = ('name',)
+
+
+@admin.register(RosterRequirement)
+class RosterRequirementAdmin(admin.ModelAdmin):
+    list_display = ('department', 'role', 'date', 'required_count')
+    list_filter = ('department', 'role')
+    search_fields = ('role', 'department')

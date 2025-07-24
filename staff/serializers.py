@@ -82,7 +82,7 @@ class StaffSerializer(serializers.ModelSerializer):
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
     fcm_tokens = StaffFCMTokenSerializer(source='fcm_tokens.all', many=True, read_only=True)
-    # ■ New fields for image:
+    has_registered_face = serializers.BooleanField()
     profile_image = serializers.ImageField(
         required=False, allow_null=True, use_url=True
     )
@@ -108,6 +108,7 @@ class StaffSerializer(serializers.ModelSerializer):
             'fcm_tokens',
             'profile_image',
             'profile_image_url',
+            'has_registered_face',
 
         ]
 
