@@ -1,5 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
@@ -274,3 +276,67 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         staff = getattr(self.request.user, "staff_profile", None)
         serializer.save(approved_by=staff)
+    
+
+
+class StaffRosterViewSet(viewsets.ModelViewSet):
+    queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by').all()
+    serializer_class = StaffRosterSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['hotel__slug', 'department', 'period']
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        hotel_slug = self.kwargs.get("hotel_slug") or self.request.query_params.get("hotel_slug")
+        department = self.request.query_params.get("department")
+        period_id = self.request.query_params.get("period")
+
+        if hotel_slug:
+            queryset = queryset.filter(hotel__slug=hotel_slug)
+        if department:
+            queryset = queryset.filter(department=department)
+        if period_id:
+            queryset = queryset.filter(period_id=period_id)
+
+        return queryset
+
+
+    def perform_create(self, serializer):
+        staff = getattr(self.request.user, "staff_profile", None)
+        serializer.save(approved_by=staff)
+
+
+    @action(detail=False, methods=['post'], url_path='bulk-save')
+    def bulk_save(self, request, *args, **kwargs):
+        """
+        Accepts a flat list of shifts and auto-splits them into new and existing.
+        Expected payload:
+        {
+            "shifts": [ {id?, staff, shift_date, ...}, ... ]
+        }
+        """
+        all_shifts = request.data.get('shifts', [])
+        created_data = [s for s in all_shifts if not s.get("id")]
+        updated_data = [s for s in all_shifts if s.get("id")]
+
+        created_serializer = StaffRosterSerializer(data=created_data, many=True)
+        updated_serializer = StaffRosterSerializer(data=updated_data, many=True, partial=True)
+
+        errors = []
+        if not created_serializer.is_valid():
+            errors.extend(created_serializer.errors)
+        if not updated_serializer.is_valid():
+            errors.extend(updated_serializer.errors)
+
+        if errors:
+            return Response({'created': [], 'updated': [], 'errors': errors}, status=400)
+
+        created_serializer.save()
+        updated_serializer.save()
+
+        return Response({
+            'created': created_serializer.data,
+            'updated': updated_serializer.data,
+            'errors': []
+        }, status=201)

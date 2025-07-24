@@ -46,7 +46,7 @@ class RosterPeriodSerializer(serializers.ModelSerializer):
 
 
 class StaffRosterSerializer(serializers.ModelSerializer):
-    staff_name = serializers.SerializerMethodField()
+    staff_name = serializers.SerializerMethodField(read_only=True)
     period_title = serializers.CharField(source='period.title', read_only=True)
 
     class Meta:
@@ -59,10 +59,23 @@ class StaffRosterSerializer(serializers.ModelSerializer):
             'expected_hours', 'approved_by', 'notes',
             'created_at', 'updated_at'
         ]
+        extra_kwargs = {
+            'hotel': {'required': True},
+            'staff': {'required': True},
+            'department': {'required': True},
+            'period': {'required': True},
+            'shift_date': {'required': True},
+            'shift_start': {'required': True},
+            'shift_end': {'required': True},
+            'approved_by': {'read_only': True},  # set in view
+            'break_start': {'required': False, 'allow_null': True},
+            'break_end': {'required': False, 'allow_null': True},
+            'expected_hours': {'required': False, 'allow_null': True},
+            'notes': {'required': False, 'allow_blank': True},
+        }
 
     def get_staff_name(self, obj):
-        return f"{obj.staff.first_name} {obj.staff.last_name}"
-
+        return f"{obj.staff.first_name} {obj.staff.last_name}" if obj.staff else None
 
 class StaffAvailabilitySerializer(serializers.ModelSerializer):
     staff_name = serializers.SerializerMethodField()

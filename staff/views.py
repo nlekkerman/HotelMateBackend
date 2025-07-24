@@ -176,6 +176,23 @@ class StaffViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+    @action(detail=False, methods=["get"], url_path="by_department", permission_classes=[permissions.IsAuthenticated])
+    def by_department(self, request):
+        """
+        Returns staff in the same hotel, filtered by ?department=xyz
+        """
+        try:
+            staff_profile = Staff.objects.get(user=request.user)
+        except Staff.DoesNotExist:
+            return Response({"detail": "Staff profile not found."}, status=404)
+
+        department = request.query_params.get("department")
+        if not department:
+            return Response({"detail": "Department query param is required."}, status=400)
+
+        staff_qs = Staff.objects.filter(hotel=staff_profile.hotel, department=department)
+        serializer = self.get_serializer(staff_qs, many=True)
+        return Response(serializer.data, status=200)
 
 class StaffRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]

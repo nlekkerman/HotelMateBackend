@@ -8,14 +8,20 @@ class Staff(models.Model):
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE)
 
     DEPARTMENT_CHOICES = [
-        ('front_office', 'Front Office'),
-        ('front_house', 'Front House'),
+        ('reception', 'Reception'),
         ('kitchen', 'Kitchen'),
+        ('housekeeping', 'Housekeeping'),
+        ('porters', 'Porters'),
         ('maintenance', 'Maintenance'),
         ('leisure', 'Leisure'),
-        ('housekeeping', 'Housekeeping'),
+        ('spa', 'Spa'),
+        ('security', 'Security'),
         ('management', 'Management'),
+        ('food_and_beverage', 'Food & Beverage'),
+        ('cleaning', 'Cleaning Crew'),
+        ('front_office', 'Front Office'),
     ]
+
 
     ROLE_CHOICES = [
         ('porter', 'Porter'),
