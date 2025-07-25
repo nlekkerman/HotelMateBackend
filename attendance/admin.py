@@ -49,10 +49,26 @@ class StaffRosterForm(forms.ModelForm):
 @admin.register(StaffRoster)
 class StaffRosterAdmin(admin.ModelAdmin):
     form = StaffRosterForm
-    list_display = ('staff', 'department', 'shift_date', 'shift_start', 'shift_end', 'shift_type')
-    list_filter = ('department', 'shift_type', 'is_night_shift')
-    search_fields = ('staff__first_name', 'staff__last_name')
-    ordering = ('-shift_date',)
+    list_display = (
+        'staff', 'hotel', 'department', 'shift_date', 'shift_start', 'shift_end',
+        'shift_type', 'is_split_shift', 'expected_hours'
+    )
+    list_filter = ('hotel', 'department', 'shift_type', 'is_night_shift', 'is_split_shift')
+    search_fields = ('staff__first_name', 'staff__last_name', 'notes')
+    ordering = ('-shift_date', 'shift_start')
+    date_hierarchy = 'shift_date'
+    fieldsets = (
+        (None, {
+            'fields': (
+                'hotel', 'staff', 'department', 'period',
+                'shift_date', ('shift_start', 'shift_end'),
+                ('break_start', 'break_end'),
+                'shift_type', 'is_split_shift', 'is_night_shift',
+                'expected_hours', 'notes'
+            )
+        }),
+        ('Approval', {'fields': ('approved_by',)}),
+    )
 
 
 # ──────────────── Other Admin Models ──────────────── #
@@ -67,7 +83,7 @@ class RosterPeriodAdmin(admin.ModelAdmin):
 @admin.register(StaffAvailability)
 class StaffAvailabilityAdmin(admin.ModelAdmin):
     list_display = ('staff', 'date', 'available', 'reason')
-    list_filter = ('available',)
+    list_filter = ('available', 'date')
     search_fields = ('staff__first_name', 'staff__last_name')
 
 
@@ -81,5 +97,5 @@ class ShiftTemplateAdmin(admin.ModelAdmin):
 @admin.register(RosterRequirement)
 class RosterRequirementAdmin(admin.ModelAdmin):
     list_display = ('department', 'role', 'date', 'required_count')
-    list_filter = ('department', 'role')
+    list_filter = ('department', 'role', 'date')
     search_fields = ('role', 'department')

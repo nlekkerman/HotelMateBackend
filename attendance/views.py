@@ -1,56 +1,51 @@
+# attendance/views.py
+
+from datetime import timedelta
+from django.db import transaction
+from django.utils.dateparse import parse_date
+from django.utils.timezone import now
+from django.shortcuts import get_object_or_404
+
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
-from django.utils.timezone import now
+
+from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster
 from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer
 from hotel.models import Hotel
 
 
+# ---------------------- helpers ----------------------
 def euclidean(a, b):
     """Compute Euclidean distance between two equal‑length lists of floats."""
     import math
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
 
+# ---------------------- Clock / Face ----------------------
 class ClockLogViewSet(viewsets.ModelViewSet):
     queryset = ClockLog.objects.select_related('staff', 'hotel').all()
     serializer_class = ClockLogSerializer
+    permission_classes = [IsAuthenticated]
 
     @action(detail=False, methods=['post'], url_path=r'register-face/(?P<hotel_slug>[^/.]+)')
     def register_face(self, request, hotel_slug=None):
-        """
-        Client must POST JSON:
-          {
-            "descriptor": [0.123, -0.045, …]   # length‑128 list of floats
-          }
-        """
         descriptor = request.data.get("descriptor")
         if not isinstance(descriptor, list) or len(descriptor) != 128:
-            return Response(
-                {"error": "A 128‑length descriptor array is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "A 128‑length descriptor array is required."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         staff = getattr(request.user, "staff_profile", None)
         if not staff:
-            return Response(
-                {"error": "User has no linked staff profile."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "User has no linked staff profile."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        # replace any existing face
         StaffFace.objects.filter(staff=staff).delete()
-        StaffFace.objects.create(
-            hotel=hotel,
-            staff=staff,
-            encoding=descriptor
-        )
+        StaffFace.objects.create(hotel=hotel, staff=staff, encoding=descriptor)
         staff.has_registered_face = True
         staff.save(update_fields=["has_registered_face"])
 
@@ -58,23 +53,13 @@ class ClockLogViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path=r'face-clock-in/(?P<hotel_slug>[^/.]+)')
     def face_clock_in(self, request, hotel_slug=None):
-        """
-        Client must POST JSON:
-          {
-            "descriptor": [ … ]   # length‑128 list
-          }
-        """
         probe = request.data.get("descriptor")
         if not isinstance(probe, list) or len(probe) != 128:
-            return Response(
-                {"error": "A 128‑length descriptor array is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "A 128‑length descriptor array is required."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
-
-        # load all enrolled descriptors for this hotel
-        staff_faces = StaffFace.objects.select_related('staff')\
+        staff_faces = StaffFace.objects.select_related('staff') \
                                        .filter(hotel=hotel, staff__is_active=True)
 
         best_id, best_dist = None, float('inf')
@@ -83,7 +68,6 @@ class ClockLogViewSet(viewsets.ModelViewSet):
             if dist < best_dist:
                 best_dist, best_id = dist, face_entry.staff.id
 
-        # threshold chosen empirically; ~0.6 works for tiny models
         if best_dist <= 0.6:
             staff = get_object_or_404(staff_faces.model.staff.field.related_model, id=best_id)
             today = now().date()
@@ -98,8 +82,6 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                 action_message = "Clock‑out"
                 log = existing_log
                 staff.is_on_duty = False
-                staff.save(update_fields=["is_on_duty"])
-
             else:
                 log = ClockLog.objects.create(
                     hotel=hotel,
@@ -107,20 +89,16 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                     verified_by_face=True
                 )
                 action_message = "Clock‑in"
-                
                 staff.is_on_duty = True
-                staff.save(update_fields=["is_on_duty"])
 
+            staff.save(update_fields=["is_on_duty"])
 
             return Response({
                 "message": f"{action_message} successful for {staff.first_name}",
-                "log":    ClockLogSerializer(log).data
+                "log": ClockLogSerializer(log).data
             })
 
-        return Response(
-            {"error": "Face not recognized."},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
+        return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
 
     @action(detail=False, methods=["get"], url_path="status")
     def current_status(self, request):
@@ -130,7 +108,7 @@ class ClockLogViewSet(viewsets.ModelViewSet):
             return Response({"error": "Missing staff or hotel."}, status=400)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        latest_log = ClockLog.objects.filter(hotel=hotel, staff=staff)\
+        latest_log = ClockLog.objects.filter(hotel=hotel, staff=staff) \
                                      .order_by("-time_in").first()
 
         if not latest_log:
@@ -141,18 +119,13 @@ class ClockLogViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path=r'detect/(?P<hotel_slug>[^/.]+)')
     def detect_face_only(self, request, hotel_slug=None):
-        """
-        Just return staff info if descriptor matches; same signature as clock-in
-        """
         probe = request.data.get("descriptor")
         if not isinstance(probe, list) or len(probe) != 128:
-            return Response(
-                {"error": "A 128‑length descriptor array is required."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({"error": "A 128‑length descriptor array is required."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        staff_faces = StaffFace.objects.select_related('staff')\
+        staff_faces = StaffFace.objects.select_related('staff') \
                                        .filter(hotel=hotel, staff__is_active=True)
 
         best_id, best_dist = None, float('inf')
@@ -168,24 +141,35 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                 time_in__date=now().date(), time_out__isnull=True
             ).exists()
             return Response({
-                "staff_id":   staff.id,
+                "staff_id": staff.id,
                 "staff_name": f"{staff.first_name} {staff.last_name}",
                 "clocked_in": is_clocked_in
             })
 
         return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
 
+
+# ---------------------- Roster Period ----------------------
 class RosterPeriodViewSet(viewsets.ModelViewSet):
-    queryset = RosterPeriod.objects.select_related('hotel', 'created_by').all()
     serializer_class = RosterPeriodSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_hotel(self):
+        return get_object_or_404(Hotel, slug=self.kwargs.get("hotel_slug"))
+
+    def get_queryset(self):
+        hotel = self.get_hotel()
+        return RosterPeriod.objects.select_related('hotel', 'created_by').filter(hotel=hotel)
+
+    def perform_create(self, serializer):
+        hotel = self.get_hotel()
+        staff = getattr(self.request.user, "staff_profile", None)
+        serializer.save(hotel=hotel, created_by=staff)
 
     @action(detail=True, methods=['post'], url_path='add-shift')
     def add_shift(self, request, pk=None):
-        """
-        Add a single shift to this RosterPeriod
-        """
         period = self.get_object()
-        serializer = StaffRosterSerializer(data=request.data)
+        serializer = StaffRosterSerializer(data=request.data, context={'request': request})
         if serializer.is_valid():
             serializer.save(period=period, hotel=period.hotel)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -193,21 +177,6 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='create-department-roster')
     def create_department_roster(self, request, pk=None):
-        """
-        Bulk-create shifts for a department within a roster period.
-        {
-          "department": "kitchen",
-          "shifts": [
-            {
-              "staff": 7,
-              "shift_date": "2025-07-26",
-              "shift_start": "08:00",
-              "shift_end": "16:00"
-            },
-            ...
-          ]
-        }
-        """
         period = self.get_object()
         hotel = period.hotel
         department = request.data.get("department")
@@ -220,123 +189,146 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
                 "hotel": hotel.id,
                 "period": period.id,
             })
-            serializer = StaffRosterSerializer(data=entry)
+            serializer = StaffRosterSerializer(data=entry, context={'request': request})
             if serializer.is_valid():
                 serializer.save()
                 created.append(serializer.data)
             else:
                 errors.append({"data": entry, "errors": serializer.errors})
 
-        return Response({
-            "created": created,
-            "errors": errors
-        }, status=201 if not errors else 207)
+        return Response({"created": created, "errors": errors},
+                        status=201 if not errors else 207)
 
     @action(detail=False, methods=['post'], url_path='create-for-week')
     def create_for_week(self, request, *args, **kwargs):
         """
-        Create or return existing RosterPeriod for the week of the provided date.
-        Expected payload:
+        POST /attendance/<hotel_slug>/periods/create-for-week/
         {
-          "date": "2025-07-21",
-          "hotel_slug": "hotel-killarney"
+          "date": "2025-07-21"
         }
         """
         input_date = request.data.get("date")
-        hotel_slug = request.data.get("hotel_slug")
-
-        if not input_date or not hotel_slug:
-            return Response({"error": "Both 'date' and 'hotel_slug' are required."}, status=400)
+        if not input_date:
+            return Response({"error": "Field 'date' is required."}, status=400)
 
         parsed_date = parse_date(input_date)
         if not parsed_date:
             return Response({"error": "Invalid date format."}, status=400)
 
-        start_date = parsed_date - timedelta(days=parsed_date.weekday() + 1)  # Sunday
+        # Monday start (0 = Monday)
+        start_date = parsed_date - timedelta(days=parsed_date.weekday())
         end_date = start_date + timedelta(days=6)
 
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        hotel = self.get_hotel()
 
         period, created = RosterPeriod.objects.get_or_create(
             hotel=hotel,
             start_date=start_date,
             defaults={
                 "end_date": end_date,
-                "title": f"Week of {start_date.strftime('%b %d')}"
+                "title": f"Week of {start_date.strftime('%b %d')}",
+                "created_by": getattr(self.request.user, "staff_profile", None),
             }
         )
 
         serializer = self.get_serializer(period)
         return Response(serializer.data, status=201 if created else 200)
-    
-class StaffRosterViewSet(viewsets.ModelViewSet):
-    queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by').all()
-    serializer_class = StaffRosterSerializer
-
-    def perform_create(self, serializer):
-        staff = getattr(self.request.user, "staff_profile", None)
-        serializer.save(approved_by=staff)
-    
-
-
+# ---------------------- Staff Roster ----------------------
 class StaffRosterViewSet(viewsets.ModelViewSet):
     queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by').all()
     serializer_class = StaffRosterSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['hotel__slug', 'department', 'period']
-    
+
     def get_queryset(self):
-        queryset = super().get_queryset()
+        qs = super().get_queryset()
         hotel_slug = self.kwargs.get("hotel_slug") or self.request.query_params.get("hotel_slug")
         department = self.request.query_params.get("department")
         period_id = self.request.query_params.get("period")
 
         if hotel_slug:
-            queryset = queryset.filter(hotel__slug=hotel_slug)
+            qs = qs.filter(hotel__slug=hotel_slug)
         if department:
-            queryset = queryset.filter(department=department)
+            qs = qs.filter(department=department)
         if period_id:
-            queryset = queryset.filter(period_id=period_id)
+            qs = qs.filter(period_id=period_id)
 
-        return queryset
-
+        return qs
 
     def perform_create(self, serializer):
         staff = getattr(self.request.user, "staff_profile", None)
         serializer.save(approved_by=staff)
 
-
     @action(detail=False, methods=['post'], url_path='bulk-save')
     def bulk_save(self, request, *args, **kwargs):
         """
-        Accepts a flat list of shifts and auto-splits them into new and existing.
-        Expected payload:
+        Accepts:
         {
-            "shifts": [ {id?, staff, shift_date, ...}, ... ]
+          "shifts": [
+            { id?, hotel, period, staff, department, shift_date, shift_start, shift_end, ... },
+            ...
+          ],
+          "hotel": <id?>,  # optional top-level default
+          "period": <id?>  # optional top-level default
         }
+        Works with split shifts (unique_together = staff, shift_date, shift_start).
         """
         all_shifts = request.data.get('shifts', [])
         created_data = [s for s in all_shifts if not s.get("id")]
         updated_data = [s for s in all_shifts if s.get("id")]
 
-        created_serializer = StaffRosterSerializer(data=created_data, many=True)
-        updated_serializer = StaffRosterSerializer(data=updated_data, many=True, partial=True)
+        # propagate optional defaults
+        default_hotel = request.data.get("hotel")
+        default_period = request.data.get("period")
+        if default_hotel:
+            for s in created_data:
+                s.setdefault("hotel", default_hotel)
+        if default_period:
+            for s in created_data:
+                s.setdefault("period", default_period)
 
         errors = []
-        if not created_serializer.is_valid():
-            errors.extend(created_serializer.errors)
-        if not updated_serializer.is_valid():
-            errors.extend(updated_serializer.errors)
+        created_result, updated_result = [], []
 
-        if errors:
-            return Response({'created': [], 'updated': [], 'errors': errors}, status=400)
+        from django.db import transaction
+        with transaction.atomic():
+            # create
+            if created_data:
+                create_ser = StaffRosterSerializer(
+                    data=created_data, many=True, context={'request': request}
+                )
+                if create_ser.is_valid():
+                    create_ser.save()
+                    created_result = create_ser.data
+                else:
+                    errors.extend(create_ser.errors)
 
-        created_serializer.save()
-        updated_serializer.save()
+            # update (manual loop to allow partial updates & collect per-instance errors)
+            if updated_data and not errors:
+                for payload in updated_data:
+                    instance = StaffRoster.objects.filter(pk=payload["id"]).first()
+                    if not instance:
+                        errors.append({"id": payload.get("id"), "detail": "Shift not found"})
+                        continue
 
-        return Response({
-            'created': created_serializer.data,
-            'updated': updated_serializer.data,
-            'errors': []
-        }, status=201)
+                    ser = StaffRosterSerializer(
+                        instance, data=payload, partial=True, context={'request': request}
+                    )
+                    if ser.is_valid():
+                        ser.save()
+                        updated_result.append(ser.data)
+                    else:
+                        errors.append(ser.errors)
+
+            if errors:
+                transaction.set_rollback(True)
+                return Response(
+                    {"created": [], "updated": [], "errors": errors},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        return Response(
+            {"created": created_result, "updated": updated_result, "errors": []},
+            status=status.HTTP_201_CREATED
+        )

@@ -66,7 +66,13 @@ class StaffRoster(models.Model):
     is_split_shift = models.BooleanField(default=False)
     is_night_shift = models.BooleanField(default=False)
     expected_hours = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
-    approved_by = models.ForeignKey('staff.Staff', on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_rosters')
+    approved_by = models.ForeignKey(
+        'staff.Staff', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='approved_rosters'
+    )
 
     notes = models.TextField(blank=True, null=True)
 
@@ -74,12 +80,12 @@ class StaffRoster(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ('staff', 'shift_date')
+        # Allow multiple shifts on the same date, but unique per start time
+        unique_together = ('staff', 'shift_date', 'shift_start')
         ordering = ['shift_date', 'shift_start']
 
     def __str__(self):
         return f"{self.staff} on {self.shift_date} ({self.shift_start}-{self.shift_end})"
-
 
 class StaffAvailability(models.Model):
     staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE, related_name='availabilities')
