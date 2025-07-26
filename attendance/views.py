@@ -10,6 +10,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from django.db import transaction
 
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -274,7 +275,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         }
         Works with split shifts (unique_together = staff, shift_date, shift_start).
         """
-        all_shifts = request.data.get('shifts', [])
+        all_shifts = request.data.get('shifts', []) or []
         created_data = [s for s in all_shifts if not s.get("id")]
         updated_data = [s for s in all_shifts if s.get("id")]
 
@@ -291,9 +292,8 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         errors = []
         created_result, updated_result = [], []
 
-        from django.db import transaction
         with transaction.atomic():
-            # create
+            # CREATE
             if created_data:
                 create_ser = StaffRosterSerializer(
                     data=created_data, many=True, context={'request': request}
@@ -304,7 +304,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
                 else:
                     errors.extend(create_ser.errors)
 
-            # update (manual loop to allow partial updates & collect per-instance errors)
+            # UPDATE
             if updated_data and not errors:
                 for payload in updated_data:
                     instance = StaffRoster.objects.filter(pk=payload["id"]).first()

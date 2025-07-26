@@ -130,7 +130,6 @@ AUTH_PASSWORD_VALIDATORS = [
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
-print(f"🔗 [REDISsssssssssssssss] Parsed URL: {REDIS_URL}")
 
 
 # Use *just* the URL string. Channels-Redis will detect "rediss://" itself
