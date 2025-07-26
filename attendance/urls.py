@@ -6,6 +6,7 @@ from .views import (
     ClockLogViewSet,
     RosterPeriodViewSet,
     StaffRosterViewSet,
+    ShiftLocationViewSet,
 )
 from .views_analytics import RosterAnalyticsViewSet
 
@@ -16,6 +17,7 @@ app_name = "attendance"
 # -------------------------
 router = DefaultRouter()
 router.register(r'clock-logs', ClockLogViewSet, basename='clock-log')
+router.register(r'shift-locations', ShiftLocationViewSet, basename='shift-location')
 # Do NOT register RosterAnalyticsViewSet here (it needs hotel_slug in the URL)
 
 # -------------------------
@@ -49,6 +51,8 @@ weekly_totals = RosterAnalyticsViewSet.as_view({'get': 'weekly_totals'})
 weekly_by_department = RosterAnalyticsViewSet.as_view({'get': 'weekly_by_department'})
 weekly_by_staff = RosterAnalyticsViewSet.as_view({'get': 'weekly_by_staff'})
 
+shift_location_list = ShiftLocationViewSet.as_view({'get': 'list', 'post': 'create'})
+shift_location_detail = ShiftLocationViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})
 # -------------------------
 # URL patterns
 # -------------------------
@@ -80,4 +84,7 @@ urlpatterns = [
     path('<slug:hotel_slug>/roster-analytics/weekly-totals/', weekly_totals, name='ra-weekly-totals'),
     path('<slug:hotel_slug>/roster-analytics/weekly-by-department/', weekly_by_department, name='ra-weekly-by-department'),
     path('<slug:hotel_slug>/roster-analytics/weekly-by-staff/', weekly_by_staff, name='ra-weekly-by-staff'),
+
+    path('<slug:hotel_slug>/shift-locations/', shift_location_list, name='shift-location-list'),
+    path('<slug:hotel_slug>/shift-locations/<int:pk>/', shift_location_detail, name='shift-location-detail'),
 ]

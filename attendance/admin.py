@@ -5,7 +5,8 @@ from django import forms
 
 from .models import (
     StaffFace, ClockLog, RosterPeriod, StaffRoster,
-    StaffAvailability, ShiftTemplate, RosterRequirement
+    StaffAvailability, ShiftTemplate, RosterRequirement,
+    ShiftLocation,   # 👈 NEW
 )
 
 # ──────────────── Face Recognition Admin ──────────────── #
@@ -35,6 +36,23 @@ class ClockLogAdmin(admin.ModelAdmin):
     fields = ('hotel', 'staff', 'time_in', 'time_out', 'verified_by_face', 'location_note', 'auto_clock_out')
 
 
+# ──────────────── Shift Location Admin ──────────────── #
+
+@admin.register(ShiftLocation)
+class ShiftLocationAdmin(admin.ModelAdmin):
+    list_display = ('name', 'hotel', 'color_swatch')
+    list_filter = ('hotel',)
+    search_fields = ('name', 'hotel__name')
+
+    def color_swatch(self, obj):
+        return format_html(
+            '<span style="display:inline-block;width:16px;height:16px;'
+            'border:1px solid #ccc;background:{};margin-right:6px;"></span>{}',
+            obj.color, obj.color
+        )
+    color_swatch.short_description = "Color"
+
+
 # ──────────────── Staff Roster Admin with Autocomplete ──────────────── #
 
 class StaffRosterForm(forms.ModelForm):
@@ -44,23 +62,29 @@ class StaffRosterForm(forms.ModelForm):
         widgets = {
             'staff': autocomplete.ModelSelect2(url='staff-autocomplete'),
             'period': autocomplete.ModelSelect2(url='rosterperiod-autocomplete'),
+            # If you decide to add an autocomplete endpoint for locations:
+            # 'location': autocomplete.ModelSelect2(url='shiftlocation-autocomplete'),
         }
 
 @admin.register(StaffRoster)
 class StaffRosterAdmin(admin.ModelAdmin):
     form = StaffRosterForm
     list_display = (
-        'staff', 'hotel', 'department', 'shift_date', 'shift_start', 'shift_end',
+        'staff', 'hotel', 'department', 'location',  # 👈 location shown
+        'shift_date', 'shift_start', 'shift_end',
         'shift_type', 'is_split_shift', 'expected_hours'
     )
-    list_filter = ('hotel', 'department', 'shift_type', 'is_night_shift', 'is_split_shift')
+    list_filter = (
+        'hotel', 'department', 'location',            # 👈 filter by location
+        'shift_type', 'is_night_shift', 'is_split_shift'
+    )
     search_fields = ('staff__first_name', 'staff__last_name', 'notes')
     ordering = ('-shift_date', 'shift_start')
     date_hierarchy = 'shift_date'
     fieldsets = (
         (None, {
             'fields': (
-                'hotel', 'staff', 'department', 'period',
+                'hotel', 'staff', 'department', 'location', 'period',  # 👈 location here
                 'shift_date', ('shift_start', 'shift_end'),
                 ('break_start', 'break_end'),
                 'shift_type', 'is_split_shift', 'is_night_shift',

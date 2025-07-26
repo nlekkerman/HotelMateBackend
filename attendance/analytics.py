@@ -1,7 +1,8 @@
 # attendance/analytics.py
-from django.db.models import Sum, Count, Avg, F
+from django.db.models import Sum, Count, Avg, F, Value, IntegerField, DecimalField
 from django.db.models.functions import TruncDate, ExtractWeek, ExtractYear, Coalesce
 from .models import StaffRoster
+
 
 class RosterAnalytics:
     """
@@ -40,11 +41,30 @@ class RosterAnalytics:
     @staticmethod
     def kpis(hotel, start, end):
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end])
+
+        dec = DecimalField(max_digits=12, decimal_places=2)
+
         return qs.aggregate(
-            total_rostered_hours=Coalesce(Sum('expected_hours'), 0.0),
-            total_shifts=Coalesce(Count('id'), 0),
-            avg_shift_length=Coalesce(Avg('expected_hours'), 0.0),
-            unique_staff=Coalesce(Count('staff', distinct=True), 0)
+            total_rostered_hours=Coalesce(
+                Sum('expected_hours'),
+                Value(0, output_field=dec),
+                output_field=dec
+            ),
+            total_shifts=Coalesce(
+                Count('id'),
+                Value(0, output_field=IntegerField()),
+                output_field=IntegerField()
+            ),
+            avg_shift_length=Coalesce(
+                Avg('expected_hours'),
+                Value(0, output_field=dec),
+                output_field=dec
+            ),
+            unique_staff=Coalesce(
+                Count('staff', distinct=True),
+                Value(0, output_field=IntegerField()),
+                output_field=IntegerField()
+            )
         )
 
     # --------------
@@ -52,9 +72,6 @@ class RosterAnalytics:
     # --------------
     @staticmethod
     def daily_totals(hotel, start, end, department=None):
-        """
-        Total rostered hours & shifts per day (for charts).
-        """
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end])
         if department:
             qs = qs.filter(department=department)
@@ -66,9 +83,6 @@ class RosterAnalytics:
 
     @staticmethod
     def daily_by_department(hotel, start, end):
-        """
-        Rostered hours per day per department.
-        """
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end])
         return qs.values('shift_date', 'department').annotate(
             total_rostered_hours=Sum('expected_hours'),
@@ -78,9 +92,6 @@ class RosterAnalytics:
 
     @staticmethod
     def daily_by_staff(hotel, start, end, department=None):
-        """
-        Rostered hours per day per staff.
-        """
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end])
         if department:
             qs = qs.filter(department=department)
@@ -97,9 +108,6 @@ class RosterAnalytics:
     # --------------
     @staticmethod
     def weekly_totals(hotel, start, end, department=None):
-        """
-        Total rostered hours per ISO week (year+week).
-        """
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end])
         if department:
             qs = qs.filter(department=department)
@@ -115,9 +123,6 @@ class RosterAnalytics:
 
     @staticmethod
     def weekly_by_department(hotel, start, end):
-        """
-        Rostered hours per ISO week per department.
-        """
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end])
         return qs.annotate(
             year=ExtractYear('shift_date'),
@@ -130,9 +135,6 @@ class RosterAnalytics:
 
     @staticmethod
     def weekly_by_staff(hotel, start, end, department=None):
-        """
-        Rostered hours per ISO week per staff.
-        """
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end])
         if department:
             qs = qs.filter(department=department)

@@ -78,7 +78,9 @@ class StaffRoster(models.Model):
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-
+    location = models.ForeignKey(
+        'attendance.ShiftLocation', on_delete=models.SET_NULL, null=True, blank=True, related_name="shifts"
+    )
     class Meta:
         # Allow multiple shifts on the same date, but unique per start time
         unique_together = ('staff', 'shift_date', 'shift_start')
@@ -117,3 +119,14 @@ class RosterRequirement(models.Model):
 
     def __str__(self):
         return f"{self.department} | {self.role} on {self.date}: {self.required_count} needed"
+
+# attendance/models.py
+class ShiftLocation(models.Model):
+    hotel = models.ForeignKey(
+        'hotel.Hotel', on_delete=models.CASCADE, related_name='shift_locations'
+    )
+    name = models.CharField(max_length=100)
+    color = models.CharField(max_length=20, default="#0d6efd")  # hex color
+
+    def __str__(self):
+        return f"{self.name} @ {self.hotel.slug}"

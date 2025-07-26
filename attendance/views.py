@@ -14,8 +14,8 @@ from django.db import transaction
 
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster
-from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer
+from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation
+from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer, ShiftLocationSerializer
 from hotel.models import Hotel
 
 
@@ -236,17 +236,22 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=201 if created else 200)
 # ---------------------- Staff Roster ----------------------
 class StaffRosterViewSet(viewsets.ModelViewSet):
-    queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by').all()
+    queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by', 'location').all()
     serializer_class = StaffRosterSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['hotel__slug', 'department', 'period']
+    filterset_fields = ['hotel__slug', 'department', 'period', 'location']
 
     def get_queryset(self):
         qs = super().get_queryset()
+
         hotel_slug = self.kwargs.get("hotel_slug") or self.request.query_params.get("hotel_slug")
         department = self.request.query_params.get("department")
         period_id = self.request.query_params.get("period")
+        staff_id = self.request.query_params.get("staff") or self.request.query_params.get("staff_id")
+        location_id = self.request.query_params.get("location")
+        start = self.request.query_params.get("start")
+        end = self.request.query_params.get("end")
 
         if hotel_slug:
             qs = qs.filter(hotel__slug=hotel_slug)
@@ -254,6 +259,12 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
             qs = qs.filter(department=department)
         if period_id:
             qs = qs.filter(period_id=period_id)
+        if staff_id:
+            qs = qs.filter(staff_id=staff_id)
+        if location_id:
+            qs = qs.filter(location_id=location_id)
+        if start and end:
+            qs = qs.filter(shift_date__range=[start, end])
 
         return qs
 
@@ -332,3 +343,48 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
             {"created": created_result, "updated": updated_result, "errors": []},
             status=status.HTTP_201_CREATED
         )
+
+class ShiftLocationViewSet(viewsets.ModelViewSet):
+    queryset = ShiftLocation.objects.all()
+    serializer_class = ShiftLocationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_hotel(self):
+        """
+        Resolve the Hotel instance either from query params or kwargs.
+        """
+        hotel_slug = (
+            self.kwargs.get("hotel_slug")
+            or self.request.query_params.get("hotel_slug")
+        )
+        if not hotel_slug:
+            return None
+        return get_object_or_404(Hotel, slug=hotel_slug)
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        hotel = self.get_hotel()
+        if hotel:
+            qs = qs.filter(hotel=hotel)
+        return qs
+
+    def perform_create(self, serializer):
+        """
+        Attach the hotel automatically during creation.
+        """
+        hotel = self.get_hotel()
+        if hotel:
+            serializer.save(hotel=hotel)
+        else:
+            raise ValueError("Hotel slug is required to create a shift location.")
+
+    def perform_update(self, serializer):
+        """
+        Prevent changing the hotel on update (always enforce current hotel).
+        """
+        hotel = self.get_hotel()
+        if hotel:
+            serializer.save(hotel=hotel)
+        else:
+            serializer.save()
+

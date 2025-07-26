@@ -5,7 +5,8 @@ from rest_framework import serializers
 
 from .models import (
     StaffFace, ClockLog, RosterPeriod, StaffRoster,
-    StaffAvailability, ShiftTemplate, RosterRequirement
+    StaffAvailability, ShiftTemplate, RosterRequirement,
+    ShiftLocation,
 )
 
 
@@ -60,10 +61,30 @@ class RosterPeriodSerializer(serializers.ModelSerializer):
         return None
 
 
+class ShiftLocationSerializer(serializers.ModelSerializer):
+    hotel = serializers.PrimaryKeyRelatedField(read_only=True)
+    hotel_name = serializers.CharField(source="hotel.name", read_only=True)
+    hotel_slug = serializers.SlugRelatedField(
+        source="hotel", slug_field="slug", read_only=True
+    )
+
+    class Meta:
+        model = ShiftLocation
+        fields = ["id", "name", "color", "hotel", "hotel_name", "hotel_slug"]
+        read_only_fields = ["hotel", "hotel_name", "hotel_slug"]
+
+
 class StaffRosterSerializer(serializers.ModelSerializer):
     staff_name = serializers.SerializerMethodField(read_only=True)
     period_title = serializers.CharField(source='period.title', read_only=True)
-
+    location = ShiftLocationSerializer(read_only=True)
+    location_id = serializers.PrimaryKeyRelatedField(
+        queryset=ShiftLocation.objects.all(),
+        source="location",
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     class Meta:
         model = StaffRoster
         fields = [
@@ -72,7 +93,7 @@ class StaffRosterSerializer(serializers.ModelSerializer):
             'break_start', 'break_end',
             'shift_type', 'is_split_shift', 'is_night_shift',
             'expected_hours', 'approved_by', 'notes',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'location', 'location_id'
         ]
         extra_kwargs = {
             'hotel': {'required': True},
@@ -132,15 +153,26 @@ class StaffRosterSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         """
         - Ensure hotel == period.hotel
+        - Ensure (optional) location.hotel == hotel
         - Ensure shift_end logically after shift_start unless night shift
         - Ensure break is inside the shift window (basic sanity)
         - Auto-set expected_hours if not provided
         """
         hotel = attrs.get('hotel') or getattr(self.instance, 'hotel', None)
         period = attrs.get('period') or getattr(self.instance, 'period', None)
+        location = attrs.get('location') or getattr(self.instance, 'location', None)
 
+        # Hotel / period consistency
         if hotel and period and hotel != period.hotel:
-            raise serializers.ValidationError("Hotel mismatch: period.hotel and hotel must be identical.")
+            raise serializers.ValidationError(
+                "Hotel mismatch: period.hotel and hotel must be identical."
+            )
+
+        # Hotel / location consistency
+        if hotel and location and location.hotel_id != hotel.id:
+            raise serializers.ValidationError(
+                "Location must belong to the same hotel as the shift."
+            )
 
         start = attrs.get('shift_start') or getattr(self.instance, 'shift_start', None)
         end = attrs.get('shift_end') or getattr(self.instance, 'shift_end', None)
@@ -148,15 +180,22 @@ class StaffRosterSerializer(serializers.ModelSerializer):
 
         if start and end:
             if not is_night and end <= start:
-                raise serializers.ValidationError("shift_end must be after shift_start (unless it's a night shift).")
+                raise serializers.ValidationError(
+                    "shift_end must be after shift_start (unless it's a night shift)."
+                )
 
-        # Optional: validate break range (coarse check – doesn’t consider night wrap for breaks)
+        # Break sanity (coarse)
         bs, be = attrs.get('break_start'), attrs.get('break_end')
         if (bs and not be) or (be and not bs):
-            raise serializers.ValidationError("Both break_start and break_end must be provided, or neither.")
+            raise serializers.ValidationError(
+                "Both break_start and break_end must be provided, or neither."
+            )
 
         # Auto-calc expected_hours if not provided
-        if attrs.get('expected_hours') in (None, '') and all(k in attrs for k in ('shift_date', 'shift_start', 'shift_end')):
+        if (
+            attrs.get('expected_hours') in (None, '')
+            and all(k in attrs for k in ('shift_date', 'shift_start', 'shift_end'))
+        ):
             attrs['expected_hours'] = self._calc_expected_hours(attrs)
 
         return attrs
@@ -206,3 +245,4 @@ class RosterRequirementSerializer(serializers.ModelSerializer):
         model = RosterRequirement
         fields = ['id', 'period', 'department', 'role', 'date', 'required_count']
         read_only_fields = ['id']
+
