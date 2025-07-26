@@ -1,17 +1,18 @@
 # attendance/views.py
 
-from datetime import timedelta
+from datetime import timedelta, date
 from django.db import transaction
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now
 from django.shortcuts import get_object_or_404
 
+from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
-
+from .pdf_report import build_roster_pdf, build_weekly_roster_pdf
 from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation
@@ -234,6 +235,48 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(period)
         return Response(serializer.data, status=201 if created else 200)
+    # add this to your class (or edit your existing one)
+    
+    @action(detail=True, methods=["get"], url_path="export-pdf")
+    def export_pdf(self, request, pk=None, **kwargs):
+        """
+        GET /attendance/<hotel_slug>/periods/<pk>/export-pdf/?department=...
+        """
+        period = self.get_object()
+        hotel = self.get_hotel()
+        department = request.query_params.get("department")
+        location_id = request.query_params.get("location")
+
+        qs = StaffRoster.objects.select_related("staff", "location") \
+                                .filter(period=period, hotel=hotel)
+        if department:
+            qs = qs.filter(department=department)
+        if location_id:
+            qs = qs.filter(location_id=location_id)
+
+        title = f"Weekly Roster – {period.title or period.start_date}"
+        meta = [
+            f"Hotel: {hotel.name}",
+            f"Period: {period.start_date} – {period.end_date}",
+            f"Department: {department or 'All'}",
+        ]
+
+        # NEW: Use the weekly board-style PDF
+        pdf_bytes = build_weekly_roster_pdf(
+            title,
+            meta,
+            qs,
+            period.start_date,
+            period.end_date
+        )
+
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp["Content-Disposition"] = (
+            f'attachment; filename="roster_{hotel.slug}_{period.start_date}.pdf"'
+        )
+        return resp
+
+
 # ---------------------- Staff Roster ----------------------
 class StaffRosterViewSet(viewsets.ModelViewSet):
     queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by', 'location').all()
@@ -343,6 +386,107 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
             {"created": created_result, "updated": updated_result, "errors": []},
             status=status.HTTP_201_CREATED
         )
+        
+    @action(detail=False, methods=["get"], url_path="daily-pdf")
+    def daily_pdf(self, request,  hotel_slug=None, **kwargs):
+        """
+        GET /attendance/<hotel_slug>/roster/daily-pdf/
+            ?hotel_slug=<slug>&date=YYYY-MM-DD
+            [&department=<dept>][&location=<id>]
+        """
+        hotel_slug = request.query_params.get("hotel_slug")
+        day = request.query_params.get("date")
+        department = request.query_params.get("department")
+        location_id = request.query_params.get("location")
+
+        if not (hotel_slug and day):
+            return Response({"error": "hotel_slug and date are required."}, status=400)
+
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        qs = StaffRoster.objects.select_related("staff", "location") \
+            .filter(hotel=hotel, shift_date=date.fromisoformat(day))
+
+        if department:
+            qs = qs.filter(department=department)
+        if location_id:
+            qs = qs.filter(location_id=location_id)
+
+        title = f"Daily Roster – {day}"
+        meta = [
+            f"Hotel: {hotel.name}",
+            f"Date: {day}",
+            f"Department: {department or 'All'}",
+        ]
+
+        pdf_bytes = build_roster_pdf(title, meta, qs, landscape_mode=False)
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp["Content-Disposition"] = f'attachment; filename="roster_{hotel.slug}_{day}.pdf"'
+        return resp
+
+
+    @action(detail=False, methods=["get"], url_path="staff-pdf")
+    def staff_pdf(self, request,  hotel_slug=None, **kwargs):
+        """
+        GET /attendance/<hotel_slug>/roster/staff-pdf/
+            ?hotel_slug=<slug>&staff_id=<id>&period=<period_id>
+        OR
+        GET /attendance/<hotel_slug>/roster/staff-pdf/
+            ?hotel_slug=<slug>&staff_id=<id>&start=YYYY-MM-DD&end=YYYY-MM-DD
+        Optional: &department=<dept>&location=<id>
+        """
+        hotel_slug = request.query_params.get("hotel_slug")
+        staff_id = request.query_params.get("staff_id") or request.query_params.get("staff")
+        period_id = request.query_params.get("period")
+        start = request.query_params.get("start")
+        end = request.query_params.get("end")
+        department = request.query_params.get("department")
+        location_id = request.query_params.get("location")
+
+        if not (hotel_slug and staff_id):
+            return Response({"error": "hotel_slug and staff_id are required."}, status=400)
+
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+        qs = StaffRoster.objects.select_related("staff", "location", "period") \
+            .filter(hotel=hotel, staff_id=staff_id)
+
+        period_obj = None
+        if period_id:
+            qs = qs.filter(period_id=period_id)
+            period_obj = RosterPeriod.objects.filter(pk=period_id).first()
+        elif start and end:
+            qs = qs.filter(shift_date__range=[start, end])
+        else:
+            return Response({"error": "Provide either 'period' or 'start' & 'end'."}, status=400)
+
+        if department:
+            qs = qs.filter(department=department)
+        if location_id:
+            qs = qs.filter(location_id=location_id)
+
+        staff = qs.first().staff if qs.exists() else None
+        staff_name = (
+            f"{getattr(staff, 'first_name', '')} {getattr(staff, 'last_name', '')}".strip()
+            if staff else f"#{staff_id}"
+        )
+
+        if period_obj:
+            date_str = f"{period_obj.start_date} – {period_obj.end_date}"
+        else:
+            date_str = f"{start} – {end}"
+
+        title = f"Roster – {staff_name}"
+        meta = [
+            f"Hotel: {hotel.name}",
+            f"Staff: {staff_name}",
+            f"Range: {date_str}",
+            f"Department: {department or 'All'}",
+        ]
+
+        pdf_bytes = build_roster_pdf(title, meta, qs, landscape_mode=False)
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp["Content-Disposition"] = f'attachment; filename="roster_{hotel.slug}_staff_{staff_id}.pdf"'
+        return resp
 
 class ShiftLocationViewSet(viewsets.ModelViewSet):
     queryset = ShiftLocation.objects.all()

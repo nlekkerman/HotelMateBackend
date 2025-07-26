@@ -28,7 +28,11 @@ roster_period_detail = RosterPeriodViewSet.as_view({'get': 'retrieve', 'put': 'u
 roster_add_shift = RosterPeriodViewSet.as_view({'post': 'add_shift'})
 roster_create_department = RosterPeriodViewSet.as_view({'post': 'create_department_roster'})
 roster_create_for_week = RosterPeriodViewSet.as_view({'post': 'create_for_week'})
+roster_period_export_pdf = RosterPeriodViewSet.as_view({'get': 'export_pdf'})
 
+# --------- Staff Roster PDF exports ---------
+staff_roster_daily_pdf = StaffRosterViewSet.as_view({'get': 'daily_pdf'})
+staff_roster_staff_pdf = StaffRosterViewSet.as_view({'get': 'staff_pdf'})
 # -------------------------
 # StaffRoster explicit bindings
 # -------------------------
@@ -66,7 +70,7 @@ urlpatterns = [
     path('<slug:hotel_slug>/periods/<int:pk>/add-shift/', roster_add_shift, name='roster-add-shift'),
     path('<slug:hotel_slug>/periods/<int:pk>/create-department-roster/', roster_create_department, name='roster-create-department'),
     path('<slug:hotel_slug>/periods/create-for-week/', roster_create_for_week, name='roster-create-for-week'),
-
+    
     # --------- Staff Shifts ---------
     path('<slug:hotel_slug>/shifts/', staff_roster_list, name='staff-roster-list'),
     path('<slug:hotel_slug>/shifts/<int:pk>/', staff_roster_detail, name='staff-roster-detail'),
@@ -87,4 +91,13 @@ urlpatterns = [
 
     path('<slug:hotel_slug>/shift-locations/', shift_location_list, name='shift-location-list'),
     path('<slug:hotel_slug>/shift-locations/<int:pk>/', shift_location_detail, name='shift-location-detail'),
+
+    # --------- Roster Period PDF ---------
+path('<slug:hotel_slug>/periods/<int:pk>/export-pdf/', roster_period_export_pdf, name='roster-period-export-pdf'),
+
+# --------- Staff Roster PDFs ---------
+path('<slug:hotel_slug>/shifts/daily-pdf/', staff_roster_daily_pdf, name='staff-roster-daily-pdf'),
+path('<slug:hotel_slug>/shifts/staff-pdf/', staff_roster_staff_pdf, name='staff-roster-staff-pdf'),
+
+
 ]
