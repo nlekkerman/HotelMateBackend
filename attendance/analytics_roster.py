@@ -25,11 +25,14 @@ class RosterOnlyAnalytics:
         ).order_by('department', 'staff__last_name')
 
     @staticmethod
-    def department_totals(hotel, start, end):
+    def department_totals(hotel, start, end, department=None):
         qs = StaffRoster.objects.filter(
             hotel=hotel,
             shift_date__range=[start, end]
         )
+        if department:
+            qs = qs.filter(department=department)
+
 
         return qs.values('department').annotate(
             total_rostered_hours=Sum('expected_hours'),

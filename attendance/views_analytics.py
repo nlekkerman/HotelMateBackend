@@ -44,6 +44,7 @@ class RosterAnalyticsViewSet(ViewSet):
         d = params.validated_data
 
         rows = RA.staff_totals(self._hotel(hotel_slug, request), d['start'], d['end'], d.get('department'))
+
         payload = [{
             'staff_id': r['staff_id'],
             'first_name': r['staff__first_name'],
