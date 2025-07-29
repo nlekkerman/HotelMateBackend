@@ -53,7 +53,14 @@ class StaffRoster(models.Model):
 
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='staff_rosters')
     staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE, related_name='roster_entries')
-    department = models.CharField(max_length=50)
+    # ForeignKey to Department model instead of CharField
+    department = models.ForeignKey(
+        'staff.Department',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='roster_entries'
+    )
     period = models.ForeignKey('RosterPeriod', on_delete=models.CASCADE, related_name='entries', null=True)
 
     shift_date = models.DateField()
@@ -112,8 +119,18 @@ class ShiftTemplate(models.Model):
 
 class RosterRequirement(models.Model):
     period = models.ForeignKey('RosterPeriod', on_delete=models.CASCADE, related_name='requirements')
-    department = models.CharField(max_length=50)
-    role = models.CharField(max_length=50)
+    # ForeignKey for Department and Role models
+    department = models.ForeignKey(
+        'staff.Department',
+        on_delete=models.CASCADE,
+        related_name='roster_requirements'
+    )
+
+    role = models.ForeignKey(
+        'staff.Role',
+        on_delete=models.CASCADE,
+        related_name='roster_requirements'
+    )
     date = models.DateField()
     required_count = models.PositiveIntegerField()
 

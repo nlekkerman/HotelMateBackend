@@ -1,4 +1,3 @@
-# attendance/serializers_analytics.py
 from rest_framework import serializers
 
 # ---- Queries ----
@@ -12,13 +11,17 @@ class StaffRosterAnalyticsRowSerializer(serializers.Serializer):
     staff_id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
-    department = serializers.CharField()
+    dept_id = serializers.IntegerField(required=False)
+    department_name = serializers.CharField(required=False)
+    department_slug = serializers.CharField(required=False)
     total_rostered_hours = serializers.FloatField()
     shifts_count = serializers.IntegerField()
     avg_shift_length = serializers.FloatField()
 
 class DepartmentRosterAnalyticsRowSerializer(serializers.Serializer):
-    department = serializers.CharField()
+    dept_id = serializers.IntegerField()  # corrected to match data key
+    department_name = serializers.CharField()
+    department_slug = serializers.CharField()
     total_rostered_hours = serializers.FloatField()
     shifts_count = serializers.IntegerField()
     avg_shift_length = serializers.FloatField()
@@ -38,7 +41,9 @@ class DailyTotalsRowSerializer(serializers.Serializer):
 
 class DailyDepartmentRowSerializer(serializers.Serializer):
     date = serializers.DateField()
-    department = serializers.CharField()
+    dept_id = serializers.IntegerField()
+    department_name = serializers.CharField()
+    department_slug = serializers.CharField()
     total_rostered_hours = serializers.FloatField()
     shifts_count = serializers.IntegerField()
     unique_staff = serializers.IntegerField()
@@ -48,7 +53,9 @@ class DailyStaffRowSerializer(serializers.Serializer):
     staff_id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
-    department = serializers.CharField()
+    dept_id = serializers.IntegerField(required=False)
+    department_name = serializers.CharField(required=False)
+    department_slug = serializers.CharField(required=False)
     total_rostered_hours = serializers.FloatField()
     shifts_count = serializers.IntegerField()
 
@@ -63,7 +70,9 @@ class WeeklyTotalsRowSerializer(serializers.Serializer):
 class WeeklyDepartmentRowSerializer(serializers.Serializer):
     year = serializers.IntegerField()
     week = serializers.IntegerField()
-    department = serializers.CharField()
+    dept_id = serializers.IntegerField()
+    department_name = serializers.CharField()
+    department_slug = serializers.CharField()
     total_rostered_hours = serializers.FloatField()
     shifts_count = serializers.IntegerField()
     unique_staff = serializers.IntegerField()
@@ -74,6 +83,8 @@ class WeeklyStaffRowSerializer(serializers.Serializer):
     staff_id = serializers.IntegerField()
     first_name = serializers.CharField()
     last_name = serializers.CharField()
-    department = serializers.CharField()
+    dept_id = serializers.IntegerField(required=False)
+    department_name = serializers.CharField(required=False)
+    department_slug = serializers.CharField(required=False)
     total_rostered_hours = serializers.FloatField()
     shifts_count = serializers.IntegerField()

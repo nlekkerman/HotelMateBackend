@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, time as dtime
-
+from staff.models import Department, Role
 from django.utils.timezone import make_aware
 from rest_framework import serializers
 
@@ -85,12 +85,18 @@ class StaffRosterSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+    department = serializers.SlugRelatedField(
+        queryset=Department.objects.all(),
+        slug_field='slug',
+        required=True,
+    )
+    department_name = serializers.CharField(source='department.name', read_only=True)
     class Meta:
         model = StaffRoster
         fields = [
             'id', 'hotel', 'staff', 'staff_name', 'department', 'period', 'period_title',
             'shift_date', 'shift_start', 'shift_end',
-            'break_start', 'break_end',
+            'break_start', 'break_end', 'department', 'department_name',
             'shift_type', 'is_split_shift', 'is_night_shift',
             'expected_hours', 'approved_by', 'notes',
             'created_at', 'updated_at', 'location', 'location_id'
@@ -241,8 +247,17 @@ class ShiftTemplateSerializer(serializers.ModelSerializer):
 
 
 class RosterRequirementSerializer(serializers.ModelSerializer):
+    department = serializers.SlugRelatedField(
+        queryset=Department.objects.all(),
+        slug_field='slug',
+        required=True,
+    )
+    department_name = serializers.CharField(source='department.name', read_only=True)
+
+    role = serializers.PrimaryKeyRelatedField(queryset=Role.objects.all())
+    role_name = serializers.CharField(source='role.name', read_only=True)
+
     class Meta:
         model = RosterRequirement
-        fields = ['id', 'period', 'department', 'role', 'date', 'required_count']
+        fields = ['id', 'period', 'department', 'department_name', 'role', 'role_name', 'date', 'required_count']
         read_only_fields = ['id']
-

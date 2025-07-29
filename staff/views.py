@@ -1,4 +1,4 @@
-from rest_framework import viewsets, permissions, status, generics
+from rest_framework import viewsets, permissions, status, generics, filters
 from rest_framework.response import Response
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
@@ -20,8 +20,12 @@ from django.utils.encoding import force_bytes, force_str
 from django.core.mail import send_mail
 from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
-
-
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.pagination import PageNumberPagination
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
 class StaffMetadataView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -106,6 +110,13 @@ class CustomAuthToken(ObtainAuthToken):
 
 class StaffViewSet(viewsets.ModelViewSet):
     serializer_class = StaffSerializer
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+
+    # Enable filtering by related fields using __ notation
+    filterset_fields = ['department__slug', 'role__slug', 'hotel__slug']
+    ordering_fields = ['user__username', 'department__name', 'role__name', 'hotel__name']
+    search_fields = ['user__username', 'user__first_name', 'user__last_name']
 
     def get_queryset(self):
         qs = Staff.objects.select_related("user", "hotel", "department", "role")
@@ -138,7 +149,6 @@ class StaffViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         staff = serializer.save()
 
-        # Optional: update user flags (is_staff, is_superuser) if provided
         user = staff.user
         if "is_staff" in request.data:
             user.is_staff = request.data["is_staff"]
@@ -171,17 +181,22 @@ class StaffViewSet(viewsets.ModelViewSet):
         if not department_param:
             return Response({"detail": "Department query param is required."}, status=400)
 
-        # Accept department ID or slug for filtering
-        department_qs = Department.objects.filter(id=department_param) | Department.objects.filter(slug=department_param)
-        department = department_qs.first()
+        if department_param.isdigit():
+            department = Department.objects.filter(id=int(department_param)).first()
+        else:
+            department = Department.objects.filter(slug=department_param).first()
 
         if not department:
             return Response({"detail": "Department not found."}, status=404)
 
         staff_qs = Staff.objects.filter(hotel=staff_profile.hotel, department=department)
+        page = self.paginate_queryset(staff_qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
         serializer = self.get_serializer(staff_qs, many=True)
         return Response(serializer.data, status=200)
-
 
 class StaffRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]

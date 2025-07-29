@@ -18,7 +18,9 @@ from django_filters.rest_framework import DjangoFilterBackend
 from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation
 from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer, ShiftLocationSerializer
 from hotel.models import Hotel
-
+# attendance/filters.py
+import django_filters
+from .filters import StaffRosterFilter
 
 # ---------------------- helpers ----------------------
 def euclidean(a, b):
@@ -250,7 +252,8 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
         qs = StaffRoster.objects.select_related("staff", "location") \
                                 .filter(period=period, hotel=hotel)
         if department:
-            qs = qs.filter(department=department)
+            qs = qs.filter(department__slug=department)
+
         if location_id:
             qs = qs.filter(location_id=location_id)
 
@@ -283,27 +286,22 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
     serializer_class = StaffRosterSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['hotel__slug', 'department', 'period', 'location']
+    filterset_class = StaffRosterFilter
 
     def get_queryset(self):
         qs = super().get_queryset()
 
-        hotel_slug = self.kwargs.get("hotel_slug") or self.request.query_params.get("hotel_slug")
-        department = self.request.query_params.get("department")
-        period_id = self.request.query_params.get("period")
+        # Manually handle filters not covered by filterset_class
         staff_id = self.request.query_params.get("staff") or self.request.query_params.get("staff_id")
+        period_id = self.request.query_params.get("period")
         location_id = self.request.query_params.get("location")
         start = self.request.query_params.get("start")
         end = self.request.query_params.get("end")
 
-        if hotel_slug:
-            qs = qs.filter(hotel__slug=hotel_slug)
-        if department:
-            qs = qs.filter(department=department)
-        if period_id:
-            qs = qs.filter(period_id=period_id)
         if staff_id:
             qs = qs.filter(staff_id=staff_id)
+        if period_id:
+            qs = qs.filter(period_id=period_id)
         if location_id:
             qs = qs.filter(location_id=location_id)
         if start and end:
@@ -317,23 +315,10 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='bulk-save')
     def bulk_save(self, request, *args, **kwargs):
-        """
-        Accepts:
-        {
-          "shifts": [
-            { id?, hotel, period, staff, department, shift_date, shift_start, shift_end, ... },
-            ...
-          ],
-          "hotel": <id?>,  # optional top-level default
-          "period": <id?>  # optional top-level default
-        }
-        Works with split shifts (unique_together = staff, shift_date, shift_start).
-        """
         all_shifts = request.data.get('shifts', []) or []
         created_data = [s for s in all_shifts if not s.get("id")]
         updated_data = [s for s in all_shifts if s.get("id")]
 
-        # propagate optional defaults
         default_hotel = request.data.get("hotel")
         default_period = request.data.get("period")
         if default_hotel:
@@ -346,29 +331,58 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         errors = []
         created_result, updated_result = [], []
 
+        # Check for duplicates within created_data
+        seen = set()
+        for idx, shift in enumerate(created_data):
+            key = (shift.get("staff"), shift.get("shift_date"), shift.get("shift_start"))
+            if key in seen:
+                errors.append({"index": idx, "error": "Duplicate shift in batch."})
+            else:
+                seen.add(key)
+
+        if errors:
+            return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check duplicates for updated_data against existing shifts excluding self
+        for idx, payload in enumerate(updated_data):
+            instance = StaffRoster.objects.filter(pk=payload["id"]).first()
+            if not instance:
+                errors.append({"id": payload.get("id"), "detail": "Shift not found"})
+                continue
+
+            # Check if new (staff, shift_date, shift_start) combination exists in another shift
+            staff = payload.get("staff", instance.staff_id)
+            shift_date = payload.get("shift_date", instance.shift_date)
+            shift_start = payload.get("shift_start", instance.shift_start)
+
+            conflict = StaffRoster.objects.filter(
+                staff=staff,
+                shift_date=shift_date,
+                shift_start=shift_start
+            ).exclude(id=instance.id).exists()
+
+            if conflict:
+                errors.append({"id": payload.get("id"), "detail": "Duplicate shift with these fields exists."})
+
+        if errors:
+            return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
         with transaction.atomic():
-            # CREATE
             if created_data:
-                create_ser = StaffRosterSerializer(
-                    data=created_data, many=True, context={'request': request}
-                )
+                create_ser = StaffRosterSerializer(data=created_data, many=True, context={'request': request})
                 if create_ser.is_valid():
                     create_ser.save()
                     created_result = create_ser.data
                 else:
                     errors.extend(create_ser.errors)
 
-            # UPDATE
             if updated_data and not errors:
                 for payload in updated_data:
                     instance = StaffRoster.objects.filter(pk=payload["id"]).first()
                     if not instance:
                         errors.append({"id": payload.get("id"), "detail": "Shift not found"})
                         continue
-
-                    ser = StaffRosterSerializer(
-                        instance, data=payload, partial=True, context={'request': request}
-                    )
+                    ser = StaffRosterSerializer(instance, data=payload, partial=True, context={'request': request})
                     if ser.is_valid():
                         ser.save()
                         updated_result.append(ser.data)
@@ -377,23 +391,11 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
 
             if errors:
                 transaction.set_rollback(True)
-                return Response(
-                    {"created": [], "updated": [], "errors": errors},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+                return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response(
-            {"created": created_result, "updated": updated_result, "errors": []},
-            status=status.HTTP_201_CREATED
-        )
-        
+        return Response({"created": created_result, "updated": updated_result, "errors": []}, status=status.HTTP_201_CREATED)
     @action(detail=False, methods=["get"], url_path="daily-pdf")
-    def daily_pdf(self, request,  hotel_slug=None, **kwargs):
-        """
-        GET /attendance/<hotel_slug>/roster/daily-pdf/
-            ?hotel_slug=<slug>&date=YYYY-MM-DD
-            [&department=<dept>][&location=<id>]
-        """
+    def daily_pdf(self, request, hotel_slug=None, **kwargs):
         hotel_slug = request.query_params.get("hotel_slug")
         day = request.query_params.get("date")
         department = request.query_params.get("department")
@@ -403,11 +405,11 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
             return Response({"error": "hotel_slug and date are required."}, status=400)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        qs = StaffRoster.objects.select_related("staff", "location") \
-            .filter(hotel=hotel, shift_date=date.fromisoformat(day))
+        qs = StaffRoster.objects.select_related("staff", "location").filter(hotel=hotel, shift_date=date.fromisoformat(day))
 
         if department:
-            qs = qs.filter(department=department)
+            qs = qs.filter(department__slug=department)
+
         if location_id:
             qs = qs.filter(location_id=location_id)
 
@@ -423,17 +425,8 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         resp["Content-Disposition"] = f'attachment; filename="roster_{hotel.slug}_{day}.pdf"'
         return resp
 
-
     @action(detail=False, methods=["get"], url_path="staff-pdf")
-    def staff_pdf(self, request,  hotel_slug=None, **kwargs):
-        """
-        GET /attendance/<hotel_slug>/roster/staff-pdf/
-            ?hotel_slug=<slug>&staff_id=<id>&period=<period_id>
-        OR
-        GET /attendance/<hotel_slug>/roster/staff-pdf/
-            ?hotel_slug=<slug>&staff_id=<id>&start=YYYY-MM-DD&end=YYYY-MM-DD
-        Optional: &department=<dept>&location=<id>
-        """
+    def staff_pdf(self, request, hotel_slug=None, **kwargs):
         hotel_slug = request.query_params.get("hotel_slug")
         staff_id = request.query_params.get("staff_id") or request.query_params.get("staff")
         period_id = request.query_params.get("period")
@@ -447,8 +440,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
 
-        qs = StaffRoster.objects.select_related("staff", "location", "period") \
-            .filter(hotel=hotel, staff_id=staff_id)
+        qs = StaffRoster.objects.select_related("staff", "location", "period").filter(hotel=hotel, staff_id=staff_id)
 
         period_obj = None
         if period_id:
@@ -460,7 +452,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
             return Response({"error": "Provide either 'period' or 'start' & 'end'."}, status=400)
 
         if department:
-            qs = qs.filter(department=department)
+            qs = qs.filter(department__slug=department)
         if location_id:
             qs = qs.filter(location_id=location_id)
 
@@ -487,7 +479,6 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'attachment; filename="roster_{hotel.slug}_staff_{staff_id}.pdf"'
         return resp
-
 class ShiftLocationViewSet(viewsets.ModelViewSet):
     queryset = ShiftLocation.objects.all()
     serializer_class = ShiftLocationSerializer
