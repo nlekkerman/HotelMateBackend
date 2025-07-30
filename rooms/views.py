@@ -16,6 +16,7 @@ from datetime import datetime
 from room_services.models import Order, BreakfastOrder
 from rest_framework.decorators import api_view, permission_classes
 from django.db import transaction
+from django.utils.timezone import now
 
 
 class RoomPagination(PageNumberPagination):
@@ -26,8 +27,7 @@ class RoomPagination(PageNumberPagination):
 
 class RoomViewSet(viewsets.ModelViewSet):
     serializer_class = RoomSerializer
-    permission_classes = [IsAuthenticated]  # Optional: restrict access to authenticated users
-
+    permission_classes = [IsAuthenticated] 
     serializer_class = RoomSerializer
     pagination_class = RoomPagination
     lookup_field = 'room_number'
@@ -182,4 +182,26 @@ def checkout_rooms(request, hotel_slug):
         status=status.HTTP_200_OK
     )
     
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def checkout_needed(request, hotel_slug):
+    today = now().date()
+
+    try:
+        hotel = Hotel.objects.get(slug=hotel_slug)
+    except Hotel.DoesNotExist:
+        return Response({"detail": "Hotel not found."}, status=status.HTTP_404_NOT_FOUND)
+
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff or staff.hotel != hotel:
+        raise PermissionDenied("No permission for this hotel.")
+
+    rooms = Room.objects.filter(
+        hotel=hotel,
+        is_occupied=True,
+        guests__check_out_date__lt=today
+    ).distinct()
+
+    serializer = RoomSerializer(rooms, many=True)
+    return Response(serializer.data)
 

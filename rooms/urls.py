@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import RoomViewSet, RoomByHotelAndNumberView, AddGuestToRoomView, checkout_rooms
+from .views import RoomViewSet, RoomByHotelAndNumberView, AddGuestToRoomView, checkout_rooms,checkout_needed
 
 router = DefaultRouter()
 router.register(r'rooms', RoomViewSet, basename='room')
@@ -14,4 +14,5 @@ urlpatterns = [
         checkout_rooms,
         name='room-checkout'
     ),
+    path('<str:hotel_slug>/rooms/checkout-needed/', checkout_needed, name='checkout-needed'),
 ]
