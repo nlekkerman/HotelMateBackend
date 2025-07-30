@@ -7,7 +7,8 @@ from reportlab.lib.pagesizes import A4, landscape, portrait
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import (
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer,
+    ListFlowable, ListItem
 )
 from reportlab.lib.units import cm
 
@@ -250,6 +251,52 @@ def build_weekly_roster_pdf(title, meta_lines, shifts, start_date, end_date):
     ]))
 
     elems.append(tbl)
+
+    doc.build(elems)
+    pdf = buf.getvalue()
+    buf.close()
+    return pdf
+
+def build_daily_plan_grouped_pdf(title, meta_lines, entries):
+    """
+    Generate a PDF showing staff grouped by location.
+
+    Args:
+        title (str): PDF title
+        meta_lines (list[str]): e.g. date, hotel, department info lines
+        entries (list[dict]): each dict has keys like location_name, staff_name, or nested dicts
+    """
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=portrait(A4),
+        leftMargin=1.5 * cm,
+        rightMargin=1.5 * cm,
+        topMargin=1.0 * cm,
+        bottomMargin=1.0 * cm,
+    )
+    styles = getSampleStyleSheet()
+    elems = []
+
+    # Title + meta
+    elems.append(Paragraph(title, styles["Title"]))
+    for line in meta_lines:
+        elems.append(Paragraph(line, styles["Normal"]))
+    elems.append(Spacer(1, 12))
+
+    # Group entries by location
+    grouped = defaultdict(list)
+    for entry in entries:
+        loc = entry.get("location_name") or entry.get("location", {}).get("name") or "No Location"
+        staff = entry.get("staff_name") or entry.get("staff", {}).get("full_name") or entry.get("staff", {}).get("name") or "Unknown Staff"
+        grouped[loc].append(staff)
+
+    # For each location, print heading and bulleted staff list
+    for location, staff_list in grouped.items():
+        elems.append(Paragraph(location, styles["Heading2"]))
+        staff_items = [ListItem(Paragraph(staff, styles["Normal"]), leftIndent=10) for staff in staff_list]
+        elems.append(ListFlowable(staff_items, bulletType="bullet", start="•", leftIndent=15))
+        elems.append(Spacer(1, 10))
 
     doc.build(elems)
     pdf = buf.getvalue()

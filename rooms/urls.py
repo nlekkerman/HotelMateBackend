@@ -14,5 +14,5 @@ urlpatterns = [
         checkout_rooms,
         name='room-checkout'
     ),
-    path('<str:hotel_slug>/rooms/checkout-needed/', checkout_needed, name='checkout-needed'),
+    path('<str:hotel_slug>/checkout-needed/', checkout_needed, name='checkout-needed'),
 ]

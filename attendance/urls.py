@@ -7,6 +7,8 @@ from .views import (
     RosterPeriodViewSet,
     StaffRosterViewSet,
     ShiftLocationViewSet,
+    DailyPlanViewSet,
+    DailyPlanEntryViewSet,
 )
 from .views_analytics import RosterAnalyticsViewSet
 
@@ -57,6 +59,14 @@ weekly_by_staff = RosterAnalyticsViewSet.as_view({'get': 'weekly_by_staff'})
 
 shift_location_list = ShiftLocationViewSet.as_view({'get': 'list', 'post': 'create'})
 shift_location_detail = ShiftLocationViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})
+
+daily_plan_list = DailyPlanViewSet.as_view({'get': 'list', 'post': 'create'})
+daily_plan_detail = DailyPlanViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})
+daily_plan_entry_list = DailyPlanEntryViewSet.as_view({'get': 'list', 'post': 'create'})
+daily_plan_entry_detail = DailyPlanEntryViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})
+prepare_daily_plan = DailyPlanViewSet.as_view({'get': 'prepare_daily_plan'})
+download_daily_plan_pdf = DailyPlanViewSet.as_view({'get': 'download_pdf'})
+
 # -------------------------
 # URL patterns
 # -------------------------
@@ -92,12 +102,28 @@ urlpatterns = [
     path('<slug:hotel_slug>/shift-locations/', shift_location_list, name='shift-location-list'),
     path('<slug:hotel_slug>/shift-locations/<int:pk>/', shift_location_detail, name='shift-location-detail'),
 
-    # --------- Roster Period PDF ---------
-path('<slug:hotel_slug>/periods/<int:pk>/export-pdf/', roster_period_export_pdf, name='roster-period-export-pdf'),
+        # --------- Roster Period PDF ---------
+    path('<slug:hotel_slug>/periods/<int:pk>/export-pdf/', roster_period_export_pdf, name='roster-period-export-pdf'),
 
-# --------- Staff Roster PDFs ---------
-path('<slug:hotel_slug>/shifts/daily-pdf/', staff_roster_daily_pdf, name='staff-roster-daily-pdf'),
-path('<slug:hotel_slug>/shifts/staff-pdf/', staff_roster_staff_pdf, name='staff-roster-staff-pdf'),
+    # --------- Staff Roster PDFs ---------
+    path('<slug:hotel_slug>/shifts/daily-pdf/', staff_roster_daily_pdf, name='staff-roster-daily-pdf'),
+    path('<slug:hotel_slug>/shifts/staff-pdf/', staff_roster_staff_pdf, name='staff-roster-staff-pdf'),
 
+    # Daily Plans for a hotel
+    path('<slug:hotel_slug>/daily-plans/', daily_plan_list, name='daily-plan-list'),
+    path('<slug:hotel_slug>/daily-plans/<int:pk>/', daily_plan_detail, name='daily-plan-detail'),
 
+    # Nested Daily Plan Entries under a Daily Plan
+    path('<slug:hotel_slug>/departments/<slug:department_slug>/daily-plans/', daily_plan_list, name='daily-plan-by-department-list'),
+    path('<slug:hotel_slug>/daily-plans/<int:daily_plan_pk>/entries/<int:pk>/', daily_plan_entry_detail, name='daily-plan-entry-detail'),
+    path(
+        '<slug:hotel_slug>/departments/<slug:department_slug>/daily-plans/prepare-daily-plan/',
+        prepare_daily_plan,
+        name='prepare-daily-plan'
+    ),
+    path(
+        '<slug:hotel_slug>/departments/<slug:department_slug>/daily-plans/download-pdf/',
+        download_daily_plan_pdf,
+        name='daily-plan-download-pdf',
+    ),
 ]

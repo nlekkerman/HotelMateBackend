@@ -185,16 +185,8 @@ def checkout_rooms(request, hotel_slug):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def checkout_needed(request, hotel_slug):
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
     today = now().date()
-
-    try:
-        hotel = Hotel.objects.get(slug=hotel_slug)
-    except Hotel.DoesNotExist:
-        return Response({"detail": "Hotel not found."}, status=status.HTTP_404_NOT_FOUND)
-
-    staff = getattr(request.user, 'staff_profile', None)
-    if not staff or staff.hotel != hotel:
-        raise PermissionDenied("No permission for this hotel.")
 
     rooms = Room.objects.filter(
         hotel=hotel,
@@ -204,4 +196,3 @@ def checkout_needed(request, hotel_slug):
 
     serializer = RoomSerializer(rooms, many=True)
     return Response(serializer.data)
-

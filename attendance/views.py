@@ -1,6 +1,6 @@
 # attendance/views.py
 
-from datetime import timedelta, date
+from datetime import timedelta, date, datetime
 from django.db import transaction
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now
@@ -12,12 +12,13 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
-from .pdf_report import build_roster_pdf, build_weekly_roster_pdf
+from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_plan_grouped_pdf
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation
-from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer, ShiftLocationSerializer
+from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry
+from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer, ShiftLocationSerializer, DailyPlanEntrySerializer, DailyPlanSerializer
 from hotel.models import Hotel
+
 # attendance/filters.py
 import django_filters
 from .filters import StaffRosterFilter
@@ -394,6 +395,8 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
                 return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"created": created_result, "updated": updated_result, "errors": []}, status=status.HTTP_201_CREATED)
+    
+    
     @action(detail=False, methods=["get"], url_path="daily-pdf")
     def daily_pdf(self, request, hotel_slug=None, **kwargs):
         hotel_slug = request.query_params.get("hotel_slug")
@@ -479,6 +482,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'attachment; filename="roster_{hotel.slug}_staff_{staff_id}.pdf"'
         return resp
+    
 class ShiftLocationViewSet(viewsets.ModelViewSet):
     queryset = ShiftLocation.objects.all()
     serializer_class = ShiftLocationSerializer
@@ -523,3 +527,117 @@ class ShiftLocationViewSet(viewsets.ModelViewSet):
         else:
             serializer.save()
 
+class DailyPlanViewSet(viewsets.ModelViewSet):
+    serializer_class = DailyPlanSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_hotel(self):
+        hotel_slug = self.kwargs.get("hotel_slug")
+        return get_object_or_404(Hotel, slug=hotel_slug)
+
+    def get_queryset(self):
+        hotel = self.get_hotel()
+        department_slug = self.kwargs.get('department_slug')
+        queryset = DailyPlan.objects.filter(hotel=hotel)
+        if department_slug:
+            queryset = queryset.filter(entries__staff__department__slug=department_slug).distinct()
+        return queryset
+
+    @action(detail=False, methods=['get'], url_path='prepare-daily-plan')
+    def prepare_daily_plan(self, request, *args, **kwargs):
+        hotel_slug = kwargs.get('hotel_slug')
+        department_slug = kwargs.get('department_slug')
+
+        date_str = request.query_params.get('date')
+        if not date_str:
+            return Response({'detail': 'date query parameter is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        hotel = self.get_hotel()
+
+        try:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({'detail': 'Invalid date format, expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        plan, created = DailyPlan.objects.get_or_create(hotel=hotel, date=date_obj)
+
+        filters = {"hotel": hotel, "shift_date": date_obj}
+        if department_slug:
+            filters["staff__department__slug"] = department_slug
+
+        roster_shifts = StaffRoster.objects.filter(**filters).select_related('staff', 'location')
+        print(f"📋 Found {roster_shifts.count()} roster shifts for {date_obj} in dept {department_slug}")
+
+        for shift in roster_shifts:
+            DailyPlanEntry.objects.update_or_create(
+                plan=plan,
+                staff=shift.staff,
+                defaults={'location': shift.location, 'notes': ''}
+            )
+
+        serializer = self.get_serializer(plan)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='download-pdf')
+    def download_pdf(self, request, *args, **kwargs):
+        hotel = self.get_hotel()
+        department_slug = kwargs.get('department_slug')
+        date_str = request.query_params.get('date')
+
+        if not date_str:
+            return Response({'detail': 'date query parameter is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response({'detail': 'Invalid date format, expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Filter shifts based on hotel, date, and optional department
+        filters = {"hotel": hotel, "shift_date": date_obj}
+        if department_slug:
+            filters["staff__department__slug"] = department_slug
+
+        roster_shifts = StaffRoster.objects.filter(**filters).select_related('staff', 'location')
+
+        title = f"Daily Plan for {hotel.name} - {date_obj.isoformat()}"
+        meta_lines = [
+            f"Hotel: {hotel.name}",
+            f"Date: {date_obj.strftime('%A, %d %B %Y')}",
+        ]
+        if department_slug:
+            meta_lines.append(f"Department: {department_slug}")
+
+        # Convert roster_shifts queryset into list of dict entries for build_daily_plan_grouped_pdf
+        entries = []
+        for shift in roster_shifts:
+            entries.append({
+                "location_name": getattr(shift.location, "name", None),
+                "staff_name": getattr(shift.staff, "full_name", None) or
+                            f"{getattr(shift.staff, 'first_name', '')} {getattr(shift.staff, 'last_name', '')}".strip() or
+                            f"#{getattr(shift.staff, 'id', '')}"
+            })
+
+        pdf_bytes = build_daily_plan_grouped_pdf(title, meta_lines, entries)
+
+        response = HttpResponse(content_type='application/pdf')
+        filename = f"daily_plan_{hotel.slug}_{date_obj.isoformat()}.pdf"
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response.write(pdf_bytes)
+        return response
+
+class DailyPlanEntryViewSet(viewsets.ModelViewSet):
+    serializer_class = DailyPlanEntrySerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_daily_plan(self):
+        daily_plan_id = self.kwargs.get("daily_plan_pk")
+        return get_object_or_404(DailyPlan, pk=daily_plan_id)
+
+    def get_queryset(self):
+        daily_plan = self.get_daily_plan()
+        return DailyPlanEntry.objects.filter(daily_plan=daily_plan)
+
+    def perform_create(self, serializer):
+        daily_plan = self.get_daily_plan()
+        serializer.save(daily_plan=daily_plan)
+        

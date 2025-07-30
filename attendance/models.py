@@ -147,3 +147,44 @@ class ShiftLocation(models.Model):
 
     def __str__(self):
         return f"{self.name} @ {self.hotel.slug}"
+
+
+class DailyPlan(models.Model):
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE)
+    date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('hotel', 'date')
+        ordering = ['-date']
+
+    def __str__(self):
+        return f"Daily Plan for {self.hotel.name} on {self.date}"
+
+
+class DailyPlanEntry(models.Model):
+    plan = models.ForeignKey(DailyPlan, related_name='entries', on_delete=models.CASCADE)
+    staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE)
+    department = models.ForeignKey(
+        'staff.Department',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        editable=False  # to avoid manual editing
+    )
+    location = models.ForeignKey('attendance.ShiftLocation', null=True, blank=True, on_delete=models.SET_NULL)
+    notes = models.TextField(blank=True, default='')
+
+    class Meta:
+        unique_together = ('plan', 'staff')
+        ordering = ['location__name', 'staff__last_name', 'staff__first_name']
+
+    def save(self, *args, **kwargs):
+        # Automatically set department from staff on save
+        if self.staff:
+            self.department = self.staff.department
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.staff} → {self.location} on {self.plan.date}"

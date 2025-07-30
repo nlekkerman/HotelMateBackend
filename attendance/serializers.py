@@ -6,7 +6,7 @@ from rest_framework import serializers
 from .models import (
     StaffFace, ClockLog, RosterPeriod, StaffRoster,
     StaffAvailability, ShiftTemplate, RosterRequirement,
-    ShiftLocation,
+    ShiftLocation, DailyPlan, DailyPlanEntry,
 )
 
 
@@ -261,3 +261,27 @@ class RosterRequirementSerializer(serializers.ModelSerializer):
         model = RosterRequirement
         fields = ['id', 'period', 'department', 'department_name', 'role', 'role_name', 'date', 'required_count']
         read_only_fields = ['id']
+
+class DailyPlanEntrySerializer(serializers.ModelSerializer):
+    staff_name = serializers.SerializerMethodField()
+    location_name = serializers.CharField(source='location.name', read_only=True)
+    department_name = serializers.CharField(source='department.name', read_only=True)
+
+    class Meta:
+        model = DailyPlanEntry
+        fields = [
+            'id', 'plan', 'staff', 'staff_name',
+            'department_name', 'location', 'location_name', 'notes'
+        ]
+
+    def get_staff_name(self, obj):
+        return f"{obj.staff.first_name} {obj.staff.last_name}"
+
+
+class DailyPlanSerializer(serializers.ModelSerializer):
+    hotel_name = serializers.CharField(source='hotel.name', read_only=True)
+    entries = DailyPlanEntrySerializer(many=True, read_only=True)
+
+    class Meta:
+        model = DailyPlan
+        fields = ['id', 'hotel', 'hotel_name', 'date', 'created_at', 'updated_at', 'entries']

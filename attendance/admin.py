@@ -6,7 +6,7 @@ from django import forms
 from .models import (
     StaffFace, ClockLog, RosterPeriod, StaffRoster,
     StaffAvailability, ShiftTemplate, RosterRequirement,
-    ShiftLocation,   # 👈 NEW
+    ShiftLocation,DailyPlan, DailyPlanEntry,
 )
 
 # ──────────────── Face Recognition Admin ──────────────── #
@@ -123,3 +123,29 @@ class RosterRequirementAdmin(admin.ModelAdmin):
     list_display = ('department', 'role', 'date', 'required_count')
     list_filter = ('department', 'role', 'date')
     search_fields = ('role', 'department')
+
+
+# ──────────────── Daily Plan Admin ──────────────── #
+
+class DailyPlanEntryInline(admin.TabularInline):
+    model = DailyPlanEntry
+    extra = 1  # number of empty forms
+    autocomplete_fields = ['staff', 'location']
+    fields = ['staff', 'department', 'location', 'notes']  # include department here
+    readonly_fields = ['department']  # make it read-only
+    ordering = ['location__name', 'staff__last_name', 'staff__first_name']
+
+
+@admin.register(DailyPlan)
+class DailyPlanAdmin(admin.ModelAdmin):
+    list_display = ('hotel', 'date', 'created_at', 'updated_at')
+    list_filter = ('hotel', 'date')
+    search_fields = ('hotel__name',)
+    date_hierarchy = 'date'
+    inlines = [DailyPlanEntryInline]
+
+    list_display = ('hotel', 'date', 'created_at', 'updated_at')
+    list_filter = ('hotel', 'date')
+    search_fields = ('hotel__name',)
+    date_hierarchy = 'date'
+    inlines = [DailyPlanEntryInline]
