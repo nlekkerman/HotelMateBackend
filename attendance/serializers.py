@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, time as dtime
 from staff.models import Department, Role
 from django.utils.timezone import make_aware
 from rest_framework import serializers
-
+from staff.serializers import StaffMinimalSerializer, DepartmentSerializer
 from .models import (
     StaffFace, ClockLog, RosterPeriod, StaffRoster,
     StaffAvailability, ShiftTemplate, RosterRequirement,
@@ -263,20 +263,21 @@ class RosterRequirementSerializer(serializers.ModelSerializer):
         read_only_fields = ['id']
 
 class DailyPlanEntrySerializer(serializers.ModelSerializer):
+    staff = StaffMinimalSerializer(read_only=True)  # ✅ Include full staff info
     staff_name = serializers.SerializerMethodField()
     location_name = serializers.CharField(source='location.name', read_only=True)
+    department = DepartmentSerializer(read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
 
     class Meta:
         model = DailyPlanEntry
         fields = [
-            'id', 'plan', 'staff', 'staff_name',
+            'id', 'plan', 'staff', 'staff_name','department',
             'department_name', 'location', 'location_name', 'notes'
         ]
 
     def get_staff_name(self, obj):
         return f"{obj.staff.first_name} {obj.staff.last_name}"
-
 
 class DailyPlanSerializer(serializers.ModelSerializer):
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)

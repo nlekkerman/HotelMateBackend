@@ -167,7 +167,7 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
     user = UserSerializer(read_only=True)
     fcm_tokens = StaffFCMTokenSerializer(source='fcm_tokens.all', many=True, read_only=True)
-
+    profile_image = serializers.ImageField(required=False, allow_null=True)
     department = serializers.PrimaryKeyRelatedField(
         queryset=Department.objects.all(),
         allow_null=True,
@@ -185,7 +185,8 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
             'id', 'user_id', 'user', 'first_name', 'last_name',
             'department', 'role',
             'email', 'phone_number', 'is_active', 'is_on_duty',
-            'hotel', 'access_level', 'hotel_name', 'fcm_tokens'
+            'hotel', 'access_level', 'hotel_name', 'fcm_tokens',
+            'profile_image',
         ]
 
     def create(self, validated_data):
