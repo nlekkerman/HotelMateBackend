@@ -173,6 +173,13 @@ class DailyPlanEntry(models.Model):
         on_delete=models.SET_NULL,
         editable=False  # to avoid manual editing
     )
+    roster = models.ForeignKey(
+        'StaffRoster',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='daily_plan_entries'
+    )
     location = models.ForeignKey('attendance.ShiftLocation', null=True, blank=True, on_delete=models.SET_NULL)
     notes = models.TextField(blank=True, default='')
 

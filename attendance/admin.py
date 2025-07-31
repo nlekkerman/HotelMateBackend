@@ -130,8 +130,8 @@ class RosterRequirementAdmin(admin.ModelAdmin):
 class DailyPlanEntryInline(admin.TabularInline):
     model = DailyPlanEntry
     extra = 1  # number of empty forms
-    autocomplete_fields = ['staff', 'location']
-    fields = ['staff', 'department', 'location', 'notes']  # include department here
+    autocomplete_fields = ['staff', 'location', 'roster']
+    fields = ['staff', 'department', 'location', 'notes', 'roster']  # include department here
     readonly_fields = ['department']  # make it read-only
     ordering = ['location__name', 'staff__last_name', 'staff__first_name']
 

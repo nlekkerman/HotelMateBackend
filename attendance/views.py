@@ -566,7 +566,6 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
             filters["staff__department__slug"] = department_slug
 
         roster_shifts = StaffRoster.objects.filter(**filters).select_related('staff', 'location')
-        print(f"📋 Found {roster_shifts.count()} roster shifts for {date_obj} in dept {department_slug}")
 
         for shift in roster_shifts:
             DailyPlanEntry.objects.update_or_create(

@@ -268,12 +268,19 @@ class DailyPlanEntrySerializer(serializers.ModelSerializer):
     location_name = serializers.CharField(source='location.name', read_only=True)
     department = DepartmentSerializer(read_only=True)
     department_name = serializers.CharField(source='department.name', read_only=True)
-
+     # 👇 Roster-related fields from the linked StaffRoster
+    shift_start = serializers.TimeField(source='roster.shift_start', read_only=True)
+    shift_end = serializers.TimeField(source='roster.shift_end', read_only=True)
+    break_start = serializers.TimeField(source='roster.break_start', read_only=True)
+    break_end = serializers.TimeField(source='roster.break_end', read_only=True)
+    shift_type = serializers.CharField(source='roster.shift_type', read_only=True)
     class Meta:
         model = DailyPlanEntry
         fields = [
             'id', 'plan', 'staff', 'staff_name','department',
-            'department_name', 'location', 'location_name', 'notes'
+            'department_name', 'location', 'location_name', 'notes',
+            'shift_start', 'shift_end', 'break_start', 'break_end',
+            'shift_type',
         ]
 
     def get_staff_name(self, obj):
