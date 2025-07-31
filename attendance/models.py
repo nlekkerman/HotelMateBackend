@@ -184,7 +184,7 @@ class DailyPlanEntry(models.Model):
     notes = models.TextField(blank=True, default='')
 
     class Meta:
-        unique_together = ('plan', 'staff')
+        unique_together = ('plan', 'staff', 'location')
         ordering = ['location__name', 'staff__last_name', 'staff__first_name']
 
     def save(self, *args, **kwargs):

@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from django.db import transaction
 from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_plan_grouped_pdf
 from django_filters.rest_framework import DjangoFilterBackend
-
+from collections import defaultdict
 from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry
 from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer, ShiftLocationSerializer, DailyPlanEntrySerializer, DailyPlanSerializer
 from hotel.models import Hotel
@@ -540,61 +540,93 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
         department_slug = self.kwargs.get('department_slug')
         queryset = DailyPlan.objects.filter(hotel=hotel)
         if department_slug:
-            queryset = queryset.filter(entries__staff__department__slug=department_slug).distinct()
+            queryset = queryset.filter(
+                entries__roster__department__slug=department_slug
+            ).distinct()
         return queryset
 
     @action(detail=False, methods=['get'], url_path='prepare-daily-plan')
     def prepare_daily_plan(self, request, *args, **kwargs):
-        hotel_slug = kwargs.get('hotel_slug')
+        hotel = self.get_hotel()
         department_slug = kwargs.get('department_slug')
-
         date_str = request.query_params.get('date')
+
         if not date_str:
             return Response({'detail': 'date query parameter is required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        hotel = self.get_hotel()
 
         try:
             date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
         except ValueError:
             return Response({'detail': 'Invalid date format, expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
 
+        print("=== BEFORE GET OR CREATE DAILY PLAN ===")
         plan, created = DailyPlan.objects.get_or_create(hotel=hotel, date=date_obj)
+        print(f"DailyPlan created: {created} for hotel '{hotel}' on date {date_obj}")
 
-        filters = {"hotel": hotel, "shift_date": date_obj}
-        if department_slug:
-            filters["staff__department__slug"] = department_slug
+        print("=== BEFORE CLEARING EXISTING ENTRIES ===")
+        print(f"Entries count before delete: {plan.entries.count()}")
         plan.entries.all().delete()
-        # Filter to include only shifts with shift_start and shift_end not null
-        roster_shifts = StaffRoster.objects.filter(
-            **filters
-        ).filter(
-            Q(shift_start__isnull=False) & Q(shift_end__isnull=False)
-        ).select_related('staff', 'location')
+        print("Entries cleared")
 
-        # Update or create DailyPlanEntry only for valid shifts
+        # Filter roster shifts
+        filters = {
+            "hotel": hotel,
+            "shift_date": date_obj,
+            "shift_start__isnull": False,
+            "shift_end__isnull": False,
+        }
+        if department_slug:
+            filters["department__slug"] = department_slug
+
+        print("=== BEFORE FILTERING ROSTER SHIFTS ===")
+        print(f"Filters applied: {filters}")
+        roster_shifts = StaffRoster.objects.filter(**filters).select_related(
+            'staff', 'location', 'staff__role', 'department'
+        )
+        print(f"Roster shifts found: {roster_shifts.count()}")
+
+        # Group by (staff, location)
+        grouped_shifts = defaultdict(list)
         for shift in roster_shifts:
-            DailyPlanEntry.objects.update_or_create(
+            key = (shift.staff.id, shift.location.id if shift.location else None)
+            grouped_shifts[key].append(shift)
+
+        print(f"Total grouped staff-location pairs: {len(grouped_shifts)}")
+
+        for (staff_id, location_id), shifts in grouped_shifts.items():
+            staff = shifts[0].staff
+            location = shifts[0].location
+
+            start_times = [s.shift_start for s in shifts]
+            end_times = [s.shift_end for s in shifts]
+            earliest_start = min(start_times)
+            latest_end = max(end_times)
+
+            print(f"Creating entry: staff={staff}, location={location}, "
+                  f"start={earliest_start}, end={latest_end}, shifts_count={len(shifts)}")
+
+            DailyPlanEntry.objects.create(
                 plan=plan,
-                staff=shift.staff,
-                defaults={'location': shift.location, 'notes': '', 'roster': shift}
+                staff=staff,
+                location=location,
+                notes='',
+                roster=shifts[0]  # optional — you could omit this
             )
 
-        # Filter DailyPlan entries to only those with valid roster and shift times
+        print("=== BEFORE FILTERING DAILY PLAN ENTRIES ===")
         filtered_entries = plan.entries.filter(
             roster__isnull=False,
             roster__shift_start__isnull=False,
             roster__shift_end__isnull=False,
-        ).select_related('staff', 'location', 'department', 'roster')
+        ).select_related('staff', 'location', 'roster', 'staff__role', 'staff__department')
+        print(f"Filtered entries count: {filtered_entries.count()}")
 
         serializer = self.get_serializer(plan)
         data = serializer.data
-
-        # Manually serialize filtered entries and replace 'entries' in response
         data['entries'] = DailyPlanEntrySerializer(filtered_entries, many=True).data
 
+        print("=== DAILY PLAN PREPARATION COMPLETE ===")
         return Response(data)
-
 class DailyPlanEntryViewSet(viewsets.ModelViewSet):
     serializer_class = DailyPlanEntrySerializer
     permission_classes = [IsAuthenticated]
@@ -605,9 +637,8 @@ class DailyPlanEntryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         daily_plan = self.get_daily_plan()
-        return DailyPlanEntry.objects.filter(daily_plan=daily_plan)
+        return DailyPlanEntry.objects.filter(plan=daily_plan)
 
     def perform_create(self, serializer):
         daily_plan = self.get_daily_plan()
-        serializer.save(daily_plan=daily_plan)
-        
+        serializer.save(plan=daily_plan)   
