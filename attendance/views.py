@@ -5,7 +5,7 @@ from django.db import transaction
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now
 from django.shortcuts import get_object_or_404
-
+from django.db.models import Q
 from django.http import HttpResponse
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
@@ -564,65 +564,36 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
         filters = {"hotel": hotel, "shift_date": date_obj}
         if department_slug:
             filters["staff__department__slug"] = department_slug
+        plan.entries.all().delete()
+        # Filter to include only shifts with shift_start and shift_end not null
+        roster_shifts = StaffRoster.objects.filter(
+            **filters
+        ).filter(
+            Q(shift_start__isnull=False) & Q(shift_end__isnull=False)
+        ).select_related('staff', 'location')
 
-        roster_shifts = StaffRoster.objects.filter(**filters).select_related('staff', 'location')
-
+        # Update or create DailyPlanEntry only for valid shifts
         for shift in roster_shifts:
             DailyPlanEntry.objects.update_or_create(
                 plan=plan,
                 staff=shift.staff,
-                defaults={'location': shift.location, 'notes': ''}
+                defaults={'location': shift.location, 'notes': '', 'roster': shift}
             )
 
+        # Filter DailyPlan entries to only those with valid roster and shift times
+        filtered_entries = plan.entries.filter(
+            roster__isnull=False,
+            roster__shift_start__isnull=False,
+            roster__shift_end__isnull=False,
+        ).select_related('staff', 'location', 'department', 'roster')
+
         serializer = self.get_serializer(plan)
-        return Response(serializer.data)
+        data = serializer.data
 
-    @action(detail=False, methods=['get'], url_path='download-pdf')
-    def download_pdf(self, request, *args, **kwargs):
-        hotel = self.get_hotel()
-        department_slug = kwargs.get('department_slug')
-        date_str = request.query_params.get('date')
+        # Manually serialize filtered entries and replace 'entries' in response
+        data['entries'] = DailyPlanEntrySerializer(filtered_entries, many=True).data
 
-        if not date_str:
-            return Response({'detail': 'date query parameter is required.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
-            date_obj = datetime.strptime(date_str, '%Y-%m-%d').date()
-        except ValueError:
-            return Response({'detail': 'Invalid date format, expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Filter shifts based on hotel, date, and optional department
-        filters = {"hotel": hotel, "shift_date": date_obj}
-        if department_slug:
-            filters["staff__department__slug"] = department_slug
-
-        roster_shifts = StaffRoster.objects.filter(**filters).select_related('staff', 'location')
-
-        title = f"Daily Plan for {hotel.name} - {date_obj.isoformat()}"
-        meta_lines = [
-            f"Hotel: {hotel.name}",
-            f"Date: {date_obj.strftime('%A, %d %B %Y')}",
-        ]
-        if department_slug:
-            meta_lines.append(f"Department: {department_slug}")
-
-        # Convert roster_shifts queryset into list of dict entries for build_daily_plan_grouped_pdf
-        entries = []
-        for shift in roster_shifts:
-            entries.append({
-                "location_name": getattr(shift.location, "name", None),
-                "staff_name": getattr(shift.staff, "full_name", None) or
-                            f"{getattr(shift.staff, 'first_name', '')} {getattr(shift.staff, 'last_name', '')}".strip() or
-                            f"#{getattr(shift.staff, 'id', '')}"
-            })
-
-        pdf_bytes = build_daily_plan_grouped_pdf(title, meta_lines, entries)
-
-        response = HttpResponse(content_type='application/pdf')
-        filename = f"daily_plan_{hotel.slug}_{date_obj.isoformat()}.pdf"
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-        response.write(pdf_bytes)
-        return response
+        return Response(data)
 
 class DailyPlanEntryViewSet(viewsets.ModelViewSet):
     serializer_class = DailyPlanEntrySerializer
