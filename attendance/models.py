@@ -166,6 +166,8 @@ class DailyPlan(models.Model):
 class DailyPlanEntry(models.Model):
     plan = models.ForeignKey(DailyPlan, related_name='entries', on_delete=models.CASCADE)
     staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE)
+    shift_start = models.TimeField(null=True, blank=True)
+    shift_end = models.TimeField(null=True, blank=True)
     department = models.ForeignKey(
         'staff.Department',
         null=True,

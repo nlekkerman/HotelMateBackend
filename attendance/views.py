@@ -370,13 +370,35 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
 
         with transaction.atomic():
             if created_data:
-                create_ser = StaffRosterSerializer(data=created_data, many=True, context={'request': request})
-                if create_ser.is_valid():
-                    create_ser.save()
-                    created_result = create_ser.data
-                else:
-                    errors.extend(create_ser.errors)
+                staff_date_map = defaultdict(list)
+                
+                # Group new shifts by staff and shift_date
+                for shift in created_data:
+                    staff_id = shift.get("staff")
+                    shift_date = shift.get("shift_date")
+                    if staff_id and shift_date:
+                        staff_date_map[(staff_id, shift_date)].append(shift)
 
+                for (staff_id, shift_date), shifts in staff_date_map.items():
+                    # Check if existing shifts for this staff and date
+                    existing_shifts = StaffRoster.objects.filter(
+                        staff_id=staff_id,
+                        shift_date=shift_date
+                    )
+                    if existing_shifts.exists():
+                        # Update existing shifts to split shift = True
+                        existing_shifts.filter(is_split_shift=False).update(is_split_shift=True)
+
+                    # If more than one new shift for the staff on the date, mark all new shifts as split shift
+                    if len(shifts) > 1 or existing_shifts.exists():
+                        for shift in shifts:
+                            shift["is_split_shift"] = True
+            create_ser = StaffRosterSerializer(data=created_data, many=True, context={'request': request})
+            if create_ser.is_valid():
+                create_ser.save()
+                created_result = create_ser.data
+            else:
+                errors.extend(create_ser.errors)
             if updated_data and not errors:
                 for payload in updated_data:
                     instance = StaffRoster.objects.filter(pk=payload["id"]).first()
@@ -559,16 +581,12 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({'detail': 'Invalid date format, expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        print("=== BEFORE GET OR CREATE DAILY PLAN ===")
         plan, created = DailyPlan.objects.get_or_create(hotel=hotel, date=date_obj)
-        print(f"DailyPlan created: {created} for hotel '{hotel}' on date {date_obj}")
 
-        print("=== BEFORE CLEARING EXISTING ENTRIES ===")
-        print(f"Entries count before delete: {plan.entries.count()}")
+        # Clear existing entries (to regenerate them freshly)
         plan.entries.all().delete()
-        print("Entries cleared")
 
-        # Filter roster shifts
+        # Filter roster shifts for that date
         filters = {
             "hotel": hotel,
             "shift_date": date_obj,
@@ -578,55 +596,53 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
         if department_slug:
             filters["department__slug"] = department_slug
 
-        print("=== BEFORE FILTERING ROSTER SHIFTS ===")
-        print(f"Filters applied: {filters}")
         roster_shifts = StaffRoster.objects.filter(**filters).select_related(
             'staff', 'location', 'staff__role', 'department'
         )
-        print(f"Roster shifts found: {roster_shifts.count()}")
 
-        # Group by (staff, location)
+        # Group shifts by (staff, location)
         grouped_shifts = defaultdict(list)
         for shift in roster_shifts:
             key = (shift.staff.id, shift.location.id if shift.location else None)
             grouped_shifts[key].append(shift)
 
-        print(f"Total grouped staff-location pairs: {len(grouped_shifts)}")
-
         for (staff_id, location_id), shifts in grouped_shifts.items():
             staff = shifts[0].staff
             location = shifts[0].location
 
-            start_times = [s.shift_start for s in shifts]
-            end_times = [s.shift_end for s in shifts]
+           
+            start_times = [s.shift_start for s in shifts if s.shift_start]
+            end_times = [s.shift_end for s in shifts if s.shift_end]
+
+            if not start_times or not end_times:
+                continue  # skip incomplete shifts
+
             earliest_start = min(start_times)
             latest_end = max(end_times)
 
-            print(f"Creating entry: staff={staff}, location={location}, "
-                  f"start={earliest_start}, end={latest_end}, shifts_count={len(shifts)}")
-
-            DailyPlanEntry.objects.create(
+            DailyPlanEntry.objects.get_or_create(
                 plan=plan,
                 staff=staff,
                 location=location,
                 notes='',
-                roster=shifts[0]  # optional — you could omit this
+                roster=shifts[0],
+                shift_start=earliest_start,
+                shift_end=latest_end,
             )
 
-        print("=== BEFORE FILTERING DAILY PLAN ENTRIES ===")
+        # Return filtered entries with valid shift info
         filtered_entries = plan.entries.filter(
             roster__isnull=False,
             roster__shift_start__isnull=False,
             roster__shift_end__isnull=False,
         ).select_related('staff', 'location', 'roster', 'staff__role', 'staff__department')
-        print(f"Filtered entries count: {filtered_entries.count()}")
 
         serializer = self.get_serializer(plan)
         data = serializer.data
         data['entries'] = DailyPlanEntrySerializer(filtered_entries, many=True).data
 
-        print("=== DAILY PLAN PREPARATION COMPLETE ===")
         return Response(data)
+
 class DailyPlanEntryViewSet(viewsets.ModelViewSet):
     serializer_class = DailyPlanEntrySerializer
     permission_classes = [IsAuthenticated]
