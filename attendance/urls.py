@@ -9,6 +9,7 @@ from .views import (
     ShiftLocationViewSet,
     DailyPlanViewSet,
     DailyPlanEntryViewSet,
+    ShiftCopyViewSet, 
 )
 from .views_analytics import RosterAnalyticsViewSet
 
@@ -67,6 +68,12 @@ daily_plan_entry_detail = DailyPlanEntryViewSet.as_view({'get': 'retrieve', 'put
 prepare_daily_plan = DailyPlanViewSet.as_view({'get': 'prepare_daily_plan'})
 download_daily_plan_pdf = DailyPlanViewSet.as_view({'get': 'download_pdf'})
 
+
+# copy urls copy_shift = ShiftCopyViewSet.as_view({'post': 'copy_shift'})
+copy_day = ShiftCopyViewSet.as_view({'post': 'copy_day'})
+copy_day_all = ShiftCopyViewSet.as_view({'post': 'copy_day_all'})
+copy_week = ShiftCopyViewSet.as_view({'post': 'copy_week'})
+copy_shift = ShiftCopyViewSet.as_view({'post': 'copy_shift'})
 # -------------------------
 # URL patterns
 # -------------------------
@@ -126,4 +133,10 @@ urlpatterns = [
         download_daily_plan_pdf,
         name='daily-plan-download-pdf',
     ),
+    
+    # --------- Shift Copy Endpoints ---------
+    path('<slug:hotel_slug>/shift-copy/copy-shift/', copy_shift, name='copy-shift'),
+    path('<slug:hotel_slug>/shift-copy/copy-day/', copy_day, name='copy-day'),
+    path('<slug:hotel_slug>/shift-copy/copy-day-all/', copy_day_all, name='copy-day-all'),
+    path('<slug:hotel_slug>/shift-copy/copy-week/', copy_week, name='copy-week'),
 ]

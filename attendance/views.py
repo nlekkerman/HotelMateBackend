@@ -16,7 +16,12 @@ from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_p
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
 from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry
-from .serializers import ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer, ShiftLocationSerializer, DailyPlanEntrySerializer, DailyPlanSerializer
+from .serializers import (ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer,
+    ShiftLocationSerializer, DailyPlanEntrySerializer, DailyPlanSerializer,
+    CopyShiftSerializer,
+    CopyDaySerializer,
+    CopyDayAllSerializer,
+    CopyWeekSerializer,)
 from hotel.models import Hotel
 
 # attendance/filters.py
@@ -674,3 +679,128 @@ class DailyPlanEntryViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         daily_plan = self.get_daily_plan()
         serializer.save(plan=daily_plan)   
+
+
+class ShiftCopyViewSet(viewsets.ViewSet):
+    """
+    ViewSet to handle shift copying operations.
+    """
+
+    @action(detail=False, methods=['post'])
+    def copy_shift(self, request, hotel_slug=None):
+        serializer = CopyShiftSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        shift_id = serializer.validated_data['shift_id']
+        target_date = serializer.validated_data['target_date']
+
+        # Find the original shift
+        original_shift = get_object_or_404(StaffRoster, id=shift_id)
+
+        # Create a copy with updated date
+        copied_shift = StaffRoster.objects.create(
+            hotel=original_shift.hotel,
+            staff=original_shift.staff,
+            shift_date=target_date,
+            start_time=original_shift.start_time,
+            end_time=original_shift.end_time,
+            expected_hours=original_shift.expected_hours,
+            department=original_shift.department,
+            location=original_shift.location,
+            # copy other relevant fields as needed
+        )
+        return Response({'copied_shift_id': copied_shift.id}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def copy_day(self, request, hotel_slug=None):
+        serializer = CopyDaySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        staff_id = serializer.validated_data['staff_id']
+        source_date = serializer.validated_data['source_date']
+        target_date = serializer.validated_data['target_date']
+
+        # Get all shifts for this staff on source date and hotel
+        shifts = StaffRoster.objects.filter(
+            hotel__slug=hotel_slug,
+            staff_id=staff_id,
+            shift_date=source_date,
+        )
+
+        new_shifts = []
+        for shift in shifts:
+            new_shift = StaffRoster.objects.create(
+                hotel=shift.hotel,
+                staff=shift.staff,
+                shift_date=target_date,
+                start_time=shift.start_time,
+                end_time=shift.end_time,
+                expected_hours=shift.expected_hours,
+                department=shift.department,
+                location=shift.location,
+            )
+            new_shifts.append(new_shift.id)
+
+        return Response({'copied_shifts': new_shifts}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def copy_day_all(self, request, hotel_slug=None):
+        serializer = CopyDayAllSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source_date = serializer.validated_data['source_date']
+        target_date = serializer.validated_data['target_date']
+
+        shifts = StaffRoster.objects.filter(
+            hotel__slug=hotel_slug,
+            shift_date=source_date,
+        )
+
+        new_shifts = []
+        for shift in shifts:
+            new_shift = StaffRoster.objects.create(
+                hotel=shift.hotel,
+                staff=shift.staff,
+                shift_date=target_date,
+                start_time=shift.start_time,
+                end_time=shift.end_time,
+                expected_hours=shift.expected_hours,
+                department=shift.department,
+                location=shift.location,
+            )
+            new_shifts.append(new_shift.id)
+
+        return Response({'copied_shifts': new_shifts}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def copy_week(self, request, hotel_slug=None):
+        serializer = CopyWeekSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source_period_id = serializer.validated_data['source_period_id']
+        target_period_id = serializer.validated_data['target_period_id']
+
+        source_period = get_object_or_404(RosterPeriod, id=source_period_id, hotel__slug=hotel_slug)
+        target_period = get_object_or_404(RosterPeriod, id=target_period_id, hotel__slug=hotel_slug)
+
+        source_shifts = StaffRoster.objects.filter(
+            hotel__slug=hotel_slug,
+            shift_date__gte=source_period.start_date,
+            shift_date__lte=source_period.end_date,
+        )
+
+        # Calculate days difference between periods
+        day_diff = (target_period.start_date - source_period.start_date).days
+
+        new_shifts = []
+        for shift in source_shifts:
+            new_date = shift.shift_date + timedelta(days=day_diff)
+            new_shift = StaffRoster.objects.create(
+                hotel=shift.hotel,
+                staff=shift.staff,
+                shift_date=new_date,
+                start_time=shift.start_time,
+                end_time=shift.end_time,
+                expected_hours=shift.expected_hours,
+                department=shift.department,
+                location=shift.location,
+            )
+            new_shifts.append(new_shift.id)
+
+        return Response({'copied_shifts': new_shifts}, status=status.HTTP_201_CREATED)

@@ -301,3 +301,21 @@ class DailyPlanSerializer(serializers.ModelSerializer):
     class Meta:
         model = DailyPlan
         fields = ['id', 'hotel', 'hotel_name', 'date', 'created_at', 'updated_at', 'entries']
+        
+
+class CopyShiftSerializer(serializers.Serializer):
+    shift_id = serializers.IntegerField()
+    target_date = serializers.DateField()
+
+class CopyDaySerializer(serializers.Serializer):
+    staff_id = serializers.IntegerField()
+    source_date = serializers.DateField()
+    target_date = serializers.DateField()
+
+class CopyDayAllSerializer(serializers.Serializer):
+    source_date = serializers.DateField()
+    target_date = serializers.DateField()
+
+class CopyWeekSerializer(serializers.Serializer):
+    source_period_id = serializers.IntegerField()
+    target_period_id = serializers.IntegerField()
