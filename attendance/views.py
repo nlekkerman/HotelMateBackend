@@ -158,7 +158,8 @@ class ClockLogViewSet(viewsets.ModelViewSet):
 class RosterPeriodViewSet(viewsets.ModelViewSet):
     serializer_class = RosterPeriodSerializer
     permission_classes = [IsAuthenticated]
-
+   
+    
     def get_hotel(self):
         return get_object_or_404(Hotel, slug=self.kwargs.get("hotel_slug"))
 
@@ -280,7 +281,28 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
         )
         return resp
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = self.get_serializer(queryset, many=True)
 
+        for period in queryset:
+            hotel_name = period.hotel.name
+            title = period.title
+            start_date = period.start_date.strftime("%B %d, %Y")
+            end_date = period.end_date.strftime("%B %d, %Y")
+            published = period.published
+            created_by = f"{period.created_by.first_name} {period.created_by.last_name}" if period.created_by else "N/A"
+
+            # Get departments related to this period through roster requirements
+            departments = set(req.department.name for req in period.requirements.all())
+
+            print(
+                f"RosterPeriod: {title} | Hotel: {hotel_name} | "
+                f"Start: {start_date} | End: {end_date} | Published: {published} | "
+                f"Created by: {created_by} | Departments: {', '.join(departments) if departments else 'None'}"
+            )
+
+        return Response(serializer.data)
 # ---------------------- Staff Roster ----------------------
 class StaffRosterViewSet(viewsets.ModelViewSet):
     queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by', 'location').all()
@@ -288,25 +310,34 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_class = StaffRosterFilter
-
+    pagination_class = None
+    
     def get_queryset(self):
         qs = super().get_queryset()
 
-        # Manually handle filters not covered by filterset_class
         staff_id = self.request.query_params.get("staff") or self.request.query_params.get("staff_id")
         period_id = self.request.query_params.get("period")
         location_id = self.request.query_params.get("location")
         start = self.request.query_params.get("start")
         end = self.request.query_params.get("end")
 
+        print(f"--- get_queryset filters ---")
+        print(f"staff_id={staff_id}, period_id={period_id}, location_id={location_id}, start={start}, end={end}")
+
         if staff_id:
             qs = qs.filter(staff_id=staff_id)
+            print(f"Filtered by staff_id, count={qs.count()}")
         if period_id:
             qs = qs.filter(period_id=period_id)
+            print(f"Filtered by period_id, count={qs.count()}")
         if location_id:
             qs = qs.filter(location_id=location_id)
+            print(f"Filtered by location_id, count={qs.count()}")
         if start and end:
             qs = qs.filter(shift_date__range=[start, end])
+            print(f"Filtered by shift_date range, count={qs.count()}")
+
+        print(f"Final queryset count: {qs.count()}")
 
         return qs
 
@@ -583,7 +614,7 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
 
         plan, created = DailyPlan.objects.get_or_create(hotel=hotel, date=date_obj)
 
-        # Clear existing entries (to regenerate them freshly)
+        # Clear existing entries to regenerate fresh
         plan.entries.all().delete()
 
         # Filter roster shifts for that date
@@ -600,34 +631,18 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
             'staff', 'location', 'staff__role', 'department'
         )
 
-        # Group shifts by (staff, location)
-        grouped_shifts = defaultdict(list)
+        # Use update_or_create for each shift to avoid duplicates
         for shift in roster_shifts:
-            key = (shift.staff.id, shift.location.id if shift.location else None)
-            grouped_shifts[key].append(shift)
-
-        for (staff_id, location_id), shifts in grouped_shifts.items():
-            staff = shifts[0].staff
-            location = shifts[0].location
-
-           
-            start_times = [s.shift_start for s in shifts if s.shift_start]
-            end_times = [s.shift_end for s in shifts if s.shift_end]
-
-            if not start_times or not end_times:
-                continue  # skip incomplete shifts
-
-            earliest_start = min(start_times)
-            latest_end = max(end_times)
-
-            DailyPlanEntry.objects.get_or_create(
+            DailyPlanEntry.objects.update_or_create(
                 plan=plan,
-                staff=staff,
-                location=location,
-                notes='',
-                roster=shifts[0],
-                shift_start=earliest_start,
-                shift_end=latest_end,
+                staff=shift.staff,
+                location=shift.location,
+                shift_start=shift.shift_start,
+                shift_end=shift.shift_end,
+                defaults={
+                    'notes': '',
+                    'roster': shift,
+                }
             )
 
         # Return filtered entries with valid shift info
@@ -642,6 +657,7 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
         data['entries'] = DailyPlanEntrySerializer(filtered_entries, many=True).data
 
         return Response(data)
+
 
 class DailyPlanEntryViewSet(viewsets.ModelViewSet):
     serializer_class = DailyPlanEntrySerializer
