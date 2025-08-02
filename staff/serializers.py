@@ -190,7 +190,8 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     hotel = serializers.DictField(required=False)
     allowed_navs = serializers.ListField(child=serializers.CharField(), default=list)
     profile_image_url = serializers.CharField(allow_null=True, required=False)
-
+    role = serializers.CharField(allow_null=True, required=False)
+    department = serializers.CharField(allow_null=True, required=False)
 
 class RegisterStaffSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(write_only=True)

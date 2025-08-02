@@ -102,6 +102,8 @@ class CustomAuthToken(ObtainAuthToken):
             'access_level': access_level,
             'allowed_navs': allowed_navs,
             'profile_image_url': profile_image_url,
+            'role': staff.role.name if staff.role else None,
+            'department': staff.department.name if staff.department else None,
         }
 
         output_serializer = StaffLoginOutputSerializer(data=data, context={'request': request})
