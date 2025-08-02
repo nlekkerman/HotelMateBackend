@@ -11,8 +11,7 @@ from .serializers import (
     RegisterStaffSerializer,
 )
 from rest_framework.decorators import action
-
-from staff.permissions import IsSameHotelOrAdmin
+from .permissions import Permissions
 
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -74,6 +73,7 @@ class CustomAuthToken(ObtainAuthToken):
         profile_image_url = None
         if staff and staff.profile_image:
             profile_image_url = str(staff.profile_image)
+        allowed_navs = Permissions.get_accessible_navs(staff)
 
         fcm_token = request.data.get("fcm_token")
         if staff and fcm_token:
@@ -100,6 +100,7 @@ class CustomAuthToken(ObtainAuthToken):
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
             'access_level': access_level,
+            'allowed_navs': allowed_navs,
             'profile_image_url': profile_image_url,
         }
 
@@ -135,14 +136,7 @@ class StaffViewSet(viewsets.ModelViewSet):
 
         return qs.filter(hotel=my_staff_profile.hotel)
 
-    def get_permissions(self):
-        if self.action in ["update", "partial_update", "destroy"]:
-            permission_classes = [IsSameHotelOrAdmin]
-        elif self.action == "create":
-            permission_classes = [permissions.IsAdminUser]
-        else:
-            permission_classes = [permissions.IsAuthenticated]
-        return [permission() for permission in permission_classes]
+      
 
     def create(self, request, *args, **kwargs):
         serializer = RegisterStaffSerializer(data=request.data, context={'request': request})
