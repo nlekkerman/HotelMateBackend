@@ -1,6 +1,6 @@
 # attendance/views.py
 
-from datetime import timedelta, date, datetime
+from datetime import timedelta, date, datetime, time
 from django.db import transaction
 from django.utils.dateparse import parse_date
 from django.utils.timezone import now
@@ -34,7 +34,80 @@ def euclidean(a, b):
     import math
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
+def parse_time(t):
+    print(f"parse_time input: {t} (type: {type(t)})")
+    if isinstance(t, time):
+        # Already a time object, just return it
+        result = t
+    else:
+        # Assume it's a string, parse it
+        result = datetime.strptime(t, "%H:%M").time()
+    print(f"parse_time output: {result}")
+    return result
 
+
+def calculate_shift_range(shift_date, start_str, end_str):
+    print(f"calculate_shift_range called with shift_date={shift_date}, start_str={start_str}, end_str={end_str}")
+    start = parse_time(start_str)
+    end = parse_time(end_str)
+
+    start_dt = datetime.combine(shift_date, start)
+    print(f"Start datetime: {start_dt}")
+
+    if end <= start:
+        # Crosses midnight
+        end_dt = datetime.combine(shift_date + timedelta(days=1), end)
+        print(f"Shift crosses midnight, end datetime set to: {end_dt}")
+    else:
+        end_dt = datetime.combine(shift_date, end)
+        print(f"Shift does not cross midnight, end datetime set to: {end_dt}")
+
+    # Special case: allow shifts until 4 AM to count as "today"
+    if end <= time(4, 0) and end <= start:
+        end_dt = datetime.combine(shift_date, end) + timedelta(days=1)
+        print(f"Special case: shift ends before 4 AM, adjusted end datetime: {end_dt}")
+
+    print(f"calculate_shift_range result: start_dt={start_dt}, end_dt={end_dt}")
+    return start_dt, end_dt
+
+def shifts_overlap(start1, end1, start2, end2):
+    overlap = start1 < end2 and start2 < end1
+    print(f"shifts_overlap called with start1={start1}, end1={end1}, start2={start2}, end2={end2} -> {overlap}")
+    return overlap
+
+def detect_overlapping_shifts(shifts):
+    parsed = []
+    for shift in shifts:
+        print(f"Processing shift: {shift}")
+        shift_date = shift["shift_date"]
+        # Check if shift_date is a date object but NOT datetime
+        if isinstance(shift_date, date) and not isinstance(shift_date, datetime):
+            shift_date_str = shift_date.strftime("%Y-%m-%d")
+            print(f"Converted date object to string: {shift_date_str}")
+        else:
+            shift_date_str = shift_date
+
+        date_obj = datetime.strptime(shift_date_str, "%Y-%m-%d").date()
+        start, end = calculate_shift_range(date_obj, shift["shift_start"], shift["shift_end"])
+        parsed.append((start, end, shift))
+
+    parsed.sort(key=lambda x: x[0])  # Sort by start datetime
+    print("Parsed shifts sorted by start time:")
+    for p in parsed:
+        print(p)
+
+    for i in range(1, len(parsed)):
+        prev_start, prev_end, _ = parsed[i - 1]
+        curr_start, curr_end, _ = parsed[i]
+
+        if shifts_overlap(prev_start, prev_end, curr_start, curr_end) and prev_end != curr_start:
+            print("Overlap detected between shifts:")
+            print(f"Prev: {prev_start} - {prev_end}")
+            print(f"Curr: {curr_start} - {curr_end}")
+            return True
+
+    print("No overlapping shifts detected.")
+    return False
 # ---------------------- Clock / Face ----------------------
 class ClockLogViewSet(viewsets.ModelViewSet):
     queryset = ClockLog.objects.select_related('staff', 'hotel').all()
@@ -368,7 +441,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         errors = []
         created_result, updated_result = [], []
 
-        # Check for duplicates within created_data
+        # In-batch duplicate check
         seen = set()
         for idx, shift in enumerate(created_data):
             key = (shift.get("staff"), shift.get("shift_date"), shift.get("shift_start"))
@@ -380,17 +453,16 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         if errors:
             return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Check duplicates for updated_data against existing shifts excluding self
+        # DB-level duplicate check for updates
         for idx, payload in enumerate(updated_data):
             instance = StaffRoster.objects.filter(pk=payload["id"]).first()
             if not instance:
                 errors.append({"id": payload.get("id"), "detail": "Shift not found"})
                 continue
 
-            # Check if new (staff, shift_date, shift_start) combination exists in another shift
             staff = payload.get("staff", instance.staff_id)
-            shift_date = payload.get("shift_date", instance.shift_date)
-            shift_start = payload.get("shift_start", instance.shift_start)
+            shift_date = payload.get("shift_date", instance.shift_date.strftime("%Y-%m-%d"))
+            shift_start = payload.get("shift_start", instance.shift_start.strftime("%H:%M"))
 
             conflict = StaffRoster.objects.filter(
                 staff=staff,
@@ -405,36 +477,42 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
             return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
-            if created_data:
-                staff_date_map = defaultdict(list)
-                
-                # Group new shifts by staff and shift_date
-                for shift in created_data:
-                    staff_id = shift.get("staff")
-                    shift_date = shift.get("shift_date")
-                    if staff_id and shift_date:
-                        staff_date_map[(staff_id, shift_date)].append(shift)
+            staff_date_map = defaultdict(list)
+            for shift in created_data:
+                staff_id = shift.get("staff")
+                shift_date = shift.get("shift_date")
+                if staff_id and shift_date:
+                    staff_date_map[(staff_id, shift_date)].append(shift)
 
-                for (staff_id, shift_date), shifts in staff_date_map.items():
-                    # Check if existing shifts for this staff and date
-                    existing_shifts = StaffRoster.objects.filter(
-                        staff_id=staff_id,
-                        shift_date=shift_date
+            for (staff_id, shift_date), new_shifts in staff_date_map.items():
+                existing = list(
+                    StaffRoster.objects.filter(staff_id=staff_id, shift_date=shift_date).values(
+                        "shift_date", "shift_start", "shift_end"
                     )
-                    if existing_shifts.exists():
-                        # Update existing shifts to split shift = True
-                        existing_shifts.filter(is_split_shift=False).update(is_split_shift=True)
+                )
+                all_combined = existing + new_shifts
+                if detect_overlapping_shifts(all_combined):
+                    errors.append({
+                        "staff": staff_id,
+                        "date": shift_date,
+                        "detail": "Overlapping shifts are not allowed (except adjacent or ending before 04:00)."
+                    })
 
-                    # If more than one new shift for the staff on the date, mark all new shifts as split shift
-                    if len(shifts) > 1 or existing_shifts.exists():
-                        for shift in shifts:
-                            shift["is_split_shift"] = True
+                if len(new_shifts) > 1 or existing:
+                    for shift in new_shifts:
+                        shift["is_split_shift"] = True
+
+            if errors:
+                return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
+
             create_ser = StaffRosterSerializer(data=created_data, many=True, context={'request': request})
             if create_ser.is_valid():
                 create_ser.save()
                 created_result = create_ser.data
             else:
+                print("Create serializer errors:", create_ser.errors)
                 errors.extend(create_ser.errors)
+
             if updated_data and not errors:
                 for payload in updated_data:
                     instance = StaffRoster.objects.filter(pk=payload["id"]).first()
@@ -446,6 +524,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
                         ser.save()
                         updated_result.append(ser.data)
                     else:
+                        print("Update serializer errors:", ser.errors)
                         errors.append(ser.errors)
 
             if errors:
@@ -453,7 +532,6 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
                 return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response({"created": created_result, "updated": updated_result, "errors": []}, status=status.HTTP_201_CREATED)
-    
     
     @action(detail=False, methods=["get"], url_path="daily-pdf")
     def daily_pdf(self, request, hotel_slug=None, **kwargs):

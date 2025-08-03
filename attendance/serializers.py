@@ -163,6 +163,7 @@ class StaffRosterSerializer(serializers.ModelSerializer):
         - Ensure shift_end logically after shift_start unless night shift
         - Ensure break is inside the shift window (basic sanity)
         - Auto-set expected_hours if not provided
+        - Auto-set is_night_shift if shift crosses midnight
         """
         hotel = attrs.get('hotel') or getattr(self.instance, 'hotel', None)
         period = attrs.get('period') or getattr(self.instance, 'period', None)
@@ -185,10 +186,12 @@ class StaffRosterSerializer(serializers.ModelSerializer):
         is_night = attrs.get('is_night_shift', getattr(self.instance, 'is_night_shift', False))
 
         if start and end:
-            if not is_night and end <= start:
-                raise serializers.ValidationError(
-                    "shift_end must be after shift_start (unless it's a night shift)."
-                )
+            if end <= start:
+                # Shift crosses midnight, mark as night shift automatically
+                attrs['is_night_shift'] = True
+            else:
+                # Normal shift, ensure is_night_shift is False if not explicitly set
+                attrs['is_night_shift'] = False
 
         # Break sanity (coarse)
         bs, be = attrs.get('break_start'), attrs.get('break_end')
