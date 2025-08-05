@@ -137,9 +137,11 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            # pass the URL directly, not a dict with ssl or ssl_context
-            "hosts": [REDIS_URL],
-            "ssl_cert_reqs": None,
+            "hosts": [{
+                "address": REDIS_URL,
+                "ssl": True,
+                "ssl_cert_reqs": None,  # disables cert verification
+            }],
         },
     },
 }
