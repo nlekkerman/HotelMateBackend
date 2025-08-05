@@ -137,7 +137,8 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
+            # pass the URL directly, not a dict with ssl or ssl_context
+            "hosts": [REDIS_URL],
         },
     },
 }
