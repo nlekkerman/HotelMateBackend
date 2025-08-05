@@ -111,7 +111,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         instance = self.get_object()
         new_status = request.data.get("status")
-  
+
         instance.status = new_status
         instance.save()
 
@@ -122,20 +122,18 @@ class OrderViewSet(viewsets.ModelViewSet):
             async_to_sync(channel_layer.group_send)(
                 group_name,
                 {
-                    "type": "order_update",
-                    "data": {"id": instance.id, "status": instance.status},
+                    "type": "send_order_update",  # Matches your consumer method
+                    "content": {"id": instance.id, "status": instance.status},
                 },
             )
             print(f"→ [VIEW] group_send succeeded for order {instance.id}")
         except Exception as e:
-            # Simple dump of the exception and config:
             print(f"!!! [VIEW] group_send failed: {e!r}")
             print(f"!!! [VIEW] channel_layer._config: {getattr(channel_layer, '_config', None)!r}")
             raise
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
-
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer
 
