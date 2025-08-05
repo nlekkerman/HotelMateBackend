@@ -106,17 +106,20 @@ class OrderViewSet(viewsets.ModelViewSet):
     
 
     def partial_update(self, request, *args, **kwargs):
+        
+        
         import sys
         print("!!! [VIEW] partial_update() called", flush=True, file=sys.stdout)
 
         instance = self.get_object()
         new_status = request.data.get("status")
+  
 
         instance.status = new_status
         instance.save()
 
         channel_layer = get_channel_layer()
-        group_name = f"order_{instance.hotel.slug}_{instance.id}"  # <-- fix here
+        group_name = f"order_{instance.hotel.slug}_{instance.id}"
         print(f"→ [VIEW] Broadcasting to {group_name}: {instance.id} → {instance.status}")
         try:
             async_to_sync(channel_layer.group_send)(
@@ -128,6 +131,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
             print(f"→ [VIEW] group_send succeeded for order {instance.id}")
         except Exception as e:
+            # Simple dump of the exception and config:
             print(f"!!! [VIEW] group_send failed: {e!r}")
             print(f"!!! [VIEW] channel_layer._config: {getattr(channel_layer, '_config', None)!r}")
             raise

@@ -137,6 +137,7 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
+            # pass the URL directly, not a dict with ssl or ssl_context
             "hosts": [REDIS_URL],
         },
     },
