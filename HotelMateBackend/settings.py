@@ -8,7 +8,7 @@ import os
 import environ
 import dj_database_url
 from corsheaders.defaults import default_headers, default_methods
-import certifi
+import urllib.parse
 import ssl
 import sys
 from urllib.parse import urlparse
@@ -132,23 +132,28 @@ ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
 print("REDIS_URL =", REDIS_URL)
+parsed_url = urllib.parse.urlparse(REDIS_URL)
+
+# SSL context that skips cert validation (for Heroku self-signed certs)
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False
-ssl_context.verify_mode = ssl.CERT_NONE  # allow self-signed cert
+ssl_context.verify_mode = ssl.CERT_NONE
 
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [{
-                "address": REDIS_URL,
-                "options": {
-                    "ssl": ssl_context  # not 'ssl=True'!
+            "hosts": [
+                {
+                    "address": (parsed_url.hostname, parsed_url.port),
+                    "password": parsed_url.password,
+                    "ssl": ssl_context,
                 }
-            }]
-        }
-    }
+            ]
+        },
+    },
 }
+
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
