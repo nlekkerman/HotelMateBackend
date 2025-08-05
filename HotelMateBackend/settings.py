@@ -139,6 +139,8 @@ CHANNEL_LAYERS = {
         "CONFIG": {
             # pass the URL directly, not a dict with ssl or ssl_context
             "hosts": [REDIS_URL],
+            "ssl": True,
+            "ssl_cert_reqs": None,
         },
     },
 }
