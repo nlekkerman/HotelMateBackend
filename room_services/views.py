@@ -106,20 +106,17 @@ class OrderViewSet(viewsets.ModelViewSet):
     
 
     def partial_update(self, request, *args, **kwargs):
-        
-        
         import sys
         print("!!! [VIEW] partial_update() called", flush=True, file=sys.stdout)
 
         instance = self.get_object()
         new_status = request.data.get("status")
   
-
         instance.status = new_status
         instance.save()
 
         channel_layer = get_channel_layer()
-        group_name = f"order_{instance.hotel.slug}_{instance.id}"
+        group_name = f"order_{instance.id}"
         print(f"→ [VIEW] Broadcasting to {group_name}: {instance.id} → {instance.status}")
         try:
             async_to_sync(channel_layer.group_send)(
@@ -138,7 +135,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
-
 class BreakfastOrderViewSet(viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer
 
