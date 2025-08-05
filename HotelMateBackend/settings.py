@@ -137,11 +137,15 @@ CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            # pass the URL directly, not a dict with ssl or ssl_context
-            "hosts": [REDIS_URL],
+            "hosts": [{
+                "address": ("ec2-54-228-126-241.eu-west-1.compute.amazonaws.com", 12630),
+                "ssl": True,
+                "ssl_cert_reqs": False,  # disable cert verification (insecure)
+            }],
         },
     },
 }
+
 
 REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
