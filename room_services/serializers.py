@@ -25,11 +25,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
         source='item',
         write_only=True
     )
-    hotel = serializers.PrimaryKeyRelatedField(
-        queryset=Hotel.objects.all(),
-        required=False,
-        allow_null=True
-    )
+    hotel = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = OrderItem
@@ -38,7 +34,11 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 # Order Serializer with nested items
 class OrderSerializer(serializers.ModelSerializer):
-    hotel = serializers.PrimaryKeyRelatedField(queryset=Order.objects.values_list('hotel', flat=True), required=False, allow_null=True)
+    hotel = serializers.PrimaryKeyRelatedField(
+        queryset=Hotel.objects.all(),  # ✅ correct: full Hotel queryset
+        required=False,
+        allow_null=True
+    )
     items = OrderItemSerializer(source='orderitem_set', many=True)
     total_price = serializers.SerializerMethodField()
     class Meta:

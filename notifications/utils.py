@@ -106,7 +106,7 @@ def notify_porters_of_room_service_order(order):
         Staff.objects
         .filter(
             hotel=order.hotel,
-            role="porter",
+            role__slug="porter",
             is_active=True,
             is_on_duty=True,
             fcm_tokens__token__isnull=False
