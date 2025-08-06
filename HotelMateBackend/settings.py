@@ -133,18 +133,8 @@ ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 print("REDIS_URL =", REDIS_URL)
 # Use *just* the URL string. Channels-Redis will detect "rediss://" itself
-redis_url_parsed = urlparse(REDIS_URL)
+redis_host_config = REDIS_URL  # Just use the full URL — channels_redis will handle rediss://
 
-if redis_url_parsed.scheme == "rediss":
-    ssl_context = ssl.create_default_context(cafile=certifi.where())
-    redis_host_config = (
-        (redis_url_parsed.hostname, redis_url_parsed.port or 6379),
-        {
-            "ssl": ssl_context
-        }
-    )
-else:
-    redis_host_config = REDIS_URL  # just pass through if no SSL
 
 CHANNEL_LAYERS = {
     "default": {
