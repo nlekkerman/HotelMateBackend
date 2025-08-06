@@ -132,7 +132,6 @@ ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
 print("REDIS_URL =", REDIS_URL)
-# Use *just* the URL string. Channels-Redis will detect "rediss://" itself
 
 CHANNEL_LAYERS = {
     "default": {
