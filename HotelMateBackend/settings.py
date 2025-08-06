@@ -22,7 +22,7 @@ env = environ.Env(
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
-REDIS_URL = env("REDIS_URL")
+
 
 SECRET_KEY = env('SECRET_KEY')
 
@@ -131,14 +131,27 @@ ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
 
-print("REDIS_URL =", REDIS_URL)
 # Use *just* the URL string. Channels-Redis will detect "rediss://" itself
+
+# Use Heroku Redis in production, fallback to local Redis in dev
+REDIS_URL = env("REDIS_URL", default="redis://127.0.0.1:6379")
+print("REDIS_URL =", REDIS_URL)
+ssl_context = ssl.create_default_context()  # For rediss://
+
+# Allow rediss:// URLs to work properly with cert validation
+if REDIS_URL.startswith("rediss://"):
+    redis_config = {
+        "address": REDIS_URL,
+        "ssl": ssl_context,
+    }
+else:
+    redis_config = REDIS_URL  # For redis:// without SSL
 
 CHANNEL_LAYERS = {
     "default": {
         "BACKEND": "channels_redis.core.RedisChannelLayer",
         "CONFIG": {
-            "hosts": [REDIS_URL],
+            "hosts": [redis_config],
         },
     },
 }
