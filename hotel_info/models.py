@@ -82,6 +82,7 @@ class HotelInfo(models.Model):
     description = models.TextField()
     event_date = models.DateField(null=True, blank=True)
     event_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True) 
     extra_info = models.JSONField(blank=True, null=True)
     active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -90,7 +91,21 @@ class HotelInfo(models.Model):
 
     def __str__(self):
         return f"{self.category.name} – {self.title}"
+    
+    def time_range_display(self):
+        def format_time(t):
+            if t is None:
+                return ""
+            # Format with %I (01-12) and strip leading zero for cross-platform compatibility
+            return t.strftime("%I:%M %p").lstrip("0")
 
+        if self.event_time and self.end_time:
+            return f"{format_time(self.event_time)} - {format_time(self.end_time)}"
+        elif self.event_time:
+            return f"From {format_time(self.event_time)}"
+        elif self.end_time:
+            return f"Until {format_time(self.end_time)}"
+        return ""
 
 class GoodToKnowEntry(models.Model):
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='good_to_know_entries')

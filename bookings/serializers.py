@@ -51,6 +51,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "note",
             "created_at",
             "restaurant",
+            "voucher_code",
             "seats",
             'room',
             "guest",
@@ -61,7 +62,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Booking
-        fields = ['hotel', 'category', 'restaurant', 'date', 'time', 'note', 'room', 'seats', 'guest']
+        fields = ['hotel', 'category', 'restaurant', "voucher_code", 'date', 'time', 'note', 'room', 'seats', 'guest']
 
     def create(self, validated_data):
         seats_data = validated_data.pop('seats')

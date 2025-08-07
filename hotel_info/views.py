@@ -2,7 +2,11 @@
 
 from rest_framework import viewsets
 from .models import HotelInfo, HotelInfoCategory, CategoryQRCode, GoodToKnowEntry
-from .serializers import HotelInfoSerializer,HotelInfoCategorySerializer, HotelInfoCreateSerializer, GoodToKnowEntrySerializer
+from .serializers import (HotelInfoSerializer,
+                          HotelInfoCategorySerializer,
+                          HotelInfoCreateSerializer,
+                          HotelInfoUpdateSerializer,
+                          GoodToKnowEntrySerializer)
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import generics, permissions
@@ -40,6 +44,8 @@ class HotelInfoViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         if self.action == 'create':
             return HotelInfoCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return HotelInfoUpdateSerializer
         return HotelInfoSerializer
 
     filter_backends = [DjangoFilterBackend]

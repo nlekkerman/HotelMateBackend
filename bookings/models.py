@@ -48,6 +48,11 @@ class Booking(models.Model):
         blank=True,
         related_name='bookings'
     )
+    voucher_code = models.CharField(  # 👈 NEW FIELD
+        max_length=100,
+        null=True,
+        blank=True
+    )
 
     def __str__(self):
         return f"{self.category.name} / {self.category.subcategory.name} @ {self.date}"

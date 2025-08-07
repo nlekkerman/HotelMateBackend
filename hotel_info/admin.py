@@ -19,6 +19,7 @@ class HotelInfoAdmin(admin.ModelAdmin):
         "category",
         "event_date",
         "event_time",
+        "end_time",
         "active",
         "created_at",
         "image_thumbnail",
@@ -36,6 +37,7 @@ class HotelInfoAdmin(admin.ModelAdmin):
                 "image",           # <-- allow upload/edit here
                 "event_date",
                 "event_time",
+                "end_time",
                 "active",
                 "extra_info",
             )

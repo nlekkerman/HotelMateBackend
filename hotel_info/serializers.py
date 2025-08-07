@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import HotelInfo, HotelInfoCategory, CategoryQRCode, GoodToKnowEntry
+from .models import HotelInfo, HotelInfoCategory, GoodToKnowEntry
 from django.utils.text import slugify
 from hotel.models import Hotel
 from cloudinary.uploader import upload as cloudinary_upload
@@ -51,9 +51,28 @@ class HotelInfoCategorySerializer(serializers.ModelSerializer):
 
 
 class HotelInfoSerializer(serializers.ModelSerializer):
+    time_range = serializers.SerializerMethodField()
+
     class Meta:
         model = HotelInfo
-        fields = '__all__'
+        fields = [
+            "id",
+            "hotel",
+            "category",
+            "title",
+            "description",
+            "event_date",
+            "event_time",
+            "end_time",
+            "time_range",  # add formatted time range here
+            "image",
+            "extra_info",
+            "active",
+            "created_at",
+        ]
+
+    def get_time_range(self, obj):
+        return obj.time_range_display()
 
 class HotelInfoCreateSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(write_only=True)
@@ -62,7 +81,16 @@ class HotelInfoCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = HotelInfo
-        fields = ["hotel_slug", "category_name", "title", "description", "event_date", "event_time", "image"]
+        fields = ["hotel_slug", "category_name", "title", "description", "event_date", "event_time", "image", "end_time"]
+
+    def validate(self, data):
+        event_time = data.get('event_time')
+        end_time = data.get('end_time')
+        if event_time and end_time and end_time <= event_time:
+            raise serializers.ValidationError({
+                'end_time': "end_time must be after event_time."
+            })
+        return data
 
     def create(self, validated_data):
         category_name = validated_data.pop("category_name")
@@ -72,7 +100,6 @@ class HotelInfoCreateSerializer(serializers.ModelSerializer):
         hotel = Hotel.objects.get(slug=hotel_slug)
         category, created = HotelInfoCategory.objects.get_or_create(name=category_name)
 
-        # Upload image to Cloudinary if present
         if image_file:
             validated_data['image'] = image_file
 
@@ -80,3 +107,49 @@ class HotelInfoCreateSerializer(serializers.ModelSerializer):
         validated_data["category"] = category
 
         return super().create(validated_data)
+class HotelInfoUpdateSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(write_only=True, required=False)
+    hotel_slug = serializers.SlugField(write_only=True, required=False)
+    image = serializers.ImageField(required=False)
+
+    class Meta:
+        model = HotelInfo
+        fields = [
+            "hotel_slug",
+            "category_name",
+            "title",
+            "description",
+            "event_date",
+            "event_time",
+            "end_time",
+            "image",
+            "active",
+            "extra_info",
+        ]
+
+    def validate(self, data):
+        event_time = data.get('event_time')
+        end_time = data.get('end_time')
+        if event_time and end_time and end_time <= event_time:
+            raise serializers.ValidationError({
+                'end_time': "end_time must be after event_time."
+            })
+        return data
+
+    def update(self, instance, validated_data):
+        category_name = validated_data.pop("category_name", None)
+        hotel_slug = validated_data.pop("hotel_slug", None)
+
+        if category_name:
+            category, created = HotelInfoCategory.objects.get_or_create(name=category_name)
+            instance.category = category
+
+        if hotel_slug:
+            hotel = Hotel.objects.get(slug=hotel_slug)
+            instance.hotel = hotel
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+        return instance
