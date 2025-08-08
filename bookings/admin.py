@@ -1,95 +1,66 @@
 from django.contrib import admin
-from django import forms
 from .models import Booking, BookingCategory, BookingSubcategory, Seats, Restaurant
-from hotel.models import Hotel
-from rooms.models import Room
 
-class BookingInline(admin.TabularInline):  # or StackedInline for more detail
+class SeatsInline(admin.StackedInline):
+    model = Seats
+    extra = 0
+    max_num = 1
+    can_delete = False
+    readonly_fields = ('total', 'adults', 'children', 'infants')
+
+class BookingInline(admin.TabularInline):
     model = Booking
     extra = 0
+    can_delete = False
+    max_num = 0
     fields = ('category', 'date', 'time', 'note')
-    readonly_fields = ('created_at',)
+    readonly_fields = fields
     show_change_link = True
 
-# -----------------------
-# Custom Admin Form for Booking
-# -----------------------
-class BookingAdminForm(forms.ModelForm):
-    class Meta:
-        model = Booking
-        fields = '__all__'
+    def has_add_permission(self, request, obj=None):
+        return False
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def has_change_permission(self, request, obj=None):
+        return False
 
-        # If editing an existing booking, filter restaurants by its hotel
-        if self.instance and self.instance.pk and self.instance.hotel_id:
-            self.fields['restaurant'].queryset = Restaurant.objects.filter(hotel=self.instance.hotel)
-            self.fields['room'].queryset = Room.objects.filter(hotel=self.instance.hotel)
-        else:
-            # On creation (no instance.pk yet), show all active restaurants by default
-            self.fields['restaurant'].queryset = Restaurant.objects.filter(is_active=True)
-            self.fields['room'].queryset = Room.objects.none()
+    def has_delete_permission(self, request, obj=None):
+        return False
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('category', 'category__subcategory', 'hotel', 'restaurant')
 
-# -----------------------
-# Booking Subcategory Admin
-# -----------------------
-@admin.register(BookingSubcategory)
-class BookingSubcategoryAdmin(admin.ModelAdmin):
-    list_display = ('name', 'hotel')
-    list_filter = ('hotel',)
+@admin.register(Restaurant)
+class RestaurantAdmin(admin.ModelAdmin):
+    list_display = ('name', 'hotel', 'capacity', 'is_active')
+    list_filter = ('hotel', 'is_active')
     search_fields = ('name',)
+    inlines = [BookingInline]
 
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.prefetch_related('bookings__category', 'bookings__category__subcategory')
 
-# -----------------------
-# Booking Category Admin
-# -----------------------
+@admin.register(Booking)
+class BookingAdmin(admin.ModelAdmin):
+    list_display = ('category', 'hotel', 'date', 'time', 'created_at')  # Removed 'room', 'restaurant'
+    list_filter = ('category', 'category__subcategory', 'hotel', 'date')
+    search_fields = ()  # Disabled search
+    ordering = ('-created_at',)
+    inlines = [SeatsInline]
+
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        return qs.select_related('category', 'category__subcategory', 'hotel')
+
 @admin.register(BookingCategory)
 class BookingCategoryAdmin(admin.ModelAdmin):
     list_display = ('name', 'subcategory', 'hotel')
     list_filter = ('subcategory', 'hotel')
     search_fields = ('name',)
 
-
-# -----------------------
-# Inline for Seats
-# -----------------------
-class SeatsInline(admin.StackedInline):
-    model = Seats
-    extra = 0
-    max_num = 1
-
-
-# -----------------------
-# Booking Admin
-# -----------------------
-@admin.register(Booking)
-class BookingAdmin(admin.ModelAdmin):
-    list_display = ('category', 'hotel', 'room','restaurant', 'date', 'time', 'created_at')
-    list_filter = ('category', 'category__subcategory', 'hotel','room', 'date')
-    search_fields = ('note',)
-    ordering = ('-created_at',)
-    inlines = [SeatsInline]
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "restaurant":
-            if request.resolver_match and "object_id" not in request.resolver_match.kwargs:
-                # Creating a new Booking: show only active restaurants
-                kwargs["queryset"] = Restaurant.objects.filter(is_active=True)
-            else:
-                # Editing: show only restaurants of the hotel on the instance (will be refined in __init__)
-                kwargs["queryset"] = Restaurant.objects.all()
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
-# -----------------------
-# Restaurant Admin
-# -----------------------
-@admin.register(Restaurant)
-class RestaurantAdmin(admin.ModelAdmin):
-    list_display = (
-        'name', 'hotel',
-        'capacity', 'opening_time', 'closing_time', 'is_active'
-    )
-    list_filter = ('hotel', 'is_active',)
-    search_fields = ('name', 'hotel__name')
-    inlines = [BookingInline] 
+@admin.register(BookingSubcategory)
+class BookingSubcategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'hotel')
+    list_filter = ('hotel',)
+    search_fields = ('name',)

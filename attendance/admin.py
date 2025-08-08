@@ -58,14 +58,7 @@ class ShiftLocationAdmin(admin.ModelAdmin):
 class StaffRosterForm(forms.ModelForm):
     class Meta:
         model = StaffRoster
-        fields = '__all__'
-        widgets = {
-            'staff': autocomplete.ModelSelect2(url='staff-autocomplete'),
-            'period': autocomplete.ModelSelect2(url='rosterperiod-autocomplete'),
-            # If you decide to add an autocomplete endpoint for locations:
-            # 'location': autocomplete.ModelSelect2(url='shiftlocation-autocomplete'),
-        }
-
+        fields = '__all__' 
 @admin.register(StaffRoster)
 class StaffRosterAdmin(admin.ModelAdmin):
     form = StaffRosterForm
