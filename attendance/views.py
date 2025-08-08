@@ -806,3 +806,61 @@ class CopyRosterViewSet(viewsets.ViewSet):
             {'copied_shifts_count': len(new_shifts)},
             status=status.HTTP_201_CREATED,
         )
+
+    @action(detail=False, methods=['post'])
+    def copy_roster_day(self, request, hotel_slug=None):
+        """
+        Copy shifts for a single day from source_date to target_date.
+        """
+        serializer = CopyDaySerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        source_date = serializer.validated_data['source_date']
+        target_date = serializer.validated_data['target_date']
+
+        # Optional: Validate dates belong to the hotel’s roster periods
+        source_period = RosterPeriod.objects.filter(
+            hotel__slug=hotel_slug,
+            start_date__lte=source_date,
+            end_date__gte=source_date,
+        ).first()
+        target_period = RosterPeriod.objects.filter(
+            hotel__slug=hotel_slug,
+            start_date__lte=target_date,
+            end_date__gte=target_date,
+        ).first()
+
+        if not source_period or not target_period:
+            return Response(
+                {"detail": "Source or target date is not within any roster period."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        source_shifts = StaffRoster.objects.filter(
+            hotel__slug=hotel_slug,
+            shift_date=source_date,
+        )
+
+        new_shifts = []
+        for shift in source_shifts:
+            new_shifts.append(
+                StaffRoster(
+                    hotel=shift.hotel,
+                    staff=shift.staff,
+                    shift_date=target_date,
+                    shift_start=shift.shift_start,
+                    shift_end=shift.shift_end,
+                    expected_hours=shift.expected_hours,
+                    department=shift.department,
+                    location=shift.location,
+                    period=target_period,
+                )
+            )
+
+        StaffRoster.objects.bulk_create(new_shifts)
+
+        return Response(
+            {'copied_shifts_count': len(new_shifts)},
+            status=status.HTTP_201_CREATED,
+        )
+
