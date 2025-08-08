@@ -808,17 +808,16 @@ class CopyRosterViewSet(viewsets.ViewSet):
         )
 
     @action(detail=False, methods=['post'])
-    def copy_roster_day(self, request, hotel_slug=None):
+    def copy_roster_day_all(self, request, hotel_slug=None):
         """
-        Copy shifts for a single day from source_date to target_date.
+        Copy shifts for all staff from source_date to target_date.
         """
-        serializer = CopyDaySerializer(data=request.data)
+        serializer = CopyDayAllSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         source_date = serializer.validated_data['source_date']
         target_date = serializer.validated_data['target_date']
 
-        # Optional: Validate dates belong to the hotel’s roster periods
         source_period = RosterPeriod.objects.filter(
             hotel__slug=hotel_slug,
             start_date__lte=source_date,
@@ -863,4 +862,3 @@ class CopyRosterViewSet(viewsets.ViewSet):
             {'copied_shifts_count': len(new_shifts)},
             status=status.HTTP_201_CREATED,
         )
-

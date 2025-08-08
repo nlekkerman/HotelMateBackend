@@ -71,6 +71,8 @@ download_daily_plan_pdf = DailyPlanViewSet.as_view({'get': 'download_pdf'})
 
 # copy urls copy_shift = ShiftCopyViewSet.as_view({'post': 'copy_shift'})
 copy_roster_bulk = CopyRosterViewSet.as_view({'post': 'copy_roster_bulk'})
+copy_roster_day_all = CopyRosterViewSet.as_view({'post': 'copy_roster_day_all'})
+
 # -------------------------
 # URL patterns
 # -------------------------
@@ -132,5 +134,7 @@ urlpatterns = [
     ),
     
     # --------- Shift Copy Endpoints ---------
+    path('<slug:hotel_slug>/shift-copy/copy-roster-day-all/', copy_roster_day_all, name='copy-roster-day-all'),
+
     path('<slug:hotel_slug>/shift-copy/copy-roster-bulk/', copy_roster_bulk, name='copy-roster-bulk'),
 ]
