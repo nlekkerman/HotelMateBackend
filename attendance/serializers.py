@@ -322,3 +322,8 @@ class CopyDayAllSerializer(serializers.Serializer):
 class CopyWeekSerializer(serializers.Serializer):
     source_period_id = serializers.IntegerField()
     target_period_id = serializers.IntegerField()
+
+class CopyWeekStaffSerializer(serializers.Serializer):
+    staff_id = serializers.IntegerField()
+    source_period_id = serializers.IntegerField()
+    target_period_id = serializers.IntegerField()

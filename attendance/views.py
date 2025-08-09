@@ -16,12 +16,18 @@ from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_p
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
 from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry
-from .serializers import (ClockLogSerializer, RosterPeriodSerializer, StaffRosterSerializer,
-    ShiftLocationSerializer, DailyPlanEntrySerializer, DailyPlanSerializer,
-    CopyShiftSerializer,
-    CopyDaySerializer,
+from .serializers import (
+    ClockLogSerializer,
+    RosterPeriodSerializer,
+    StaffRosterSerializer,
+    ShiftLocationSerializer,
+    DailyPlanEntrySerializer,
+    DailyPlanSerializer,
     CopyDayAllSerializer,
-    CopyWeekSerializer,)
+    CopyWeekSerializer,
+    CopyWeekStaffSerializer,
+)
+
 from hotel.models import Hotel
 
 # attendance/filters.py
@@ -860,5 +866,67 @@ class CopyRosterViewSet(viewsets.ViewSet):
 
         return Response(
             {'copied_shifts_count': len(new_shifts)},
+            status=status.HTTP_201_CREATED,
+        )
+    
+    @action(detail=False, methods=['post'])
+    def copy_week_staff(self, request, hotel_slug=None):
+        """
+        Copy all shifts for a single staff member from one period (week) to another.
+        """
+        serializer = CopyWeekStaffSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        staff_id = serializer.validated_data['staff_id']
+        source_period_id = serializer.validated_data['source_period_id']
+        target_period_id = serializer.validated_data['target_period_id']
+
+        # Get source and target periods
+        source_period = get_object_or_404(
+            RosterPeriod, id=source_period_id, hotel__slug=hotel_slug
+        )
+        target_period = get_object_or_404(
+            RosterPeriod, id=target_period_id, hotel__slug=hotel_slug
+        )
+
+        # Get shifts only for this staff in the source period
+        source_shifts = StaffRoster.objects.filter(
+            hotel__slug=hotel_slug,
+            staff_id=staff_id,
+            shift_date__gte=source_period.start_date,
+            shift_date__lte=source_period.end_date,
+        )
+
+        if not source_shifts.exists():
+            return Response(
+                {"detail": "No shifts found for this staff in the source period."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Calculate date difference between periods
+        day_diff = (target_period.start_date - source_period.start_date).days
+
+        # Build new shifts list
+        new_shifts = []
+        for shift in source_shifts:
+            new_date = shift.shift_date + timedelta(days=day_diff)
+            new_shifts.append(
+                StaffRoster(
+                    hotel=shift.hotel,
+                    staff=shift.staff,
+                    shift_date=new_date,
+                    shift_start=shift.shift_start,
+                    shift_end=shift.shift_end,
+                    expected_hours=shift.expected_hours,
+                    department=shift.department,
+                    location=shift.location,
+                    period=target_period,
+                )
+            )
+
+        StaffRoster.objects.bulk_create(new_shifts)
+
+        return Response(
+            {"copied_shifts_count": len(new_shifts)},
             status=status.HTTP_201_CREATED,
         )
