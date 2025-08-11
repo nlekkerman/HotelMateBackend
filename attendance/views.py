@@ -236,7 +236,22 @@ class ClockLogViewSet(viewsets.ModelViewSet):
             })
 
         return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
+    
+    @action(detail=False, methods=['get'], url_path='currently-clocked-in')
+    def currently_clocked_in(self, request):
+        hotel_slug = request.query_params.get('hotel_slug')
+        if not hotel_slug:
+            return Response({"detail": "hotel_slug query parameter required"}, status=400)
 
+        logs = self.queryset.filter(time_out__isnull=True, hotel__slug=hotel_slug).order_by('-time_in')
+
+        page = self.paginate_queryset(logs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(logs, many=True)
+        return Response(serializer.data)
 
 # ---------------------- Roster Period ----------------------
 class RosterPeriodViewSet(viewsets.ModelViewSet):

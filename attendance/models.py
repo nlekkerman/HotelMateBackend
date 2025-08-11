@@ -22,6 +22,14 @@ class ClockLog(models.Model):
     verified_by_face = models.BooleanField(default=True)
     location_note = models.CharField(max_length=255, blank=True, null=True)
     auto_clock_out = models.BooleanField(default=False)
+    hours_worked = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+
+    def save(self, *args, **kwargs):
+        # If both time_in and time_out exist, calculate hours
+        if self.time_in and self.time_out:
+            delta = self.time_out - self.time_in
+            self.hours_worked = round(delta.total_seconds() / 3600, 2)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.staff} @ {self.hotel.slug} - In: {self.time_in} | Out: {self.time_out or '---'}"

@@ -29,17 +29,26 @@ class StaffFaceSerializer(serializers.ModelSerializer):
 class ClockLogSerializer(serializers.ModelSerializer):
     staff_name = serializers.SerializerMethodField()
     hotel_slug = serializers.CharField(source='hotel.slug', read_only=True)
+    department = serializers.SerializerMethodField()  # Add this
 
     class Meta:
         model = ClockLog
         fields = [
             'id', 'staff', 'staff_name', 'hotel', 'hotel_slug',
-            'time_in', 'time_out', 'verified_by_face', 'location_note', 'auto_clock_out'
+            'time_in', 'time_out', 'verified_by_face', 'location_note', 'auto_clock_out',
+            'department',  # add here
         ]
 
     def get_staff_name(self, obj):
         return f"{obj.staff.first_name} {obj.staff.last_name}"
 
+    def get_department(self, obj):
+        if obj.staff and obj.staff.department:
+            return {
+                'name': obj.staff.department.name,
+                'slug': obj.staff.department.slug,
+            }
+        return {'name': 'N/A', 'slug': None}
 
 # ─────────────────────────────
 # Roster

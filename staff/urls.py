@@ -13,6 +13,7 @@ router = DefaultRouter()
 router.register(r'', StaffViewSet, basename='staff')
 
 urlpatterns = [
+    path('<slug:hotel_slug>/', include(router.urls)),
     path('register/', StaffRegisterAPIView.as_view(), name='staff-register'),
     path('login/', CustomAuthToken.as_view(), name='login'),
     path('users/', UserListAPIView.as_view(), name='user-list'),

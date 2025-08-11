@@ -116,7 +116,6 @@ class StaffViewSet(viewsets.ModelViewSet):
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
 
-    # Enable filtering by related fields using __ notation
     filterset_fields = ['department__slug', 'role__slug', 'hotel__slug']
     ordering_fields = ['user__username', 'department__name', 'role__name', 'hotel__name']
     search_fields = ['user__username', 'user__first_name', 'user__last_name']
@@ -137,8 +136,6 @@ class StaffViewSet(viewsets.ModelViewSet):
             return Staff.objects.none()
 
         return qs.filter(hotel=my_staff_profile.hotel)
-
-      
 
     def create(self, request, *args, **kwargs):
         serializer = RegisterStaffSerializer(data=request.data, context={'request': request})
@@ -193,6 +190,27 @@ class StaffViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(staff_qs, many=True)
         return Response(serializer.data, status=200)
+
+    # New action with hotel_slug param
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path=r'by_hotel/(?P<hotel_slug>[^/.]+)',
+        permission_classes=[permissions.IsAuthenticated],
+    )
+    def by_hotel(self, request, hotel_slug=None):
+        if not hotel_slug:
+            return Response({"detail": "Hotel slug is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        staff_qs = Staff.objects.filter(hotel__slug=hotel_slug)
+        page = self.paginate_queryset(staff_qs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(staff_qs, many=True)
+        return Response(serializer.data)
+
 
 class StaffRegisterAPIView(APIView):
     permission_classes = [permissions.AllowAny]
