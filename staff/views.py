@@ -123,19 +123,15 @@ class StaffViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         qs = Staff.objects.select_related("user", "hotel", "department", "role")
         user = self.request.user
+        hotel_slug = self.kwargs.get('hotel_slug')
 
         if not user.is_authenticated:
             return Staff.objects.none()
 
-        if user.is_superuser:
-            return qs
+        if hotel_slug:
+            qs = qs.filter(hotel__slug=hotel_slug)
 
-        try:
-            my_staff_profile = Staff.objects.get(user=user)
-        except Staff.DoesNotExist:
-            return Staff.objects.none()
-
-        return qs.filter(hotel=my_staff_profile.hotel)
+        return qs
 
     def create(self, request, *args, **kwargs):
         serializer = RegisterStaffSerializer(data=request.data, context={'request': request})
@@ -151,17 +147,18 @@ class StaffViewSet(viewsets.ModelViewSet):
 
         return Response(self.get_serializer(staff).data, status=status.HTTP_201_CREATED)
 
-    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated])
-    def me(self, request):
+    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated], url_path='me')
+    def me(self, request, hotel_slug=None):
+        # Get staff filtered by request.user and hotel_slug
         try:
-            staff = Staff.objects.get(user=request.user)
-            serializer = self.get_serializer(staff)
-            return Response(serializer.data)
+            staff = Staff.objects.get(user=request.user, hotel__slug=hotel_slug)
         except Staff.DoesNotExist:
             return Response(
-                {"detail": "Staff profile not found for the current user."},
+                {"detail": "Staff profile not found for the current user and hotel."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        serializer = self.get_serializer(staff)
+        return Response(serializer.data)
 
     @action(detail=False, methods=["get"], url_path="by_department", permission_classes=[permissions.IsAuthenticated])
     def by_department(self, request):

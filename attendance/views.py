@@ -116,7 +116,7 @@ def detect_overlapping_shifts(shifts):
     return False
 # ---------------------- Clock / Face ----------------------
 class ClockLogViewSet(viewsets.ModelViewSet):
-    queryset = ClockLog.objects.select_related('staff', 'hotel').all()
+    queryset = ClockLog.objects.select_related('staff__department','staff', 'hotel').all()
     serializer_class = ClockLogSerializer
     permission_classes = [IsAuthenticated]
 
@@ -419,25 +419,26 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         location_id = self.request.query_params.get("location")
         start = self.request.query_params.get("start")
         end = self.request.query_params.get("end")
+        department_slug = self.request.query_params.get("department")
+        hotel_slug = self.request.query_params.get("hotel_slug")
 
         print(f"--- get_queryset filters ---")
-        print(f"staff_id={staff_id}, period_id={period_id}, location_id={location_id}, start={start}, end={end}")
+        print(f"hotel_slug={hotel_slug}, department_slug={department_slug}, staff_id={staff_id}, period_id={period_id}, location_id={location_id}, start={start}, end={end}")
 
+        if hotel_slug:
+            qs = qs.filter(hotel__slug=hotel_slug)
+        if department_slug:
+            qs = qs.filter(department__slug=department_slug)
         if staff_id:
             qs = qs.filter(staff_id=staff_id)
-            print(f"Filtered by staff_id, count={qs.count()}")
         if period_id:
             qs = qs.filter(period_id=period_id)
-            print(f"Filtered by period_id, count={qs.count()}")
         if location_id:
             qs = qs.filter(location_id=location_id)
-            print(f"Filtered by location_id, count={qs.count()}")
         if start and end:
             qs = qs.filter(shift_date__range=[start, end])
-            print(f"Filtered by shift_date range, count={qs.count()}")
 
         print(f"Final queryset count: {qs.count()}")
-
         return qs
 
     def perform_create(self, serializer):
