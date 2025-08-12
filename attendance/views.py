@@ -428,7 +428,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         if hotel_slug:
             qs = qs.filter(hotel__slug=hotel_slug)
         if department_slug:
-            qs = qs.filter(department__slug=department_slug)
+            qs = qs.filter(staff__department__slug=department_slug)
         if staff_id:
             qs = qs.filter(staff_id=staff_id)
         if period_id:

@@ -5,6 +5,7 @@ from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from .models import Staff, Department, Role
+from hotel.models import Hotel
 from .serializers import (
     StaffSerializer, UserSerializer,
     StaffLoginOutputSerializer, StaffLoginInputSerializer,
@@ -21,23 +22,37 @@ from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
+from django.shortcuts import get_object_or_404
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
     max_page_size = 100
+
+
 class StaffMetadataView(APIView):
     permission_classes = [IsAuthenticated]
+    pagination_class = None
 
-    def get(self, request):
-        # Return departments and roles as serialized objects
-        departments = Department.objects.all()
-        roles = Role.objects.all()
-        return Response({
+    def get(self, request, hotel_slug=None):
+        print(f"Received hotel_slug: {hotel_slug}")
+
+        if hotel_slug:
+            departments = Department.objects.all()
+
+            roles = Role.objects.filter(
+                staff_members__hotel__slug=hotel_slug
+            ).distinct()
+        else:
+            departments = Department.objects.all()
+            roles = Role.objects.all()
+
+        data = {
             "departments": [{"id": d.id, "name": d.name, "slug": d.slug} for d in departments],
             "roles": [{"id": r.id, "name": r.name, "slug": r.slug} for r in roles],
             "access_levels": Staff.ACCESS_LEVEL_CHOICES,
-        })
-
+        }
+        print("Response data:", data)
+        return Response(data)
 
 class UserListAPIView(generics.ListAPIView):
     queryset = User.objects.all()
@@ -160,17 +175,22 @@ class StaffViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(staff)
         return Response(serializer.data)
 
-    @action(detail=False, methods=["get"], url_path="by_department", permission_classes=[permissions.IsAuthenticated])
-    def by_department(self, request):
-        try:
-            staff_profile = Staff.objects.get(user=request.user)
-        except Staff.DoesNotExist:
-            return Response({"detail": "Staff profile not found."}, status=404)
-
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="by_department",
+        permission_classes=[permissions.IsAuthenticated]
+    )
+    def by_department(self, request, hotel_slug=None):
+        """
+        Returns staff in the given hotel & department slug.
+        URL: /staff/<hotel_slug>/by_department/?department=<slug-or-id>
+        """
         department_param = request.query_params.get("department")
         if not department_param:
             return Response({"detail": "Department query param is required."}, status=400)
 
+        # Get department by id or slug
         if department_param.isdigit():
             department = Department.objects.filter(id=int(department_param)).first()
         else:
@@ -179,7 +199,13 @@ class StaffViewSet(viewsets.ModelViewSet):
         if not department:
             return Response({"detail": "Department not found."}, status=404)
 
-        staff_qs = Staff.objects.filter(hotel=staff_profile.hotel, department=department)
+        # Get hotel instance from URL param
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+        # Directly filter staff
+        staff_qs = Staff.objects.filter(hotel=hotel, department=department)
+
+        # Paginate & serialize
         page = self.paginate_queryset(staff_qs)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -187,7 +213,7 @@ class StaffViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(staff_qs, many=True)
         return Response(serializer.data, status=200)
-
+    
     # New action with hotel_slug param
     @action(
         detail=False,
