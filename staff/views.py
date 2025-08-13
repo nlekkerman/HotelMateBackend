@@ -72,13 +72,14 @@ class CustomAuthToken(ObtainAuthToken):
     print(">>> CustomAuthToken POST reached")
     
     def post(self, request, *args, **kwargs):
-        print(">>> CustomAuthToken POST reached", request.data)  # ✅ now triggers on POST
+        print(">>> CustomAuthToken POST reached", request.data)
 
         serializer = StaffLoginInputSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         username = serializer.validated_data['username']
         password = serializer.validated_data['password']
+        fcm_token = serializer.validated_data.get('fcm_token')
 
         user = authenticate(request=request, username=username, password=password)
         if not user:
@@ -86,9 +87,15 @@ class CustomAuthToken(ObtainAuthToken):
 
         token, created = Token.objects.get_or_create(user=user)
 
-        # If the user has a Staff profile
+        # Handle FCM token if provided
         try:
             staff = user.staff
+            if fcm_token:
+                StaffFCMToken.objects.update_or_create(
+                    staff=staff,
+                    token=fcm_token,
+                    defaults={'last_used_at': timezone.now()}
+                )
             staff_data = StaffMinimalSerializer(staff, context={'request': request}).data
             access_level = staff.access_level
         except Staff.DoesNotExist:
@@ -112,7 +119,6 @@ class CustomAuthToken(ObtainAuthToken):
         }
 
         return Response(output)
-
 class StaffViewSet(viewsets.ModelViewSet):
     serializer_class = StaffSerializer
     pagination_class = StandardResultsSetPagination
