@@ -176,7 +176,7 @@ class StaffSerializer(serializers.ModelSerializer):
 class StaffLoginInputSerializer(serializers.Serializer):
     username = serializers.CharField()
     password = serializers.CharField(write_only=True)
-    fcm_token = serializers.CharField(required=False, allow_blank=True)
+    
 
 
 class StaffLoginOutputSerializer(serializers.Serializer):
