@@ -66,6 +66,11 @@ class UserListAPIView(generics.ListAPIView):
 
 class CustomAuthToken(ObtainAuthToken):
     permission_classes = [AllowAny]
+    
+    def dispatch(self, request, *args, **kwargs):
+        print("Dispatch reached")
+        return super().dispatch(request, *args, **kwargs)
+    
     def post(self, request, *args, **kwargs):
         print(">>> CustomAuthToken POST reached")
         print("Request data:", request.data)
