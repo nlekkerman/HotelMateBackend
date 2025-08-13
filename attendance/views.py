@@ -252,6 +252,29 @@ class ClockLogViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(logs, many=True)
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'], url_path='department-logs')
+    def department_logs(self, request):
+        hotel_slug = request.query_params.get('hotel_slug')
+        department_slug = request.query_params.get('department_slug')
+
+        if not hotel_slug:
+            return Response({"detail": "hotel_slug query parameter required"}, status=400)
+
+        logs = self.queryset.filter(hotel__slug=hotel_slug)
+
+        if department_slug:
+            logs = logs.filter(staff__department__slug=department_slug)
+
+        logs = logs.order_by('-time_in')
+
+        page = self.paginate_queryset(logs)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(logs, many=True)
+        return Response(serializer.data)
 
 # ---------------------- Roster Period ----------------------
 class RosterPeriodViewSet(viewsets.ModelViewSet):
