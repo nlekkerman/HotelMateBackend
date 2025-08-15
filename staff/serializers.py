@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Staff, StaffFCMToken, Department, Role
+from .models import Staff, StaffFCMToken, Department, Role, RegistrationCode
 from hotel.serializers import HotelSerializer
 from hotel.models import Hotel
 
@@ -44,10 +44,14 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     staff_profile = StaffMinimalSerializer(read_only=True)
+    registration_code = serializers.CharField(write_only=True, required=False, allow_blank=True)
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'is_active', 'password', 'staff_profile']
+        fields = [
+            'id', 'username', 'email', 'is_active',
+            'password', 'staff_profile', 'registration_code'
+        ]
         extra_kwargs = {
             'username': {'required': True},
             'email': {'required': False},
@@ -55,24 +59,54 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
+        reg_code_value = validated_data.pop('registration_code', None)
         password = validated_data.pop('password', None)
+
+        # Create User
         user = User(**validated_data)
         if password:
             user.set_password(password)
         else:
             user.set_unusable_password()
         user.save()
+
+        # Handle registration code
+        if reg_code_value:
+            try:
+                reg_code = RegistrationCode.objects.get(code=reg_code_value, used_by__isnull=True)
+            except RegistrationCode.DoesNotExist:
+                raise serializers.ValidationError({'registration_code': 'Invalid or already used code.'})
+            reg_code.used_by = user
+            reg_code.used_at = timezone.now()
+            reg_code.save()
+
+            # Optional: assign hotel to user/staff if you have a Staff object
+            Staff.objects.create(user=user, hotel_slug=reg_code.hotel_slug)
+
         return user
 
     def update(self, instance, validated_data):
         password = validated_data.pop('password', None)
+        reg_code_value = validated_data.pop('registration_code', None)
+
+        # Update user fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         if password:
             instance.set_password(password)
         instance.save()
-        return instance
 
+        # Optionally handle registration code updates
+        if reg_code_value:
+            try:
+                reg_code = RegistrationCode.objects.get(code=reg_code_value, used_by__isnull=True)
+            except RegistrationCode.DoesNotExist:
+                raise serializers.ValidationError({'registration_code': 'Invalid or already used code.'})
+            reg_code.used_by = instance
+            reg_code.used_at = timezone.now()
+            reg_code.save()
+
+        return instance
 
 class StaffFCMTokenSerializer(serializers.ModelSerializer):
     class Meta:

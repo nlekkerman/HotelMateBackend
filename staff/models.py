@@ -129,3 +129,26 @@ class StaffFCMToken(models.Model):
 
     def __str__(self):
         return f"FCM Token for {self.staff}"    
+
+class RegistrationCode(models.Model):
+    code = models.CharField(max_length=20, unique=True)
+    hotel_slug = models.SlugField(max_length=50)  # identifies the hotel
+    used_by = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"{self.code} - {self.hotel_slug}" + (f" (Used by {self.used_by.username})" if self.used_by else "")
+
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    registration_code = models.OneToOneField(
+        "staff.RegistrationCode",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='user_profile'
+    )
+
+    def __str__(self):
+        return f"{self.user.username} profile"

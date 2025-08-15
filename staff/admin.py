@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Staff, StaffFCMToken, Department, Role
+from .models import Staff, StaffFCMToken, Department, Role, RegistrationCode
 
 
 @admin.register(Department)
@@ -128,3 +128,11 @@ class StaffAdmin(admin.ModelAdmin):
         # Assuming request has hotel attribute, otherwise modify accordingly
         hotel = getattr(request, 'hotel', None)
         return qs.filter(hotel=hotel) if hotel else qs.none()
+
+@admin.register(RegistrationCode)
+class RegistrationCodeAdmin(admin.ModelAdmin):
+    list_display = ('code', 'hotel_slug', 'used_by', 'created_at', 'used_at')
+    list_filter = ('hotel_slug',)
+    search_fields = ('code', 'hotel_slug', 'used_by__username')
+    readonly_fields = ('used_by', 'used_at', 'created_at')
+    ordering = ('hotel_slug', 'code')
