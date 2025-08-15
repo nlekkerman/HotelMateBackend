@@ -351,22 +351,27 @@ class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
+        print(f"[DEBUG] Current user: {user}")
+
         try:
-            # Only staff can access this
             staff = Staff.objects.get(user=user)
+            print(f"[DEBUG] Staff found: {staff}")
             if not staff.hotel:
+                print("[DEBUG] Staff has no hotel assigned")
                 return User.objects.none()
             hotel_slug = staff.hotel.slug
+            print(f"[DEBUG] Hotel slug: {hotel_slug}")
         except Staff.DoesNotExist:
+            print("[DEBUG] Staff.DoesNotExist – user is not staff")
             return User.objects.none()
 
-        # Get registration codes used for this hotel
         reg_codes = RegistrationCode.objects.filter(
-            hotel_slug=hotel_slug,  # your RegistrationCode model has hotel_slug field
+            hotel_slug=hotel_slug,
             used_by__isnull=False
         )
+        print(f"[DEBUG] Registration codes found: {reg_codes.count()}")
 
-        # Return users who used these codes
-        return User.objects.filter(
-            id__in=reg_codes.values_list('used_by_id', flat=True)
-        )
+        users = User.objects.filter(id__in=reg_codes.values_list('used_by_id', flat=True))
+        print(f"[DEBUG] Users returned: {users.count()}")
+        return users
+
