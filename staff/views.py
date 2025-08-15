@@ -157,10 +157,17 @@ class StaffViewSet(viewsets.ModelViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
+        hotel_slug = kwargs.get("hotel_slug")  # get hotel slug from URL
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)  # fetch hotel instance
+
+        # Pass hotel to serializer if needed
         serializer = RegisterStaffSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        staff = serializer.save()
+        
+        # Save staff with hotel assigned
+        staff = serializer.save(hotel=hotel)
 
+        # Set user flags if provided
         user = staff.user
         if "is_staff" in request.data:
             user.is_staff = request.data["is_staff"]
