@@ -4,7 +4,7 @@ from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.contrib.auth.models import User
-from .models import Staff, Department, Role, UserProfile
+from .models import Staff, Department, Role, UserProfile, RegistrationCode
 from hotel.models import Hotel
 from .serializers import (
     StaffSerializer, UserSerializer,
@@ -257,7 +257,7 @@ class StaffRegisterAPIView(APIView):
         data = request.data
         username = data.get('username')
         password = data.get('password')
-        registration_code = data.get('registration_code', None)  # optional
+        registration_code_value = data.get('registration_code', None)  # optional
 
         if not username or not password:
             return Response({'error': 'Username and password are required.'}, status=400)
@@ -266,11 +266,15 @@ class StaffRegisterAPIView(APIView):
         user.set_password(password)
         user.save()
 
-        # Handle registration code in UserProfile
         profile, _ = UserProfile.objects.get_or_create(user=user)
-        if registration_code is not None:
-            profile.registration_code = registration_code
-            profile.save()
+
+        if registration_code_value:
+            try:
+                reg_code = RegistrationCode.objects.get(code=registration_code_value)
+                profile.registration_code = reg_code
+                profile.save()
+            except RegistrationCode.DoesNotExist:
+                return Response({'error': 'Invalid registration code.'}, status=400)
 
         token, _ = Token.objects.get_or_create(user=user)
 
@@ -278,10 +282,9 @@ class StaffRegisterAPIView(APIView):
             'user_id': user.id,
             'username': user.username,
             'token': token.key,
-            'registration_code': profile.registration_code,
+            'registration_code': profile.registration_code.code if profile.registration_code else None,
             'created': created,
         }, status=201 if created else 200)
-
 class PasswordResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]
 
