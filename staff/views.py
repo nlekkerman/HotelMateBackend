@@ -351,27 +351,34 @@ class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
 
     def get_queryset(self):
         user = self.request.user
-        print(f"[DEBUG] Current user: {user}")
-
         try:
             staff = Staff.objects.get(user=user)
-            print(f"[DEBUG] Staff found: {staff}")
             if not staff.hotel:
                 print("[DEBUG] Staff has no hotel assigned")
                 return User.objects.none()
             hotel_slug = staff.hotel.slug
-            print(f"[DEBUG] Hotel slug: {hotel_slug}")
+            print(f"[DEBUG] Logged-in staff hotel slug: {hotel_slug}")
         except Staff.DoesNotExist:
-            print("[DEBUG] Staff.DoesNotExist – user is not staff")
+            print("[DEBUG] User is not staff")
             return User.objects.none()
 
-        reg_codes = RegistrationCode.objects.filter(
-            hotel_slug=hotel_slug,
-            used_by__isnull=False
-        )
-        print(f"[DEBUG] Registration codes found: {reg_codes.count()}")
+        # Get all registration codes for this hotel
+        hotel_codes = RegistrationCode.objects.filter(hotel_slug=hotel_slug)
+        hotel_code_values = set(hotel_codes.values_list('code', flat=True))
+        print(f"[DEBUG] Hotel codes: {hotel_code_values}")
 
-        users = User.objects.filter(id__in=reg_codes.values_list('used_by_id', flat=True))
-        print(f"[DEBUG] Users returned: {users.count()}")
-        return users
+        users_with_codes = []
+        for u in User.objects.all():
+            try:
+                if u.profile and u.profile.registration_code:
+                    code_str = u.profile.registration_code.code
+                    print(f"[DEBUG] User {u.username} has code: {code_str}")
+                    if code_str in hotel_code_values:
+                        users_with_codes.append(u)
+                        print(f"[DEBUG] -> Matched code for hotel, added user {u.username}")
+            except UserProfile.DoesNotExist:
+                pass  # user has no profile, skip
+
+        print(f"[DEBUG] Total users matched: {len(users_with_codes)}")
+        return users_with_codes
 
