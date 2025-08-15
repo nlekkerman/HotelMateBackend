@@ -47,18 +47,28 @@ class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
     staff_profile = StaffMinimalSerializer(read_only=True)
     registration_code = serializers.CharField(write_only=True, required=False, allow_blank=True)
-
+    used_registration_code = serializers.SerializerMethodField(read_only=True)
+    staff_created = serializers.SerializerMethodField(read_only=True)
     class Meta:
         model = User
         fields = [
             'id', 'username', 'email', 'is_active',
-            'password', 'staff_profile', 'registration_code'
+            'password', 'staff_profile', 'registration_code',
+            'used_registration_code', 'staff_created',
         ]
         extra_kwargs = {
             'username': {'required': True},
             'email': {'required': False},
             'is_active': {'required': False},
         }
+    
+    def get_used_registration_code(self, obj):
+        code = RegistrationCode.objects.filter(used_by=obj).first()
+        return code.code if code else None
+
+    def get_staff_created(self, obj):
+        # If staff_profile exists, consider "staff created" = Yes
+        return "Yes" if hasattr(obj, 'staff_profile') else "No"
 
     def create(self, validated_data):
         reg_code_value = validated_data.pop('registration_code', None)
