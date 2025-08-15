@@ -3,6 +3,8 @@ from rest_framework import serializers
 from .models import Staff, StaffFCMToken, Department, Role, RegistrationCode
 from hotel.serializers import HotelSerializer
 from hotel.models import Hotel
+from django.utils import timezone
+
 
 
 class DepartmentSerializer(serializers.ModelSerializer):

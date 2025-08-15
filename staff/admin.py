@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Staff, StaffFCMToken, Department, Role, RegistrationCode
+from .models import Staff, StaffFCMToken, Department, Role, RegistrationCode, UserProfile
 
 
 @admin.register(Department)
@@ -136,3 +136,41 @@ class RegistrationCodeAdmin(admin.ModelAdmin):
     search_fields = ('code', 'hotel_slug', 'used_by__username')
     readonly_fields = ('used_by', 'used_at', 'created_at')
     ordering = ('hotel_slug', 'code')
+    
+@admin.register(UserProfile)
+class UserProfileAdmin(admin.ModelAdmin):
+    list_display = (
+        'username', 
+        'email',
+        'registration_code_display',
+        'staff_exists'
+    )
+    search_fields = (
+        'user__username', 
+        'user__email', 
+        'registration_code__code'
+    )
+    list_filter = (
+        'registration_code__hotel_slug',
+    )
+    readonly_fields = ('registration_code',)
+
+    def username(self, obj):
+        return obj.user.username
+    username.admin_order_field = 'user__username'
+
+    def email(self, obj):
+        return obj.user.email
+    email.admin_order_field = 'user__email'
+
+    def registration_code_display(self, obj):
+        if obj.registration_code:
+            return obj.registration_code.code
+        return "-"
+    registration_code_display.short_description = "Registration Code"
+
+    def staff_exists(self, obj):
+        if hasattr(obj.user, 'staff_profile'):
+            return format_html('<span style="color:green;">Yes</span>')
+        return format_html('<span style="color:red;">No</span>')
+    staff_exists.short_description = "Staff Created"

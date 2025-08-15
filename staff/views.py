@@ -23,6 +23,8 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
+
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
@@ -285,6 +287,8 @@ class StaffRegisterAPIView(APIView):
             'registration_code': profile.registration_code.code if profile.registration_code else None,
             'created': created,
         }, status=201 if created else 200)
+
+
 class PasswordResetRequestView(APIView):
     permission_classes = [permissions.AllowAny]
 
@@ -339,3 +343,27 @@ class PasswordResetConfirmView(APIView):
         user.save()
 
         return Response({"message": "Password reset successful."})
+
+
+class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        try:
+            staff = Staff.objects.get(user=user)
+            # Ensure staff has a hotel assigned
+            if not staff.hotel:
+                return User.objects.none()
+            hotel_slug = staff.hotel.slug
+        except Staff.DoesNotExist:
+            return User.objects.none()  # User is not staff
+
+        reg_codes = RegistrationCode.objects.filter(
+            hotel__slug=hotel_slug,
+            used_by__isnull=False
+        )
+        return User.objects.filter(
+            id__in=reg_codes.values_list('used_by_id', flat=True)
+        )
