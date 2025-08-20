@@ -2,7 +2,7 @@ from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from cloudinary.models import CloudinaryField
-
+from django.db.models import Q
 class BookingSubcategory(models.Model):
     name = models.CharField(max_length=100)
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='subcategories')
@@ -26,7 +26,11 @@ class Booking(models.Model):
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='bookings')
     category = models.ForeignKey('bookings.BookingCategory', on_delete=models.CASCADE, related_name='bookings')
     date = models.DateField()
-    time = models.TimeField()
+
+    # Instead of a single "time" field
+    start_time = models.TimeField(null=True, blank=True)
+    end_time = models.TimeField(null=True, blank=True)
+
     note = models.TextField(blank=True, null=True)
     room = models.ForeignKey(
         'rooms.Room',
@@ -43,41 +47,41 @@ class Booking(models.Model):
         null=True,
         blank=True
     )
-    guest = models.ForeignKey(  # 👈 NEW FIELD
+    guest = models.ForeignKey(
         'guests.Guest',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
         related_name='bookings'
     )
-    voucher_code = models.CharField(  # 👈 NEW FIELD
+    voucher_code = models.CharField(
         max_length=100,
         null=True,
         blank=True
     )
-    
+
     def total_seats(self):
-        """Return the total seats required for this booking."""
         return self.seats.total if hasattr(self, 'seats') else 0
 
     def assign_table(self, table):
-        """Assign a dining table to this booking if capacity allows."""
         if self.total_seats() > table.capacity:
             raise ValidationError(f"{table.code} only has {table.capacity} seats.")
-        # Avoid duplicates
         if not self.booking_tables.filter(table=table).exists():
             BookingTable.objects.create(booking=self, table=table)
 
     def remove_table(self, table):
-        """Remove table assignment."""
         self.booking_tables.filter(table=table).delete()
 
     def get_assigned_tables(self):
-        """Return queryset of tables linked to this booking."""
         return DiningTable.objects.filter(booking_tables__booking=self)
-    
+
+    def clean(self):
+        """Extra validation to ensure end_time is after start_time."""
+        if self.end_time <= self.start_time:
+            raise ValidationError("End time must be later than start time.")
+
     def __str__(self):
-        return f"{self.category.name} / {self.category.subcategory.name} @ {self.date}"
+        return f"{self.category.name} / {self.category.subcategory.name} @ {self.date} {self.start_time}–{self.end_time}"
 
 
 class Seats(models.Model):
@@ -250,15 +254,17 @@ class BookingTable(models.Model):
         if self.booking.total_seats() > self.table.capacity:
             raise ValidationError(f"{self.table.code} only has {self.table.capacity} seats.")
 
-        # Optional: validate table availability at that date/time
+        # Validate table availability
         overlapping = BookingTable.objects.filter(
             table=self.table,
-            booking__date=self.booking.date,
-            booking__time=self.booking.time
-        ).exclude(pk=self.pk)
+            booking__date=self.booking.date
+        ).exclude(pk=self.pk).filter(
+            Q(booking__start_time__lt=self.booking.end_time) &
+            Q(booking__end_time__gt=self.booking.start_time)
+        )
+
         if overlapping.exists():
             raise ValidationError(f"{self.table.code} is already booked at this time.")
-
     def __str__(self):
         return f"{self.booking} → {self.table.code}"
 

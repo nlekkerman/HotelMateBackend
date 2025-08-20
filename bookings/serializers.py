@@ -82,19 +82,17 @@ class BookingTableSerializer(serializers.ModelSerializer):
 
 # 3) Your BookingSerializer, fixed:
 class BookingSerializer(serializers.ModelSerializer):
-    # Keep your existing nested category detail
     category_detail = BookingCategorySerializer(source="category", read_only=True)
-    # Add nested restaurant (id + name)
     restaurant = RestaurantSerializer(read_only=True)
-    # Add nested seats
     seats = SeatsSerializer(read_only=True)
     room = RoomSerializer(read_only=True)
     guest = GuestSerializer(read_only=True)
     assigned_tables = BookingTableSerializer(
-        source='bookingtables_set',  # related_name or default reverse
+        source='booking_tables',
         many=True,
         read_only=True
     )
+
     class Meta:
         model = Booking
         fields = [
@@ -103,59 +101,82 @@ class BookingSerializer(serializers.ModelSerializer):
             "category",
             "category_detail",
             "date",
-            "time",
+            "start_time",
+            "end_time",
             "note",
             "created_at",
             "restaurant",
             "voucher_code",
             "seats",
-            'room',
+            "room",
             "guest",
             "assigned_tables",
         ]
 
+# -------------------------
+# Booking (Create/Update)
+# -------------------------
 class BookingCreateSerializer(serializers.ModelSerializer):
-    seats = SeatsSerializer()
     assigned_tables = serializers.PrimaryKeyRelatedField(
-        queryset=DiningTable.objects.all(), many=True, write_only=True,
-        required=False,       # field can be omitted
+        queryset=DiningTable.objects.all(),
+        many=True,
+        write_only=True,
+        required=False,
         allow_empty=True
     )
+    adults = serializers.IntegerField(write_only=True, required=False, default=1)
+    children = serializers.IntegerField(write_only=True, required=False, default=0)
+    infants = serializers.IntegerField(write_only=True, required=False, default=0)
 
     class Meta:
         model = Booking
         fields = [
-            'hotel', 'category', 'restaurant', 'voucher_code', 
-            'date', 'time', 'note', 'room', 'seats', 'guest', 'assigned_tables'
+            'hotel', 'category', 'restaurant', 'voucher_code',
+            'date', 'start_time', 'end_time', 'note', 'room', 'guest',
+            'adults', 'children', 'infants', 'assigned_tables'
         ]
 
     def validate_assigned_tables(self, value):
         date_str = self.initial_data.get("date")
-        time_str = self.initial_data.get("time")
+        start_time_str = self.initial_data.get("start_time")
+        end_time_str = self.initial_data.get("end_time")
 
-        if not date_str or not time_str:
-            raise serializers.ValidationError("Date and time must be provided.")
+        if not date_str or not start_time_str or not end_time_str:
+            raise serializers.ValidationError("Date, start_time, and end_time must be provided.")
 
         booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        booking_time = datetime.strptime(time_str, "%H:%M").time()
+        start_time = datetime.strptime(start_time_str, "%H:%M").time()
+        end_time = datetime.strptime(end_time_str, "%H:%M").time()
+
+        if start_time >= end_time:
+            raise serializers.ValidationError("End time must be after start time.")
 
         for table in value:
             conflicts = BookingTable.objects.filter(
                 table=table,
                 booking__date=booking_date,
-                booking__time=booking_time
+                booking__start_time__lt=end_time,
+                booking__end_time__gt=start_time,  # ✅ Overlap check
             )
             if conflicts.exists():
                 raise serializers.ValidationError(
-                    f"Table {table.id} is already booked for this date/time."
+                    f"Table {table.code} is already booked for {booking_date} between {start_time}–{end_time}."
                 )
         return value
-    
-    def create(self, validated_data):
-        seats_data = validated_data.pop('seats')
-        tables = validated_data.pop('assigned_tables', [])
-        room = validated_data.get("room")
 
+    def create(self, validated_data):
+        tables = validated_data.pop('assigned_tables', [])
+
+        # Seats
+        seats_data = {
+            'adults': validated_data.pop('adults', 0),
+            'children': validated_data.pop('children', 0),
+            'infants': validated_data.pop('infants', 0),
+        }
+        seats_data['total'] = seats_data['adults'] + seats_data['children'] + seats_data['infants']
+
+        # Auto-assign guest from room
+        room = validated_data.get("room")
         if "guest" not in validated_data and room:
             validated_data["guest"] = room.guests.first()
 

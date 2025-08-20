@@ -86,7 +86,8 @@ class GuestDinnerBookingView(APIView):
             dinner_sub = BookingSubcategory.objects.get(name__iexact="dinner", hotel=hotel)
             dinner_cat = BookingCategory.objects.get(subcategory=dinner_sub, hotel=hotel)
         except (BookingSubcategory.DoesNotExist, BookingCategory.DoesNotExist):
-            return Response({"detail": "Dinner booking category or subcategory is not configured for this hotel."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Dinner booking category or subcategory is not configured for this hotel."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         data = request.data.copy()
         data.update({
@@ -104,45 +105,36 @@ class GuestDinnerBookingView(APIView):
         # --- Validate booking date/time ---
         try:
             booking_date = datetime.strptime(data.get("date"), "%Y-%m-%d").date()
-            booking_time = datetime.strptime(data.get("time"), "%H:%M").time()
+            start_time = datetime.strptime(data.get("start_time"), "%H:%M").time()
+            end_time = datetime.strptime(data.get("end_time"), "%H:%M").time()
         except (ValueError, TypeError):
             return Response({"detail": "Invalid date or time format."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # --- Check available tables ---
-        requested_table_ids = data.get("table_ids", [])  # List of table IDs user wants to book
+        if start_time >= end_time:
+            return Response({"detail": "End time must be after start time."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- Ensure table IDs are integers ---
+        requested_table_ids = data.get("assigned_tables", [])
         if not requested_table_ids:
             return Response({"detail": "You must select at least one table."}, status=status.HTTP_400_BAD_REQUEST)
+        data["assigned_tables"] = [int(tid) for tid in requested_table_ids]
 
-        # Compute datetime range for overlap check
-        duration_hours = data.get("duration_hours", 2)
-        start_dt = datetime.combine(booking_date, booking_time)
-        end_dt = start_dt + timedelta(hours=duration_hours)
+        # --- Default duration handling (if end_time not provided) ---
+        if not data.get("end_time"):
+            duration_hours = int(data.get("duration_hours", 2))
+            start_dt = datetime.combine(booking_date, start_time)
+            end_dt = start_dt + timedelta(hours=duration_hours)
+            data["end_time"] = end_dt.time()
 
-        # Find tables that are already booked at that time
-        conflicting_table_ids = Booking.objects.filter(
-            restaurant=restaurant,
-            date=booking_date,
-            assigned_tables__isnull=False
-        ).filter(
-            Q(start_time__lt=end_dt) & Q(end_time__gt=start_dt)
-        ).values_list("assigned_tables__id", flat=True)
-
-        # Validate requested tables are available
-        for table_id in requested_table_ids:
-            if int(table_id) in conflicting_table_ids:
-                return Response({"detail": f"Table {table_id} is already booked at this time."}, status=status.HTTP_400_BAD_REQUEST)
-
-        data["assigned_tables"] = requested_table_ids
-        data["start_time"] = booking_time
-        data["end_time"] = (datetime.combine(booking_date, booking_time) + timedelta(hours=duration_hours)).time()
-
+        # --- Serializer handles table conflicts ---
         serializer = BookingCreateSerializer(data=data)
         if serializer.is_valid():
             booking = serializer.save()
             out = BookingSerializer(booking)
             return Response(out.data, status=status.HTTP_201_CREATED)
+
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
+
 class RestaurantViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing restaurants.
@@ -348,34 +340,51 @@ class AvailableTablesView(APIView):
 
     def get(self, request, hotel_slug, restaurant_slug):
         date_str = request.query_params.get("date")
-        time_str = request.query_params.get("time")
-        duration_hours = float(request.query_params.get("duration_hours", 2))
+        start_str = request.query_params.get("start_time")
+        end_str = request.query_params.get("end_time")
 
-        if not date_str or not time_str:
-            return Response({"detail": "Date and time required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not date_str or not start_str:
+            return Response({"detail": "Date and start_time required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        booking_time = datetime.strptime(time_str, "%H:%M").time()
-        start_dt = datetime.combine(booking_date, booking_time)
-        end_dt = start_dt + timedelta(hours=duration_hours)
+        # Parse requested times
+        try:
+            booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            start_time = datetime.strptime(start_str, "%H:%M").time()
+            start_dt = datetime.combine(booking_date, start_time)
 
+            if end_str:
+                end_time = datetime.strptime(end_str, "%H:%M").time()
+                end_dt = datetime.combine(booking_date, end_time)
+            else:
+                # fallback: default duration 2h
+                duration_hours = float(request.query_params.get("duration_hours", 1.5))
+                end_dt = start_dt + timedelta(hours=duration_hours)
+        except (ValueError, TypeError):
+            return Response({"detail": "Invalid date or time format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if start_dt >= end_dt:
+            return Response({"detail": "end_time must be after start_time."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # --- Fetch restaurant and tables ---
         restaurant = get_object_or_404(Restaurant, slug=restaurant_slug, hotel__slug=hotel_slug)
         all_tables = DiningTable.objects.filter(restaurant=restaurant)
 
-        # Convert Booking.date + Booking.time to datetime for overlap comparison
+        # --- Find conflicting bookings ---
         bookings = Booking.objects.filter(
             restaurant=restaurant,
             date=booking_date,
             booking_tables__isnull=False
-        )
+        ).distinct()
 
         conflicting_table_ids = []
         for b in bookings:
-            b_start_dt = datetime.combine(b.date, b.time)
-            b_end_dt = b_start_dt + timedelta(hours=duration_hours)  # assuming same duration as requested
-            # Check if requested time overlaps with this booking
+            b_start_dt = datetime.combine(b.date, b.start_time)
+            b_end_dt = datetime.combine(b.date, b.end_time)
+            # Overlap check
             if (start_dt < b_end_dt) and (end_dt > b_start_dt):
-                conflicting_table_ids.extend(list(b.booking_tables.values_list('id', flat=True)))
+                conflicting_table_ids.extend(
+                    list(b.booking_tables.values_list('table_id', flat=True))
+                )
 
         available_tables = all_tables.exclude(id__in=conflicting_table_ids)
         serializer = DiningTableSerializer(available_tables, many=True)
