@@ -1,6 +1,7 @@
 from django.db import models
-
-
+from django.utils.translation import gettext_lazy as _
+from django.core.exceptions import ValidationError
+from cloudinary.models import CloudinaryField
 
 class BookingSubcategory(models.Model):
     name = models.CharField(max_length=100)
@@ -54,7 +55,27 @@ class Booking(models.Model):
         null=True,
         blank=True
     )
+    
+    def total_seats(self):
+        """Return the total seats required for this booking."""
+        return self.seats.total if hasattr(self, 'seats') else 0
 
+    def assign_table(self, table):
+        """Assign a dining table to this booking if capacity allows."""
+        if self.total_seats() > table.capacity:
+            raise ValidationError(f"{table.code} only has {table.capacity} seats.")
+        # Avoid duplicates
+        if not self.booking_tables.filter(table=table).exists():
+            BookingTable.objects.create(booking=self, table=table)
+
+    def remove_table(self, table):
+        """Remove table assignment."""
+        self.booking_tables.filter(table=table).delete()
+
+    def get_assigned_tables(self):
+        """Return queryset of tables linked to this booking."""
+        return DiningTable.objects.filter(booking_tables__booking=self)
+    
     def __str__(self):
         return f"{self.category.name} / {self.category.subcategory.name} @ {self.date}"
 
@@ -77,8 +98,8 @@ class Restaurant(models.Model):
     description = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
 
-    opening_time = models.TimeField()
-    closing_time = models.TimeField()
+    opening_time = models.TimeField(null=True, blank=True)
+    closing_time = models.TimeField(null=True, blank=True)
 
     def __str__(self):
         return f"{self.name} at {self.hotel.name}"
@@ -87,3 +108,189 @@ class Restaurant(models.Model):
         from django.utils import timezone
         now = timezone.localtime().time()
         return self.opening_time <= now <= self.closing_time
+
+class RestaurantBlueprint(models.Model):
+    """
+    Per-restaurant canvas (in pixels) for rendering an SVG floor plan.
+    """
+    restaurant = models.OneToOneField(
+        'bookings.Restaurant',
+        on_delete=models.CASCADE,
+        related_name='blueprint'
+    )
+    width = models.PositiveIntegerField(default=1000, help_text="Canvas width in px")
+    height = models.PositiveIntegerField(default=600, help_text="Canvas height in px")
+    grid_size = models.PositiveIntegerField(default=25, help_text="Snap-to grid size")
+    background_image = CloudinaryField(
+        'image', null=True, blank=True, help_text="Optional background image of the floorplan"
+    )
+
+    def __str__(self):
+        return f"Blueprint for {self.restaurant.name} ({self.width}×{self.height})"
+
+
+class BlueprintArea(models.Model):
+    """
+    Optional zones like 'Main Hall', 'Window Row', 'Terrace'.
+    """
+    blueprint = models.ForeignKey(
+        'bookings.RestaurantBlueprint', on_delete=models.CASCADE, related_name='areas'
+    )
+    name = models.CharField(max_length=100)
+    x = models.PositiveIntegerField(default=0)
+    y = models.PositiveIntegerField(default=0)
+    width = models.PositiveIntegerField(default=200)
+    height = models.PositiveIntegerField(default=200)
+    z_index = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = (('blueprint', 'name'),)
+
+    def __str__(self):
+        return f"{self.name} @ {self.blueprint.restaurant.name}"
+
+
+class TableShape(models.TextChoices):
+    RECT = 'RECT', _('Rectangle')
+    CIRCLE = 'CIRCLE', _('Circle')
+    OVAL = 'OVAL', _('Oval')
+
+
+class DiningTable(models.Model):
+    """
+    Physical table on the blueprint. Coordinates are px relative to blueprint top-left.
+    A table can be 'joinable' with other tables that share the same 'join_group'.
+    """
+    restaurant = models.ForeignKey(
+        'bookings.Restaurant', on_delete=models.CASCADE, related_name='tables'
+    )
+    area = models.ForeignKey(
+        'bookings.BlueprintArea', on_delete=models.SET_NULL, null=True, blank=True, related_name='tables'
+    )
+
+    code = models.CharField(
+        max_length=20,
+        help_text="Human label like T12 / A3",
+    )
+    capacity = models.PositiveIntegerField(default=2)
+    shape = models.CharField(max_length=10, choices=TableShape.choices, default=TableShape.RECT)
+
+    # Geometry — choose width/height for RECT/OVAL, radius for CIRCLE
+    x = models.IntegerField(default=0)
+    y = models.IntegerField(default=0)
+    width = models.PositiveIntegerField(null=True, blank=True, help_text="For RECT/OVAL")
+    height = models.PositiveIntegerField(null=True, blank=True, help_text="For RECT/OVAL")
+    radius = models.PositiveIntegerField(null=True, blank=True, help_text="For CIRCLE")
+    rotation = models.IntegerField(default=0, help_text="Degrees, clockwise")
+
+    joinable = models.BooleanField(default=True, help_text="Can be combined with neighbors")
+    join_group = models.CharField(
+        max_length=50, blank=True, help_text="Tables with the same value are combinable"
+    )
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        unique_together = (('restaurant', 'code'),)
+        indexes = [
+            models.Index(fields=['restaurant', 'area', 'join_group']),
+        ]
+        
+    def is_available(self, date=None, time=None):
+        """Check if the table is free at a given date/time."""
+        qs = BookingTable.objects.filter(table=self)
+        if date:
+            qs = qs.filter(booking__date=date)
+        if time:
+            qs = qs.filter(booking__time=time)
+        return not qs.exists()
+
+    def bookings_for_date(self, date):
+        return Booking.objects.filter(booking_tables__table=self, date=date)
+    
+    def __str__(self):
+        return f"{self.code} ({self.capacity}) @ {self.restaurant.name}"
+
+
+class TableSeatSpot(models.Model):
+    """
+    Optional: precise seat positions around a table (useful for fancy UIs).
+    Skip if you don't need per-chair placement.
+    """
+    table = models.ForeignKey('bookings.DiningTable', on_delete=models.CASCADE, related_name='seat_spots')
+    index = models.PositiveSmallIntegerField(help_text="Seat index starting at 1")
+    # Relative offsets from table center (px). For circles these are super handy.
+    offset_x = models.IntegerField(default=0)
+    offset_y = models.IntegerField(default=0)
+    angle_degrees = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = (('table', 'index'),)
+        ordering = ['index']
+
+    def __str__(self):
+        return f"Seat {self.index} on {self.table.code}"
+
+class BookingTable(models.Model):
+    booking = models.ForeignKey(
+        'bookings.Booking',
+        on_delete=models.CASCADE,
+        related_name='booking_tables'
+    )
+    table = models.ForeignKey(
+        'bookings.DiningTable',
+        on_delete=models.CASCADE,
+        related_name='booking_tables'
+    )
+
+    class Meta:
+        unique_together = (('booking', 'table'),)
+    
+    def clean(self):
+        # Validate seat capacity
+        if self.booking.total_seats() > self.table.capacity:
+            raise ValidationError(f"{self.table.code} only has {self.table.capacity} seats.")
+
+        # Optional: validate table availability at that date/time
+        overlapping = BookingTable.objects.filter(
+            table=self.table,
+            booking__date=self.booking.date,
+            booking__time=self.booking.time
+        ).exclude(pk=self.pk)
+        if overlapping.exists():
+            raise ValidationError(f"{self.table.code} is already booked at this time.")
+
+    def __str__(self):
+        return f"{self.booking} → {self.table.code}"
+
+
+class BlueprintObjectType(models.Model):
+    """
+    Dynamic object types for blueprints, e.g., Entrance, Window, Till, Decor.
+    """
+    name = models.CharField(max_length=50, unique=True)
+    icon = models.CharField(max_length=100, blank=True, help_text="Optional icon name or URL for frontend")
+    default_width = models.PositiveIntegerField(default=50)
+    default_height = models.PositiveIntegerField(default=50)
+
+    def __str__(self):
+        return self.name
+
+
+class BlueprintObject(models.Model):
+    blueprint = models.ForeignKey(
+        'bookings.RestaurantBlueprint', on_delete=models.CASCADE, related_name='blueprint_objects'
+    )
+    type = models.ForeignKey(
+        'bookings.BlueprintObjectType', on_delete=models.PROTECT, related_name='objects_type', null=True, blank=True
+    )
+    name = models.CharField(max_length=50, blank=True)  # Optional specific name
+    
+    x = models.PositiveIntegerField(default=0)
+    y = models.PositiveIntegerField(default=0)
+    width = models.PositiveIntegerField(default=50)
+    height = models.PositiveIntegerField(default=50)
+    rotation = models.IntegerField(default=0)
+    z_index = models.IntegerField(default=0)
+
+    def __str__(self):
+        return f"{self.name or self.type.name} @ {self.blueprint.restaurant.name}"
