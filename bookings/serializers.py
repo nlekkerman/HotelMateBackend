@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.shortcuts import get_object_or_404
+from datetime import datetime
 
 from .models import (Booking, BookingCategory, Seats, BookingSubcategory,
                      Restaurant, RestaurantBlueprint, BlueprintArea,
@@ -110,27 +111,61 @@ class BookingSerializer(serializers.ModelSerializer):
             "seats",
             'room',
             "guest",
+            "assigned_tables",
         ]
 
 class BookingCreateSerializer(serializers.ModelSerializer):
     seats = SeatsSerializer()
-    
+    assigned_tables = serializers.PrimaryKeyRelatedField(
+        queryset=DiningTable.objects.all(), many=True, write_only=True,
+        required=False,       # field can be omitted
+        allow_empty=True
+    )
+
     class Meta:
         model = Booking
-        fields = ['hotel', 'category', 'restaurant', "voucher_code", 'date', 'time', 'note', 'room', 'seats', 'guest']
+        fields = [
+            'hotel', 'category', 'restaurant', 'voucher_code', 
+            'date', 'time', 'note', 'room', 'seats', 'guest', 'assigned_tables'
+        ]
 
+    def validate_assigned_tables(self, value):
+        date_str = self.initial_data.get("date")
+        time_str = self.initial_data.get("time")
+
+        if not date_str or not time_str:
+            raise serializers.ValidationError("Date and time must be provided.")
+
+        booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        booking_time = datetime.strptime(time_str, "%H:%M").time()
+
+        for table in value:
+            conflicts = BookingTable.objects.filter(
+                table=table,
+                booking__date=booking_date,
+                booking__time=booking_time
+            )
+            if conflicts.exists():
+                raise serializers.ValidationError(
+                    f"Table {table.id} is already booked for this date/time."
+                )
+        return value
+    
     def create(self, validated_data):
         seats_data = validated_data.pop('seats')
+        tables = validated_data.pop('assigned_tables', [])
         room = validated_data.get("room")
 
-        # ✅ Safely assign guest if not already passed
         if "guest" not in validated_data and room:
             validated_data["guest"] = room.guests.first()
 
         booking = Booking.objects.create(**validated_data)
         Seats.objects.create(booking=booking, **seats_data)
-        return booking
 
+        for table in tables:
+            BookingTable.objects.create(booking=booking, table=table)
+
+        return booking
 
 class BlueprintAreaSerializer(serializers.ModelSerializer):
     tables = DiningTableSerializer(many=True, read_only=True)

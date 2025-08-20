@@ -9,6 +9,7 @@ from .views import (
     DiningTableViewSet,
     BlueprintObjectTypeViewSet,
     BlueprintObjectViewSet,
+    AvailableTablesView
 )
 
 # Register viewsets to the router
@@ -85,4 +86,10 @@ urlpatterns = [
     # Dining table routes
     path('<slug:hotel_slug>/<slug:restaurant_slug>/tables/', dining_table_list, name='dining-table-list'),
     path('<slug:hotel_slug>/<slug:restaurant_slug>/tables/<int:id>/', dining_table_detail, name='dining-table-detail'),
+
+    path(
+        'available-tables/<str:hotel_slug>/<str:restaurant_slug>/',
+        AvailableTablesView.as_view(),
+        name='available-tables'
+    ),
 ]

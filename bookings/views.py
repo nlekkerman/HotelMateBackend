@@ -341,3 +341,43 @@ class BlueprintObjectViewSet(viewsets.ModelViewSet):
         )
 
         serializer.save(blueprint=blueprint)
+
+
+class AvailableTablesView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, hotel_slug, restaurant_slug):
+        date_str = request.query_params.get("date")
+        time_str = request.query_params.get("time")
+        duration_hours = float(request.query_params.get("duration_hours", 2))
+
+        if not date_str or not time_str:
+            return Response({"detail": "Date and time required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        booking_time = datetime.strptime(time_str, "%H:%M").time()
+        start_dt = datetime.combine(booking_date, booking_time)
+        end_dt = start_dt + timedelta(hours=duration_hours)
+
+        restaurant = get_object_or_404(Restaurant, slug=restaurant_slug, hotel__slug=hotel_slug)
+        all_tables = DiningTable.objects.filter(restaurant=restaurant)
+
+        # Convert Booking.date + Booking.time to datetime for overlap comparison
+        bookings = Booking.objects.filter(
+            restaurant=restaurant,
+            date=booking_date,
+            booking_tables__isnull=False
+        )
+
+        conflicting_table_ids = []
+        for b in bookings:
+            b_start_dt = datetime.combine(b.date, b.time)
+            b_end_dt = b_start_dt + timedelta(hours=duration_hours)  # assuming same duration as requested
+            # Check if requested time overlaps with this booking
+            if (start_dt < b_end_dt) and (end_dt > b_start_dt):
+                conflicting_table_ids.extend(list(b.booking_tables.values_list('id', flat=True)))
+
+        available_tables = all_tables.exclude(id__in=conflicting_table_ids)
+        serializer = DiningTableSerializer(available_tables, many=True)
+        return Response(serializer.data)
+
