@@ -115,9 +115,17 @@ class GuestDinnerBookingView(APIView):
 
         # --- Ensure table IDs are integers ---
         requested_table_ids = data.get("assigned_tables", [])
-        if not requested_table_ids:
-            return Response({"detail": "You must select at least one table."}, status=status.HTTP_400_BAD_REQUEST)
-        data["assigned_tables"] = [int(tid) for tid in requested_table_ids]
+
+        # Compute total guests
+        total_guests = int(data.get("adults", 1)) + int(data.get("children", 0)) + int(data.get("infants", 0))
+
+        # Only enforce table selection for 6 or fewer guests
+        if total_guests <= 6 and not requested_table_ids:
+            return Response({"detail": "You must select at least one table for groups of 6 or fewer."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # For groups larger than 6, assigned_tables can be empty
+        data["assigned_tables"] = [int(tid) for tid in requested_table_ids] if requested_table_ids else []
 
         # --- Default duration handling (if end_time not provided) ---
         if not data.get("end_time"):
