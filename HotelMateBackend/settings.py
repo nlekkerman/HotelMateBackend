@@ -70,7 +70,7 @@ INSTALLED_APPS = [
     'channels',
     'home',
     'attendance',
-    
+    'chat',
 ]
 
 MIDDLEWARE = [
@@ -131,9 +131,11 @@ AUTH_PASSWORD_VALIDATORS = [
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
+PUSHER_APP_ID = env('PUSHER_APP_ID')
+PUSHER_KEY = env('PUSHER_KEY')
+PUSHER_SECRET = env('PUSHER_SECRET')
+PUSHER_CLUSTER = env('PUSHER_CLUSTER')
 
-print("REDIS_URL =", REDIS_URL)
-# Use *just* the URL string. Channels-Redis will detect "rediss://" itself
 
 CHANNEL_LAYERS = {
     "default": {
@@ -147,7 +149,6 @@ CHANNEL_LAYERS = {
         },
     },
 }
-
 
 
 REST_FRAMEWORK = {
