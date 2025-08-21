@@ -26,8 +26,11 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 from django.db.models import Q
 today = timezone.localdate()
+from rest_framework.pagination import PageNumberPagination
 
-
+class NoPagination(PageNumberPagination):
+    page_size = None
+    
 class BookingViewSet(viewsets.ModelViewSet):
     queryset = Booking.objects.select_related('hotel', 'category', 'restaurant').all()
     serializer_class = BookingSerializer
@@ -272,7 +275,8 @@ class DiningTableViewSet(viewsets.ModelViewSet):
     """
     serializer_class = DiningTableSerializer
     lookup_field = 'id'  # Default lookup
-
+    pagination_class = None
+    
     def get_queryset(self):
         """
         If hotel_slug and restaurant_slug are in the URL, filter tables by restaurant.
