@@ -1,13 +1,21 @@
 from django.contrib import admin
 from .models import Conversation, RoomMessage
 
+
 # Inline for RoomMessage inside Conversation
 class RoomMessageInline(admin.TabularInline):
     model = RoomMessage
     extra = 0
-    readonly_fields = ("timestamp", "sender_type", "staff", "room")
-    fields = ("room", "staff", "sender_type", "message", "timestamp", "read_by_staff")
+    readonly_fields = ("timestamp", "sender_type", "staff")
+    fields = ("staff", "sender_type", "message", "timestamp", "read_by_staff")
     ordering = ("-timestamp",)
+
+    def save_new_instance(self, form, commit=True):
+        obj = form.save(commit=False)
+        obj.room = self.parent_model.room  # set room automatically
+        if commit:
+            obj.save()
+        return obj
 
 # Conversation admin
 @admin.register(Conversation)

@@ -26,7 +26,7 @@ def get_active_conversations(request, hotel_slug):
 
 # Fetch all messages for a conversation
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_conversation_messages(request, hotel_slug, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
     # optional: verify that conversation.room.hotel.slug == hotel_slug
@@ -40,7 +40,7 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 
 # Send (or start) a conversation message
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def send_conversation_message(request, hotel_slug, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
