@@ -239,7 +239,7 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     profile_image_url = serializers.CharField(allow_null=True, required=False)
     role = serializers.CharField(allow_null=True, required=False)
     department = serializers.CharField(allow_null=True, required=False)
-
+    staff_id = serializers.IntegerField(allow_null=True, required=False)
 class RegisterStaffSerializer(serializers.ModelSerializer):
     user_id = serializers.IntegerField(write_only=True)
     hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())

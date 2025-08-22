@@ -112,6 +112,7 @@ class CustomAuthToken(ObtainAuthToken):
             )
 
         data = {
+            'staff_id': staff.id,
             'token': token.key,
             'username': user.username,
             'hotel_id': hotel_id,
