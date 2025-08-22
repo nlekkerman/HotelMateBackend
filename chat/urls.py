@@ -3,10 +3,15 @@ from .views import (
     send_conversation_message,
     get_conversation_messages,
     validate_chat_pin,
-    get_active_conversations
+    get_active_conversations,
+    get_or_create_conversation_from_room,
+    get_active_rooms
 )
 
 urlpatterns = [
+    path("<slug:hotel_slug>/active-rooms/", get_active_rooms, name="get_active_rooms"),
+    path("<slug:hotel_slug>/conversations/from-room/<int:room_number>/", get_or_create_conversation_from_room, name="get_or_create_conversation_from_room"),
+
     # Fetch all active conversations for a hotel
     path("<slug:hotel_slug>/conversations/", get_active_conversations, name="get_active_conversations"),
 

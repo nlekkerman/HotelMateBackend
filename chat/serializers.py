@@ -24,24 +24,19 @@ class RoomMessageSerializer(serializers.ModelSerializer):
 
 class ConversationSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
-    participants = serializers.SerializerMethodField()
+    room_number = serializers.IntegerField(source='room.room_number', read_only=True)
+    conversation_id = serializers.IntegerField(source='id', read_only=True)
 
     class Meta:
         model = Conversation
         fields = [
-            'id',
-            'room',
-            'participants',
-            'created_at',
-            'updated_at',
+            'conversation_id',
+            'room_number',
             'last_message',
         ]
 
     def get_last_message(self, obj):
         last_msg = obj.messages.order_by('-timestamp').first()
         if last_msg:
-            return RoomMessageSerializer(last_msg).data
+            return last_msg.message  # just return text for sidebar
         return None
-
-    def get_participants(self, obj):
-        return [staff.name for staff in obj.participants_staff.all()]
