@@ -16,7 +16,7 @@ class Room(models.Model):
     room_service_qr_code = models.URLField(blank=True, null=True)
     in_room_breakfast_qr_code = models.URLField(blank=True, null=True)
     dinner_booking_qr_code = models.URLField(blank=True, null=True)
-
+    chat_pin_qr_code = models.URLField(blank=True, null=True)
     class Meta:
         unique_together = ('hotel', 'room_number')
 
@@ -93,6 +93,38 @@ class Room(models.Model):
 
         # ✅ Save to the Room model
         self.dinner_booking_qr_code = qr_url
+        self.save()
+
+        return qr_url
+    
+    def generate_chat_pin_qr_code(self):
+        """
+        Generates and uploads a QR code for validating the chat PIN for this room.
+        Saves the Cloudinary URL to chat_pin_qr_code and returns it.
+        """
+        if not self.hotel:
+            return None  # Can't generate QR without hotel
+
+        hotel_slug = self.hotel.slug or str(self.hotel.id)
+        url = f"https://hotelsmates.com/chat/{hotel_slug}/messages/room/{self.room_number}/validate-chat-pin/"
+
+        # Generate QR code
+        qr = qrcode.make(url)
+        img_io = BytesIO()
+        qr.save(img_io, 'PNG')
+        img_io.seek(0)
+
+        # Upload to Cloudinary
+        upload_result = cloudinary.uploader.upload(
+            img_io,
+            resource_type="image",
+            public_id=f"chat_pin_qr/{hotel_slug}_room{self.room_number}"
+        )
+
+        qr_url = upload_result['secure_url']
+
+        # Save to model
+        self.chat_pin_qr_code = qr_url
         self.save()
 
         return qr_url
