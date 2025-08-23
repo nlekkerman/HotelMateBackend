@@ -64,31 +64,11 @@ class RoomAdmin(admin.ModelAdmin):
 
     def generate_qr_for_selected_rooms(self, request, queryset):
         for room in queryset:
-            # 1️⃣ Generate chat PIN if missing
-            if not room.guest_id_pin:
-                characters = string.ascii_lowercase + string.digits
-                pin = ''.join(random.choices(characters, k=4))
-                while Room.objects.filter(guest_id_pin=pin).exists():
-                    pin = ''.join(random.choices(characters, k=4))
-                room.guest_id_pin = pin
+            # Always regenerate Chat PIN QR (overwrite Cloudinary + DB field)
+            room.generate_chat_pin_qr_code()
 
-            # 2️⃣ Generate Chat PIN QR
-            if not room.chat_pin_qr_code:
-                chat_url = f"https://hotelsmates.com/chat/{room.hotel.slug}/messages/room/{room.room_number}/validate-chat-pin/"
-                qr = qrcode.make(chat_url)
-                img_io = BytesIO()
-                qr.save(img_io, 'PNG')
-                img_io.seek(0)
-                upload_result = cloudinary.uploader.upload(
-                    img_io,
-                    resource_type="image",
-                    public_id=f"chat_qr/{room.hotel.slug}_room{room.room_number}"
-                )
-                room.chat_pin_qr_code = upload_result['secure_url']
+        self.message_user(request, f"✅ Regenerated Chat PIN QR for {queryset.count()} room(s).")
 
-            room.save()
-
-        self.message_user(request, f"✅ Generated chat PIN QR for {queryset.count()} room(s).")
     generate_qr_for_selected_rooms.short_description = "Generate Chat PIN QR for selected rooms"
 
 admin.site.register(Room, RoomAdmin)

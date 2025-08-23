@@ -92,7 +92,7 @@ def validate_chat_pin(request, hotel_slug, room_number):
 
 # Get or create a conversation for a room (first message)
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_or_create_conversation_from_room(request, hotel_slug, room_number):
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
