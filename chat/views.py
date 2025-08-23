@@ -101,6 +101,14 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
     messages = RoomMessage.objects.filter(conversation=conversation).order_by('timestamp')
     serializer = RoomMessageSerializer(messages, many=True)
 
+    if created:
+        # Trigger Pusher for new conversation
+        channel_name = f"{hotel.slug}-new-conversation"
+        pusher_client.trigger(channel_name, "new-conversation", {
+            "conversation_id": conversation.id,
+            "room_number": room.room_number,
+        })
+
     return Response({
         "conversation_id": conversation.id,
         "messages": serializer.data,
