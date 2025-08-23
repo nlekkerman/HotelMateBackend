@@ -26,13 +26,14 @@ class ConversationSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
     room_number = serializers.IntegerField(source='room.room_number', read_only=True)
     conversation_id = serializers.IntegerField(source='id', read_only=True)
-
+    has_unread = serializers.BooleanField(read_only=True)
     class Meta:
         model = Conversation
         fields = [
             'conversation_id',
             'room_number',
             'last_message',
+            'has_unread', 
         ]
 
     def get_last_message(self, obj):
@@ -40,3 +41,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         if last_msg:
             return last_msg.message  # just return text for sidebar
         return None
+
+class ConversationUnreadCountSerializer(serializers.Serializer):
+    conversation_id = serializers.IntegerField()
+    unread_count = serializers.IntegerField()

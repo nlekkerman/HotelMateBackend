@@ -54,6 +54,8 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # Determine sender
     staff_instance = getattr(request.user, "staff_profile", None)
     sender_type = "staff" if staff_instance else "guest"
+
+    # Create the message
     message = RoomMessage.objects.create(
         conversation=conversation,
         room=room,
@@ -64,9 +66,21 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
     serializer = RoomMessageSerializer(message)
 
-    # Trigger Pusher
-    channel_name = f"{hotel.slug}-conversation-{conversation.id}-chat"
-    pusher_client.trigger(channel_name, "new-message", serializer.data)
+    # Update conversation unread status if guest sends a message
+    if sender_type == "guest" and not conversation.has_unread:
+        conversation.has_unread = True
+        conversation.save()
+
+        # Trigger Pusher for sidebar badge update
+        badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+        pusher_client.trigger(badge_channel, "conversation-unread", {
+            "conversation_id": conversation.id,
+            "room_number": room.room_number,
+        })
+
+    # Trigger Pusher for the actual new message
+    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+    pusher_client.trigger(message_channel, "new-message", serializer.data)
 
     return Response({
         "conversation_id": conversation.id,
@@ -124,4 +138,66 @@ def get_active_rooms(request, hotel_slug):
     serializer = ConversationSerializer(conversations, many=True)
     return Response(serializer.data)
 
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_unread_count(request, hotel_slug):
+    staff = getattr(request.user, "staff_profile", None)
+    if not staff:
+        return Response({"unread_count": 0})
 
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    unread_count = RoomMessage.objects.filter(
+        room__hotel=hotel,
+        read_by_staff=False,
+        sender_type="guest"
+    ).count()
+
+    return Response({"unread_count": unread_count})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def mark_conversation_read(request, conversation_id):
+    staff = getattr(request.user, "staff_profile", None)
+    if not staff:
+        return Response({"detail": "Unauthorized"}, status=403)
+
+    conversation = get_object_or_404(Conversation, id=conversation_id)
+    room = conversation.room
+    hotel = room.hotel
+
+    # Mark all guest messages in this conversation as read
+    updated_count = conversation.messages.filter(
+        sender_type="guest",
+        read_by_staff=False
+    ).update(read_by_staff=True)
+
+    # Clear conversation unread flag
+    if conversation.has_unread:
+        conversation.has_unread = False
+        conversation.save()
+
+        # Trigger Pusher to update sidebar badge
+        badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+        pusher_client.trigger(badge_channel, "conversation-read", {
+            "conversation_id": conversation.id,
+            "room_number": room.room_number,
+        })
+
+    return Response({
+        "conversation_id": conversation.id,
+        "marked_as_read": updated_count
+    })
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def conversation_unread_messages_count(request, conversation_id):
+    """
+    Returns the number of unread messages for a given conversation.
+    """
+    conversation = get_object_or_404(Conversation, id=conversation_id)
+    unread_count = conversation.messages.filter(read_by_staff=False).count()
+    return Response({
+        'conversation_id': conversation.id,
+        'unread_count': unread_count
+    })

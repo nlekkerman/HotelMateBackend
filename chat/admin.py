@@ -20,7 +20,7 @@ class RoomMessageInline(admin.TabularInline):
 # Conversation admin
 @admin.register(Conversation)
 class ConversationAdmin(admin.ModelAdmin):
-    list_display = ("id", "room", "created_at", "updated_at", "participant_list")
+    list_display = ("id", "room", "created_at", "updated_at", "participant_list", "has_unread")
     list_filter = ("room", "created_at", "updated_at")
     search_fields = ("room__room_number", "participants_staff__name")
     inlines = [RoomMessageInline]
