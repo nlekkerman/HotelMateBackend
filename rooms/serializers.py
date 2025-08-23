@@ -28,4 +28,5 @@ class RoomSerializer(serializers.ModelSerializer):
             'room_service_qr_code',
             'in_room_breakfast_qr_code',
             'dinner_booking_qr_code',
+            'chat_pin_qr_code',
         ]

@@ -14,6 +14,7 @@ from guests.models import Guest
 from datetime import timedelta
 from datetime import datetime
 from room_services.models import Order, BreakfastOrder
+from chat.models import Conversation, RoomMessage
 from rest_framework.decorators import api_view, permission_classes
 from django.db import transaction
 from django.utils.timezone import now
@@ -141,10 +142,7 @@ def checkout_rooms(request, hotel_slug):
         )
 
     # Only rooms in this hotel that match the IDs
-    rooms = Room.objects.filter(
-        hotel__slug=hotel_slug,
-        id__in=room_ids,
-    )
+    rooms = Room.objects.filter(hotel__slug=hotel_slug, id__in=room_ids)
 
     if not rooms.exists():
         return Response(
@@ -154,34 +152,32 @@ def checkout_rooms(request, hotel_slug):
 
     with transaction.atomic():
         for room in rooms:
-            # 1) Remove any explicit M2M links (clean up join table)
+            # Remove M2M links
             room.guests.clear()
 
-            # 2) **Delete** all Guest objects whose FK pointed here
-            #    (this removes them from the database entirely)
+            # Delete all Guest objects linked to this room
             Guest.objects.filter(room=room).delete()
 
-            # 3) Mark room unoccupied
+            # Delete all conversations & their messages for this room
+            Conversation.objects.filter(room=room).delete()
+            # RoomMessage objects will cascade delete automatically because they have FK to Conversation with on_delete=models.CASCADE
+            # Optionally, if RoomMessage has FK to Room separately, delete explicitly:
+            RoomMessage.objects.filter(room=room).delete()
+
+            # Mark room unoccupied & regenerate guest PIN
             room.is_occupied = False
             room.generate_guest_pin()
-            
 
-            # 4) Delete any open room‐service & breakfast orders
-            Order.objects.filter(
-                hotel=room.hotel,
-                room_number=room.room_number
-            ).delete()
-            BreakfastOrder.objects.filter(
-                hotel=room.hotel,
-                room_number=room.room_number
-            ).delete()
+            # Delete any open room-service & breakfast orders
+            Order.objects.filter(hotel=room.hotel, room_number=room.room_number).delete()
+            BreakfastOrder.objects.filter(hotel=room.hotel, room_number=room.room_number).delete()
+
             room.save()
 
     return Response(
-        {"detail": f"Checked out {rooms.count()} room(s) in hotel '{hotel_slug}' and deleted their guests."},
+        {"detail": f"Checked out {rooms.count()} room(s) in hotel '{hotel_slug}', deleted guests, conversations, and messages."},
         status=status.HTTP_200_OK
-    )
-    
+    ) 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def checkout_needed(request, hotel_slug):
