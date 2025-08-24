@@ -2,7 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-
+from django.db.models import Count, Q
 from rooms.models import Room
 from hotel.models import Hotel
 from .models import Conversation, RoomMessage
@@ -143,17 +143,26 @@ def get_active_rooms(request, hotel_slug):
 def get_unread_count(request, hotel_slug):
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
-        return Response({"unread_count": 0})
+        return Response({"unread_counts": {}})
 
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    unread_count = RoomMessage.objects.filter(
-        room__hotel=hotel,
-        read_by_staff=False,
-        sender_type="guest"
-    ).count()
 
-    return Response({"unread_count": unread_count})
+    # Annotate counts of unread guest messages per room
+    unread_counts = (
+        RoomMessage.objects
+        .filter(
+            room__hotel=hotel,
+            read_by_staff=False,
+            sender_type="guest"
+        )
+        .values("room_id")
+        .annotate(unread_count=Count("id"))
+    )
 
+    # Convert into dict {room_id: count}
+    counts_dict = {item["room_id"]: item["unread_count"] for item in unread_counts}
+
+    return Response({"unread_counts": counts_dict})
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -191,13 +200,20 @@ def mark_conversation_read(request, conversation_id):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
-def conversation_unread_messages_count(request, conversation_id):
-    """
-    Returns the number of unread messages for a given conversation.
-    """
-    conversation = get_object_or_404(Conversation, id=conversation_id)
-    unread_count = conversation.messages.filter(read_by_staff=False).count()
-    return Response({
-        'conversation_id': conversation.id,
-        'unread_count': unread_count
-    })
+def get_unread_conversation_count(request, hotel_slug):
+    staff = getattr(request.user, "staff_profile", None)
+    if not staff:
+        return Response({"unread_count": 0})
+
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+    # Count distinct conversations with at least 1 unread guest message
+    unread_count = (
+        Conversation.objects
+        .filter(room__hotel=hotel)
+        .filter(messages__read_by_staff=False, messages__sender_type="guest")
+        .distinct()
+        .count()
+    )
+
+    return Response({"unread_count": unread_count})

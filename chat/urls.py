@@ -8,7 +8,7 @@ from .views import (
     get_active_rooms,
     get_unread_count,
     mark_conversation_read,
-    conversation_unread_messages_count,
+    get_unread_conversation_count,
 )
 
 urlpatterns = [
@@ -27,10 +27,11 @@ urlpatterns = [
     # Validate chat PIN (unchanged)
     path("<slug:hotel_slug>/messages/room/<int:room_number>/validate-chat-pin/", validate_chat_pin, name="validate_chat_pin"),
     path(
-        "conversations/<int:conversation_id>/unread-count/",
-        conversation_unread_messages_count,
-        name="conversation_unread_messages_count"
+        "hotels/<slug:hotel_slug>/conversations/unread-count/",
+        get_unread_conversation_count,
+        name="get_unread_conversation_count"
     ),
+
     # --- New URLs for unread tracking ---
     path("<slug:hotel_slug>/conversations/unread-count/", get_unread_count, name="get_unread_count"),
     path("conversations/<int:conversation_id>/mark-read/", mark_conversation_read, name="mark_conversation_read"),
