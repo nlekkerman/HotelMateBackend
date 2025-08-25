@@ -1,25 +1,28 @@
 from rest_framework import serializers
 from .models import Conversation, RoomMessage
 
+
 class RoomMessageSerializer(serializers.ModelSerializer):
     room_number = serializers.IntegerField(source='room.room_number', read_only=True)
-    staff_name = serializers.CharField(source='staff.__str__', read_only=True)  # show staff name if available
+    staff_name = serializers.CharField(source='staff.__str__', read_only=True)
+    guest_name = serializers.SerializerMethodField()  # <-- add guest name
 
     class Meta:
         model = RoomMessage
         fields = [
-            'id',
-            'conversation',
-            'room',
-            'room_number',
-            'sender_type',
-            'staff',        # staff id (if sender_type == "staff")
-            'staff_name',   # human-readable staff name
-            'message',
-            'timestamp',
-            'read_by_staff'
+            'id', 'conversation', 'room', 'room_number',
+            'sender_type', 'staff', 'staff_name',
+            'guest_name',  # include guest name
+            'message', 'timestamp', 'read_by_staff'
         ]
         read_only_fields = ['timestamp']
+
+    def get_guest_name(self, obj):
+        # Since only one guest per room, grab the first (if any)
+        guest = obj.room.guests.first()  # ManyToManyField
+        if guest:
+            return f"{guest.first_name} {guest.last_name}".strip()
+        return None
 
 
 class ConversationSerializer(serializers.ModelSerializer):

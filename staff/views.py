@@ -36,7 +36,6 @@ class StaffMetadataView(APIView):
     pagination_class = None
 
     def get(self, request, hotel_slug=None):
-        print(f"Received hotel_slug: {hotel_slug}")
 
         if hotel_slug:
             departments = Department.objects.all()
@@ -53,7 +52,6 @@ class StaffMetadataView(APIView):
             "roles": [{"id": r.id, "name": r.name, "slug": r.slug} for r in roles],
             "access_levels": Staff.ACCESS_LEVEL_CHOICES,
         }
-        print("Response data:", data)
         return Response(data)
 
 class UserListAPIView(generics.ListAPIView):
@@ -70,12 +68,9 @@ class CustomAuthToken(ObtainAuthToken):
     permission_classes = [AllowAny]
     
     def dispatch(self, request, *args, **kwargs):
-        print("Dispatch reached")
         return super().dispatch(request, *args, **kwargs)
     
     def post(self, request, *args, **kwargs):
-        print(">>> CustomAuthToken POST reached")
-        print("Request data:", request.data)
         input_serializer = StaffLoginInputSerializer(data=request.data)
         if not input_serializer.is_valid():
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -355,31 +350,24 @@ class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
         try:
             staff = Staff.objects.get(user=user)
             if not staff.hotel:
-                print("[DEBUG] Staff has no hotel assigned")
                 return User.objects.none()
             hotel_slug = staff.hotel.slug
-            print(f"[DEBUG] Logged-in staff hotel slug: {hotel_slug}")
         except Staff.DoesNotExist:
-            print("[DEBUG] User is not staff")
             return User.objects.none()
 
         # Get all registration codes for this hotel
         hotel_codes = RegistrationCode.objects.filter(hotel_slug=hotel_slug)
         hotel_code_values = set(hotel_codes.values_list('code', flat=True))
-        print(f"[DEBUG] Hotel codes: {hotel_code_values}")
 
         users_with_codes = []
         for u in User.objects.all():
             try:
                 if u.profile and u.profile.registration_code:
                     code_str = u.profile.registration_code.code
-                    print(f"[DEBUG] User {u.username} has code: {code_str}")
                     if code_str in hotel_code_values:
                         users_with_codes.append(u)
-                        print(f"[DEBUG] -> Matched code for hotel, added user {u.username}")
             except UserProfile.DoesNotExist:
                 pass  # user has no profile, skip
 
-        print(f"[DEBUG] Total users matched: {len(users_with_codes)}")
         return users_with_codes
 

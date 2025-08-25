@@ -37,7 +37,6 @@ class RoomViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        print("Search param:", self.request.query_params.get('search'))
         staff = getattr(user, 'staff_profile', None)
 
         queryset = Room.objects.none()

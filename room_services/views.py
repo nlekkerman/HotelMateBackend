@@ -107,7 +107,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     def partial_update(self, request, *args, **kwargs):
         import sys
-        print("!!! [VIEW] partial_update() called", flush=True, file=sys.stdout)
 
         instance = self.get_object()
         new_status = request.data.get("status")
@@ -117,7 +116,6 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         channel_layer = get_channel_layer()
         group_name = f"order_{instance.id}"
-        print(f"→ [VIEW] Broadcasting to {group_name}: {instance.id} → {instance.status}")
         try:
             async_to_sync(channel_layer.group_send)(
                 group_name,
@@ -126,7 +124,6 @@ class OrderViewSet(viewsets.ModelViewSet):
                     "content": {"id": instance.id, "status": instance.status},
                 },
             )
-            print(f"→ [VIEW] group_send succeeded for order {instance.id}")
         except Exception as e:
             print(f"!!! [VIEW] group_send failed: {e!r}")
             print(f"!!! [VIEW] channel_layer._config: {getattr(channel_layer, '_config', None)!r}")
@@ -186,7 +183,6 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
     def pending_count(self, request, hotel_slug=None):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         count = BreakfastOrder.objects.filter(hotel=hotel, status="pending").count()
-        print("Breakfast pending orders:", BreakfastOrder.objects.filter(hotel=hotel).values_list("id", "status"))
         return Response({"count": count})
 
 @api_view(['POST'])

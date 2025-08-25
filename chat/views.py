@@ -198,22 +198,54 @@ def mark_conversation_read(request, conversation_id):
         "marked_as_read": updated_count
     })
 
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_unread_conversation_count(request, hotel_slug):
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
-        return Response({"unread_count": 0})
+        return Response({"unread_count": 0, "rooms": []})
 
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
 
-    # Count distinct conversations with at least 1 unread guest message
+    # Count distinct conversations flagged as having unread
     unread_count = (
         Conversation.objects
-        .filter(room__hotel=hotel)
-        .filter(messages__read_by_staff=False, messages__sender_type="guest")
-        .distinct()
+        .filter(room__hotel=hotel, has_unread=True)
         .count()
     )
+    print(f"[DEBUG] Unread conversation count for hotel '{hotel_slug}': {unread_count}")
 
-    return Response({"unread_count": unread_count})
+    # Collect all conversations with has_unread=True and include their unread messages
+    rooms_with_unread = []
+    conversations = (
+        Conversation.objects
+        .filter(room__hotel=hotel, has_unread=True)
+        .select_related("room")
+        .prefetch_related("messages")
+    )
+
+    for convo in conversations:
+        unread_messages = convo.messages.filter(
+            sender_type="guest",
+            read_by_staff=False  # still need this at message level to fetch actual unread texts
+        )
+        rooms_with_unread.append({
+            "room_id": convo.room.id,
+            "room_number": convo.room.room_number,
+            "conversation_id": convo.id,
+            "unread_count": unread_messages.count(),
+            "unread_messages": [
+                {
+                    "id": msg.id,
+                    "message": msg.message,
+                    "timestamp": msg.timestamp,
+                }
+                for msg in unread_messages
+            ]
+        })
+
+    return Response({
+        "unread_count": unread_count,
+        "rooms": rooms_with_unread
+    })
