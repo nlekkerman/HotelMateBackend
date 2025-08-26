@@ -1,13 +1,11 @@
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny
-from PIL import Image, ImageDraw
-from django.core.files.base import ContentFile
-import io
+from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
+from rest_framework.pagination import PageNumberPagination
 from django.utils.text import slugify
 from .models import (Booking, BookingCategory,
                      RestaurantBlueprint,
-                     Restaurant, BookingSubcategory, DiningTable, BlueprintObjectType,
-                     BlueprintObject)
+                     Restaurant, BookingSubcategory,
+                     DiningTable, BlueprintObjectType)
 from .serializers import (BookingSerializer, BookingCategorySerializer,
                           BookingCreateSerializer,
                           RestaurantSerializer,
@@ -20,17 +18,16 @@ from rest_framework.response import Response
 from rest_framework import status
 from hotel.models import Hotel
 from rooms.models import Room
-from cloudinary.uploader import upload
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from datetime import datetime, timedelta
-from django.db.models import Q
 today = timezone.localdate()
-from rest_framework.pagination import PageNumberPagination
+
 
 class NoPagination(PageNumberPagination):
     page_size = None
-    
+
+
 class BookingViewSet(viewsets.ModelViewSet):
     queryset = Booking.objects.select_related('hotel', 'category', 'restaurant').all()
     serializer_class = BookingSerializer
@@ -191,6 +188,7 @@ class RestaurantViewSet(viewsets.ModelViewSet):
 
 class RestaurantBlueprintViewSet(viewsets.ModelViewSet):
     serializer_class = RestaurantBlueprintSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly]  # read-only for guests
 
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -207,80 +205,30 @@ class RestaurantBlueprintViewSet(viewsets.ModelViewSet):
             restaurant__slug=self.kwargs.get('restaurant_slug')
         )
 
+    # Create/update/destroy stays the same but only works for authenticated users
     def create(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return Response({"detail": "Authentication required."}, status=status.HTTP_401_UNAUTHORIZED)
+
         hotel_slug = kwargs.get("hotel_slug")
         restaurant_slug = kwargs.get("restaurant_slug")
-
         restaurant = get_object_or_404(Restaurant, slug=restaurant_slug, hotel__slug=hotel_slug)
 
         if RestaurantBlueprint.objects.filter(restaurant=restaurant).exists():
-            return Response(
-                {"detail": "Blueprint already exists for this restaurant."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({"detail": "Blueprint already exists for this restaurant."}, status=status.HTTP_400_BAD_REQUEST)
 
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         blueprint = serializer.save(restaurant=restaurant)
 
-        # Auto-generate image if none exists
-        if not blueprint.background_image:
-            width = blueprint.width
-            height = blueprint.height
-            grid_size = blueprint.grid_size or 25
-
-            img = Image.new("RGB", (width, height), color="white")
-            draw = ImageDraw.Draw(img)
-
-            for x in range(0, width, grid_size):
-                draw.line([(x, 0), (x, height)], fill="lightgray")
-            for y in range(0, height, grid_size):
-                draw.line([(0, y), (width, y)], fill="lightgray")
-
-            temp_file = io.BytesIO()
-            img.save(temp_file, format="PNG")
-            temp_file.seek(0)
-
-            # Upload to Cloudinary directly
-            result = upload(temp_file, public_id=f"{restaurant_slug}_blueprint", folder="blueprints")
-            blueprint.background_image = result['secure_url']
-            blueprint.save()
-
         return Response(self.get_serializer(blueprint).data, status=status.HTTP_201_CREATED)
-    
-    def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-
-        # Optionally allow changing restaurant
-        restaurant_slug = request.data.get('restaurant_slug')
-        if restaurant_slug:
-            restaurant = get_object_or_404(Restaurant, slug=restaurant_slug)
-            request.data['restaurant'] = restaurant.id
-
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response(serializer.data)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        self.perform_destroy(instance)
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class DiningTableViewSet(viewsets.ModelViewSet):
-    """
-    CRUD for dining tables, placed in a blueprint. Supports creation, updating, deleting, and listing.
-    """
     serializer_class = DiningTableSerializer
-    lookup_field = 'id'  # Default lookup
-    pagination_class = None
-    
+    permission_classes = [IsAuthenticatedOrReadOnly]
+
     def get_queryset(self):
-        """
-        If hotel_slug and restaurant_slug are in the URL, filter tables by restaurant.
-        """
         hotel_slug = self.kwargs.get('hotel_slug')
         restaurant_slug = self.kwargs.get('restaurant_slug')
         if hotel_slug and restaurant_slug:
@@ -291,17 +239,13 @@ class DiningTableViewSet(viewsets.ModelViewSet):
         return DiningTable.objects.all()
 
     def perform_create(self, serializer):
-        """
-        Ensure the table is assigned to the correct restaurant via URL slugs.
-        """
+        if not self.request.user.is_authenticated:
+            raise PermissionDenied("Authentication required")
+
         hotel_slug = self.kwargs.get('hotel_slug')
         restaurant_slug = self.kwargs.get('restaurant_slug')
-
-        restaurant = get_object_or_404(
-            Restaurant, slug=restaurant_slug, hotel__slug=hotel_slug
-        )
+        restaurant = get_object_or_404(Restaurant, slug=restaurant_slug, hotel__slug=hotel_slug)
         serializer.save(restaurant=restaurant)
-
 class BlueprintObjectTypeViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Returns all available object types for blueprints (e.g., Couch, Entrance, Window)
