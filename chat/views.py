@@ -67,9 +67,10 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     serializer = RoomMessageSerializer(message)
 
     # Update conversation unread status if guest sends a message
-    if sender_type == "guest" and not conversation.has_unread:
-        conversation.has_unread = True
-        conversation.save()
+    if sender_type == "guest":
+        if not conversation.has_unread:
+            conversation.has_unread = True
+            conversation.save()
 
         # Trigger Pusher for sidebar badge update
         badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
@@ -78,7 +79,18 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             "room_number": room.room_number,
         })
 
-    # Trigger Pusher for the actual new message
+        # ✅ Trigger Pusher for staff notification (Reception)
+        from staff.models import Staff
+        reception_staff = Staff.objects.filter(hotel=hotel, role="receptionist")
+        for staff in reception_staff:
+            staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
+            pusher_client.trigger(
+                staff_channel,
+                "new-guest-message",
+                serializer.data
+            )
+
+    # Trigger Pusher for the actual new message (for all listeners)
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
     pusher_client.trigger(message_channel, "new-message", serializer.data)
 
