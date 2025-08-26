@@ -143,7 +143,7 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_active_rooms(request, hotel_slug):
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     conversations = Conversation.objects.filter(room__hotel=hotel).order_by('-updated_at')
@@ -151,7 +151,7 @@ def get_active_rooms(request, hotel_slug):
     return Response(serializer.data)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_unread_count(request, hotel_slug):
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
@@ -177,7 +177,7 @@ def get_unread_count(request, hotel_slug):
     return Response({"unread_counts": counts_dict})
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def mark_conversation_read(request, conversation_id):
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
@@ -212,7 +212,7 @@ def mark_conversation_read(request, conversation_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def get_unread_conversation_count(request, hotel_slug):
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
