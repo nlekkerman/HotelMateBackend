@@ -230,7 +230,7 @@ class RestaurantBlueprintViewSet(viewsets.ModelViewSet):
 class DiningTableViewSet(viewsets.ModelViewSet):
     serializer_class = DiningTableSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
-    pagination_class = None
+    pagination_class = NoPagination
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
