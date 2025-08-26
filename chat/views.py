@@ -9,7 +9,9 @@ from staff.models import Staff
 from .models import Conversation, RoomMessage
 from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
+import logging
 
+logger = logging.getLogger(__name__)
 
 # Fetch all conversations (rooms with messages) for a hotel
 @api_view(['GET'])
@@ -96,11 +98,12 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
         for staff in target_staff:
             staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
-            pusher_client.trigger(
-                staff_channel,
-                "new-guest-message",
-                serializer.data
-            )
+            try:
+                pusher_client.trigger(staff_channel, "new-guest-message", serializer.data)
+                logger.info(f"Pusher triggered: staff_channel={staff_channel}, event=new-guest-message, message_id={message.id}")
+            except Exception as e:
+                logger.error(f"Failed to trigger Pusher for staff_channel={staff_channel}: {e}")
+
 
     # Trigger Pusher for the actual new message (for all listeners)
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
@@ -110,6 +113,8 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         "conversation_id": conversation.id,
         "message": serializer.data
     })
+
+
 # Keep validation unchanged
 @api_view(['POST'])
 @permission_classes([AllowAny])
