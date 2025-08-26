@@ -81,7 +81,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
         # ✅ Trigger Pusher for staff notification (Reception)
         from staff.models import Staff
-        reception_staff = Staff.objects.filter(hotel=hotel, role="receptionist")
+        reception_staff = Staff.objects.filter(hotel=hotel, role__iexact="receptionist")
         for staff in reception_staff:
             staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
             pusher_client.trigger(
