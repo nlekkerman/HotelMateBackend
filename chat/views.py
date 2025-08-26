@@ -52,11 +52,13 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # Validate message text
     message_text = request.data.get("message", "").strip()
     if not message_text:
+        logger.warning("Empty message attempted to send")
         return Response({"error": "Message cannot be empty"}, status=400)
 
     # Determine sender
     staff_instance = getattr(request.user, "staff_profile", None)
     sender_type = "staff" if staff_instance else "guest"
+    logger.info(f"Message sender type: {sender_type}, user_id: {request.user.id}")
 
     # Create the message
     message = RoomMessage.objects.create(
@@ -68,21 +70,27 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     )
 
     serializer = RoomMessageSerializer(message)
+    logger.info(f"Message created with ID: {message.id}")
 
     # Update conversation unread status if guest sends a message
     if sender_type == "guest":
         if not conversation.has_unread:
             conversation.has_unread = True
             conversation.save()
+            logger.info(f"Conversation {conversation.id} marked as unread")
 
         # Trigger Pusher for sidebar badge update
         badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
-        pusher_client.trigger(badge_channel, "conversation-unread", {
-            "conversation_id": conversation.id,
-            "room_number": room.room_number,
-        })
+        try:
+            pusher_client.trigger(badge_channel, "conversation-unread", {
+                "conversation_id": conversation.id,
+                "room_number": room.room_number,
+            })
+            logger.info(f"Pusher triggered for badge update: channel={badge_channel}")
+        except Exception as e:
+            logger.error(f"Failed to trigger Pusher for badge update: {e}")
 
-        # ✅ Prefer Receptionists, fallback to Front Office
+        # Prefer Receptionists, fallback to Front Office
         reception_staff = Staff.objects.filter(
             hotel=hotel,
             role__slug="receptionist"
@@ -90,11 +98,13 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
         if reception_staff.exists():
             target_staff = reception_staff
+            logger.info(f"Targeting reception staff for notifications: count={reception_staff.count()}")
         else:
             target_staff = Staff.objects.filter(
                 hotel=hotel,
                 department__slug="front-office"
             )
+            logger.info(f"No reception staff found. Targeting front-office staff: count={target_staff.count()}")
 
         for staff in target_staff:
             staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
@@ -104,16 +114,18 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             except Exception as e:
                 logger.error(f"Failed to trigger Pusher for staff_channel={staff_channel}: {e}")
 
-
     # Trigger Pusher for the actual new message (for all listeners)
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
-    pusher_client.trigger(message_channel, "new-message", serializer.data)
+    try:
+        pusher_client.trigger(message_channel, "new-message", serializer.data)
+        logger.info(f"Pusher triggered for new message: channel={message_channel}, message_id={message.id}")
+    except Exception as e:
+        logger.error(f"Failed to trigger Pusher for message_channel={message_channel}: {e}")
 
     return Response({
         "conversation_id": conversation.id,
         "message": serializer.data
     })
-
 
 # Keep validation unchanged
 @api_view(['POST'])
