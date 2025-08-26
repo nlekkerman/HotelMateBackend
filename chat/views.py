@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Count, Q
 from rooms.models import Room
 from hotel.models import Hotel
+from staff.models import Staff
 from .models import Conversation, RoomMessage
 from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
@@ -79,10 +80,21 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             "room_number": room.room_number,
         })
 
-        # ✅ Trigger Pusher for staff notification (Reception)
-        from staff.models import Staff
-        reception_staff = Staff.objects.filter(hotel=hotel, role__iexact="receptionist")
-        for staff in reception_staff:
+        # ✅ Prefer Receptionists, fallback to Front Office
+        reception_staff = Staff.objects.filter(
+            hotel=hotel,
+            role__slug="receptionist"
+        )
+
+        if reception_staff.exists():
+            target_staff = reception_staff
+        else:
+            target_staff = Staff.objects.filter(
+                hotel=hotel,
+                department__slug="front-office"
+            )
+
+        for staff in target_staff:
             staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
             pusher_client.trigger(
                 staff_channel,
@@ -98,7 +110,6 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         "conversation_id": conversation.id,
         "message": serializer.data
     })
-
 # Keep validation unchanged
 @api_view(['POST'])
 @permission_classes([AllowAny])
