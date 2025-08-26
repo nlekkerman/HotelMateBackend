@@ -1,5 +1,8 @@
 from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
+# Add this at the top of your views.py
+from rest_framework.exceptions import PermissionDenied
+
 from rest_framework.pagination import PageNumberPagination
 from django.utils.text import slugify
 from .models import (Booking, BookingCategory,
@@ -227,7 +230,8 @@ class RestaurantBlueprintViewSet(viewsets.ModelViewSet):
 class DiningTableViewSet(viewsets.ModelViewSet):
     serializer_class = DiningTableSerializer
     permission_classes = [IsAuthenticatedOrReadOnly]
-
+    pagination_class = None
+    
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
         restaurant_slug = self.kwargs.get('restaurant_slug')
@@ -246,6 +250,8 @@ class DiningTableViewSet(viewsets.ModelViewSet):
         restaurant_slug = self.kwargs.get('restaurant_slug')
         restaurant = get_object_or_404(Restaurant, slug=restaurant_slug, hotel__slug=hotel_slug)
         serializer.save(restaurant=restaurant)
+
+
 class BlueprintObjectTypeViewSet(viewsets.ReadOnlyModelViewSet):
     """
     Returns all available object types for blueprints (e.g., Couch, Entrance, Window)
@@ -253,6 +259,7 @@ class BlueprintObjectTypeViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = BlueprintObjectType.objects.all()
     serializer_class = BlueprintObjectTypeSerializer
     permission_classes = [AllowAny]
+
 
 class BlueprintObjectViewSet(viewsets.ModelViewSet):
     """
