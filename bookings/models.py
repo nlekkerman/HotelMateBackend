@@ -63,21 +63,9 @@ class Booking(models.Model):
     def total_seats(self):
         return self.seats.total if hasattr(self, 'seats') else 0
 
-    def assign_table(self, table):
-        if self.total_seats() > table.capacity:
-            raise ValidationError(f"{table.code} only has {table.capacity} seats.")
-        if not self.booking_tables.filter(table=table).exists():
-            BookingTable.objects.create(booking=self, table=table)
-
-    def remove_table(self, table):
-        self.booking_tables.filter(table=table).delete()
-
-    def get_assigned_tables(self):
-        return DiningTable.objects.filter(booking_tables__booking=self)
-
     def clean(self):
         """Extra validation to ensure end_time is after start_time."""
-        if self.end_time <= self.start_time:
+        if self.start_time and self.end_time and self.end_time <= self.start_time:
             raise ValidationError("End time must be later than start time.")
 
     def __str__(self):

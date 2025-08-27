@@ -116,19 +116,8 @@ class GuestDinnerBookingView(APIView):
         if start_time >= end_time:
             return Response({"detail": "End time must be after start time."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # --- Ensure table IDs are integers ---
-        requested_table_ids = data.get("assigned_tables", [])
-
         # Compute total guests
         total_guests = int(data.get("adults", 1)) + int(data.get("children", 0)) + int(data.get("infants", 0))
-
-        # Only enforce table selection for 6 or fewer guests
-        if total_guests <= 6 and not requested_table_ids:
-            return Response({"detail": "You must select at least one table for groups of 6 or fewer."},
-                            status=status.HTTP_400_BAD_REQUEST)
-
-        # For groups larger than 6, assigned_tables can be empty
-        data["assigned_tables"] = [int(tid) for tid in requested_table_ids] if requested_table_ids else []
 
         # --- Default duration handling (if end_time not provided) ---
         if not data.get("end_time"):
@@ -137,7 +126,7 @@ class GuestDinnerBookingView(APIView):
             end_dt = start_dt + timedelta(hours=duration_hours)
             data["end_time"] = end_dt.time()
 
-        # --- Serializer handles table conflicts ---
+        # --- Serializer handles booking creation ---
         serializer = BookingCreateSerializer(data=data)
         if serializer.is_valid():
             booking = serializer.save()

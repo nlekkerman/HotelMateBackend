@@ -2,7 +2,6 @@ from django.contrib import admin
 from .models import (
     Booking, BookingCategory, BookingSubcategory, Seats,
     Restaurant, RestaurantBlueprint, BlueprintArea,
-    DiningTable, TableSeatSpot, BookingTable,
     BlueprintObjectType, BlueprintObject
 )
 
@@ -15,12 +14,6 @@ class SeatsInline(admin.StackedInline):
     max_num = 1
     can_delete = False
     readonly_fields = ('total',)
-
-
-class BookingTableInline(admin.TabularInline):
-    model = BookingTable
-    extra = 0
-    autocomplete_fields = ('table',)
 
 
 # -------------------------
@@ -68,13 +61,17 @@ class BookingAdmin(admin.ModelAdmin):
         'voucher_code',
     )
     ordering = ('-created_at',)
-    inlines = [SeatsInline, BookingTableInline]
+    inlines = [SeatsInline]
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         return qs.select_related(
-            'category', 'category__subcategory', 'hotel', 'restaurant', 'guest'
-        ).prefetch_related('booking_tables__table')
+            'category',
+            'category__subcategory',
+            'hotel',
+            'restaurant',
+            'guest'
+        )
 
 
 @admin.register(Restaurant)
@@ -104,38 +101,6 @@ class BlueprintAreaAdmin(admin.ModelAdmin):
     search_fields = ('name',)
 
 
-@admin.register(DiningTable)
-class DiningTableAdmin(admin.ModelAdmin):
-    list_display = ('code', 'restaurant', 'capacity', 'shape', 'area', 'join_group', 'is_active')
-    list_filter = ('restaurant', 'shape', 'area', 'is_active')
-    search_fields = ('code', 'restaurant__name', 'join_group')
-
-
-@admin.register(TableSeatSpot)
-class TableSeatSpotAdmin(admin.ModelAdmin):
-    list_display = ('table', 'index', 'offset_x', 'offset_y', 'angle_degrees')
-    ordering = ('table', 'index')
-
-
-@admin.register(BookingTable)
-class BookingTableAdmin(admin.ModelAdmin):
-    list_display = ('booking', 'table')
-    list_filter = (
-        'table',
-        'booking__hotel',
-        'booking__date',
-        'booking__start_time',
-        'booking__end_time',
-    )
-    search_fields = ('booking__category__name', 'table__code')
-
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.select_related(
-            'booking', 'table', 'booking__category', 'booking__category__subcategory'
-        )
-
-
 @admin.register(BlueprintObjectType)
 class BlueprintObjectTypeAdmin(admin.ModelAdmin):
     list_display = ('name', 'default_width', 'default_height', 'icon')
@@ -144,6 +109,16 @@ class BlueprintObjectTypeAdmin(admin.ModelAdmin):
 
 @admin.register(BlueprintObject)
 class BlueprintObjectAdmin(admin.ModelAdmin):
-    list_display = ('name', 'type', 'blueprint', 'x', 'y', 'width', 'height', 'rotation', 'z_index')
+    list_display = (
+        'name',
+        'type',
+        'blueprint',
+        'x',
+        'y',
+        'width',
+        'height',
+        'rotation',
+        'z_index'
+    )
     list_filter = ('type', 'blueprint')
     search_fields = ('name', 'type__name', 'blueprint__restaurant__name')

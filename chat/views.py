@@ -32,11 +32,18 @@ def get_active_conversations(request, hotel_slug):
 @permission_classes([AllowAny])
 def get_conversation_messages(request, hotel_slug, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
-    # optional: verify that conversation.room.hotel.slug == hotel_slug
     if conversation.room.hotel.slug != hotel_slug:
         return Response({"error": "Conversation does not belong to this hotel"}, status=400)
 
-    messages = conversation.messages.order_by('timestamp')
+    limit = int(request.GET.get("limit", 10))  # load 20 messages at a time
+    before_id = request.GET.get("before_id")  # load messages older than this
+
+    messages_qs = conversation.messages.order_by('-timestamp')  # newest first
+
+    if before_id:
+        messages_qs = messages_qs.filter(id__lt=before_id)
+
+    messages = messages_qs[:limit][::-1]  # reverse to show oldest at top
     serializer = RoomMessageSerializer(messages, many=True)
     return Response(serializer.data)
 

@@ -87,11 +87,7 @@ class BookingSerializer(serializers.ModelSerializer):
     seats = SeatsSerializer(read_only=True)
     room = RoomSerializer(read_only=True)
     guest = GuestSerializer(read_only=True)
-    assigned_tables = BookingTableSerializer(
-        source='booking_tables',
-        many=True,
-        read_only=True
-    )
+  
 
     class Meta:
         model = Booking
@@ -110,20 +106,14 @@ class BookingSerializer(serializers.ModelSerializer):
             "seats",
             "room",
             "guest",
-            "assigned_tables",
+            
         ]
 
 # -------------------------
 # Booking (Create/Update)
 # -------------------------
 class BookingCreateSerializer(serializers.ModelSerializer):
-    assigned_tables = serializers.PrimaryKeyRelatedField(
-        queryset=DiningTable.objects.all(),
-        many=True,
-        write_only=True,
-        required=False,
-        allow_empty=True
-    )
+  
     adults = serializers.IntegerField(write_only=True, required=False, default=1)
     children = serializers.IntegerField(write_only=True, required=False, default=0)
     infants = serializers.IntegerField(write_only=True, required=False, default=0)
@@ -133,37 +123,10 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         fields = [
             'hotel', 'category', 'restaurant', 'voucher_code',
             'date', 'start_time', 'end_time', 'note', 'room', 'guest',
-            'adults', 'children', 'infants', 'assigned_tables'
+            'adults', 'children', 'infants'
         ]
 
-    def validate_assigned_tables(self, value):
-        date_str = self.initial_data.get("date")
-        start_time_str = self.initial_data.get("start_time")
-        end_time_str = self.initial_data.get("end_time")
-
-        if not date_str or not start_time_str or not end_time_str:
-            raise serializers.ValidationError("Date, start_time, and end_time must be provided.")
-
-        booking_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-        start_time = datetime.strptime(start_time_str, "%H:%M").time()
-        end_time = datetime.strptime(end_time_str, "%H:%M").time()
-
-        if start_time >= end_time:
-            raise serializers.ValidationError("End time must be after start time.")
-
-        for table in value:
-            conflicts = BookingTable.objects.filter(
-                table=table,
-                booking__date=booking_date,
-                booking__start_time__lt=end_time,
-                booking__end_time__gt=start_time,  # ✅ Overlap check
-            )
-            if conflicts.exists():
-                raise serializers.ValidationError(
-                    f"Table {table.code} is already booked for {booking_date} between {start_time}–{end_time}."
-                )
-        return value
-
+    
     def create(self, validated_data):
         tables = validated_data.pop('assigned_tables', [])
 
