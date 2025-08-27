@@ -121,8 +121,11 @@ class GuestDinnerBookingView(APIView):
             return Response({"detail": "End time must be after start time."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Compute total guests
-        total_guests = int(data.get("adults", 1)) + int(data.get("children", 0)) + int(data.get("infants", 0))
-
+        adults = int(data.get("adults", 1))
+        children = int(data.get("children", 0))
+        infants = int(data.get("infants", 0))
+        total_guests = adults + children + infants
+        
         # --- Default duration handling (if end_time not provided) ---
         if not data.get("end_time"):
             duration_hours = int(data.get("duration_hours", 2))
@@ -151,7 +154,10 @@ class GuestDinnerBookingView(APIView):
                                 "restaurant": restaurant.name,
                                 "start_time": str(booking.start_time),
                                 "end_time": str(booking.end_time),
-                                "guests": booking.adults + booking.children + booking.infants,
+                                "adults": adults,
+                                "children": children,
+                                "infants": infants,
+                                "total_guests": total_guests,
                             }
                         )
                         logger.info(f"Pusher triggered for F&B staff {staff.id}, booking={booking.id}")
