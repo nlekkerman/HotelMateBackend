@@ -1,6 +1,7 @@
 from rest_framework import viewsets
 from rest_framework import generics
-from rest_framework.response import Response
+
+from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly, IsAuthenticated
 from .models import Hotel
 from .serializers import HotelSerializer
 from django.shortcuts import get_object_or_404
@@ -12,6 +13,7 @@ class HotelViewSet(viewsets.ModelViewSet):
     
 class HotelBySlugView(generics.RetrieveAPIView):
     queryset = Hotel.objects.all()
+    permission_classes = [AllowAny]
     serializer_class = HotelSerializer
     lookup_field = "slug"
 
