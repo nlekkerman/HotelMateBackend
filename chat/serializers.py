@@ -27,6 +27,7 @@ class RoomMessageSerializer(serializers.ModelSerializer):
 
 class ConversationSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
+    last_message_time = serializers.SerializerMethodField() 
     room_number = serializers.IntegerField(source='room.room_number', read_only=True)
     conversation_id = serializers.IntegerField(source='id', read_only=True)
     has_unread = serializers.BooleanField(read_only=True)
@@ -36,13 +37,20 @@ class ConversationSerializer(serializers.ModelSerializer):
             'conversation_id',
             'room_number',
             'last_message',
-            'has_unread', 
+            'last_message_time',
+            'has_unread',
         ]
 
     def get_last_message(self, obj):
         last_msg = obj.messages.order_by('-timestamp').first()
         if last_msg:
             return last_msg.message  # just return text for sidebar
+        return None
+    
+    def get_last_message_time(self, obj):
+        last_msg = obj.messages.order_by('-timestamp').first()
+        if last_msg:
+            return last_msg.timestamp
         return None
 
 class ConversationUnreadCountSerializer(serializers.Serializer):

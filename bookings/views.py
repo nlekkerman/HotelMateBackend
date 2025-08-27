@@ -2,9 +2,10 @@ from rest_framework import viewsets
 from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
 # Add this at the top of your views.py
 from rest_framework.exceptions import PermissionDenied
-
+from chat.utils import pusher_client
 from rest_framework.pagination import PageNumberPagination
 from django.utils.text import slugify
+from staff.models import Staff
 from .models import (Booking, BookingCategory,
                      RestaurantBlueprint,
                      Restaurant, BookingSubcategory,
@@ -26,6 +27,9 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 today = timezone.localdate()
 
+import logging
+
+logger = logging.getLogger(__name__)
 
 class NoPagination(PageNumberPagination):
     page_size = None
@@ -131,8 +135,33 @@ class GuestDinnerBookingView(APIView):
         if serializer.is_valid():
             booking = serializer.save()
             out = BookingSerializer(booking)
-            return Response(out.data, status=status.HTTP_201_CREATED)
+            
+            # ✅ Notify F&B staff
+            fnb_staff = Staff.get_by_department("food-and-beverage")
+            if fnb_staff.exists():
+                for staff in fnb_staff:
+                    staff_channel = f"{hotel.slug}-staff-{staff.id}-bookings"
+                    try:
+                        pusher_client.trigger(
+                            staff_channel,
+                            "new-dinner-booking",
+                            {
+                                "booking_id": booking.id,
+                                "room_number": room.room_number,
+                                "restaurant": restaurant.name,
+                                "start_time": str(booking.start_time),
+                                "end_time": str(booking.end_time),
+                                "guests": booking.adults + booking.children + booking.infants,
+                            }
+                        )
+                        logger.info(f"Pusher triggered for F&B staff {staff.id}, booking={booking.id}")
+                    except Exception as e:
+                        logger.error(f"Failed to notify F&B staff_channel={staff_channel}: {e}")
+            else:
+                logger.warning("No Food & Beverage staff found to notify.")
 
+            return Response(out.data, status=status.HTTP_201_CREATED)
+        
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RestaurantViewSet(viewsets.ModelViewSet):
