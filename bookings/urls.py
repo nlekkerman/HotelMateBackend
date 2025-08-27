@@ -9,7 +9,8 @@ from .views import (
     DiningTableViewSet,
     BlueprintObjectTypeViewSet,
     BlueprintObjectViewSet,
-    AvailableTablesView
+    AvailableTablesView,
+    mark_bookings_seen
 )
 
 # Register viewsets to the router
@@ -91,5 +92,10 @@ urlpatterns = [
         'available-tables/<str:hotel_slug>/<str:restaurant_slug>/',
         AvailableTablesView.as_view(),
         name='available-tables'
+    ),
+    path(
+        'bookings/mark-seen/<str:hotel_slug>/',
+        mark_bookings_seen,
+        name='mark-bookings-seen'
     ),
 ]

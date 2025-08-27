@@ -45,6 +45,7 @@ class BookingAdmin(admin.ModelAdmin):
         'restaurant',
         'voucher_code',
         'created_at',
+        'seen',
     )
     list_filter = (
         'category',
@@ -52,6 +53,7 @@ class BookingAdmin(admin.ModelAdmin):
         'hotel',
         'restaurant',
         'date',
+        'seen',
     )
     search_fields = (
         'category__name',

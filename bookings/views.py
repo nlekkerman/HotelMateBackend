@@ -1,5 +1,7 @@
 from rest_framework import viewsets
-from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
+from rest_framework.decorators import api_view, permission_classes
+
+from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly, IsAuthenticated
 # Add this at the top of your views.py
 from rest_framework.exceptions import PermissionDenied
 from chat.utils import pusher_client
@@ -377,3 +379,22 @@ class AvailableTablesView(APIView):
         serializer = DiningTableSerializer(available_tables, many=True)
         return Response(serializer.data)
 
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mark_bookings_seen(request, hotel_slug):
+    """
+    Marks all unseen dinner bookings as seen for a hotel.
+    Frontend calls this when staff clicks the booking icon/button.
+    """
+    # Filter only unseen dinner bookings
+    updated_count = Booking.objects.filter(
+        hotel__slug=hotel_slug,
+        seen=False,
+        category__subcategory__name__iexact="dinner"
+    ).update(seen=True)
+
+    # Trigger Pusher event to update clients in real time
+    channel_name = f"{hotel_slug}-staff-bookings"
+    pusher_client.trigger(channel_name, "bookings-seen", {"updated": updated_count})
+
+    return Response({"marked_seen": updated_count})

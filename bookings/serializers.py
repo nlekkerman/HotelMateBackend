@@ -106,6 +106,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "seats",
             "room",
             "guest",
+            "seen",
             
         ]
 

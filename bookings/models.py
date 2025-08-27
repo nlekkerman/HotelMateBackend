@@ -59,7 +59,7 @@ class Booking(models.Model):
         null=True,
         blank=True
     )
-
+    seen = models.BooleanField(default=False)
     def total_seats(self):
         return self.seats.total if hasattr(self, 'seats') else 0
 
