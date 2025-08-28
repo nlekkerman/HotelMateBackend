@@ -176,11 +176,8 @@ class GuestDinnerBookingView(APIView):
             start_time__lt=end_time,
             end_time__gt=start_time
         )
-        print(f"Overlapping bookings found: {overlapping_bookings.count()}")
         current_guests = sum(b.total_seats() for b in overlapping_bookings)
 
-        print(f"Current guests booked: {current_guests}, New booking guests: {total_guests}, Capacity: {restaurant.capacity}")
-        
         if current_guests + total_guests > restaurant.capacity:
             logger.info(
                 f"Capacity exceeded at restaurant '{restaurant.name}' "
@@ -197,6 +194,13 @@ class GuestDinnerBookingView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # --- Validate group size ---
+        if total_guests > 20:
+ 
+            return Response(
+                {"detail": "For groups larger than 20, please contact our staff directly to arrange your booking."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # --- Serializer handles booking creation ---
         serializer = BookingCreateSerializer(data=data)
