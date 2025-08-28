@@ -135,6 +135,69 @@ class GuestDinnerBookingView(APIView):
             end_dt = start_dt + timedelta(hours=duration_hours)
             data["end_time"] = end_dt.time()
 
+        # --- Check if room already has a dinner booking for that day ---
+        existing_booking = Booking.objects.filter(
+            hotel=hotel,
+            category=dinner_cat,
+            room=room,
+            date=booking_date
+        ).exists()
+
+        if existing_booking:
+            return Response(
+                {"detail": f"Room {room.room_number} already has a dinner booking on {booking_date}."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # --- Enforce maximum 8 bookings per hour ---
+        hour_start = datetime.combine(booking_date, start_time.replace(minute=0, second=0))
+        hour_end = hour_start + timedelta(hours=1)
+
+        bookings_in_hour = Booking.objects.filter(
+            restaurant=restaurant,
+            category=dinner_cat,
+            date=booking_date,
+            start_time__lt=hour_end.time(),
+            end_time__gt=hour_start.time()
+        ).count()
+
+        if bookings_in_hour >= 8:
+            return Response(
+                {"detail": f"Maximum number of bookings (8) already reached for {hour_start.strftime('%H:%M')}–{hour_end.strftime('%H:%M')}."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --- Enforce restaurant capacity ---
+        # Find overlapping bookings (same restaurant, overlapping time)
+        overlapping_bookings = Booking.objects.filter(
+            restaurant=restaurant,
+            category=dinner_cat,
+            date=booking_date,
+            start_time__lt=end_time,
+            end_time__gt=start_time
+        )
+        print(f"Overlapping bookings found: {overlapping_bookings.count()}")
+        current_guests = sum(b.total_seats() for b in overlapping_bookings)
+
+        print(f"Current guests booked: {current_guests}, New booking guests: {total_guests}, Capacity: {restaurant.capacity}")
+        
+        if current_guests + total_guests > restaurant.capacity:
+            logger.info(
+                f"Capacity exceeded at restaurant '{restaurant.name}' "
+                f"(hotel={hotel.slug}, room={room.room_number}, date={booking_date}, "
+                f"start={start_time}, end={end_time}). "
+                f"Requested: {total_guests}, Already booked: {current_guests}, "
+                f"Capacity: {restaurant.capacity}."
+            )
+            return Response(
+                {"detail": (
+                    f"Booking exceeds restaurant capacity of {restaurant.capacity} guests "
+                    f"for this time slot. Currently booked: {current_guests}."
+                )},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+
         # --- Serializer handles booking creation ---
         serializer = BookingCreateSerializer(data=data)
         if serializer.is_valid():
