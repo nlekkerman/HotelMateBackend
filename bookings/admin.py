@@ -82,12 +82,39 @@ class RestaurantAdmin(admin.ModelAdmin):
         'name',
         'hotel',
         'capacity',
+        'max_bookings_per_hour',
+        'max_group_size',
+        'taking_bookings',
         'is_active',
         'opening_time',
         'closing_time',
     )
     list_filter = ('hotel', 'is_active')
     search_fields = ('name', 'slug')
+    fieldsets = (
+        (None, {
+            "fields": (
+                "name",
+                "hotel",
+                "slug",
+                "description",
+                "is_active",
+            ),
+        }),
+        ("Capacity & Booking Rules", {
+            "fields": (
+                "capacity",
+                "max_bookings_per_hour",
+                "max_group_size",
+            ),
+        }),
+        ("Operating Hours", {
+            "fields": (
+                "opening_time",
+                "closing_time",
+            ),
+        }),
+    )
 
 
 @admin.register(RestaurantBlueprint)

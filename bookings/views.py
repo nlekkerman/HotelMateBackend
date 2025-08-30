@@ -130,7 +130,7 @@ class GuestDinnerBookingView(APIView):
         
         # --- Default duration handling (if end_time not provided) ---
         if not data.get("end_time"):
-            duration_hours = int(data.get("duration_hours", 2))
+            duration_hours = float(data.get("duration_hours", 1.5))
             start_dt = datetime.combine(booking_date, start_time)
             end_dt = start_dt + timedelta(hours=duration_hours)
             data["end_time"] = end_dt.time()
@@ -161,7 +161,7 @@ class GuestDinnerBookingView(APIView):
             end_time__gt=hour_start.time()
         ).count()
 
-        if bookings_in_hour >= 8:
+        if bookings_in_hour >= restaurant.max_bookings_per_hour:
             return Response(
                 {"detail": f"Maximum number of bookings (8) already reached for {hour_start.strftime('%H:%M')}–{hour_end.strftime('%H:%M')}."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -179,13 +179,7 @@ class GuestDinnerBookingView(APIView):
         current_guests = sum(b.total_seats() for b in overlapping_bookings)
 
         if current_guests + total_guests > restaurant.capacity:
-            logger.info(
-                f"Capacity exceeded at restaurant '{restaurant.name}' "
-                f"(hotel={hotel.slug}, room={room.room_number}, date={booking_date}, "
-                f"start={start_time}, end={end_time}). "
-                f"Requested: {total_guests}, Already booked: {current_guests}, "
-                f"Capacity: {restaurant.capacity}."
-            )
+            
             return Response(
                 {"detail": (
                     f"Booking exceeds restaurant capacity of {restaurant.capacity} guests "
@@ -195,10 +189,10 @@ class GuestDinnerBookingView(APIView):
             )
 
         # --- Validate group size ---
-        if total_guests > 20:
+        if total_guests > restaurant.max_group_size:
  
             return Response(
-                {"detail": "For groups larger than 20, please contact our staff directly to arrange your booking."},
+                {"detail": f"For groups larger than {restaurant.max_group_size}, please contact our staff directly to arrange your booking."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 

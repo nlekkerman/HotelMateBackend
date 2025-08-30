@@ -40,6 +40,9 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "opening_time",
             "closing_time",
             "is_active",
+            "max_bookings_per_hour",
+            "max_group_size",
+            "taking_bookings",
         ]
         read_only_fields = ["id", "slug"]  # slug can be auto-generated if you like
 

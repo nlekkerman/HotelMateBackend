@@ -93,6 +93,11 @@ class Restaurant(models.Model):
     opening_time = models.TimeField(null=True, blank=True)
     closing_time = models.TimeField(null=True, blank=True)
 
+    max_bookings_per_hour = models.PositiveIntegerField(default=8)
+    max_group_size = models.PositiveIntegerField(default=12)
+
+    taking_bookings = models.BooleanField(default=True)
+
     def __str__(self):
         return f"{self.name} at {self.hotel.name}"
 
