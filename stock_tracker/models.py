@@ -144,6 +144,7 @@ class Stock(models.Model):
     def __str__(self):
         return f"{self.hotel.name} • {self.category.name if self.category else '—'}"
 
+
 class StockInventory(models.Model):
     """
     The through-model joining Stock ↔ StockItem,
@@ -170,7 +171,6 @@ class StockInventory(models.Model):
         # Optionally reset item quantity on deletion
         self.item.quantity = 0
         self.item.save(update_fields=['quantity'])
-
 
 
 class StockMovement(models.Model):
@@ -224,3 +224,75 @@ class StockMovement(models.Model):
             f"{self.get_direction_display()} of {self.quantity} "
             f"{self.item.name} in {self.stock} by {self.staff or '—'}"
         )
+
+
+class Ingredient(models.Model):
+    name = models.CharField(max_length=100)
+    unit = models.CharField(max_length=20)
+    hotel = models.ForeignKey("hotel.Hotel", on_delete=models.CASCADE, related_name="ingredients")
+
+    class Meta:
+        unique_together = ("name", "hotel")
+
+
+
+class CocktailRecipe(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    hotel = models.ForeignKey(
+        "hotel.Hotel",
+        on_delete=models.CASCADE,
+        related_name="cocktails"
+    )
+
+    class Meta:
+        unique_together = ("name", "hotel")  # same name allowed in different hotels
+
+    def __str__(self):
+        return f"{self.name} ({self.hotel.name})"
+
+class RecipeIngredient(models.Model):
+    """
+    Links a cocktail recipe to its ingredients and quantity per cocktail.
+    """
+    cocktail = models.ForeignKey(
+        CocktailRecipe, 
+        on_delete=models.CASCADE,
+        related_name='ingredients'
+    )
+    ingredient = models.ForeignKey(
+        Ingredient, 
+        on_delete=models.CASCADE
+    )
+    quantity_per_cocktail = models.FloatField(
+        help_text="Quantity required per single cocktail"
+    )
+
+    class Meta:
+        unique_together = ('cocktail', 'ingredient')
+
+    def __str__(self):
+        return f"{self.quantity_per_cocktail} {self.ingredient.unit} of {self.ingredient.name} for {self.cocktail.name}"
+
+
+class CocktailConsumption(models.Model):
+    cocktail = models.ForeignKey(
+        CocktailRecipe, 
+        on_delete=models.CASCADE,
+        related_name='consumptions'
+    )
+    quantity_made = models.PositiveIntegerField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    hotel = models.ForeignKey(
+        "hotel.Hotel",
+        on_delete=models.CASCADE,
+        related_name="consumptions"
+    )
+
+    def __str__(self):
+        return f"{self.quantity_made} x {self.cocktail.name} on {self.timestamp.strftime('%Y-%m-%d')}"
+
+    def total_ingredient_usage(self):
+        usage = {}
+        for ri in self.cocktail.ingredients.all():
+            usage[ri.ingredient.name] = ri.quantity_per_cocktail * self.quantity_made
+        return usage

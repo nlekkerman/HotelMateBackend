@@ -201,7 +201,7 @@ class GuestDinnerBookingView(APIView):
         if serializer.is_valid():
             booking = serializer.save()
             out = BookingSerializer(booking)
-            
+
             # ✅ Notify F&B staff
             fnb_staff = Staff.get_by_department("food-and-beverage")
             if fnb_staff.exists():

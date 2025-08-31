@@ -9,14 +9,22 @@ from rest_framework.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from django.utils.timezone import make_aware
 from datetime import datetime, timedelta
-from .stock_alerts import notify_super_admins_about_stock_movement
-
-from .models import StockCategory, StockItem, Stock, StockMovement, StockInventory
+from rest_framework.views import APIView
+from .analytics import ingredient_usage_by_period, ingredient_usage_custom
+from .models import (StockCategory, StockItem, Stock,
+                     StockMovement, StockInventory, Ingredient, CocktailRecipe,
+                     RecipeIngredient, CocktailConsumption)
 from .serializers import (
     StockCategorySerializer,
     StockItemSerializer,
     StockSerializer,
     StockMovementSerializer
+)
+from .cocktail_serializers import (
+    IngredientSerializer,
+    CocktailRecipeSerializer,
+    RecipeIngredientSerializer,
+    CocktailConsumptionSerializer
 )
 # In pagination.py or views.py
 from rest_framework.pagination import PageNumberPagination
@@ -29,11 +37,11 @@ class StockCategoryViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockCategory (with slug support).
     """
-    queryset         = StockCategory.objects.all()
+    queryset = StockCategory.objects.all()
     serializer_class = StockCategorySerializer
     filterset_fields = ['hotel', 'name', 'slug']
-    search_fields    = ['name', 'slug']
-    ordering_fields  = ['hotel', 'name', 'slug']
+    search_fields = ['name', 'slug']
+    ordering_fields = ['hotel', 'name', 'slug']
 
 
 class StockItemViewSet(viewsets.ModelViewSet):
@@ -212,3 +220,53 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             "low_stock_alerts": StockItemSerializer(low_stock_items, many=True).data
         }, status=status.HTTP_201_CREATED)
 
+
+# --- Ingredient ---
+class IngredientViewSet(viewsets.ModelViewSet):
+    queryset = Ingredient.objects.all()
+    serializer_class = IngredientSerializer
+    search_fields = ['name']
+    ordering_fields = ['name']
+
+
+# --- CocktailRecipe ---
+class CocktailRecipeViewSet(viewsets.ModelViewSet):
+    queryset = CocktailRecipe.objects.prefetch_related('ingredients__ingredient').all()
+    serializer_class = CocktailRecipeSerializer
+    search_fields = ['name']
+    ordering_fields = ['name']
+
+
+# --- CocktailConsumption ---
+class CocktailConsumptionViewSet(viewsets.ModelViewSet):
+    queryset = CocktailConsumption.objects.select_related('cocktail').all()
+    serializer_class = CocktailConsumptionSerializer
+    ordering = ['-timestamp']
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        cocktail_id = self.request.query_params.get('cocktail_id')
+        if cocktail_id:
+            qs = qs.filter(cocktail_id=cocktail_id)
+        return qs
+
+class IngredientUsageView(APIView):
+    def get(self, request):
+        hotel_id = request.query_params.get('hotel_id')
+        period = request.query_params.get('period')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+
+        try:
+            if start_date and end_date:
+                start_date = datetime.strptime(start_date, "%Y-%m-%d")
+                end_date = datetime.strptime(end_date, "%Y-%m-%d")
+                data = ingredient_usage_custom(start_date, end_date, hotel_id)
+            elif period:
+                data = ingredient_usage_by_period(period, hotel_id)
+            else:
+                data = ingredient_usage_by_period('week', hotel_id)  # default last week
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(data, status=status.HTTP_200_OK)

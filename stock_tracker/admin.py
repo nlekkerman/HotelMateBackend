@@ -2,7 +2,18 @@ from django.contrib import admin
 from django.forms.models import BaseInlineFormSet
 from django.core.exceptions import ValidationError
 
-from .models import StockCategory, StockItem, Stock, StockInventory, StockMovement, StockItemType
+from .models import (
+    StockCategory,
+    StockItem,
+    Stock,
+    StockInventory,
+    StockMovement,
+    StockItemType,
+    Ingredient,
+    CocktailRecipe,
+    RecipeIngredient,
+    CocktailConsumption
+)
 
 @admin.register(StockItemType)
 class StockItemTypeAdmin(admin.ModelAdmin):
@@ -120,3 +131,36 @@ class StockMovementAdmin(admin.ModelAdmin):
     list_display = ('timestamp', 'hotel', 'stock', 'item', 'direction', 'quantity', 'staff')
     list_filter = ('hotel', 'stock__category', 'direction', 'staff')
     search_fields = ('item__name',)
+
+
+# --- Ingredient ---
+@admin.register(Ingredient)
+class IngredientAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'unit', 'hotel')
+    search_fields = ('name',)
+    list_filter = ('hotel',)  # filter by hotel
+    ordering = ('name',)
+
+# --- RecipeIngredient Inline ---
+class RecipeIngredientInline(admin.TabularInline):
+    model = RecipeIngredient
+    extra = 1
+    autocomplete_fields = ('ingredient',)
+    fields = ('ingredient', 'quantity_per_cocktail')
+
+# --- CocktailRecipe ---
+@admin.register(CocktailRecipe)
+class CocktailRecipeAdmin(admin.ModelAdmin):
+    list_display = ('id', 'name', 'hotel')
+    search_fields = ('name',)
+    list_filter = ('hotel',)  # filter by hotel
+    ordering = ('name',)
+    inlines = (RecipeIngredientInline,)
+
+# --- CocktailConsumption ---
+@admin.register(CocktailConsumption)
+class CocktailConsumptionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'cocktail', 'quantity_made', 'timestamp', 'hotel')
+    list_filter = ('cocktail', 'timestamp', 'cocktail__hotel')  # filter by cocktail's hotel
+    search_fields = ('cocktail__name',)
+    ordering = ('-timestamp',)
