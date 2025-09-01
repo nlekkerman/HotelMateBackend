@@ -1,12 +1,13 @@
-# cocktail_serializers.py
 from rest_framework import serializers
+from .analytics import convert_units
 from .models import Ingredient, CocktailRecipe, RecipeIngredient, CocktailConsumption
 
 # --- Ingredient Serializer ---
 class IngredientSerializer(serializers.ModelSerializer):
+    hotel_id = serializers.IntegerField(write_only=True)
     class Meta:
         model = Ingredient
-        fields = ['id', 'name', 'unit']
+        fields = ['id', 'name', 'unit', 'hotel_id']
 
 
 # --- RecipeIngredient Serializer ---
@@ -24,10 +25,11 @@ class RecipeIngredientSerializer(serializers.ModelSerializer):
 # --- CocktailRecipe Serializer ---
 class CocktailRecipeSerializer(serializers.ModelSerializer):
     ingredients = RecipeIngredientSerializer(many=True)
+    hotel_id = serializers.IntegerField(write_only=True)
 
     class Meta:
         model = CocktailRecipe
-        fields = ['id', 'name', 'ingredients']
+        fields = ['id', 'name', 'ingredients', 'hotel_id']
 
     def create(self, validated_data):
         ingredients_data = validated_data.pop('ingredients')
@@ -50,8 +52,9 @@ class CocktailRecipeSerializer(serializers.ModelSerializer):
 
 
 # --- CocktailConsumption Serializer ---
+
 class CocktailConsumptionSerializer(serializers.ModelSerializer):
-    cocktail = CocktailRecipeSerializer(read_only=True)
+    cocktail = serializers.StringRelatedField(read_only=True)
     cocktail_id = serializers.PrimaryKeyRelatedField(
         queryset=CocktailRecipe.objects.all(), source='cocktail', write_only=True
     )
@@ -59,7 +62,27 @@ class CocktailConsumptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CocktailConsumption
-        fields = ['id', 'cocktail', 'cocktail_id', 'quantity_made', 'timestamp', 'total_ingredient_usage']
+        fields = [
+            'id',
+            'cocktail',
+            'cocktail_id',
+            'quantity_made',
+            'timestamp',
+            'total_ingredient_usage',
+        ]
 
     def get_total_ingredient_usage(self, obj):
-        return obj.total_ingredient_usage()
+        raw_usage = obj.total_ingredient_usage()  # {(qty, unit)}
+        return convert_units(raw_usage)
+
+    def create(self, validated_data):
+        # Get hotel from request user if available
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'hotel_id'):
+            validated_data['hotel_id'] = request.user.hotel_id
+        else:
+            # fallback: use the cocktail's hotel
+            cocktail = validated_data['cocktail']
+            validated_data['hotel'] = cocktail.hotel
+
+        return super().create(validated_data)

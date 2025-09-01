@@ -292,7 +292,11 @@ class CocktailConsumption(models.Model):
         return f"{self.quantity_made} x {self.cocktail.name} on {self.timestamp.strftime('%Y-%m-%d')}"
 
     def total_ingredient_usage(self):
+        """
+        Returns a dict of {ingredient_name: (total_quantity, unit)}
+        """
         usage = {}
         for ri in self.cocktail.ingredients.all():
-            usage[ri.ingredient.name] = ri.quantity_per_cocktail * self.quantity_made
+            total_qty = ri.quantity_per_cocktail * self.quantity_made
+            usage[ri.ingredient.name] = (total_qty, ri.ingredient.unit)
         return usage

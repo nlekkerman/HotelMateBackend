@@ -10,7 +10,7 @@ from django.utils.dateparse import parse_date
 from django.utils.timezone import make_aware
 from datetime import datetime, timedelta
 from rest_framework.views import APIView
-from .analytics import ingredient_usage_by_period, ingredient_usage_custom
+from .analytics import ingredient_usage
 from .models import (StockCategory, StockItem, Stock,
                      StockMovement, StockInventory, Ingredient, CocktailRecipe,
                      RecipeIngredient, CocktailConsumption)
@@ -225,6 +225,7 @@ class StockMovementViewSet(viewsets.ModelViewSet):
 class IngredientViewSet(viewsets.ModelViewSet):
     queryset = Ingredient.objects.all()
     serializer_class = IngredientSerializer
+    pagination_class = None
     search_fields = ['name']
     ordering_fields = ['name']
 
@@ -250,23 +251,24 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(cocktail_id=cocktail_id)
         return qs
 
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request  # Pass request for serializer to access user
+        return context
+
 class IngredientUsageView(APIView):
+    """
+    API endpoint to get ingredient usage for a hotel.
+    Query params:
+        - hotel_id (int, optional)
+    """
+
     def get(self, request):
         hotel_id = request.query_params.get('hotel_id')
-        period = request.query_params.get('period')
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
 
         try:
-            if start_date and end_date:
-                start_date = datetime.strptime(start_date, "%Y-%m-%d")
-                end_date = datetime.strptime(end_date, "%Y-%m-%d")
-                data = ingredient_usage_custom(start_date, end_date, hotel_id)
-            elif period:
-                data = ingredient_usage_by_period(period, hotel_id)
-            else:
-                data = ingredient_usage_by_period('week', hotel_id)  # default last week
-        except ValueError as e:
+            data = ingredient_usage(hotel_id=hotel_id)
+        except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(data, status=status.HTTP_200_OK)
