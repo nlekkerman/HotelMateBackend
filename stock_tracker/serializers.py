@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import StockCategory, StockItem, Stock, StockInventory, StockMovement
+from .models import StockCategory, StockItem, Stock, StockInventory, StockItemType, StockMovement
 from staff.serializers import StaffSerializer  # Assuming you have a StaffSerializer defined
 
 class StockCategorySerializer(serializers.ModelSerializer):
@@ -120,3 +120,17 @@ class StockMovementSerializer(serializers.ModelSerializer):
         if obj.item:
             return {"name": obj.item.name}
         return {"name": "—"}
+
+
+class StockAnalyticsSerializer(serializers.Serializer):
+    item_id = serializers.IntegerField()
+    item_name = serializers.CharField()
+    opening_stock = serializers.DecimalField(max_digits=10, decimal_places=2)
+    added = serializers.DecimalField(max_digits=10, decimal_places=2)
+    removed = serializers.DecimalField(max_digits=10, decimal_places=2)
+    closing_stock = serializers.DecimalField(max_digits=10, decimal_places=2)
+
+class StockItemTypeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StockItemType
+        fields = ["id", "name", "slug"]

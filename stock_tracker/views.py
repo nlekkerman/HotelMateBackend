@@ -4,19 +4,21 @@ from rest_framework.response import Response
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.db.models import F
+from django.db.models import F, Sum, Q
 from rest_framework.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from django.utils.timezone import make_aware
 from datetime import datetime, timedelta
 from rest_framework.views import APIView
-from .analytics import ingredient_usage
-from .models import (StockCategory, StockItem, Stock,
+from .analytics import get_hotel_analytics, ingredient_usage
+from .models import (StockCategory, StockItem, Stock, StockItemType,
                      StockMovement, StockInventory, Ingredient, CocktailRecipe,
                      RecipeIngredient, CocktailConsumption)
 from .serializers import (
+    StockAnalyticsSerializer,
     StockCategorySerializer,
     StockItemSerializer,
+    StockItemTypeSerializer,
     StockSerializer,
     StockMovementSerializer
 )
@@ -29,10 +31,17 @@ from .cocktail_serializers import (
 # In pagination.py or views.py
 from rest_framework.pagination import PageNumberPagination
 
+
+import logging
+
+logger = logging.getLogger(__name__)
+
 class StockItemPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = "page_size"
     max_page_size = 10000
+
+
 class StockCategoryViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockCategory (with slug support).
@@ -48,13 +57,12 @@ class StockItemViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockItem.
     """
-  
     serializer_class = StockItemSerializer
     filterset_fields = ['hotel', 'sku', 'name', 'type']
-    search_fields    = ['name', 'sku']
-    ordering_fields  = ['hotel', 'name', 'sku']
+    search_fields = ['name', 'sku']
+    ordering_fields = ['hotel', 'name', 'sku']
     pagination_class = StockItemPagination
-    
+
     def get_queryset(self):
         queryset = StockItem.objects.all()
         hotel_slug = self.request.query_params.get('hotel_slug')
@@ -62,7 +70,7 @@ class StockItemViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(hotel__slug=hotel_slug)
         return queryset
 
-    
+
     @action(detail=False, methods=['get'])
     def low_stock(self, request, hotel_slug=None):
         low_items = StockItem.objects.filter(
@@ -256,6 +264,7 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
         context['request'] = self.request  # Pass request for serializer to access user
         return context
 
+
 class IngredientUsageView(APIView):
     """
     API endpoint to get ingredient usage for a hotel.
@@ -272,3 +281,34 @@ class IngredientUsageView(APIView):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(data, status=status.HTTP_200_OK)
+
+
+class StockAnalyticsView(APIView):
+    """
+    Returns stock analytics per item for a hotel in a given period.
+    Opening stock = stock on the start date.
+    """
+    def get(self, request, hotel_slug):
+        start_date = request.query_params.get("start_date")
+        end_date = request.query_params.get("end_date")
+        changed_only = request.query_params.get("changed_only") == "true"
+
+        if not start_date or not end_date:
+            return Response({"error": "start_date and end_date are required"}, status=400)
+
+        data = get_hotel_analytics(hotel_slug, start_date, end_date, changed_only)
+
+        serializer = StockAnalyticsSerializer(data, many=True)
+        return Response(serializer.data)
+
+class StockItemTypeViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for StockItemType.
+    """
+    queryset = StockItemType.objects.all()
+    serializer_class = StockItemTypeSerializer
+    filterset_fields = ["name", "slug"]
+    search_fields = ["name", "slug"]
+    ordering_fields = ["name", "slug"]
+    pagination_class = None  # No pagination for types
+    

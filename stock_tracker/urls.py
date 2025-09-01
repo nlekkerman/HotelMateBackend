@@ -1,6 +1,8 @@
 from django.urls import path
 from .views import (
+    StockAnalyticsView,
     StockCategoryViewSet,
+    StockItemTypeViewSet,
     StockItemViewSet,
     StockViewSet,
     StockMovementViewSet,
@@ -79,6 +81,14 @@ consumption_detail = CocktailConsumptionViewSet.as_view({
     'delete': 'destroy'
 })
 
+# StockItemType endpoints
+stock_itemtype_list = StockItemTypeViewSet.as_view({'get': 'list', 'post': 'create'})
+stock_itemtype_detail = StockItemTypeViewSet.as_view({
+    'get': 'retrieve',
+    'put': 'update',
+    'patch': 'partial_update',
+    'delete': 'destroy'
+})
 urlpatterns = [
     # StockCategory
     path(
@@ -160,4 +170,23 @@ urlpatterns = [
     path('consumptions/<int:pk>/', consumption_detail, name='consumption-detail'),
     
     path('analytics/ingredient-usage/', IngredientUsageView.as_view(), name='ingredient-usage'),
+
+    path(
+        '<slug:hotel_slug>/analytics/stock/',
+        StockAnalyticsView.as_view(),
+        name='stock-analytics'
+    ),
+
+    # StockItemType
+    path(
+        '<slug:hotel_slug>/item-types/',
+        stock_itemtype_list,
+        name='stockitemtype-list'
+    ),
+    path(
+        '<slug:hotel_slug>/item-types/<int:pk>/',
+        stock_itemtype_detail,
+        name='stockitemtype-detail'
+    ),
+
 ]
