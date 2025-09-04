@@ -41,6 +41,8 @@ class StockCategory(models.Model):
                 count += 1
             self.slug = slug
         super().save(*args, **kwargs)
+
+
 class StockItemType(models.Model):
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(max_length=100, unique=True)
@@ -62,10 +64,10 @@ class StockItem(models.Model):
     name = models.CharField(max_length=255, default='stock_item', blank=True, unique=True)
     sku = models.CharField(max_length=100, unique=True, null=True, blank=True)
     active_stock_item = models.BooleanField(default=False, help_text="Indicates if the item is active in stock inventory")
-    quantity = models.IntegerField(default=0)  # number of bottles/items
+    quantity = models.IntegerField(default=0)  # number of bottles/items (STORAGE)
+    stock_in_bar = models.IntegerField(default=0, help_text="Already taken out of storage but unsold")  # ✅ NEW
     alert_quantity = models.IntegerField(default=0, help_text="Minimum quantity before alert is triggered")
-    type = models.ForeignKey(StockItemType, on_delete=models.SET_NULL, null=True, blank=True)
-    # NEW: how much volume each bottle contains
+    type = models.ForeignKey("StockItemType", on_delete=models.SET_NULL, null=True, blank=True)
     volume_per_unit = models.DecimalField(
         max_digits=10,
         decimal_places=2,
@@ -73,10 +75,9 @@ class StockItem(models.Model):
         blank=True,
         help_text="Volume per bottle/item (e.g., 330 for 330 ml)"
     )
-    
     unit = models.CharField(
         max_length=10,
-        choices=UNIT_CHOICES,  # e.g., [('ml', 'Milliliters'), ('l', 'Liters')]
+        choices=UNIT_CHOICES,
         null=True,
         blank=True,
         help_text="Unit for volume per bottle/item"
@@ -90,37 +91,17 @@ class StockItem(models.Model):
 
     @property
     def total_volume(self):
-        if self.volume_per_unit and self.quantity and self.unit:
-            return f"{self.quantity * float(self.volume_per_unit)} {self.unit}"
+        if self.volume_per_unit and self.unit:
+            return f"{(self.quantity + self.stock_in_bar) * float(self.volume_per_unit)} {self.unit}"
         return "N/A"
 
+    @property
+    def total_available(self):
+        """Everything we still own: storage + bar."""
+        return self.quantity + self.stock_in_bar
+
     def is_below_alert_level(self):
-        return self.quantity < self.alert_quantity
-    
-    def activate_stock_item(self, stock, quantity=None):
-        from .models import StockInventory
-
-        if not self.active_stock_item:
-            self.active_stock_item = True
-            self.save(update_fields=["active_stock_item"])
-
-        # Create or update inventory line, but do NOT update item quantity
-        inventory, created = StockInventory.objects.get_or_create(
-            stock=stock,
-            item=self,
-            defaults={"quantity": quantity}
-        )
-        if not created:
-            inventory.quantity = quantity
-            inventory.save(update_fields=["quantity"])
-            
-    def deactivate_stock_item(self):
-        from .models import StockInventory
-
-        # Delete all inventory lines (in case item is in multiple stocks)
-        StockInventory.objects.filter(item=self).delete()
-        self.active_stock_item = False
-        self.save(update_fields=["active_stock_item"])  # No quantity update here
+        return self.total_available < self.alert_quantity
 
 
 class Stock(models.Model):
@@ -175,55 +156,52 @@ class StockInventory(models.Model):
 
 class StockMovement(models.Model):
     IN = 'in'
-    OUT = 'out'
+    MOVE_TO_BAR = 'move_to_bar'
+    SALE = 'sale'
+    WASTE = 'waste'
+
     DIRECTION_CHOICES = [
-        (IN,  'Stock In'),
-        (OUT, 'Stock Out'),
+        (IN, 'Stock In (Purchase/Delivery)'),
+        (MOVE_TO_BAR, 'Moved to Bar'),
+        (SALE, 'Sale'),
+        (WASTE, 'Waste/Breakage'),
     ]
 
-    hotel = models.ForeignKey(
-        Hotel,
-        on_delete=models.CASCADE,
-        related_name='stock_movements'
-    )
-    stock = models.ForeignKey(
-        Stock,
-        on_delete=models.CASCADE,
-        related_name='movements',
-        help_text="Which storage location this movement applies to"
-    )
-    item = models.ForeignKey(
-        StockItem,
-        on_delete=models.CASCADE,
-        related_name='movements',
-        help_text="Which defined stock item was moved"
-    )
-    staff = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        related_name='stock_movements',
-        help_text="Who performed this movement"
-    )
-    direction = models.CharField(
-        max_length=3,
-        choices=DIRECTION_CHOICES
-    )
-    quantity = models.IntegerField(
-        help_text="Amount moved in or out (whole number only)"
-    )
+    hotel = models.ForeignKey(Hotel, on_delete=models.CASCADE, related_name='stock_movements')
+    item = models.ForeignKey(StockItem, on_delete=models.CASCADE, related_name='movements')
+    staff = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
+    direction = models.CharField(max_length=20, choices=DIRECTION_CHOICES)
+    quantity = models.PositiveIntegerField()
     timestamp = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         ordering = ['-timestamp']
-        verbose_name = "Stock Movement"
-        verbose_name_plural = "Stock Movements"
 
-    def __str__(self):
-        return (
-            f"{self.get_direction_display()} of {self.quantity} "
-            f"{self.item.name} in {self.stock} by {self.staff or '—'}"
-        )
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+
+        if is_new:  # update live counters
+            if self.direction == self.IN:
+                self.item.quantity += self.quantity
+
+            elif self.direction == self.MOVE_TO_BAR:
+                if self.item.quantity < self.quantity:
+                    raise ValueError("Not enough stock in storage to move to bar")
+                self.item.quantity -= self.quantity
+                self.item.stock_in_bar += self.quantity
+
+            elif self.direction == self.SALE:
+                if self.item.stock_in_bar < self.quantity:
+                    raise ValueError("Not enough stock in bar to sell")
+                self.item.stock_in_bar -= self.quantity
+
+            elif self.direction == self.WASTE:
+                if self.item.stock_in_bar < self.quantity:
+                    raise ValueError("Not enough stock in bar to waste")
+                self.item.stock_in_bar -= self.quantity
+
+            self.item.save(update_fields=["quantity", "stock_in_bar"])
 
 
 class Ingredient(models.Model):

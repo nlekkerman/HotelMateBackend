@@ -44,12 +44,39 @@ def parse_dates(start_date, end_date):
     end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
     return start_dt, end_dt
 
-def get_opening_stock(item, hotel_slug):
-    """Return the stock quantity as of start_date"""
-    return StockInventory.objects.filter(
+def get_opening_stock(item, hotel_slug, start_dt):
+    """
+    Opening stock = stock quantity at start date
+    """
+    # Sum all 'in' before start_dt
+    added = StockMovement.objects.filter(
         item=item,
-        stock__hotel__slug=hotel_slug
+        direction=StockMovement.IN,
+        timestamp__lt=start_dt
     ).aggregate(total=Sum('quantity'))['total'] or 0
+
+    # Subtract all removals before start_dt
+    removed_storage_to_bar = StockMovement.objects.filter(
+        item=item,
+        direction=StockMovement.MOVE_TO_BAR,
+        timestamp__lt=start_dt
+    ).aggregate(total=Sum('quantity'))['total'] or 0
+
+    removed_bar_sale = StockMovement.objects.filter(
+        item=item,
+        direction=StockMovement.SALE,
+        timestamp__lt=start_dt
+    ).aggregate(total=Sum('quantity'))['total'] or 0
+
+    removed_bar_waste = StockMovement.objects.filter(
+        item=item,
+        direction=StockMovement.WASTE,
+        timestamp__lt=start_dt
+    ).aggregate(total=Sum('quantity'))['total'] or 0
+
+    total_removed = removed_storage_to_bar + removed_bar_sale + removed_bar_waste
+
+    return added - total_removed
 
 def get_movements(item, start_dt, end_dt):
     """Return total added and removed quantities for an item in the period"""
@@ -58,13 +85,22 @@ def get_movements(item, start_dt, end_dt):
         timestamp__gte=start_dt,
         timestamp__lt=end_dt
     ).aggregate(
-        added=Sum('quantity', filter=Q(direction='in')),
-        removed=Sum('quantity', filter=Q(direction='out'))
+        added=Sum('quantity', filter=Q(direction=StockMovement.IN)),
+        removed_storage_to_bar=Sum('quantity', filter=Q(direction=StockMovement.MOVE_TO_BAR)),
+        removed_bar_sale=Sum('quantity', filter=Q(direction=StockMovement.SALE)),
+        removed_bar_waste=Sum('quantity', filter=Q(direction=StockMovement.WASTE))
     )
-    return agg['added'] or 0, agg['removed'] or 0
+
+    total_removed = (
+        (agg['removed_storage_to_bar'] or 0) +
+        (agg['removed_bar_sale'] or 0) +
+        (agg['removed_bar_waste'] or 0)
+    )
+
+    return agg['added'] or 0, total_removed
 
 def get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only=True):
-    opening_stock = get_opening_stock(item, hotel_slug)
+    opening_stock = get_opening_stock(item, hotel_slug, start_dt)
     added, removed = get_movements(item, start_dt, end_dt)
     closing_stock = opening_stock + added - removed
 
@@ -79,6 +115,7 @@ def get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only=True):
         "removed": removed,
         "closing_stock": closing_stock
     }
+
 
 def get_hotel_analytics(hotel_slug, start_date, end_date, changed_only=True):
     start_dt, end_dt = parse_dates(start_date, end_date)

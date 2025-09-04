@@ -48,16 +48,19 @@ class StockCategoryAdmin(admin.ModelAdmin):
     ordering = ('hotel', 'name')
     prepopulated_fields = {'slug': ('name',)}  # auto-fill slug from name
 
+
 @admin.register(StockItem)
 class StockItemAdmin(admin.ModelAdmin):
     list_display = (
-        'id', 'hotel', 'name','type', 'sku', 'quantity', 'volume_per_unit_display', 'unit_display', 'alert_quantity', 'alert_status'
+        'id', 'hotel', 'name', 'type', 'sku',
+        'quantity', 'stock_in_bar',   # ✅ added bar stock
+        'volume_per_unit_display', 'unit_display',
+        'alert_quantity', 'alert_status'
     )
     list_filter = ('hotel', 'unit', 'type')
     search_fields = ('name', 'sku')
     ordering = ('hotel', 'name')
 
-    # Use select_related if 'hotel' is ForeignKey and used frequently
     def get_queryset(self, request):
         qs = super().get_queryset(request)
         return qs.select_related('hotel')
@@ -74,7 +77,7 @@ class StockItemAdmin(admin.ModelAdmin):
 
     @admin.display(description='Status')
     def alert_status(self, obj):
-        return "⚠️ Low Stock" if obj.quantity < obj.alert_quantity else "✅ OK"
+        return "⚠️ Low Stock" if obj.total_available < obj.alert_quantity else "✅ OK"
 
 # --- Inline for StockInventory ---
 class StockInventoryInline(admin.TabularInline):
@@ -128,9 +131,25 @@ class StockAdmin(admin.ModelAdmin):
 # --- Admin for StockMovement ---
 @admin.register(StockMovement)
 class StockMovementAdmin(admin.ModelAdmin):
-    list_display = ('timestamp', 'hotel', 'stock', 'item', 'direction', 'quantity', 'staff')
-    list_filter = ('hotel', 'stock__category', 'direction', 'staff')
+    list_display = ('timestamp', 'hotel', 'item', 'direction', 'quantity', 'staff')
+    list_filter = ('hotel', 'direction', 'staff')
     search_fields = ('item__name',)
+    ordering = ('-timestamp',)
+
+    # default filters / autocomplete for speed
+    autocomplete_fields = ('item', 'staff')
+    list_select_related = ('hotel', 'item', 'staff')
+
+    # group form fields
+    fieldsets = (
+        (None, {
+            'fields': ('hotel', 'item', 'direction', 'quantity')
+        }),
+        ('Staff & Meta', {
+            'fields': ('staff',),
+            'classes': ('collapse',)
+        }),
+    )
 
 
 # --- Ingredient ---

@@ -54,9 +54,6 @@ class StockCategoryViewSet(viewsets.ModelViewSet):
 
 
 class StockItemViewSet(viewsets.ModelViewSet):
-    """
-    CRUD for StockItem.
-    """
     serializer_class = StockItemSerializer
     filterset_fields = ['hotel', 'sku', 'name', 'type']
     search_fields = ['name', 'sku']
@@ -70,49 +67,93 @@ class StockItemViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(hotel__slug=hotel_slug)
         return queryset
 
+    @action(detail=True, methods=['post'])
+    def move_to_bar(self, request, pk=None):
+        item = self.get_object()
+        qty = int(request.data.get('quantity', 0))
+        if qty <= 0:
+            return Response({"error": "Quantity must be > 0"}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=False, methods=['get'])
-    def low_stock(self, request, hotel_slug=None):
+        if item.quantity < qty:
+            return Response({"error": "Not enough stock in storage"}, status=status.HTTP_400_BAD_REQUEST)
+
+        item.quantity -= qty
+        item.stock_in_bar += qty
+        item.save(update_fields=['quantity', 'stock_in_bar'])
+
+        StockMovement.objects.create(
+            hotel=item.hotel,
+            stock=None,  # or assign default stock if needed
+            item=item,
+            staff=request.user,
+            direction=StockMovement.MOVE_TO_BAR,
+            quantity=qty
+        )
+        serializer = self.get_serializer(item)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def register_sale(self, request, pk=None):
+        item = self.get_object()
+        qty = int(request.data.get('quantity', 0))
+        if qty <= 0:
+            return Response({"error": "Quantity must be > 0"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if item.stock_in_bar < qty:
+            return Response({"error": "Not enough stock in bar"}, status=status.HTTP_400_BAD_REQUEST)
+
+        item.stock_in_bar -= qty
+        item.save(update_fields=['stock_in_bar'])
+
+        StockMovement.objects.create(
+            hotel=item.hotel,
+            stock=None,
+            item=item,
+            staff=request.user,
+            direction=StockMovement.SALE,
+            quantity=qty
+        )
+        serializer = self.get_serializer(item)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+    # ✅ Low stock action: only items below alert_quantity
+    @action(detail=False, methods=['get'], url_path='low_stock')
+    def low_stock(self, request, *args, **kwargs):
+        hotel_slug = kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return Response({"error": "Missing hotel_slug"}, status=400)
+
+        # Filter items where storage quantity is below alert_quantity
         low_items = StockItem.objects.filter(
             hotel__slug=hotel_slug,
-            quantity__lt=F('alert_quantity')
+            quantity__lt=F('alert_quantity')  # only items with less than alert threshold
         )
+
         serializer = self.get_serializer(low_items, many=True)
         return Response(serializer.data)
 
     @action(detail=True, methods=['post'])
-    def activate(self, request, pk=None, hotel_slug=None):
-        stock_item = self.get_object()
-        stock_id = request.data.get('stock_id')
-        quantity = request.data.get('quantity')
+    def register_waste(self, request, pk=None):
+        item = self.get_object()
+        qty = int(request.data.get('quantity', 0))
+        if qty <= 0:
+            return Response({"error": "Quantity must be > 0"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not stock_id:
-            return Response({"error": "Missing 'stock_id' in request data."},
-                            status=status.HTTP_400_BAD_REQUEST)
+        if item.stock_in_bar < qty:
+            return Response({"error": "Not enough stock in bar"}, status=status.HTTP_400_BAD_REQUEST)
 
-        try:
-            stock = Stock.objects.get(pk=stock_id, hotel=stock_item.hotel)
-        except Stock.DoesNotExist:
-            return Response({"error": "Stock not found or does not belong to this hotel."},
-                            status=status.HTTP_404_NOT_FOUND)
+        item.stock_in_bar -= qty
+        item.save(update_fields=['stock_in_bar'])
 
-        if quantity is None or int(quantity) == 0:
-            quantity = stock_item.quantity
-        else:
-            quantity = int(quantity)
-
-        stock_item.activate_stock_item(stock=stock, quantity=quantity)
-        serializer = self.get_serializer(stock_item)
-        return Response(serializer.data, status=status.HTTP_200_OK)
-
-    @action(detail=True, methods=['post'])
-    def deactivate(self, request, pk=None, hotel_slug=None):
-        """
-        Deactivate this stock item (remove from stock inventory).
-        """
-        stock_item = self.get_object()
-        stock_item.deactivate_stock_item()
-        serializer = self.get_serializer(stock_item)
+        StockMovement.objects.create(
+            hotel=item.hotel,
+            stock=None,
+            item=item,
+            staff=request.user,
+            direction=StockMovement.WASTE,
+            quantity=qty
+        )
+        serializer = self.get_serializer(item)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -153,10 +194,9 @@ class StockMovementViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         request = self.request
 
-        # hotel_slug from URL kwargs (not query params)
         hotel_slug = self.kwargs.get('hotel_slug')
         stock_id = request.query_params.get('stock')
-        direction = request.query_params.get('direction')  # 'in' or 'out'
+        direction = request.query_params.get('direction')  # 'in' or 'move_to_bar'
         date_str = request.query_params.get('date')
         staff_username = request.query_params.get('staff')
         item_name = request.query_params.get('item_name')
@@ -165,61 +205,64 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(hotel__slug=hotel_slug)
 
         if stock_id:
-            queryset = queryset.filter(stock__id=stock_id)
+            queryset = queryset.filter(item__stocks__id=stock_id)
 
-        if direction in ['in', 'out']:
+        if direction in [StockMovement.IN, StockMovement.MOVE_TO_BAR, StockMovement.SALE, StockMovement.WASTE]:
             queryset = queryset.filter(direction=direction)
 
         if date_str:
-            # Parse date (date only, no time)
-            date_obj = parse_date(date_str)
-            if not date_obj:
-                raise ValidationError({"date": "Invalid date format. Use YYYY-MM-DD."})
-
-            # Convert to datetime range: from start of the day to end of the day
+            date_obj = datetime.strptime(date_str, "%Y-%m-%d").date()
             start_dt = make_aware(datetime.combine(date_obj, datetime.min.time()))
             end_dt = start_dt + timedelta(days=1)
-
             queryset = queryset.filter(timestamp__gte=start_dt, timestamp__lt=end_dt)
-     
-        
+
         if staff_username:
             queryset = queryset.filter(staff__username=staff_username)
-            
-        if item_name:  # 🔸 NEW
+
+        if item_name:
             queryset = queryset.filter(item__name__icontains=item_name)
 
         return queryset
-    
+
     @action(detail=False, methods=['post'], url_path=r'bulk/')
     def bulk_stock_action(self, request, hotel_slug):
+        """
+        Bulk create StockMovements (only IN / MOVE_TO_BAR)
+        """
         transactions = request.data.get('transactions', [])
         created_movements = []
         low_stock_items = []
 
         for t in transactions:
             item = get_object_or_404(StockItem, pk=t['id'], hotel__slug=hotel_slug)
-            inventory = get_object_or_404(StockInventory, item=item, stock__hotel__slug=hotel_slug)
+            qty = Decimal(t['qty'])
+            direction = t['direction']
 
-            qty_change = Decimal(t['qty']) if t['direction'] == 'in' else -Decimal(t['qty'])
+            # Only allow IN or MOVE_TO_BAR for storage operations
+            if direction == StockMovement.IN:
+                item.quantity += qty
+            elif direction == StockMovement.MOVE_TO_BAR:
+                if item.quantity < qty:
+                    return Response(
+                        {"error": f"Not enough stock in storage for {item.name}"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                item.quantity -= qty
+                item.stock_in_bar += qty
+            else:
+                return Response({"error": f"Invalid direction: {direction}"}, status=status.HTTP_400_BAD_REQUEST)
 
-            inventory.quantity += qty_change
-            inventory.save()
+            item.save(update_fields=['quantity', 'stock_in_bar'])
 
-            item.quantity += qty_change
-            item.save()
-
-            if item.quantity < item.alert_quantity:
+            if item.total_available < item.alert_quantity:
                 low_stock_items.append(item)
 
-            # This will trigger the post_save signal
             movement = StockMovement.objects.create(
-                hotel=inventory.stock.hotel,
-                stock=inventory.stock,
+                hotel=item.hotel,
                 item=item,
                 staff=request.user,
-                direction=t['direction'],
-                quantity=Decimal(t['qty'])
+                direction=direction,
+                quantity=qty
             )
             created_movements.append(movement)
 
@@ -227,7 +270,6 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             "movements": StockMovementSerializer(created_movements, many=True).data,
             "low_stock_alerts": StockItemSerializer(low_stock_items, many=True).data
         }, status=status.HTTP_201_CREATED)
-
 
 # --- Ingredient ---
 class IngredientViewSet(viewsets.ModelViewSet):
@@ -285,21 +327,67 @@ class IngredientUsageView(APIView):
 
 class StockAnalyticsView(APIView):
     """
-    Returns stock analytics per item for a hotel in a given period.
-    Opening stock = stock on the start date.
+    Returns STORAGE stock analytics per item for a hotel in a given period.
+    Opening stock = stock at the start date (storage only).
     """
+
     def get(self, request, hotel_slug):
         start_date = request.query_params.get("start_date")
         end_date = request.query_params.get("end_date")
-        changed_only = request.query_params.get("changed_only") == "true"
+        changed_only = str(request.query_params.get("changed_only")).lower() == "true"
 
         if not start_date or not end_date:
             return Response({"error": "start_date and end_date are required"}, status=400)
 
-        data = get_hotel_analytics(hotel_slug, start_date, end_date, changed_only)
+        start_dt = make_aware(datetime.strptime(start_date, "%Y-%m-%d"))
+        end_dt = make_aware(datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1))
 
-        serializer = StockAnalyticsSerializer(data, many=True)
-        return Response(serializer.data)
+        items = StockItem.objects.filter(hotel__slug=hotel_slug)
+        analytics = []
+
+        for item in items:
+            # Opening stock: all IN before start - all moved_to_bar before start
+            opening_in = item.movements.filter(
+                direction=item.movements.model.IN,
+                timestamp__lt=start_dt
+            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+            opening_moved_to_bar = item.movements.filter(
+                direction=item.movements.model.MOVE_TO_BAR,
+                timestamp__lt=start_dt
+            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+            opening_stock = opening_in - opening_moved_to_bar
+
+            # Movements during the period
+            added = item.movements.filter(
+                direction=item.movements.model.IN,
+                timestamp__gte=start_dt,
+                timestamp__lt=end_dt
+            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+            moved_to_bar = item.movements.filter(
+                direction=item.movements.model.MOVE_TO_BAR,
+                timestamp__gte=start_dt,
+                timestamp__lt=end_dt
+            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+            # Closing = opening + added - moved_to_bar
+            closing_stock = opening_stock + added - moved_to_bar
+
+            if changed_only and added == 0 and moved_to_bar == 0:
+                continue  # skip unchanged
+
+            analytics.append({
+                "item_id": item.id,
+                "item_name": item.name,
+                "opening_stock": opening_stock,
+                "added": added,
+                "moved_to_bar": moved_to_bar,
+                "closing_stock": closing_stock,
+            })
+
+        return Response(analytics)
 
 class StockItemTypeViewSet(viewsets.ModelViewSet):
     """
@@ -310,5 +398,5 @@ class StockItemTypeViewSet(viewsets.ModelViewSet):
     filterset_fields = ["name", "slug"]
     search_fields = ["name", "slug"]
     ordering_fields = ["name", "slug"]
-    pagination_class = None  # No pagination for types
-    
+    pagination_class = None
+

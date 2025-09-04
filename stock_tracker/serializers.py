@@ -1,11 +1,12 @@
 from rest_framework import serializers
 from .models import StockCategory, StockItem, Stock, StockInventory, StockItemType, StockMovement
-from staff.serializers import StaffSerializer  # Assuming you have a StaffSerializer defined
+from staff.serializers import StaffSerializer
 
 class StockCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = StockCategory
         fields = ['id', 'hotel', 'name', 'slug']
+
 
 class StockItemSerializer(serializers.ModelSerializer):
     is_below_alert = serializers.SerializerMethodField()
@@ -13,6 +14,8 @@ class StockItemSerializer(serializers.ModelSerializer):
         max_digits=10, decimal_places=2, required=False, allow_null=True
     )
     type = serializers.SerializerMethodField()
+    total_available = serializers.SerializerMethodField()
+
     class Meta:
         model = StockItem
         fields = [
@@ -22,18 +25,23 @@ class StockItemSerializer(serializers.ModelSerializer):
             'sku',
             'active_stock_item', 
             'quantity',
-            'alert_quantity',  # NEW FIELD
+            'stock_in_bar',
+            'total_available',
+            'alert_quantity',
             'is_below_alert',
             'volume_per_unit',
             'unit',
-            'type'
+            'type',
         ]
 
     def get_is_below_alert(self, obj):
-        return obj.quantity < obj.alert_quantity
-    
+        return obj.total_available < obj.alert_quantity
+
     def get_type(self, obj):
         return obj.type.name if obj.type else None
+
+    def get_total_available(self, obj):
+        return obj.total_available
 
 
 class StockInventorySerializer(serializers.ModelSerializer):
@@ -47,6 +55,8 @@ class StockInventorySerializer(serializers.ModelSerializer):
     class Meta:
         model = StockInventory
         fields = ['item', 'item_id', 'quantity']
+
+
 class StockSerializer(serializers.ModelSerializer):
     # drop `source=`—DRF will use the field name by default
     inventory_lines = StockInventorySerializer(
@@ -83,43 +93,53 @@ class StockSerializer(serializers.ModelSerializer):
             )
         return instance
 
+
 class StockMovementSerializer(serializers.ModelSerializer):
     staff_name = serializers.SerializerMethodField()
-    item = serializers.SerializerMethodField()  # or a nested serializer returning name
+    item = serializers.SerializerMethodField()
 
     class Meta:
         model = StockMovement
-        fields = ['id', 'hotel', 'stock', 'item', 'staff_name', 'direction', 'quantity', 'timestamp']
+        fields = [
+            'id',
+            'hotel',
+            'item',
+            'staff_name',
+            'direction',
+            'quantity',
+            'timestamp',
+        ]
 
     def get_staff_name(self, obj):
         staff = obj.staff
         if not staff:
             return "—"
 
-        # If 'staff' is a User instance (has no attribute 'user'), use username directly
+        # User instance directly
         if hasattr(staff, 'username') and not hasattr(staff, 'user'):
-            # staff is already a User instance
             return staff.username or "—"
 
-        # If staff is Staff instance
+        # Staff model with first/last name
         full_name = f"{getattr(staff, 'first_name', '')} {getattr(staff, 'last_name', '')}".strip()
         if full_name:
             return full_name
 
-        # fallback to related user username if exists
+        # fallback → related user.username
         user = getattr(staff, 'user', None)
         if user and hasattr(user, 'username'):
             return user.username
 
         return "—"
 
-    
-
     def get_item(self, obj):
-        # Return only the name of the item, or a dict with name
         if obj.item:
-            return {"name": obj.item.name}
-        return {"name": "—"}
+            return {
+                "id": obj.item.id,
+                "name": obj.item.name,
+                "quantity_storage": obj.item.quantity,
+                "quantity_bar": obj.item.stock_in_bar,  # ✅ NEW
+            }
+        return {"id": None, "name": "—"}
 
 
 class StockAnalyticsSerializer(serializers.Serializer):
@@ -127,8 +147,9 @@ class StockAnalyticsSerializer(serializers.Serializer):
     item_name = serializers.CharField()
     opening_stock = serializers.DecimalField(max_digits=10, decimal_places=2)
     added = serializers.DecimalField(max_digits=10, decimal_places=2)
-    removed = serializers.DecimalField(max_digits=10, decimal_places=2)
+    moved_to_bar = serializers.DecimalField(max_digits=10, decimal_places=2)
     closing_stock = serializers.DecimalField(max_digits=10, decimal_places=2)
+
 
 class StockItemTypeSerializer(serializers.ModelSerializer):
     class Meta:
