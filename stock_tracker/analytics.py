@@ -100,20 +100,28 @@ def get_movements(item, start_dt, end_dt):
     return agg['added'] or 0, total_removed
 
 def get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only=True):
-    opening_stock = get_opening_stock(item, hotel_slug, start_dt)
-    added, removed = get_movements(item, start_dt, end_dt)
-    closing_stock = opening_stock + added - removed
+    opening_storage, opening_bar = get_opening_storage_and_bar(item, start_dt)
+    movements = get_period_movements(item, start_dt, end_dt)
 
-    if changed_only and added == 0 and removed == 0:
+    closing_storage = opening_storage + movements["added"] - movements["moved_to_bar"]
+    closing_bar = opening_bar + movements["moved_to_bar"] - (movements["sales"] + movements["waste"])
+    total_closing_stock = closing_storage + closing_bar  # ✅ total hotel stock
+
+    if changed_only and all(v == 0 for v in movements.values()):
         return None
 
     return {
         "item_id": item.id,
         "item_name": item.name,
-        "opening_stock": opening_stock,
-        "added": added,
-        "removed": removed,
-        "closing_stock": closing_stock
+        "opening_storage": opening_storage,
+        "opening_bar": opening_bar,
+        "added": movements["added"],
+        "moved_to_bar": movements["moved_to_bar"],
+        "sales": movements["sales"],
+        "waste": movements["waste"],
+        "closing_storage": closing_storage,
+        "closing_bar": closing_bar,
+        "total_closing_stock": total_closing_stock,  # send total to frontend
     }
 
 
@@ -123,3 +131,80 @@ def get_hotel_analytics(hotel_slug, start_date, end_date, changed_only=True):
 
     data = [get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only) for item in items]
     return [d for d in data if d is not None]
+
+def get_opening_storage_and_bar(item, start_dt):
+    """Return opening storage and bar stock at start_dt."""
+
+    # STORAGE opening
+    opening_in = item.movements.filter(
+        direction=StockMovement.IN,
+        timestamp__lt=start_dt
+    ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+    opening_moved_to_bar = item.movements.filter(
+        direction=StockMovement.MOVE_TO_BAR,
+        timestamp__lt=start_dt
+    ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+    opening_storage = opening_in - opening_moved_to_bar
+
+    # BAR opening
+    opening_sales = item.movements.filter(
+        direction=StockMovement.SALE,
+        timestamp__lt=start_dt
+    ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+    opening_waste = item.movements.filter(
+        direction=StockMovement.WASTE,
+        timestamp__lt=start_dt
+    ).aggregate(Sum("quantity"))["quantity__sum"] or 0
+
+    opening_bar = opening_moved_to_bar - (opening_sales + opening_waste)
+
+    return opening_storage, opening_bar
+
+
+def get_period_movements(item, start_dt, end_dt):
+    """Return all movements split by type within the period."""
+
+    agg = item.movements.filter(
+        timestamp__gte=start_dt,
+        timestamp__lt=end_dt
+    ).aggregate(
+        added=Sum("quantity", filter=Q(direction=StockMovement.IN)),
+        moved_to_bar=Sum("quantity", filter=Q(direction=StockMovement.MOVE_TO_BAR)),
+        sales=Sum("quantity", filter=Q(direction=StockMovement.SALE)),
+        waste=Sum("quantity", filter=Q(direction=StockMovement.WASTE)),
+    )
+
+    return {
+        "added": agg["added"] or 0,
+        "moved_to_bar": agg["moved_to_bar"] or 0,
+        "sales": agg["sales"] or 0,
+        "waste": agg["waste"] or 0,
+    }
+
+
+def get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only=True):
+    opening_storage, opening_bar = get_opening_storage_and_bar(item, start_dt)
+    movements = get_period_movements(item, start_dt, end_dt)
+
+    closing_storage = opening_storage + movements["added"] - movements["moved_to_bar"]
+    closing_bar = opening_bar + movements["moved_to_bar"] - (movements["sales"] + movements["waste"])
+
+    if changed_only and all(v == 0 for v in movements.values()):
+        return None
+
+    return {
+        "item_id": item.id,
+        "item_name": item.name,
+        "opening_storage": opening_storage,
+        "opening_bar": opening_bar,
+        "added": movements["added"],
+        "moved_to_bar": movements["moved_to_bar"],
+        "sales": movements["sales"],
+        "waste": movements["waste"],
+        "closing_storage": closing_storage,
+        "closing_bar": closing_bar,
+        "total_closing_stock": closing_storage + closing_bar,
+    }

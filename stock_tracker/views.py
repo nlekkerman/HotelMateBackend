@@ -10,7 +10,7 @@ from django.utils.dateparse import parse_date
 from django.utils.timezone import make_aware
 from datetime import datetime, timedelta
 from rest_framework.views import APIView
-from .analytics import get_hotel_analytics, ingredient_usage
+from .analytics import get_hotel_analytics, ingredient_usage, get_item_analytics, parse_dates
 from .models import (StockCategory, StockItem, Stock, StockItemType,
                      StockMovement, StockInventory, Ingredient, CocktailRecipe,
                      RecipeIngredient, CocktailConsumption)
@@ -327,8 +327,8 @@ class IngredientUsageView(APIView):
 
 class StockAnalyticsView(APIView):
     """
-    Returns STORAGE stock analytics per item for a hotel in a given period.
-    Opening stock = stock at the start date (storage only).
+    Returns STORAGE and BAR stock analytics per item for a hotel in a given period.
+    Includes opening, added, moved_to_bar, sales, waste, closing storage, closing bar, and total stock.
     """
 
     def get(self, request, hotel_slug):
@@ -339,55 +339,18 @@ class StockAnalyticsView(APIView):
         if not start_date or not end_date:
             return Response({"error": "start_date and end_date are required"}, status=400)
 
-        start_dt = make_aware(datetime.strptime(start_date, "%Y-%m-%d"))
-        end_dt = make_aware(datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1))
-
+        start_dt, end_dt = parse_dates(start_date, end_date)
         items = StockItem.objects.filter(hotel__slug=hotel_slug)
+
         analytics = []
-
         for item in items:
-            # Opening stock: all IN before start - all moved_to_bar before start
-            opening_in = item.movements.filter(
-                direction=item.movements.model.IN,
-                timestamp__lt=start_dt
-            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
-
-            opening_moved_to_bar = item.movements.filter(
-                direction=item.movements.model.MOVE_TO_BAR,
-                timestamp__lt=start_dt
-            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
-
-            opening_stock = opening_in - opening_moved_to_bar
-
-            # Movements during the period
-            added = item.movements.filter(
-                direction=item.movements.model.IN,
-                timestamp__gte=start_dt,
-                timestamp__lt=end_dt
-            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
-
-            moved_to_bar = item.movements.filter(
-                direction=item.movements.model.MOVE_TO_BAR,
-                timestamp__gte=start_dt,
-                timestamp__lt=end_dt
-            ).aggregate(Sum("quantity"))["quantity__sum"] or 0
-
-            # Closing = opening + added - moved_to_bar
-            closing_stock = opening_stock + added - moved_to_bar
-
-            if changed_only and added == 0 and moved_to_bar == 0:
-                continue  # skip unchanged
-
-            analytics.append({
-                "item_id": item.id,
-                "item_name": item.name,
-                "opening_stock": opening_stock,
-                "added": added,
-                "moved_to_bar": moved_to_bar,
-                "closing_stock": closing_stock,
-            })
+            # Use analytics helper for clean calculation
+            item_data = get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only)
+            if item_data:
+                analytics.append(item_data)
 
         return Response(analytics)
+
 
 class StockItemTypeViewSet(viewsets.ModelViewSet):
     """

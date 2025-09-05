@@ -145,10 +145,15 @@ class StockMovementSerializer(serializers.ModelSerializer):
 class StockAnalyticsSerializer(serializers.Serializer):
     item_id = serializers.IntegerField()
     item_name = serializers.CharField()
-    opening_stock = serializers.DecimalField(max_digits=10, decimal_places=2)
+    opening_storage = serializers.DecimalField(max_digits=10, decimal_places=2)
+    opening_bar = serializers.DecimalField(max_digits=10, decimal_places=2)
     added = serializers.DecimalField(max_digits=10, decimal_places=2)
     moved_to_bar = serializers.DecimalField(max_digits=10, decimal_places=2)
-    closing_stock = serializers.DecimalField(max_digits=10, decimal_places=2)
+    sales = serializers.DecimalField(max_digits=10, decimal_places=2)
+    waste = serializers.DecimalField(max_digits=10, decimal_places=2)
+    closing_storage = serializers.DecimalField(max_digits=10, decimal_places=2)
+    closing_bar = serializers.DecimalField(max_digits=10, decimal_places=2)
+    total_closing_stock = serializers.DecimalField(max_digits=10, decimal_places=2)
 
 
 class StockItemTypeSerializer(serializers.ModelSerializer):
