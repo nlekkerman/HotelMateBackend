@@ -8,7 +8,7 @@ from chat.utils import pusher_client
 from rest_framework.pagination import PageNumberPagination
 from django.utils.text import slugify
 from staff.models import Staff
-from .models import (Booking, BookingCategory,
+from .models import (Booking, BookingCategory, BookingTable,
                      RestaurantBlueprint,
                      Restaurant, BookingSubcategory,
                      DiningTable, BlueprintObjectType)
@@ -65,22 +65,45 @@ class GuestDinnerBookingView(APIView):
       • POST /create a new dinner booking for a given hotel/restaurant/room with table selection
     """
     permission_classes = [AllowAny]
-
-    def get(self, request, hotel_slug):
+    pagination_class = NoPagination
+    
+    def get(self, request, hotel_slug, restaurant_slug=None):
         try:
             hotel = Hotel.objects.get(slug=hotel_slug)
         except Hotel.DoesNotExist:
-            return Response({"detail": f"Hotel with slug '{hotel_slug}' not found."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"detail": f"Hotel with slug '{hotel_slug}' not found."},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         try:
             dinner_sub = BookingSubcategory.objects.get(name__iexact="dinner", hotel=hotel)
             dinner_cat = BookingCategory.objects.get(subcategory=dinner_sub, hotel=hotel)
         except (BookingSubcategory.DoesNotExist, BookingCategory.DoesNotExist):
-            return Response({"detail": "Dinner booking category or subcategory is not configured for this hotel."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"detail": "Dinner booking category or subcategory is not configured for this hotel."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        qs = Booking.objects.filter(category=dinner_cat, date__gte=today).select_related(
-            "hotel", "category__subcategory", "restaurant", "seats", "room"
-        )
+        # ✅ Parse ?date=YYYY-MM-DD (defaults to today)
+        date_str = request.query_params.get("date")
+        if date_str:
+            try:
+                filter_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+        else:
+            filter_date = today
+
+        qs = Booking.objects.filter(
+            category=dinner_cat,
+            date=filter_date
+        ).select_related("hotel", "category__subcategory", "restaurant", "seats", "room", "guest")
+
+        # ✅ Restrict to a single restaurant if provided
+        if restaurant_slug:
+            qs = qs.filter(restaurant__slug=restaurant_slug)
+
         serializer = BookingSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
@@ -440,8 +463,9 @@ class AvailableTablesView(APIView):
         serializer = DiningTableSerializer(available_tables, many=True)
         return Response(serializer.data)
 
+
 @api_view(["POST"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def mark_bookings_seen(request, hotel_slug):
     """
     Marks all unseen dinner bookings as seen for a hotel.
@@ -459,3 +483,36 @@ def mark_bookings_seen(request, hotel_slug):
     pusher_client.trigger(channel_name, "bookings-seen", {"updated": updated_count})
 
     return Response({"marked_seen": updated_count})
+
+
+class AssignGuestToTableAPIView(APIView):
+    permission_classes = []  # Or IsAuthenticated if you want
+
+    def post(self, request, hotel_slug, restaurant_slug):
+        try:
+            booking_id = request.data.get("booking_id")
+            table_id = request.data.get("table_id")
+
+            # Ensure booking and table exist
+            booking = get_object_or_404(Booking, pk=booking_id)
+            table = get_object_or_404(DiningTable, pk=table_id)
+
+            # Connect booking to table
+            assignment, created = BookingTable.objects.get_or_create(
+                booking=booking,
+                table=table
+            )
+
+            return Response({
+                "success": True,
+                "booking_id": booking.id,
+                "table_code": table.code,
+                "assigned": created
+            })
+
+        except Exception as e:
+            logger.exception("Failed to assign booking to table")
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

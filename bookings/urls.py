@@ -1,6 +1,7 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
+    AssignGuestToTableAPIView,
     BookingViewSet,
     BookingCategoryViewSet,
     GuestDinnerBookingView,
@@ -94,8 +95,13 @@ urlpatterns = [
         name='available-tables'
     ),
     path(
-        'bookings/mark-seen/<str:hotel_slug>/',
+        'mark-seen/<str:hotel_slug>/',
         mark_bookings_seen,
         name='mark-bookings-seen'
+    ),
+    path(
+        'assign/<str:hotel_slug>/<str:restaurant_slug>/',
+        AssignGuestToTableAPIView.as_view(),
+        name='assign-guest-to-table'
     ),
 ]

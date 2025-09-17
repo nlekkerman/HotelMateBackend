@@ -12,7 +12,9 @@ from .models import (
     Ingredient,
     CocktailRecipe,
     RecipeIngredient,
-    CocktailConsumption
+    CocktailConsumption,
+    StockPeriod,
+    StockPeriodItem
 )
 
 @admin.register(StockItemType)
@@ -176,6 +178,7 @@ class CocktailRecipeAdmin(admin.ModelAdmin):
     ordering = ('name',)
     inlines = (RecipeIngredientInline,)
 
+
 # --- CocktailConsumption ---
 @admin.register(CocktailConsumption)
 class CocktailConsumptionAdmin(admin.ModelAdmin):
@@ -183,3 +186,14 @@ class CocktailConsumptionAdmin(admin.ModelAdmin):
     list_filter = ('cocktail', 'timestamp', 'cocktail__hotel')  # filter by cocktail's hotel
     search_fields = ('cocktail__name',)
     ordering = ('-timestamp',)
+
+
+class StockPeriodItemInline(admin.TabularInline):
+    model = StockPeriodItem
+    extra = 0
+
+
+@admin.register(StockPeriod)
+class StockPeriodAdmin(admin.ModelAdmin):
+    list_display = ("hotel", "start_date", "end_date", "created_at")
+    inlines = [StockPeriodItemInline]

@@ -4,6 +4,7 @@ from .views import (
     StockCategoryViewSet,
     StockItemTypeViewSet,
     StockItemViewSet,
+    StockPeriodViewSet,
     StockViewSet,
     StockMovementViewSet,
     IngredientViewSet,
@@ -187,6 +188,16 @@ urlpatterns = [
         '<slug:hotel_slug>/item-types/<int:pk>/',
         stock_itemtype_detail,
         name='stockitemtype-detail'
+    ),
+    path(
+        "<slug:hotel_slug>/stock-periods/",
+        StockPeriodViewSet.as_view({"get": "list", "post": "create"}),
+        name="stock-periods-list",
+    ),
+    path(
+        "<slug:hotel_slug>/stock-periods/<int:pk>/",
+        StockPeriodViewSet.as_view({"get": "retrieve", "put": "update", "delete": "destroy"}),
+        name="stock-periods-detail",
     ),
 
 ]

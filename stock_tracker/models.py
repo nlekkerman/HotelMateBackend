@@ -278,3 +278,54 @@ class CocktailConsumption(models.Model):
             total_qty = ri.quantity_per_cocktail * self.quantity_made
             usage[ri.ingredient.name] = (total_qty, ri.ingredient.unit)
         return usage
+
+
+class StockPeriod(models.Model):
+    PERIOD_CHOICES = [
+        ('week', 'Weekly'),
+        ('month', 'Monthly'),
+        ('half_year', 'Half-Yearly'),
+        ('year', 'Yearly'),
+    ]
+
+    hotel = models.ForeignKey("hotel.Hotel", on_delete=models.CASCADE)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    period_type = models.CharField(max_length=20, choices=PERIOD_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("hotel", "start_date", "end_date")
+
+    def __str__(self):
+        return f"{self.hotel.name} – {self.start_date} → {self.end_date} ({self.get_period_type_display()})"
+   
+
+class StockPeriodItem(models.Model):
+    period = models.ForeignKey(
+        StockPeriod,
+        on_delete=models.CASCADE,
+        related_name="items"
+    )
+    item = models.ForeignKey("StockItem", on_delete=models.CASCADE)
+
+    # Stock at the beginning
+    opening_storage = models.IntegerField(default=0)
+    opening_bar = models.IntegerField(default=0)
+
+    # Stock movements
+    added = models.IntegerField(default=0)
+    moved_to_bar = models.IntegerField(default=0)
+    sales = models.IntegerField(default=0)
+    waste = models.IntegerField(default=0)
+
+    # Stock at the end
+    closing_storage = models.IntegerField(default=0)
+    closing_bar = models.IntegerField(default=0)
+    total_closing_stock = models.IntegerField(default=0)
+
+    class Meta:
+        unique_together = ("period", "item")
+
+    def __str__(self):
+        return f"{self.item.name} in {self.period}"

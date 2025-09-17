@@ -90,7 +90,7 @@ class BookingSerializer(serializers.ModelSerializer):
     seats = SeatsSerializer(read_only=True)
     room = RoomSerializer(read_only=True)
     guest = GuestSerializer(read_only=True)
-  
+    booking_tables = BookingTableSerializer(many=True, read_only=True)
 
     class Meta:
         model = Booking
@@ -110,7 +110,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "room",
             "guest",
             "seen",
-            
+            "booking_tables",
         ]
 
 # -------------------------

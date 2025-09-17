@@ -1,19 +1,55 @@
-from datetime import datetime, timedelta
+from datetime import date, timedelta
+import calendar
 from django.db.models import Sum, Q
-
-from .models import CocktailConsumption, StockItem, StockInventory, StockMovement
-
+from .models import CocktailConsumption, StockItem, StockMovement
 
 
-def ingredient_usage(hotel_id=None):
+# ----------------------
+# PERIOD HELPERS
+# ----------------------
+def get_period_dates(period_type: str, reference_date=None):
+    reference_date = reference_date or date.today()
+
+    if period_type == "week":
+        start = reference_date - timedelta(days=reference_date.weekday())
+        end = start + timedelta(days=6)
+    elif period_type == "month":
+        start = reference_date.replace(day=1)
+        last_day = calendar.monthrange(reference_date.year, reference_date.month)[1]
+        end = reference_date.replace(day=last_day)
+    elif period_type == "half_year":
+        if reference_date.month <= 6:
+            start = date(reference_date.year, 1, 1)
+            end = date(reference_date.year, 6, 30)
+        else:
+            start = date(reference_date.year, 7, 1)
+            end = date(reference_date.year, 12, 31)
+    elif period_type == "year":
+        start = date(reference_date.year, 1, 1)
+        end = date(reference_date.year, 12, 31)
+    else:
+        raise ValueError("Unknown period type")
+
+    return start, end
+
+
+# ----------------------
+# INGREDIENT USAGE
+# ----------------------
+def ingredient_usage(hotel_id=None, period_type=None, reference_date=None):
     """
-    Returns total ingredient usage, optionally filtered by hotel, with units.
+    Returns total ingredient usage in a period, optionally filtered by hotel.
     """
     usage_totals = {}
     consumptions = CocktailConsumption.objects.all()
 
     if hotel_id:
         consumptions = consumptions.filter(hotel_id=hotel_id)
+
+    if period_type:
+        start_dt, end_dt = get_period_dates(period_type, reference_date)
+        # filter by timestamp in period
+        consumptions = consumptions.filter(timestamp__date__gte=start_dt, timestamp__date__lte=end_dt)
 
     for c in consumptions:
         for ri in c.cocktail.ingredients.all():
@@ -25,6 +61,7 @@ def ingredient_usage(hotel_id=None):
 
     return usage_totals
 
+
 def convert_units(usage: dict) -> dict:
     converted = {}
     for name, (qty, unit) in usage.items():
@@ -34,142 +71,47 @@ def convert_units(usage: dict) -> dict:
         elif unit == "g" and qty >= 1000:
             qty /= 1000
             unit = "kg"
-        # remove leading zero and trailing .00 if present
         qty_str = f"{qty:.2f}".lstrip("0").rstrip("0").rstrip(".")
         converted[name] = f"{qty_str} {unit}"
     return converted
 
-def parse_dates(start_date, end_date):
-    start_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    end_dt = datetime.strptime(end_date, "%Y-%m-%d") + timedelta(days=1)
-    return start_dt, end_dt
 
-def get_opening_stock(item, hotel_slug, start_dt):
-    """
-    Opening stock = stock quantity at start date
-    """
-    # Sum all 'in' before start_dt
-    added = StockMovement.objects.filter(
-        item=item,
-        direction=StockMovement.IN,
-        timestamp__lt=start_dt
-    ).aggregate(total=Sum('quantity'))['total'] or 0
-
-    # Subtract all removals before start_dt
-    removed_storage_to_bar = StockMovement.objects.filter(
-        item=item,
-        direction=StockMovement.MOVE_TO_BAR,
-        timestamp__lt=start_dt
-    ).aggregate(total=Sum('quantity'))['total'] or 0
-
-    removed_bar_sale = StockMovement.objects.filter(
-        item=item,
-        direction=StockMovement.SALE,
-        timestamp__lt=start_dt
-    ).aggregate(total=Sum('quantity'))['total'] or 0
-
-    removed_bar_waste = StockMovement.objects.filter(
-        item=item,
-        direction=StockMovement.WASTE,
-        timestamp__lt=start_dt
-    ).aggregate(total=Sum('quantity'))['total'] or 0
-
-    total_removed = removed_storage_to_bar + removed_bar_sale + removed_bar_waste
-
-    return added - total_removed
-
-def get_movements(item, start_dt, end_dt):
-    """Return total added and removed quantities for an item in the period"""
-    agg = StockMovement.objects.filter(
-        item=item,
-        timestamp__gte=start_dt,
-        timestamp__lt=end_dt
-    ).aggregate(
-        added=Sum('quantity', filter=Q(direction=StockMovement.IN)),
-        removed_storage_to_bar=Sum('quantity', filter=Q(direction=StockMovement.MOVE_TO_BAR)),
-        removed_bar_sale=Sum('quantity', filter=Q(direction=StockMovement.SALE)),
-        removed_bar_waste=Sum('quantity', filter=Q(direction=StockMovement.WASTE))
-    )
-
-    total_removed = (
-        (agg['removed_storage_to_bar'] or 0) +
-        (agg['removed_bar_sale'] or 0) +
-        (agg['removed_bar_waste'] or 0)
-    )
-
-    return agg['added'] or 0, total_removed
-
-def get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only=True):
-    opening_storage, opening_bar = get_opening_storage_and_bar(item, start_dt)
-    movements = get_period_movements(item, start_dt, end_dt)
-
-    closing_storage = opening_storage + movements["added"] - movements["moved_to_bar"]
-    closing_bar = opening_bar + movements["moved_to_bar"] - (movements["sales"] + movements["waste"])
-    total_closing_stock = closing_storage + closing_bar  # ✅ total hotel stock
-
-    if changed_only and all(v == 0 for v in movements.values()):
-        return None
-
-    return {
-        "item_id": item.id,
-        "item_name": item.name,
-        "opening_storage": opening_storage,
-        "opening_bar": opening_bar,
-        "added": movements["added"],
-        "moved_to_bar": movements["moved_to_bar"],
-        "sales": movements["sales"],
-        "waste": movements["waste"],
-        "closing_storage": closing_storage,
-        "closing_bar": closing_bar,
-        "total_closing_stock": total_closing_stock,  # send total to frontend
-    }
-
-
-def get_hotel_analytics(hotel_slug, start_date, end_date, changed_only=True):
-    start_dt, end_dt = parse_dates(start_date, end_date)
-    items = StockItem.objects.filter(hotel__slug=hotel_slug)
-
-    data = [get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only) for item in items]
-    return [d for d in data if d is not None]
-
+# ----------------------
+# STOCK ANALYTICS
+# ----------------------
 def get_opening_storage_and_bar(item, start_dt):
-    """Return opening storage and bar stock at start_dt."""
-
-    # STORAGE opening
+    """Return opening storage and bar stock at the start of a period."""
     opening_in = item.movements.filter(
         direction=StockMovement.IN,
         timestamp__lt=start_dt
     ).aggregate(Sum("quantity"))["quantity__sum"] or 0
 
-    opening_moved_to_bar = item.movements.filter(
+    moved_to_bar = item.movements.filter(
         direction=StockMovement.MOVE_TO_BAR,
         timestamp__lt=start_dt
     ).aggregate(Sum("quantity"))["quantity__sum"] or 0
 
-    opening_storage = opening_in - opening_moved_to_bar
-
-    # BAR opening
-    opening_sales = item.movements.filter(
+    sales = item.movements.filter(
         direction=StockMovement.SALE,
         timestamp__lt=start_dt
     ).aggregate(Sum("quantity"))["quantity__sum"] or 0
 
-    opening_waste = item.movements.filter(
+    waste = item.movements.filter(
         direction=StockMovement.WASTE,
         timestamp__lt=start_dt
     ).aggregate(Sum("quantity"))["quantity__sum"] or 0
 
-    opening_bar = opening_moved_to_bar - (opening_sales + opening_waste)
+    opening_storage = opening_in - moved_to_bar
+    opening_bar = moved_to_bar - (sales + waste)
 
     return opening_storage, opening_bar
 
 
 def get_period_movements(item, start_dt, end_dt):
     """Return all movements split by type within the period."""
-
     agg = item.movements.filter(
         timestamp__gte=start_dt,
-        timestamp__lt=end_dt
+        timestamp__lte=end_dt
     ).aggregate(
         added=Sum("quantity", filter=Q(direction=StockMovement.IN)),
         moved_to_bar=Sum("quantity", filter=Q(direction=StockMovement.MOVE_TO_BAR)),
@@ -185,26 +127,81 @@ def get_period_movements(item, start_dt, end_dt):
     }
 
 
-def get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only=True):
-    opening_storage, opening_bar = get_opening_storage_and_bar(item, start_dt)
+def get_opening_balances(item, start_dt):
+    """Return opening balances before the period (all movements < start_dt)."""
+    agg = item.movements.filter(
+        timestamp__lt=start_dt
+    ).aggregate(
+        added=Sum("quantity", filter=Q(direction=StockMovement.IN)),
+        moved_to_bar=Sum("quantity", filter=Q(direction=StockMovement.MOVE_TO_BAR)),
+        sales=Sum("quantity", filter=Q(direction=StockMovement.SALE)),
+        waste=Sum("quantity", filter=Q(direction=StockMovement.WASTE)),
+    )
+
+    opening_storage = (agg["added"] or 0) - (agg["moved_to_bar"] or 0)
+    opening_bar = (agg["moved_to_bar"] or 0) - ((agg["sales"] or 0) + (agg["waste"] or 0))
+
+    return opening_storage, opening_bar
+
+# ----------------------
+# STOCK ANALYTICS
+# ----------------------
+def calculate_item_snapshot(item, start_dt, end_dt):
+    """Calculate full stock snapshot for an item in a given period."""
+    opening_storage, opening_bar = get_opening_balances(item, start_dt)
     movements = get_period_movements(item, start_dt, end_dt)
 
     closing_storage = opening_storage + movements["added"] - movements["moved_to_bar"]
-    closing_bar = opening_bar + movements["moved_to_bar"] - (movements["sales"] + movements["waste"])
+    closing_bar = opening_bar + movements["moved_to_bar"] - (
+        movements["sales"] + movements["waste"]
+    )
 
-    if changed_only and all(v == 0 for v in movements.values()):
-        return None
+    # 🔍 Debugging
+    print(f"Item: {item.name} (ID: {item.id})")
+    print("Opening:", opening_storage, opening_bar)
+    print("Movements:", movements)
+    print("Closing:", closing_storage, closing_bar)
+    print("-" * 40)
 
     return {
         "item_id": item.id,
         "item_name": item.name,
         "opening_storage": opening_storage,
         "opening_bar": opening_bar,
-        "added": movements["added"],
-        "moved_to_bar": movements["moved_to_bar"],
-        "sales": movements["sales"],
-        "waste": movements["waste"],
+        **movements,
         "closing_storage": closing_storage,
         "closing_bar": closing_bar,
         "total_closing_stock": closing_storage + closing_bar,
     }
+
+
+def get_hotel_analytics(hotel_slug, period_type=None, reference_date=None, changed_only=True):
+    """Return analytics for all items in a hotel for a given period."""
+    if period_type:
+        start_dt, end_dt = get_period_dates(period_type, reference_date)
+    else:
+        start_dt = end_dt = None  # fallback
+
+    items = StockItem.objects.filter(hotel__slug=hotel_slug)
+    data = [
+        calculate_item_snapshot(item, start_dt, end_dt)
+        for item in items
+    ]
+
+    if changed_only:
+        data = [
+            d for d in data
+            if any(d[k] > 0 for k in ["added", "moved_to_bar", "sales", "waste"])
+        ]
+    return data
+
+
+def get_item_analytics(item, start_dt, end_dt, changed_only=True):
+    snapshot = calculate_item_snapshot(item, start_dt, end_dt)
+
+    if changed_only and all(
+        snapshot[k] == 0 for k in ["added", "moved_to_bar", "sales", "waste"]
+    ):
+        return None
+
+    return snapshot

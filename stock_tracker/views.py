@@ -8,17 +8,28 @@ from django.db.models import F, Sum, Q
 from rest_framework.exceptions import ValidationError
 from django.utils.dateparse import parse_date
 from django.utils.timezone import make_aware
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from rest_framework.views import APIView
-from .analytics import get_hotel_analytics, ingredient_usage, get_item_analytics, parse_dates
+
+from hotel.models import Hotel
+from .analytics import (
+    calculate_item_snapshot,
+    get_hotel_analytics,
+    ingredient_usage,
+    get_item_analytics,  # make sure this is the new period-based version
+    get_period_dates,
+    convert_units
+)
+
 from .models import (StockCategory, StockItem, Stock, StockItemType,
                      StockMovement, StockInventory, Ingredient, CocktailRecipe,
-                     RecipeIngredient, CocktailConsumption)
+                     RecipeIngredient, CocktailConsumption, StockPeriod)
 from .serializers import (
     StockAnalyticsSerializer,
     StockCategorySerializer,
     StockItemSerializer,
     StockItemTypeSerializer,
+    StockPeriodSerializer,
     StockSerializer,
     StockMovementSerializer
 )
@@ -327,30 +338,56 @@ class IngredientUsageView(APIView):
 
 class StockAnalyticsView(APIView):
     """
-    Returns STORAGE and BAR stock analytics per item for a hotel in a given period.
-    Includes opening, added, moved_to_bar, sales, waste, closing storage, closing bar, and total stock.
+    Returns stock analytics for a hotel based on a period type:
+    - week
+    - month
+    - half_year
+    - year
+
+    Query params:
+        - period_type: required, one of the above
+        - reference_date: optional, defaults to today, format YYYY-MM-DD
+        - changed_only: optional, true/false, defaults to True
     """
 
     def get(self, request, hotel_slug):
-        start_date = request.query_params.get("start_date")
-        end_date = request.query_params.get("end_date")
-        changed_only = str(request.query_params.get("changed_only")).lower() == "true"
+        period_type = request.query_params.get("period_type", "")
+        period_type = period_type.strip().lower()  # remove spaces and lowercase
 
-        if not start_date or not end_date:
-            return Response({"error": "start_date and end_date are required"}, status=400)
+        reference_date_str = request.query_params.get("reference_date")
+        changed_only = str(request.query_params.get("changed_only", "true")).lower() == "true"
 
-        start_dt, end_dt = parse_dates(start_date, end_date)
+        if not period_type:
+            return Response({"error": "period_type is required"}, status=400)
+
+        period_type = period_type.strip().lower()  # normalize input
+
+        # parse reference date or default to today
+        if reference_date_str:
+            try:
+                reference_date = datetime.strptime(reference_date_str, "%Y-%m-%d").date()
+            except ValueError:
+                return Response({"error": "Invalid reference_date format. Use YYYY-MM-DD."}, status=400)
+        else:
+            reference_date = date.today()
+
+        # calculate start and end dates from period
+        try:
+            start_dt, end_dt = get_period_dates(period_type, reference_date)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=400)
+
+        # fetch all items for this hotel
         items = StockItem.objects.filter(hotel__slug=hotel_slug)
-
         analytics = []
+
         for item in items:
-            # Use analytics helper for clean calculation
-            item_data = get_item_analytics(item, hotel_slug, start_dt, end_dt, changed_only)
+            item_data = get_item_analytics(item, start_dt, end_dt, changed_only)
             if item_data:
                 analytics.append(item_data)
 
         return Response(analytics)
-
+    
 
 class StockItemTypeViewSet(viewsets.ModelViewSet):
     """
@@ -363,3 +400,50 @@ class StockItemTypeViewSet(viewsets.ModelViewSet):
     ordering_fields = ["name", "slug"]
     pagination_class = None
 
+    
+class StockPeriodViewSet(viewsets.ModelViewSet):
+    serializer_class = StockPeriodSerializer
+
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get("hotel_slug")
+        qs = StockPeriod.objects.all().select_related("hotel").prefetch_related("items__item")
+        if hotel_slug:
+            qs = qs.filter(hotel__slug=hotel_slug)
+        return qs.order_by("-created_at")
+
+    def perform_create(self, serializer):
+        hotel_slug = self.kwargs.get("hotel_slug")
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+        # Save the period first to get the instance
+        period = serializer.save(hotel=hotel)
+
+        # Get period_type from serializer or request data (week/month/half_year/year)
+        period_type = self.request.data.get("period_type", "week")
+        reference_date_str = self.request.data.get("reference_date")
+        reference_date = None
+        if reference_date_str:
+            reference_date = datetime.strptime(reference_date_str, "%Y-%m-%d").date()
+
+        # Compute start/end dates based on period_type
+        start_dt, end_dt = get_period_dates(period_type, reference_date)
+
+        # Fetch all items for this hotel
+        items = StockItem.objects.filter(hotel=hotel)
+
+        # Calculate snapshots for each item and create related StockPeriod items
+        for item in items:
+            snapshot = calculate_item_snapshot(item, period_type=period_type, reference_date=start_dt)
+            
+            period.items.create(
+                item=item,
+                opening_storage=snapshot["opening_storage"],
+                opening_bar=snapshot["opening_bar"],
+                added=snapshot["added"],
+                moved_to_bar=snapshot["moved_to_bar"],
+                sales=snapshot["sales"],
+                waste=snapshot["waste"],
+                closing_storage=snapshot["closing_storage"],
+                closing_bar=snapshot["closing_bar"],
+                total_closing_stock=snapshot["total_closing_stock"],
+            )
