@@ -11,6 +11,7 @@ from .views import (
     BlueprintObjectTypeViewSet,
     BlueprintObjectViewSet,
     AvailableTablesView,
+    UnseatBookingAPIView,
     mark_bookings_seen
 )
 
@@ -103,5 +104,10 @@ urlpatterns = [
         'assign/<str:hotel_slug>/<str:restaurant_slug>/',
         AssignGuestToTableAPIView.as_view(),
         name='assign-guest-to-table'
+    ),
+    path(
+        'unseat/<str:hotel_slug>/<str:restaurant_slug>/',
+        UnseatBookingAPIView.as_view(),
+        name='unseat-guest-from-table'
     ),
 ]

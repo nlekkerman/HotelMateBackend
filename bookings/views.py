@@ -85,27 +85,35 @@ class GuestDinnerBookingView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # ✅ Parse ?date=YYYY-MM-DD (defaults to today)
-        date_str = request.query_params.get("date")
-        if date_str:
-            try:
-                filter_date = datetime.strptime(date_str, "%Y-%m-%d").date()
-            except ValueError:
-                return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+        today = datetime.today().date()
+        qs = Booking.objects.filter(category=dinner_cat).select_related(
+            "hotel", "category__subcategory", "restaurant", "seats", "room", "guest"
+        )
+
+        # ✅ Filters
+        if request.query_params.get("history") == "true":
+            qs = qs.filter(date__lt=today).order_by("-date", "-start_time")
+        elif request.query_params.get("upcoming") == "true":
+            qs = qs.filter(date__gt=today).order_by("date", "start_time")
         else:
-            filter_date = today
+            date_str = request.query_params.get("date")
+            if date_str:
+                try:
+                    filter_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+                    qs = qs.filter(date=filter_date)
+                except ValueError:
+                    return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+            else:
+                qs = qs.filter(date=today)
 
-        qs = Booking.objects.filter(
-            category=dinner_cat,
-            date=filter_date
-        ).select_related("hotel", "category__subcategory", "restaurant", "seats", "room", "guest")
-
-        # ✅ Restrict to a single restaurant if provided
+        # ✅ Restrict to restaurant if provided
         if restaurant_slug:
             qs = qs.filter(restaurant__slug=restaurant_slug)
 
         serializer = BookingSerializer(qs, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+    
 
     def post(self, request, hotel_slug, restaurant_slug, room_number):
         # --- Fetch hotel, restaurant, room ---
@@ -512,6 +520,44 @@ class AssignGuestToTableAPIView(APIView):
 
         except Exception as e:
             logger.exception("Failed to assign booking to table")
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UnseatBookingAPIView(APIView):
+    permission_classes = []  # Or IsAuthenticated
+
+    def post(self, request, hotel_slug, restaurant_slug):
+        try:
+            booking_id = request.data.get("booking_id")
+            table_id = request.data.get("table_id")
+
+            if not booking_id or not table_id:
+                return Response(
+                    {"success": False, "error": "booking_id and table_id required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            booking = get_object_or_404(Booking, pk=booking_id)
+            table = get_object_or_404(DiningTable, pk=table_id)
+
+            # Remove the assignment if exists
+            deleted, _ = BookingTable.objects.filter(
+                booking=booking,
+                table=table
+            ).delete()
+
+            return Response({
+                "success": True,
+                "booking_id": booking.id,
+                "table_code": table.code,
+                "unseated": bool(deleted)
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.exception("Failed to unseat booking")
             return Response({
                 "success": False,
                 "error": str(e)
