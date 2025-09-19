@@ -4,6 +4,7 @@ from .views import (
     AssignGuestToTableAPIView,
     BookingViewSet,
     BookingCategoryViewSet,
+    DeleteBookingAPIView,
     GuestDinnerBookingView,
     RestaurantViewSet,
     RestaurantBlueprintViewSet,
@@ -110,4 +111,10 @@ urlpatterns = [
         UnseatBookingAPIView.as_view(),
         name='unseat-guest-from-table'
     ),
+    path(
+        'delete/<str:hotel_slug>/<str:restaurant_slug>/<int:booking_id>/',
+        DeleteBookingAPIView.as_view(),
+        name='delete-booking'
+    ),
+
 ]

@@ -525,40 +525,60 @@ class AssignGuestToTableAPIView(APIView):
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
 
 class UnseatBookingAPIView(APIView):
-    permission_classes = []  # Or IsAuthenticated
-
     def post(self, request, hotel_slug, restaurant_slug):
+        booking_id = request.data.get("booking_id")
+
+        if not booking_id:
+            return Response(
+                {"success": False, "error": "booking_id required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         try:
-            booking_id = request.data.get("booking_id")
-            table_id = request.data.get("table_id")
+            booking = Booking.objects.get(id=booking_id)
+        except Booking.DoesNotExist:
+            return Response(
+                {"success": False, "error": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
-            if not booking_id or not table_id:
-                return Response(
-                    {"success": False, "error": "booking_id and table_id required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        # Remove all assigned tables
+        BookingTable.objects.filter(booking=booking).delete()
 
-            booking = get_object_or_404(Booking, pk=booking_id)
-            table = get_object_or_404(DiningTable, pk=table_id)
+        # Refresh booking instance
+        booking.refresh_from_db()
 
-            # Remove the assignment if exists
-            deleted, _ = BookingTable.objects.filter(
-                booking=booking,
-                table=table
-            ).delete()
+        from .serializers import BookingSerializer
+        serializer = BookingSerializer(booking)
 
-            return Response({
-                "success": True,
-                "booking_id": booking.id,
-                "table_code": table.code,
-                "unseated": bool(deleted)
-            }, status=status.HTTP_200_OK)
+        return Response(
+            {"success": True, "booking": serializer.data},
+            status=status.HTTP_200_OK
+        )
 
-        except Exception as e:
-            logger.exception("Failed to unseat booking")
-            return Response({
-                "success": False,
-                "error": str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class DeleteBookingAPIView(APIView):
+    def delete(self, request, hotel_slug, restaurant_slug, booking_id):
+        try:
+            booking = Booking.objects.get(
+                id=booking_id,
+                restaurant__slug=restaurant_slug,
+                hotel__slug=hotel_slug,
+            )
+        except Booking.DoesNotExist:
+            return Response(
+                {"success": False, "error": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        booking.delete()
+
+        return Response(
+            {"success": True, "booking_id": booking_id},
+            status=status.HTTP_200_OK
+        )
