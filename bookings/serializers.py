@@ -28,6 +28,7 @@ class BookingCategorySerializer(serializers.ModelSerializer):
 
 
 class RestaurantSerializer(serializers.ModelSerializer):
+    image = serializers.ImageField(read_only=True)
     class Meta:
         model = Restaurant
         fields = [
@@ -43,8 +44,9 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "max_bookings_per_hour",
             "max_group_size",
             "taking_bookings",
+            "image",
         ]
-        read_only_fields = ["id", "slug"]  # slug can be auto-generated if you like
+        read_only_fields = ["id", "slug", "image"]
 
 
 # 2) Nested serializer for Seats

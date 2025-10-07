@@ -18,6 +18,7 @@ apps = [
     'home',
     'attendance',
     'chat',
+    'entertainment',
 ]
 
 

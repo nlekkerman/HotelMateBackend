@@ -4,7 +4,7 @@ from .models import (
     Restaurant, RestaurantBlueprint, BlueprintArea,
     BlueprintObjectType, BlueprintObject
 )
-
+from django.utils.html import format_html
 # -------------------------
 # Inlines
 # -------------------------
@@ -88,6 +88,7 @@ class RestaurantAdmin(admin.ModelAdmin):
         'is_active',
         'opening_time',
         'closing_time',
+        'image_thumbnail',
     )
     list_filter = ('hotel', 'is_active')
     search_fields = ('name', 'slug')
@@ -99,6 +100,7 @@ class RestaurantAdmin(admin.ModelAdmin):
                 "slug",
                 "description",
                 "is_active",
+                "image",
             ),
         }),
         ("Capacity & Booking Rules", {
@@ -115,6 +117,12 @@ class RestaurantAdmin(admin.ModelAdmin):
             ),
         }),
     )
+    
+    def image_thumbnail(self, obj):
+        if obj.image:
+            return format_html('<img src="{}" width="50" style="object-fit: cover; border-radius: 4px;" />', obj.image.url)
+        return "-"
+    image_thumbnail.short_description = 'Image'
 
 
 @admin.register(RestaurantBlueprint)

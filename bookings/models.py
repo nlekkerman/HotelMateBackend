@@ -89,7 +89,7 @@ class Restaurant(models.Model):
     capacity = models.PositiveIntegerField(default=30, help_text="Max number of guests")
     description = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
-
+    image = CloudinaryField('image', blank=True, null=True)
     opening_time = models.TimeField(null=True, blank=True)
     closing_time = models.TimeField(null=True, blank=True)
 

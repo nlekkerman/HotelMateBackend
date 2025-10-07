@@ -1,3 +1,4 @@
+from django.db import IntegrityError
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -235,37 +236,41 @@ class StockMovementViewSet(viewsets.ModelViewSet):
 
         return queryset
 
-    @action(detail=False, methods=['post'], url_path=r'bulk/')
+    @action(detail=False, methods=['post'], url_path=r'bulk')
     def bulk_stock_action(self, request, hotel_slug):
-        """
-        Bulk create StockMovements (only IN / MOVE_TO_BAR)
-        """
         transactions = request.data.get('transactions', [])
         created_movements = []
         low_stock_items = []
 
+        # ⬇️ Zameni trenutni for-loop sa ovim
         for t in transactions:
+            print("Transaction payload received:", t)
             item = get_object_or_404(StockItem, pk=t['id'], hotel__slug=hotel_slug)
+            stock_line = StockInventory.objects.filter(item=item, stock__hotel__slug=hotel_slug).first()
+            if not stock_line:
+                return Response({"error": f"No stock inventory found for {item.name}"},
+                                status=status.HTTP_400_BAD_REQUEST)
             qty = Decimal(t['qty'])
             direction = t['direction']
 
-            # Only allow IN or MOVE_TO_BAR for storage operations
             if direction == StockMovement.IN:
-                item.quantity += qty
+                stock_line.quantity += qty
             elif direction == StockMovement.MOVE_TO_BAR:
-                if item.quantity < qty:
+                if stock_line.quantity < qty:
                     return Response(
                         {"error": f"Not enough stock in storage for {item.name}"},
                         status=status.HTTP_400_BAD_REQUEST
                     )
-                item.quantity -= qty
+                stock_line.quantity -= qty
                 item.stock_in_bar += qty
             else:
                 return Response({"error": f"Invalid direction: {direction}"}, status=status.HTTP_400_BAD_REQUEST)
 
-            item.save(update_fields=['quantity', 'stock_in_bar'])
+            stock_line.save()
+            item.save(update_fields=['stock_in_bar'])
 
-            if item.total_available < item.alert_quantity:
+            # Low stock check
+            if (stock_line.quantity + item.stock_in_bar) < item.alert_quantity:
                 low_stock_items.append(item)
 
             movement = StockMovement.objects.create(
@@ -281,6 +286,7 @@ class StockMovementViewSet(viewsets.ModelViewSet):
             "movements": StockMovementSerializer(created_movements, many=True).data,
             "low_stock_alerts": StockItemSerializer(low_stock_items, many=True).data
         }, status=status.HTTP_201_CREATED)
+
 
 # --- Ingredient ---
 class IngredientViewSet(viewsets.ModelViewSet):
@@ -415,34 +421,39 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         hotel_slug = self.kwargs.get("hotel_slug")
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
 
-        # Save the period first to get the instance
-        period = serializer.save(hotel=hotel)
-
-        # Get period_type from serializer or request data (week/month/half_year/year)
+        # --- Determine period ---
         period_type = self.request.data.get("period_type", "week")
         reference_date_str = self.request.data.get("reference_date")
         reference_date = None
         if reference_date_str:
             reference_date = datetime.strptime(reference_date_str, "%Y-%m-%d").date()
 
-        # Compute start/end dates based on period_type
         start_dt, end_dt = get_period_dates(period_type, reference_date)
 
-        # Fetch all items for this hotel
-        items = StockItem.objects.filter(hotel=hotel)
+        # --- Check for duplicate period ---
+        existing = StockPeriod.objects.filter(hotel=hotel, start_date=start_dt, end_date=end_dt).first()
+        if existing:
+            raise IntegrityError(
+                f"StockPeriod already exists for hotel {hotel.slug} from {start_dt} to {end_dt}"
+            )
 
-        # Calculate snapshots for each item and create related StockPeriod items
+        # --- Create the StockPeriod instance ---
+        period = serializer.save(hotel=hotel, start_date=start_dt, end_date=end_dt)
+
+        # --- Populate items with snapshots ---
+        items = StockItem.objects.filter(hotel=hotel)
         for item in items:
-            snapshot = calculate_item_snapshot(item, period_type=period_type, reference_date=start_dt)
+            # Snapshot now derives sales from opening + moved - current bar stock
+            snapshot = calculate_item_snapshot(item, start_dt, end_dt)
             
             period.items.create(
                 item=item,
                 opening_storage=snapshot["opening_storage"],
                 opening_bar=snapshot["opening_bar"],
-                added=snapshot["added"],
-                moved_to_bar=snapshot["moved_to_bar"],
-                sales=snapshot["sales"],
-                waste=snapshot["waste"],
+                added=snapshot.get("added", 0),
+                moved_to_bar=snapshot.get("moved_to_bar", 0),
+                sales=snapshot["sales"],  # final bar stock → sales
+                waste=snapshot.get("waste", 0),
                 closing_storage=snapshot["closing_storage"],
                 closing_bar=snapshot["closing_bar"],
                 total_closing_stock=snapshot["total_closing_stock"],
