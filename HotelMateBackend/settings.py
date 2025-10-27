@@ -193,6 +193,11 @@ CORS_ALLOWED_ORIGINS = [
     "https://dashing-klepon-d9f0c6.netlify.app",
     "https://hotel-porter-d25ad83b12cf.herokuapp.com",
     "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:5174", 
+    "http://127.0.0.1:3000",
     "https://hotelsmates.com",
     "https://www.hotelsmates.com",
 ]
@@ -214,6 +219,13 @@ CORS_ALLOW_HEADERS = list(default_headers) + [
 
 CORS_ALLOW_CREDENTIALS = True
 
+# For development - allow all localhost origins
+if DEBUG:
+    CORS_ALLOW_ALL_ORIGINS = False  # Keep specific origins for security
+    CORS_ALLOWED_ORIGIN_REGEXES = [
+        r"^http://localhost:\d+$",
+        r"^http://127\.0\.0\.1:\d+$",
+    ]
 
 # Optional
 HEROKU_HOST = env('HEROKU_HOST', default='')
