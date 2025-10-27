@@ -121,29 +121,39 @@ class MemoryGameCardViewSet(viewsets.ReadOnlyModelViewSet):
         """
         Get random cards for a memory game session
         Query params:
-        - difficulty: easy/intermediate/hard
-        - pairs: number of pairs needed (default based on difficulty)
+        - pairs: number of pairs needed (default: 6 for 3x4 grid)
+        - grid_size: grid size (default: 3x4)
         """
-        difficulty = request.query_params.get('difficulty', 'easy')
+        # Fixed 3x4 grid = 12 cards = 6 pairs (no more difficulty levels)
+        grid_size = request.query_params.get('grid_size', '3x4')
+        pairs_needed = int(request.query_params.get('pairs', 6))  # Default 6 pairs for 3x4
         
-        # Default pairs based on difficulty
-        default_pairs = {
-            'easy': 8,        # 4x4 = 16 cards = 8 pairs
-            'intermediate': 18,  # 6x6 = 36 cards = 18 pairs
-            'hard': 32        # 8x8 = 64 cards = 32 pairs
-        }
-        
-        pairs_needed = int(request.query_params.get('pairs', default_pairs.get(difficulty, 8)))
+        # Ensure we don't exceed reasonable limits
+        if pairs_needed > 50:  # Max 50 pairs for safety
+            pairs_needed = 50
+        elif pairs_needed < 1:
+            pairs_needed = 6
         
         try:
-            cards = MemoryGameCard.get_random_cards_for_game(difficulty, pairs_needed)
+            # Get random cards (all active cards, no difficulty filtering)
+            cards = MemoryGameCard.get_random_cards_for_game('easy', pairs_needed)
             serializer = self.get_serializer(cards, many=True)
             
             return Response({
-                'difficulty': difficulty,
+                'grid_size': grid_size,
                 'pairs_needed': pairs_needed,
                 'cards_count': len(cards),
-                'cards': serializer.data
+                'total_cards': pairs_needed * 2,  # Each card appears twice
+                'cards': serializer.data,
+                'game_config': {
+                    'grid_type': '3x4 grid (6 pairs)',
+                    'optimal_moves': 12,  # 6 pairs * 2 moves each
+                    'scoring': {
+                        'base_score': 1000,
+                        'time_penalty': 2,  # -2 points per second
+                        'move_penalty': 5   # -5 points per extra move
+                    }
+                }
             })
         except Exception as e:
             return Response(
