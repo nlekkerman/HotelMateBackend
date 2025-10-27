@@ -489,13 +489,13 @@ class MemoryGameTournament(models.Model):
         return f"{self.name} @ {self.hotel.name} ({self.status})"
 
     def generate_qr_code(self):
-        """Generate QR code for direct tournament play"""
-        if not self.slug or not self.hotel:
+        """Generate QR code pointing to memory match dashboard"""
+        if not self.hotel:
             return False
             
         hotel_slug = self.hotel.slug
-        url = (f"https://hotelsmates.com/tournaments/"
-               f"{hotel_slug}/{self.slug}/play/")
+        # All QR codes now point to the game dashboard
+        url = f"https://hotelsmates.com/games/memory-match/?hotel={hotel_slug}"
         
         qr = qrcode.make(url)
         img_io = BytesIO()

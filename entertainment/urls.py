@@ -41,6 +41,9 @@ urlpatterns = [
          name='memory-leaderboard'),
     
     # Tournament specific endpoints
+    path('tournaments/active/',
+         MemoryGameTournamentViewSet.as_view({'get': 'active_for_hotel'}),
+         name='tournaments-active-for-hotel'),
     path('tournaments/<int:pk>/submit_score/',
          MemoryGameTournamentViewSet.as_view({'post': 'submit_score'}),
          name='tournament-submit-score'),

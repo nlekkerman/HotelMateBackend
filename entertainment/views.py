@@ -410,7 +410,7 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         permission_classes=[permissions.AllowAny]
     )
     def generate_qr_code(self, request, pk=None):
-        """Generate QR code for tournament play URL"""
+        """Generate QR code pointing to game dashboard"""
         tournament = self.get_object()
         
         success = tournament.generate_qr_code()
@@ -419,13 +419,37 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
             return Response({
                 'message': 'QR code generated successfully',
                 'qr_code_url': tournament.qr_code_url,
-                'play_url': f"https://hotelsmates.com/tournaments/{tournament.hotel.slug}/{tournament.slug}/play/",
+                'dashboard_url': f"https://hotelsmates.com/games/memory-match/?hotel={tournament.hotel.slug}",
                 'generated_at': tournament.qr_generated_at
             }, status=status.HTTP_200_OK)
         else:
             return Response({
                 'error': 'Failed to generate QR code'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(
+        detail=False,
+        methods=['get'],
+        permission_classes=[permissions.AllowAny]
+    )
+    def active_for_hotel(self, request):
+        """Get active tournaments for a specific hotel"""
+        hotel_slug = request.query_params.get('hotel')
+        if not hotel_slug:
+            return Response({
+                'error': 'Hotel parameter is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        tournaments = self.get_queryset().filter(
+            hotel__slug=hotel_slug,
+            status='active'
+        ).order_by('start_date')
+        
+        serializer = self.get_serializer(tournaments, many=True)
+        return Response({
+            'tournaments': serializer.data,
+            'count': tournaments.count()
+        })
     
     @action(detail=True, methods=['get'])
     def leaderboard(self, request, pk=None):
