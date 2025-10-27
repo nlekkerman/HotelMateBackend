@@ -222,10 +222,35 @@ import { useParams } from 'react-router-dom';
 const TournamentMobileDisplay = () => {
   const { hotelSlug, tournamentSlug } = useParams();
   const [tournament, setTournament] = useState(null);
+  const [gameMode, setGameMode] = useState('practice'); // 'practice' or 'tournament'
   const [playerData, setPlayerData] = useState({
     player_name: '',
     room_number: ''
   });
+  
+  // Load practice scores from localStorage
+  const [practiceScores, setPracticeScores] = useState([]);
+
+  useEffect(() => {
+    fetchTournament();
+    loadPracticeScores();
+  }, [hotelSlug, tournamentSlug]);
+
+  const loadPracticeScores = () => {
+    const saved = localStorage.getItem('practiceScores');
+    if (saved) {
+      setPracticeScores(JSON.parse(saved));
+    }
+  };
+
+  const savePracticeScore = (scoreData) => {
+    const newScores = [...practiceScores, {
+      ...scoreData,
+      timestamp: new Date().toISOString()
+    }].slice(-10); // Keep last 10 scores
+    setPracticeScores(newScores);
+    localStorage.setItem('practiceScores', JSON.stringify(newScores));
+  };
 
   useEffect(() => {
     fetchTournament();
@@ -241,33 +266,73 @@ const TournamentMobileDisplay = () => {
     }
   };
 
-  const handleStartGame = async () => {
-    if (!playerData.player_name || !playerData.room_number) {
-      alert('Please enter your name and room number');
-      return;
-    }
-
+  const handlePracticeGame = async (gameResults) => {
     try {
-      const response = await fetch(`/api/entertainment/tournaments/${tournament.id}/play_session/`, {
+      const response = await fetch('/api/entertainment/memory-sessions/practice/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          ...playerData,
-          is_anonymous: true,
-          difficulty: tournament.difficulty || 'intermediate'
+          time_seconds: gameResults.timeSeconds,
+          moves_count: gameResults.moves,
+          difficulty: tournament?.difficulty || 'intermediate'
         })
       });
 
       if (response.ok) {
-        const session = await response.json();
-        // Redirect to game with session ID
-        window.location.href = `/game/memory-match/${session.id}`;
+        const scoreData = await response.json();
+        savePracticeScore(scoreData);
+        alert(`Practice complete! Your score: ${scoreData.score}`);
       }
     } catch (err) {
-      console.error('Failed to start game session');
+      console.error('Failed to submit practice score');
     }
+  };
+
+  const handleTournamentSubmit = async (gameResults) => {
+    // This is called AFTER the game is completed
+    // Player enters name and room number at the END
+    
+    const playerName = prompt('Enter your name:');
+    const roomNumber = prompt('Enter your room number:');
+    
+    if (!playerName || !roomNumber) {
+      alert('Name and room number are required to submit your score');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/entertainment/tournaments/${tournament.id}/submit_score/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          player_name: playerName,
+          room_number: roomNumber,
+          time_seconds: gameResults.timeSeconds,
+          moves_count: gameResults.moves
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        alert(`Score submitted! Your score: ${result.score} (Rank: #${result.rank})`);
+        // Redirect to leaderboard
+        window.location.href = `/tournaments/${hotelSlug}/${tournamentSlug}/leaderboard`;
+      }
+    } catch (err) {
+      console.error('Failed to submit tournament score');
+      alert('Failed to submit score. Please try again.');
+    }
+  };
+
+  const startGame = (mode) => {
+    setGameMode(mode);
+    // Redirect to game component with mode parameter
+    const gameUrl = `/game/memory-match?tournament=${tournament?.id}&mode=${mode}`;
+    window.location.href = gameUrl;
   };
 
   if (!tournament) return <div>Loading tournament...</div>;
@@ -294,36 +359,47 @@ const TournamentMobileDisplay = () => {
         </div>
       </div>
 
-      {tournament.is_active && (
-        <div className="player-entry">
-          <h3>Ready to Play?</h3>
-          <p>No registration required! Just enter your details and start playing:</p>
-          <div className="form-group">
-            <label>Your Name:</label>
-            <input
-              type="text"
-              value={playerData.player_name}
-              onChange={(e) => setPlayerData(prev => ({ ...prev, player_name: e.target.value }))}
-              placeholder="Enter your first name"
-            />
-          </div>
-          <div className="form-group">
-            <label>Room Number:</label>
-            <input
-              type="text"
-              value={playerData.room_number}
-              onChange={(e) => setPlayerData(prev => ({ ...prev, room_number: e.target.value }))}
-              placeholder="Enter your room number"
-            />
-          </div>
-          <button onClick={handleStartGame} className="btn btn-primary btn-large">
-            🎮 Start Playing Now!
+      <div className="game-modes">
+        <div className="practice-mode">
+          <h3>🎯 Practice Mode</h3>
+          <p>Play to improve your skills! Scores saved locally on your device.</p>
+          <button onClick={() => startGame('practice')} className="btn btn-secondary btn-large">
+            🎮 Practice Now (Free Play)
           </button>
-          <p className="participant-info">
-            Current players: {tournament.participant_count || 0} (Unlimited spots available!)
-          </p>
+          
+          {practiceScores.length > 0 && (
+            <div className="practice-scores">
+              <h4>Your Practice Scores:</h4>
+              {practiceScores.slice(-3).map((score, idx) => (
+                <div key={idx} className="score-item">
+                  Score: {score.score} | Time: {score.time_seconds}s | Moves: {score.moves_count}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-      )}
+
+        {tournament && tournament.is_active && (
+          <div className="tournament-mode">
+            <h3>🏆 Tournament Mode</h3>
+            <p>Compete for prizes! Play now, enter details after you finish:</p>
+            <button 
+              onClick={() => startGame('tournament')} 
+              className="btn btn-primary btn-large"
+            >
+              🎮 Play Tournament Now!
+            </button>
+            <p className="tournament-info">
+              ⭐ No registration needed!<br/>
+              ⭐ Play first, enter name & room after!<br/>
+              ⭐ Unlimited attempts allowed!
+            </p>
+            <p className="participant-info">
+              Current players: {tournament.participant_count || 0}
+            </p>
+          </div>
+        )}
+      </div>
 
       {tournament.status === 'completed' && (
         <div className="tournament-completed">
@@ -480,12 +556,49 @@ export default TournamentMobileDisplay;
   border-bottom: none;
 }
 
-.player-entry {
-  margin: 30px 0;
+.game-modes {
+  margin: 20px 0;
+}
+
+.practice-mode {
+  margin: 20px 0;
+  padding: 20px;
+  background: linear-gradient(135deg, #a8e6cf 0%, #dcedc8 100%);
+  border-radius: 12px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.tournament-mode {
+  margin: 20px 0;
   padding: 25px;
   background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 50%, #fecfef 100%);
   border-radius: 12px;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.practice-scores {
+  margin-top: 15px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+}
+
+.score-item {
+  padding: 5px 0;
+  font-size: 12px;
+  color: #2e7d32;
+  font-weight: 500;
+}
+
+.tournament-info {
+  text-align: center;
+  margin: 15px 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  font-size: 14px;
+  color: #2e2e2e;
+  font-weight: 500;
 }
 
 .participant-info {
@@ -494,6 +607,11 @@ export default TournamentMobileDisplay;
   font-size: 14px;
   color: #666;
   font-weight: 500;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .form-group {

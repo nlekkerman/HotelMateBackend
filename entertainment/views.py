@@ -220,6 +220,46 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
                     except TournamentParticipation.DoesNotExist:
                         pass
     
+    @action(
+        detail=False,
+        methods=['post'],
+        permission_classes=[permissions.AllowAny]
+    )
+    def practice(self, request):
+        """Create practice session (returns score only, not saved)"""
+        # Validate the practice data
+        time_seconds = request.data.get('time_seconds')
+        moves_count = request.data.get('moves_count')
+        difficulty = request.data.get('difficulty', 'intermediate')
+        
+        if not time_seconds or not moves_count:
+            return Response({
+                'error': 'time_seconds and moves_count are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Calculate score using the same logic as the model
+        multipliers = {'easy': 1.0, 'intermediate': 1.5, 'hard': 2.0}
+        optimal_moves = {'easy': 16, 'intermediate': 24, 'hard': 32}
+        
+        base_score = multipliers[difficulty] * 1000
+        time_penalty = int(time_seconds) * 2
+        extra_moves = max(0, int(moves_count) - optimal_moves[difficulty])
+        moves_penalty = extra_moves * 5
+        
+        calculated_score = int(base_score - time_penalty - moves_penalty)
+        final_score = max(0, calculated_score)
+        
+        return Response({
+            'score': final_score,
+            'difficulty': difficulty,
+            'time_seconds': int(time_seconds),
+            'moves_count': int(moves_count),
+            'is_practice': True,
+            'base_score': base_score,
+            'time_penalty': time_penalty,
+            'moves_penalty': moves_penalty
+        })
+
     @action(detail=False, methods=['get'])
     def my_stats(self, request):
         """Get current user's memory game statistics"""
@@ -305,47 +345,64 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         # Generate QR code for tournament
         tournament.generate_qr_code()
     
-    @action(detail=True, methods=['post'])
-    def register(self, request, pk=None):
-        """Register user for tournament"""
+    @action(
+        detail=True,
+        methods=['post'],
+        permission_classes=[permissions.AllowAny]
+    )
+    def submit_score(self, request, pk=None):
+        """Submit score to tournament after completing the game"""
         tournament = self.get_object()
         
-        # Check if registration is open
-        if not tournament.is_registration_open:
+        # Check if tournament is active
+        if not tournament.is_active:
             return Response(
-                {'error': 'Registration is not open for this tournament'},
+                {'error': 'Tournament is not currently active'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if tournament is full
-        if tournament.participant_count >= tournament.max_participants:
-            return Response(
-                {'error': 'Tournament is full'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        # Get required data
+        player_name = request.data.get('player_name')
+        room_number = request.data.get('room_number')
+        time_seconds = request.data.get('time_seconds')
+        moves_count = request.data.get('moves_count')
         
-        # Check if user is already registered
-        if TournamentParticipation.objects.filter(
+        if not all([player_name, room_number, time_seconds, moves_count]):
+            return Response({
+                'error': 'All fields (name, room, time, moves) are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create tournament session with score
+        session_data = {
+            'player_name': player_name,
+            'room_number': room_number,
+            'is_anonymous': True,
+            'difficulty': tournament.difficulty,
+            'time_seconds': int(time_seconds),
+            'moves_count': int(moves_count),
+            'completed': True,
+            'tournament': tournament,
+            'hotel': tournament.hotel
+        }
+        
+        session = MemoryGameSession.objects.create(**session_data)
+        
+        return Response({
+            'message': 'Score submitted successfully!',
+            'session_id': session.id,
+            'score': session.score,
+            'player_name': session.player_name,
+            'rank': self.get_player_rank(tournament, session)
+        }, status=status.HTTP_201_CREATED)
+    
+    def get_player_rank(self, tournament, session):
+        """Calculate player's current rank in tournament"""
+        better_sessions = MemoryGameSession.objects.filter(
             tournament=tournament,
-            user=request.user
-        ).exists():
-            return Response(
-                {'error': 'You are already registered for this tournament'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Create participation
-        serializer = TournamentParticipationSerializer(
-            data=request.data,
-            context={'request': request, 'tournament': tournament}
-        )
-        if serializer.is_valid():
-            serializer.save()
-            return Response(
-                {'message': 'Successfully registered for tournament'},
-                status=status.HTTP_201_CREATED
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            completed=True,
+            score__gt=session.score
+        ).count()
+        return better_sessions + 1
     
     @action(detail=True, methods=['get'])
     def leaderboard(self, request, pk=None):

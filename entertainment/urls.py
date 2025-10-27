@@ -30,6 +30,9 @@ urlpatterns = [
     path("games/qrcodes/", qrcode_list, name="games_qrcodes"),
     
     # Memory Game specific endpoints
+    path('memory-sessions/practice/',
+         MemoryGameSessionViewSet.as_view({'post': 'practice'}),
+         name='memory-practice'),
     path('memory-sessions/my-stats/',
          MemoryGameSessionViewSet.as_view({'get': 'my_stats'}),
          name='memory-my-stats'),
@@ -38,12 +41,9 @@ urlpatterns = [
          name='memory-leaderboard'),
     
     # Tournament specific endpoints
-    path('tournaments/<int:pk>/register/',
-         MemoryGameTournamentViewSet.as_view({'post': 'register'}),
-         name='tournament-register'),
-    path('tournaments/<int:pk>/play_session/',
-         MemoryGameTournamentViewSet.as_view({'post': 'play_session'}),
-         name='tournament-play-session'),
+    path('tournaments/<int:pk>/submit_score/',
+         MemoryGameTournamentViewSet.as_view({'post': 'submit_score'}),
+         name='tournament-submit-score'),
     path('tournaments/<int:pk>/leaderboard/',
          MemoryGameTournamentViewSet.as_view({'get': 'leaderboard'}),
          name='tournament-leaderboard'),
