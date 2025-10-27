@@ -148,18 +148,23 @@ class MemoryGameStatsAdmin(admin.ModelAdmin):
 @admin.register(MemoryGameTournament)
 class MemoryGameTournamentAdmin(admin.ModelAdmin):
     list_display = (
-        'name', 'hotel', 'difficulty', 'status', 'participant_count',
+        'name', 'hotel', 'grid_size_display', 'status', 'participant_count',
         'start_date', 'end_date', 'created_by'
     )
     list_filter = (
-        'status', 'difficulty', 'hotel', 'start_date', 'created_at'
+        'status', 'hotel', 'start_date', 'created_at'
     )
     search_fields = ('name', 'slug', 'hotel__name', 'created_by__username')
     prepopulated_fields = {"slug": ("name",)}
     readonly_fields = (
         'qr_code_url', 'qr_generated_at', 'created_at', 
-        'updated_at', 'participant_count'
+        'updated_at', 'participant_count', 'grid_size_display'
     )
+    
+    def grid_size_display(self, obj):
+        """Display fixed grid size"""
+        return "3x4 (6 pairs)"
+    grid_size_display.short_description = "Grid Size"
     
     fieldsets = (
         ('Basic Info', {
@@ -167,7 +172,7 @@ class MemoryGameTournamentAdmin(admin.ModelAdmin):
         }),
         ('Tournament Settings', {
             'fields': (
-                'difficulty', 'max_participants', 'min_age', 'max_age'
+                'grid_size_display', 'max_participants', 'min_age', 'max_age'
             )
         }),
         ('Schedule', {
@@ -235,8 +240,7 @@ class TournamentParticipationAdmin(admin.ModelAdmin):
         'best_time', 'final_rank', 'registered_at'
     )
     list_filter = (
-        'status', 'tournament__hotel', 'tournament__difficulty', 
-        'registered_at'
+        'status', 'tournament__hotel', 'registered_at'
     )
     search_fields = (
         'participant_name', 'user__username', 'tournament__name'

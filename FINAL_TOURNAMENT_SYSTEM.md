@@ -23,10 +23,10 @@ POST /api/entertainment/memory-sessions/practice/
 ```json
 {
   "time_seconds": 95,
-  "moves_count": 20, 
-  "difficulty": "intermediate"
+  "moves_count": 20
 }
 ```
+**Note:** Fixed 3x4 grid (6 pairs) for all games
 **Response:** Score only (not saved to database)
 
 ### Tournament Mode
@@ -42,6 +42,7 @@ POST /api/entertainment/tournaments/{id}/submit_score/
   "moves_count": 20
 }
 ```
+**Note:** Fixed 3x4 grid (6 pairs), optimal = 12 moves
 **Response:** 
 ```json
 {
@@ -119,7 +120,26 @@ if (gameMode === 'practice') {
 }
 ```
 
-## 🏆 Current Live Tournaments (Ready to Use!)
+## � Scoring System (3x4 Grid)
+
+### Fixed Configuration:
+- **Grid**: 3 rows × 4 columns = 12 cards (6 pairs)
+- **Optimal moves**: 12 (perfect game = 6 pairs found in 12 flips)
+- **Base score**: 1000 points
+
+### Score Formula:
+```
+Score = 1000 - (time_seconds * 2) - (extra_moves * 5)
+
+Where extra_moves = max(0, total_moves - 12)
+```
+
+### Examples:
+- **Perfect game** (12 moves, 30 seconds): 1000 - 60 - 0 = **940 points**
+- **Good game** (16 moves, 45 seconds): 1000 - 90 - 20 = **890 points**  
+- **Average game** (24 moves, 60 seconds): 1000 - 120 - 60 = **820 points**
+
+## �🏆 Current Live Tournaments (Ready to Use!)
 
 All QR codes point to `/play/` URLs (no registration):
 

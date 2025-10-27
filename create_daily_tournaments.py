@@ -60,9 +60,8 @@ def create_daily_tournaments():
                 name=tournament_name,
                 slug=tournament_slug,
                 description=f"Daily kids memory tournament for {date_str}. "
-                           f"Play anonymously - just enter your name and room number!",
+                           f"3x4 grid (6 pairs) - Play anonymously!",
                 hotel=hotel,
-                difficulty='intermediate',  # 6x4 grid for kids
                 start_date=tournament_start,
                 end_date=tournament_end,
                 registration_deadline=tournament_start,  # Same as start time
@@ -75,7 +74,7 @@ def create_daily_tournaments():
                 second_prize="Pool Day Pass",
                 third_prize="Ice Cream Voucher",
                 rules="1. Enter your name and room number\n"
-                      "2. Match all 12 pairs of cards\n"
+                      "2. Match all 6 pairs of cards (3x4 grid)\n"
                       "3. Fastest time wins!\n"
                       "4. Play as many times as you want"
             )

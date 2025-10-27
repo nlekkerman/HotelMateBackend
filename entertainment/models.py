@@ -298,29 +298,16 @@ class MemoryGameSession(models.Model):
 
     def calculate_score(self):
         """
-        Calculate score based on difficulty, time, and moves
-        Formula: (difficulty_multiplier * 1000) - time_penalty - moves_penalty
+        Calculate score based on time and moves for 3x4 grid (6 pairs)
+        Formula: 1000 - time_penalty - moves_penalty
         """
-        # Difficulty multipliers
-        multipliers = {
-            'easy': 1.0,
-            'intermediate': 1.5,
-            'hard': 2.0
-        }
+        # Fixed scoring for 3x4 grid tournaments (6 pairs = 12 cards)
+        base_score = 1000
+        optimal_moves = 12  # 6 pairs * 2 moves (perfect game)
         
-        # Optimal moves for each difficulty
-        # Updated for kids tournament: 6x4 grid = 12 pairs = 24 cards
-        optimal_moves = {
-            'easy': 16,         # 4x4 = 8 pairs * 2
-            'intermediate': 24,  # 6x4 = 12 pairs * 2 (kids standard)
-            'hard': 32          # 8x4 = 16 pairs * 2
-        }
-        
-        base_score = multipliers[self.difficulty] * 1000
+        # Penalties
         time_penalty = self.time_seconds * 2  # 2 points per second
-        
-        # Penalty for moves above optimal
-        extra_moves = max(0, self.moves_count - optimal_moves[self.difficulty])
+        extra_moves = max(0, self.moves_count - optimal_moves)
         moves_penalty = extra_moves * 5  # 5 points per extra move
         
         calculated_score = int(base_score - time_penalty - moves_penalty)
@@ -441,11 +428,7 @@ class MemoryGameTournament(models.Model):
     description = models.TextField(blank=True)
     
     # Tournament Configuration
-    difficulty = models.CharField(
-        max_length=12,
-        choices=MemoryGameDifficulty.choices,
-        default=MemoryGameDifficulty.EASY
-    )
+    # Fixed 3x4 grid (6 pairs) for all tournaments
     max_participants = models.PositiveIntegerField(
         default=50,
         help_text="Maximum number of participants"

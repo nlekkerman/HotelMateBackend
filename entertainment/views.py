@@ -321,7 +321,7 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
     ViewSet for memory game tournaments
     """
     serializer_class = MemoryGameTournamentSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.AllowAny]  # Allow anonymous access for tournament info
     
     def get_queryset(self):
         """Filter tournaments by hotel and status"""
@@ -372,12 +372,12 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
                 'error': 'All fields (name, room, time, moves) are required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Create tournament session with score
+        # Create tournament session with score (3x4 grid - 6 pairs)
         session_data = {
             'player_name': player_name,
             'room_number': room_number,
             'is_anonymous': True,
-            'difficulty': tournament.difficulty,
+            'difficulty': 'intermediate',  # Fixed for 3x4 grid
             'time_seconds': int(time_seconds),
             'moves_count': int(moves_count),
             'completed': True,
@@ -403,6 +403,29 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
             score__gt=session.score
         ).count()
         return better_sessions + 1
+    
+    @action(
+        detail=True,
+        methods=['post'],
+        permission_classes=[permissions.AllowAny]
+    )
+    def generate_qr_code(self, request, pk=None):
+        """Generate QR code for tournament play URL"""
+        tournament = self.get_object()
+        
+        success = tournament.generate_qr_code()
+        
+        if success:
+            return Response({
+                'message': 'QR code generated successfully',
+                'qr_code_url': tournament.qr_code_url,
+                'play_url': f"https://hotelsmates.com/tournaments/{tournament.hotel.slug}/{tournament.slug}/play/",
+                'generated_at': tournament.qr_generated_at
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                'error': 'Failed to generate QR code'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     @action(detail=True, methods=['get'])
     def leaderboard(self, request, pk=None):

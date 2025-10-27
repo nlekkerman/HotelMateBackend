@@ -224,10 +224,6 @@ class MemoryGameTournamentSerializer(serializers.ModelSerializer):
     """Serializer for memory game tournaments"""
     hotel = serializers.StringRelatedField(read_only=True)
     created_by = serializers.StringRelatedField(read_only=True)
-    difficulty_display = serializers.CharField(
-        source='get_difficulty_display',
-        read_only=True
-    )
     status_display = serializers.CharField(
         source='get_status_display',
         read_only=True
@@ -235,12 +231,13 @@ class MemoryGameTournamentSerializer(serializers.ModelSerializer):
     participant_count = serializers.ReadOnlyField()
     is_registration_open = serializers.ReadOnlyField()
     is_active = serializers.ReadOnlyField()
+    grid_size = serializers.SerializerMethodField()
     
     class Meta:
         model = MemoryGameTournament
         fields = [
-            'id', 'hotel', 'name', 'slug', 'description', 'difficulty',
-            'difficulty_display', 'max_participants', 'min_age', 'max_age',
+            'id', 'hotel', 'name', 'slug', 'description', 'grid_size',
+            'max_participants', 'min_age', 'max_age',
             'start_date', 'end_date', 'registration_deadline', 'status',
             'status_display', 'qr_code_url', 'first_prize', 'second_prize',
             'third_prize', 'rules', 'created_at', 'created_by',
@@ -249,6 +246,10 @@ class MemoryGameTournamentSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'slug', 'qr_code_url', 'created_at', 'created_by'
         ]
+
+    def get_grid_size(self, obj):
+        """Return fixed grid size for all tournaments"""
+        return "3x4 (6 pairs)"
 
     def validate(self, data):
         """Validate tournament dates"""
