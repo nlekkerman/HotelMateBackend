@@ -95,16 +95,7 @@ class CustomAuthToken(ObtainAuthToken):
             profile_image_url = str(staff.profile_image)
         allowed_navs = Permissions.get_accessible_navs(staff)
 
-        fcm_token = request.data.get("fcm_token")
-        if staff and fcm_token:
-            from .models import StaffFCMToken
-
-            StaffFCMToken.objects.filter(token=fcm_token).exclude(staff=staff).delete()
-            StaffFCMToken.objects.update_or_create(
-                staff=staff,
-                token=fcm_token,
-                defaults={'staff': staff},
-            )
+        # Firebase FCM token handling has been removed
 
         data = {
             'staff_id': staff.id,

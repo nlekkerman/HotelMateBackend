@@ -1,6 +1,6 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Staff, StaffFCMToken, Department, Role, RegistrationCode
+from .models import Staff, Department, Role, RegistrationCode
 from hotel.serializers import HotelSerializer
 from hotel.models import Hotel
 from django.utils import timezone
@@ -121,11 +121,7 @@ class UserSerializer(serializers.ModelSerializer):
         return instance
 
 
-class StaffFCMTokenSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StaffFCMToken
-        fields = ['token', 'created_at', 'last_used_at']
-        read_only_fields = ['created_at', 'last_used_at']
+# Firebase FCM Token serializer removed
 
 
 class StaffSerializer(serializers.ModelSerializer):
@@ -149,7 +145,7 @@ class StaffSerializer(serializers.ModelSerializer):
 
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
     allowed_navs = serializers.SerializerMethodField()
-    fcm_tokens = StaffFCMTokenSerializer(source='fcm_tokens.all', many=True, read_only=True)
+    # Firebase FCM tokens removed
     has_registered_face = serializers.BooleanField()
     profile_image = serializers.ImageField(required=False, allow_null=True, use_url=True)
     profile_image_url = serializers.CharField(source='profile_image.url', read_only=True)
@@ -163,10 +159,10 @@ class StaffSerializer(serializers.ModelSerializer):
             'email', 'phone_number',
             'is_active', 'is_on_duty',
             'hotel', 'access_level', 'hotel_name',
-            'fcm_tokens', 'profile_image', 'profile_image_url',
+            'profile_image', 'profile_image_url',
             'has_registered_face', 'allowed_navs',
         ]
-        read_only_fields = ['user', 'allowed_navs', 'hotel_name', 'fcm_tokens', 'profile_image_url', 'department_detail', 'role_detail']
+        read_only_fields = ['user', 'allowed_navs', 'hotel_name', 'profile_image_url', 'department_detail', 'role_detail']
 
     def get_allowed_navs(self, obj):
         if not obj.role or not obj.access_level:
@@ -248,7 +244,7 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
     user = UserSerializer(read_only=True)
-    fcm_tokens = StaffFCMTokenSerializer(source='fcm_tokens.all', many=True, read_only=True)
+    # Firebase FCM tokens removed
     profile_image = serializers.ImageField(required=False, allow_null=True)
     department = serializers.PrimaryKeyRelatedField(
         queryset=Department.objects.all(),
@@ -267,7 +263,7 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
             'id', 'user_id', 'user', 'first_name', 'last_name',
             'department', 'role',
             'email', 'phone_number', 'is_active', 'is_on_duty',
-            'hotel', 'access_level', 'hotel_name', 'fcm_tokens',
+            'hotel', 'access_level', 'hotel_name',
             'profile_image',
         ]
 

@@ -117,18 +117,7 @@ class Staff(models.Model):
         ordering = ['department__name', 'last_name']
 
 
-class StaffFCMToken(models.Model):
-    staff = models.ForeignKey(
-        Staff,
-        on_delete=models.CASCADE,
-        related_name='fcm_tokens'
-    )
-    token = models.CharField(max_length=255, unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    last_used_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return f"FCM Token for {self.staff}"    
+# Firebase FCM functionality has been removed    
 
 class RegistrationCode(models.Model):
     code = models.CharField(max_length=20, unique=True)

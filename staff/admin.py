@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Staff, StaffFCMToken, Department, Role, RegistrationCode, UserProfile
+from .models import Staff, Department, Role, RegistrationCode, UserProfile
 
 
 @admin.register(Department)
@@ -21,12 +21,7 @@ class RoleAdmin(admin.ModelAdmin):
 
 
 
-class StaffFCMTokenInline(admin.TabularInline):
-    model = StaffFCMToken
-    extra = 0
-    readonly_fields = ('token', 'created_at', 'last_used_at')
-    can_delete = True
-
+# Firebase FCM functionality has been removed
 
 @admin.register(Staff)
 class StaffAdmin(admin.ModelAdmin):
@@ -85,8 +80,6 @@ class StaffAdmin(admin.ModelAdmin):
         }),
     )
     readonly_fields = ('profile_image_preview',)
-
-    inlines = [StaffFCMTokenInline]
 
     def profile_image_preview(self, obj):
         if obj.profile_image:
