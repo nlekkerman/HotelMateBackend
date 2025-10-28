@@ -40,7 +40,7 @@ class GameViewSet(viewsets.ReadOnlyModelViewSet):
 class GameHighScoreViewSet(viewsets.GenericViewSet,
                            mixins.ListModelMixin,
                            mixins.CreateModelMixin):
-    """List highscores or submit a new highscore, limited to top 100."""
+    """List highscores or submit a new highscore."""
     queryset = GameHighScore.objects.all()
     permission_classes = [permissions.AllowAny]
     pagination_class = None  # Disable DRF pagination
@@ -60,8 +60,8 @@ class GameHighScoreViewSet(viewsets.GenericViewSet,
         if hotel_slug:
             qs = qs.filter(hotel__slug=hotel_slug.strip())
 
-        # Order by score descending and limit to top 100
-        return qs.order_by('-score')[:100]
+        # Order by score descending
+        return qs.order_by('-score')
 
     def create(self, request, *args, **kwargs):
         game_slug = request.data.get('game', '').strip()
@@ -172,17 +172,9 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.AllowAny]
     
     def get_queryset(self):
-        """Filter sessions by user and optionally by hotel/tournament"""
-        # For authenticated users, show their sessions
-        if self.request.user.is_authenticated:
-            qs = MemoryGameSession.objects.filter(user=self.request.user)
-        else:
-            # For anonymous users, only show anonymous sessions
-            # This prevents anonymous users from seeing other users' data
-            qs = MemoryGameSession.objects.filter(
-                is_anonymous=True,
-                user__isnull=True
-            )
+        """Get all anonymous tournament sessions"""
+        # All sessions are now anonymous - no user filtering needed
+        qs = MemoryGameSession.objects.all()
         
         # Filter by hotel
         hotel_slug = self.request.query_params.get('hotel')
@@ -207,28 +199,9 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
         return MemoryGameSessionSerializer
     
     def perform_create(self, serializer):
-        """Create session and update user stats"""
-        with transaction.atomic():
-            session = serializer.save()
-            
-            # Update or create user stats only for authenticated users
-            if session.user:
-                stats, created = MemoryGameStats.objects.get_or_create(
-                    user=session.user,
-                    defaults={'hotel': session.hotel}
-                )
-                stats.update_stats_from_session(session)
-                
-                # Update tournament participation if applicable
-                if session.tournament:
-                    try:
-                        participation = TournamentParticipation.objects.get(
-                            tournament=session.tournament,
-                            user=session.user
-                        )
-                        participation.update_from_session(session)
-                    except TournamentParticipation.DoesNotExist:
-                        pass
+        """Create session for anonymous players"""
+        # Simply save the session - no user stats needed for anonymous players
+        session = serializer.save()
     
     @action(
         detail=False,
@@ -289,13 +262,13 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
         """Get leaderboard for memory game"""
         difficulty = request.query_params.get('difficulty', 'easy')
         hotel_slug = request.query_params.get('hotel')
-        limit = min(int(request.query_params.get('limit', 10)), 100)
+        limit = int(request.query_params.get('limit', 10))
         
         # Build base queryset
         qs = MemoryGameSession.objects.filter(
             completed=True,
             difficulty=difficulty
-        ).select_related('user', 'hotel')
+        ).select_related('hotel')
         
         # Filter by hotel if specified
         if hotel_slug:
@@ -307,10 +280,9 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
         # Build leaderboard data
         leaderboard_data = []
         for rank, session in enumerate(top_sessions, 1):
-            # Get player name (anonymous or user)
-            player_name = session.player_name if session.is_anonymous else (
-                session.user.username if session.user else "Anonymous"
-            )
+            # Get clean player name from token format
+            player_name = (session.player_name.split('|')[0]
+                           if session.player_name else "Anonymous")
             
             leaderboard_data.append({
                 'rank': rank,
@@ -570,7 +542,7 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
     def leaderboard(self, request, pk=None):
         """Get tournament leaderboard with clean player names"""
         tournament = self.get_object()
-        limit = min(int(request.query_params.get('limit', 20)), 100)
+        limit = int(request.query_params.get('limit', 20))
         
         # Get sessions directly to handle name cleaning
         sessions = MemoryGameSession.objects.filter(
@@ -686,16 +658,8 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         )
         
         if serializer.is_valid():
-            with transaction.atomic():
-                session = serializer.save()
-                
-                # Update user stats only for authenticated users
-                if session.user:
-                    stats, created = MemoryGameStats.objects.get_or_create(
-                        user=session.user,
-                        defaults={'hotel': session.hotel}
-                    )
-                    stats.update_stats_from_session(session)
+            # Create session for anonymous tournament players
+            session = serializer.save()
             
             return Response(
                 MemoryGameSessionSerializer(session).data,
