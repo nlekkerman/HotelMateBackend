@@ -201,22 +201,12 @@ class MemoryGameCard(models.Model):
 class MemoryGameSession(models.Model):
     """
     Individual memory game session with scoring and statistics
-    Supports anonymous players for kids tournaments
+    For anonymous players in kids tournaments
     """
-    user = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name='memory_game_sessions',
-        null=True,
-        blank=True,
-        help_text="Registered user (optional for anonymous players)"
-    )
-    # Anonymous player support for kids tournaments
+    # Anonymous player data
     player_name = models.CharField(
         max_length=100,
-        blank=True,
-        null=True,
-        help_text="Anonymous player name (e.g., 'Player 1234')"
+        help_text="Anonymous player name with token (e.g., 'Alice|player_123')"
     )
     room_number = models.CharField(
         max_length=50,
@@ -287,13 +277,16 @@ class MemoryGameSession(models.Model):
     class Meta:
         ordering = ['-created_at']
         indexes = [
-            models.Index(fields=['user', 'difficulty']),
+            models.Index(fields=['player_name', 'difficulty']),
             models.Index(fields=['hotel', 'created_at']),
             models.Index(fields=['tournament', 'score']),
         ]
 
     def __str__(self):
-        return (f"{self.user.username} - {self.difficulty} - "
+        # Extract clean player name from "PlayerName|token" format
+        player = (self.player_name.split('|')[0] if self.player_name
+                  else "Anonymous")
+        return (f"{player} - {self.difficulty} - "
                 f"{self.score} pts ({self.time_seconds}s)")
 
     def calculate_score(self):

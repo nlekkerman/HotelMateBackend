@@ -77,19 +77,35 @@ class MemoryGameCardAdmin(admin.ModelAdmin):
 @admin.register(MemoryGameSession)
 class MemoryGameSessionAdmin(admin.ModelAdmin):
     list_display = (
-        'user', 'difficulty', 'score', 'time_seconds', 
+        'display_player', 'room_number', 'difficulty', 'score', 'time_seconds', 
         'moves_count', 'hotel', 'tournament', 'completed', 'created_at'
     )
     list_filter = (
-        'difficulty', 'completed', 'hotel', 'tournament', 'created_at'
+        'difficulty', 'completed', 'hotel', 'tournament', 'is_anonymous', 'created_at'
     )
-    search_fields = ('user__username', 'hotel__name', 'tournament__name')
+    search_fields = ('player_name', 'room_number', 'hotel__name', 'tournament__name')
     readonly_fields = ('score', 'created_at', 'updated_at')
     ordering = ('-created_at',)
+
+    def display_player(self, obj):
+        """Display player name properly for anonymous players"""
+        if obj.player_name:
+            # Extract clean name from "name|token" format
+            clean_name = (obj.player_name.split('|')[0]
+                          if '|' in obj.player_name else obj.player_name)
+            room_info = (f" (Room: {obj.room_number})"
+                         if obj.room_number else "")
+            return f"{clean_name}{room_info}"
+        else:
+            return "Unknown Player"
+    display_player.short_description = 'Player'
     
     fieldsets = (
+        ('Player Info', {
+            'fields': ('player_name', 'room_number', 'is_anonymous')
+        }),
         ('Game Info', {
-            'fields': ('user', 'hotel', 'tournament', 'difficulty')
+            'fields': ('hotel', 'tournament', 'difficulty')
         }),
         ('Results', {
             'fields': ('time_seconds', 'moves_count', 'score', 'completed')

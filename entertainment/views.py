@@ -361,7 +361,7 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         permission_classes=[permissions.AllowAny]
     )
     def submit_score(self, request, pk=None):
-        """Submit score to tournament - saves only best score per player"""
+        """Submit score to tournament - uses player_token for tracking"""
         tournament = self.get_object()
         
         # Check if tournament is active
@@ -372,23 +372,25 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
             )
         
         # Get required data
+        player_token = request.data.get('player_token')
         player_name = request.data.get('player_name')
         room_number = request.data.get('room_number')
         time_seconds = request.data.get('time_seconds')
         moves_count = request.data.get('moves_count')
         
-        if not all([player_name, room_number, time_seconds, moves_count]):
+        if not all([player_token, player_name, room_number, time_seconds, moves_count]):
             return Response({
-                'error': 'All fields (name, room, time, moves) are required'
+                'error': 'All fields (token, name, room, time, moves) are required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Calculate score for this game
         calculated_score = self.calculate_score(int(time_seconds), int(moves_count))
         
-        # Check if player already has a score in this tournament
+        # Check if player (by token) already has a score in this tournament
+        # We store the token in player_name field as "name|token"
         existing_session = MemoryGameSession.objects.filter(
             tournament=tournament,
-            player_name=player_name
+            player_name__endswith=f"|{player_token}"
         ).first()
         
         is_new_personal_best = False
@@ -396,6 +398,8 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         if existing_session:
             # Player exists - update only if new score is better
             if calculated_score > existing_session.score:
+                # Update the session with new data
+                existing_session.player_name = f"{player_name}|{player_token}"
                 existing_session.room_number = room_number
                 existing_session.time_seconds = int(time_seconds)
                 existing_session.moves_count = int(moves_count)
@@ -403,21 +407,22 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
                 existing_session.save()
                 session = existing_session
                 is_new_personal_best = True
-                message = f'New personal best! Updated your score to {calculated_score}'
+                message = f'New personal best! Your score: {calculated_score}'
             else:
-                # Not better than existing score - don't update database
+                # Not better than existing score
                 return Response({
-                    'message': f'Good game! Your best score remains {existing_session.score}',
+                    'message': f'Good try! Your best remains {existing_session.score}',
                     'score': calculated_score,
                     'best_score': existing_session.score,
                     'is_personal_best': False,
                     'rank': self.get_player_rank_by_score(tournament, existing_session.score),
+                    'player_token': player_token,
                     'updated': False
                 }, status=status.HTTP_200_OK)
         else:
             # New player - create new session
             session_data = {
-                'player_name': player_name,
+                'player_name': f"{player_name}|{player_token}",
                 'room_number': room_number,
                 'is_anonymous': True,
                 'difficulty': 'intermediate',  # Fixed for 3x4 grid
@@ -432,12 +437,16 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
             is_new_personal_best = True
             message = f'Welcome to the tournament! Your score: {calculated_score}'
         
+        # Extract clean name for response
+        clean_name = player_name
+        
         return Response({
             'message': message,
             'session_id': session.id,
             'score': calculated_score,
             'best_score': session.score,
-            'player_name': session.player_name,
+            'player_name': clean_name,
+            'player_token': player_token,
             'rank': self.get_player_rank_by_score(tournament, session.score),
             'is_personal_best': is_new_personal_best,
             'updated': True
@@ -559,13 +568,32 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['get'])
     def leaderboard(self, request, pk=None):
-        """Get tournament leaderboard"""
+        """Get tournament leaderboard with clean player names"""
         tournament = self.get_object()
         limit = min(int(request.query_params.get('limit', 20)), 100)
         
-        leaderboard = tournament.get_leaderboard(limit)
-        serializer = TournamentLeaderboardSerializer(leaderboard, many=True)
-        return Response(serializer.data)
+        # Get sessions directly to handle name cleaning
+        sessions = MemoryGameSession.objects.filter(
+            tournament=tournament,
+            completed=True
+        ).order_by('-score', 'time_seconds')[:limit]
+        
+        leaderboard_data = []
+        for session in sessions:
+            # Extract clean player name (before the | token separator)
+            clean_name = session.player_name.split('|')[0] if '|' in session.player_name else session.player_name
+            
+            leaderboard_data.append({
+                'session_id': session.id,
+                'player_name': clean_name,
+                'room_number': session.room_number,
+                'score': session.score,
+                'time_seconds': session.time_seconds,
+                'moves_count': session.moves_count,
+                'created_at': session.created_at
+            })
+        
+        return Response(leaderboard_data)
     
     @action(detail=True, methods=['get'])
     def participants(self, request, pk=None):
