@@ -489,13 +489,14 @@ class MemoryGameTournament(models.Model):
         return f"{self.name} @ {self.hotel.name} ({self.status})"
 
     def generate_qr_code(self):
-        """Generate QR code pointing to memory match dashboard"""
+        """Generate QR code pointing to tournament page"""
         if not self.hotel:
             return False
             
         hotel_slug = self.hotel.slug
-        # All QR codes now point to the game dashboard
-        url = f"https://hotelsmates.com/games/memory-match/?hotel={hotel_slug}"
+        # QR codes point directly to tournaments page
+        base_url = "https://hotelsmates.com/games/memory-match/tournaments"
+        url = f"{base_url}?hotel={hotel_slug}"
         
         qr = qrcode.make(url)
         img_io = BytesIO()
@@ -537,11 +538,10 @@ class MemoryGameTournament(models.Model):
         """Get current number of participants"""
         return self.participants.filter(status='registered').count()
 
-    def get_leaderboard(self, limit=10):
-        """Get tournament leaderboard"""
+    def get_leaderboard(self, limit=50):
+        """Get tournament leaderboard - one entry per player (their best score)"""
         return (self.sessions
                 .filter(completed=True)
-                .select_related('user')
                 .order_by('-score', 'time_seconds')[:limit])
 
 

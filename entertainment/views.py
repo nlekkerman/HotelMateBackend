@@ -361,7 +361,7 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         permission_classes=[permissions.AllowAny]
     )
     def submit_score(self, request, pk=None):
-        """Submit score to tournament after completing the game"""
+        """Submit score to tournament - saves only best score per player"""
         tournament = self.get_object()
         
         # Check if tournament is active
@@ -382,37 +382,131 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
                 'error': 'All fields (name, room, time, moves) are required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Create tournament session with score (3x4 grid - 6 pairs)
-        session_data = {
-            'player_name': player_name,
-            'room_number': room_number,
-            'is_anonymous': True,
-            'difficulty': 'intermediate',  # Fixed for 3x4 grid
-            'time_seconds': int(time_seconds),
-            'moves_count': int(moves_count),
-            'completed': True,
-            'tournament': tournament,
-            'hotel': tournament.hotel
-        }
+        # Calculate score for this game
+        calculated_score = self.calculate_score(int(time_seconds), int(moves_count))
         
-        session = MemoryGameSession.objects.create(**session_data)
+        # Check if player already has a score in this tournament
+        existing_session = MemoryGameSession.objects.filter(
+            tournament=tournament,
+            player_name=player_name
+        ).first()
+        
+        is_new_personal_best = False
+        
+        if existing_session:
+            # Player exists - update only if new score is better
+            if calculated_score > existing_session.score:
+                existing_session.room_number = room_number
+                existing_session.time_seconds = int(time_seconds)
+                existing_session.moves_count = int(moves_count)
+                existing_session.score = calculated_score
+                existing_session.save()
+                session = existing_session
+                is_new_personal_best = True
+                message = f'New personal best! Updated your score to {calculated_score}'
+            else:
+                # Not better than existing score - don't update database
+                return Response({
+                    'message': f'Good game! Your best score remains {existing_session.score}',
+                    'score': calculated_score,
+                    'best_score': existing_session.score,
+                    'is_personal_best': False,
+                    'rank': self.get_player_rank_by_score(tournament, existing_session.score),
+                    'updated': False
+                }, status=status.HTTP_200_OK)
+        else:
+            # New player - create new session
+            session_data = {
+                'player_name': player_name,
+                'room_number': room_number,
+                'is_anonymous': True,
+                'difficulty': 'intermediate',  # Fixed for 3x4 grid
+                'time_seconds': int(time_seconds),
+                'moves_count': int(moves_count),
+                'completed': True,
+                'tournament': tournament,
+                'hotel': tournament.hotel
+            }
+            
+            session = MemoryGameSession.objects.create(**session_data)
+            is_new_personal_best = True
+            message = f'Welcome to the tournament! Your score: {calculated_score}'
         
         return Response({
-            'message': 'Score submitted successfully!',
+            'message': message,
             'session_id': session.id,
-            'score': session.score,
+            'score': calculated_score,
+            'best_score': session.score,
             'player_name': session.player_name,
-            'rank': self.get_player_rank(tournament, session)
+            'rank': self.get_player_rank_by_score(tournament, session.score),
+            'is_personal_best': is_new_personal_best,
+            'updated': True
         }, status=status.HTTP_201_CREATED)
     
-    def get_player_rank(self, tournament, session):
-        """Calculate player's current rank in tournament"""
-        better_sessions = MemoryGameSession.objects.filter(
+    def calculate_score(self, time_seconds, moves_count):
+        """Calculate score for 3x4 grid (6 pairs = 12 cards)"""
+        base_score = 1000
+        optimal_moves = 12  # Perfect game = 6 pairs × 2 moves
+        
+        # Penalties
+        time_penalty = time_seconds * 2      # 2 points per second
+        extra_moves = max(0, moves_count - optimal_moves)
+        moves_penalty = extra_moves * 5      # 5 points per extra move
+        
+        calculated_score = int(base_score - time_penalty - moves_penalty)
+        return max(0, calculated_score)  # Never negative
+    
+    def is_high_score(self, tournament, score):
+        """Check if score qualifies as a high score worth saving"""
+        # Get current top scores (limit to top 50 to keep leaderboard manageable)
+        top_scores = MemoryGameSession.objects.filter(
+            tournament=tournament,
+            completed=True
+        ).order_by('-score')[:50]
+        
+        # If less than 50 scores, always save
+        if top_scores.count() < 50:
+            return True
+        
+        # Check if score beats the 50th best score
+        lowest_top_score = top_scores.last().score
+        return score > lowest_top_score
+    
+    def get_leaderboard_threshold(self, tournament):
+        """Get the minimum score needed to make the leaderboard"""
+        top_scores = MemoryGameSession.objects.filter(
+            tournament=tournament,
+            completed=True
+        ).order_by('-score')[:50]
+        
+        if top_scores.count() < 50:
+            return 0  # Any score qualifies
+        
+        return top_scores.last().score
+
+    def get_player_best_score(self, tournament, player_name):
+        """Get a player's best score in this tournament"""
+        best_session = MemoryGameSession.objects.filter(
+            tournament=tournament,
+            player_name=player_name,
+            completed=True
+        ).order_by('-score').first()
+        
+        return best_session.score if best_session else 0
+
+    def get_player_rank_by_score(self, tournament, player_score):
+        """Calculate rank based on a specific score"""
+        better_scores = MemoryGameSession.objects.filter(
             tournament=tournament,
             completed=True,
-            score__gt=session.score
+            score__gt=player_score
         ).count()
-        return better_sessions + 1
+        
+        return better_scores + 1
+
+    def get_player_rank(self, tournament, session):
+        """Calculate player's current rank in tournament"""
+        return self.get_player_rank_by_score(tournament, session.score)
     
     @action(
         detail=True,
@@ -426,10 +520,12 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         success = tournament.generate_qr_code()
         
         if success:
+            base_url = "https://hotelsmates.com/games/memory-match/tournaments"
+            tournament_url = f"{base_url}?hotel={tournament.hotel.slug}"
             return Response({
                 'message': 'QR code generated successfully',
                 'qr_code_url': tournament.qr_code_url,
-                'dashboard_url': f"https://hotelsmates.com/games/memory-match/?hotel={tournament.hotel.slug}",
+                'tournament_url': tournament_url,
                 'generated_at': tournament.qr_generated_at
             }, status=status.HTTP_200_OK)
         else:
