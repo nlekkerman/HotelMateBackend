@@ -1,6 +1,9 @@
 from django.core.management.base import BaseCommand
+import os
+from zoneinfo import ZoneInfo
 from django.utils import timezone
-from django.db import transaction
+from django.conf import settings
+# transaction not needed here
 
 from entertainment.models import MemoryGameTournament
 
@@ -11,7 +14,17 @@ class Command(BaseCommand):
     )
 
     def handle(self, *args, **options):
-        now = timezone.now()
+        # Determine the 'now' time in the scheduler's desired timezone.
+        # By default Django TIME_ZONE is used, but you can override it by
+        # setting the SCHEDULER_LOCAL_TZ env var (e.g. 'Europe/Dublin').
+        tz_name = os.environ.get('SCHEDULER_LOCAL_TZ') or settings.TIME_ZONE
+        try:
+            tz = ZoneInfo(tz_name)
+            now = timezone.now().astimezone(tz)
+        except Exception:
+            # If ZoneInfo fails (invalid name), fall back to Django's
+            # current timezone (usually UTC) to avoid breaking the task.
+            now = timezone.now()
 
         # Find tournaments that may need status changes
         qs = MemoryGameTournament.objects.all()
