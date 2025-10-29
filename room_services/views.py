@@ -10,8 +10,8 @@ from django.http import Http404
 from notifications.utils import notify_porters_of_room_service_order
 from django.db import transaction
 import logging
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
+from django.conf import settings
+import pusher
 
 logger = logging.getLogger(__name__)
 
@@ -113,21 +113,20 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         instance.status = new_status
         instance.save()
-
-        channel_layer = get_channel_layer()
-        group_name = f"order_{instance.id}"
+        # Send update via Pusher so clients receive order status changes
         try:
-            async_to_sync(channel_layer.group_send)(
-                group_name,
-                {
-                    "type": "send_order_update",  # Matches your consumer method
-                    "content": {"id": instance.id, "status": instance.status},
-                },
+            pusher_client = pusher.Pusher(
+                app_id=getattr(settings, 'PUSHER_APP_ID', None),
+                key=getattr(settings, 'PUSHER_KEY', None),
+                secret=getattr(settings, 'PUSHER_SECRET', None),
+                cluster=getattr(settings, 'PUSHER_CLUSTER', None),
+                ssl=True,
             )
+            channel_name = f"order_{instance.id}"
+            pusher_client.trigger(channel_name, "order_update", {"id": instance.id, "status": instance.status})
         except Exception as e:
-            print(f"!!! [VIEW] group_send failed: {e!r}")
-            print(f"!!! [VIEW] channel_layer._config: {getattr(channel_layer, '_config', None)!r}")
-            raise
+            # Fail-safe: log to stdout (keeps behaviour simple in Heroku logs)
+            print(f"!!! [VIEW] pusher trigger failed: {e!r}")
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)

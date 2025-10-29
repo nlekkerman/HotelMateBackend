@@ -234,7 +234,6 @@ class MemoryGameSession(models.Model):
         related_name='sessions',
         help_text="Tournament this session belongs to"
     )
-    
     # Game Configuration
     difficulty = models.CharField(
         max_length=12,

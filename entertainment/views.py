@@ -262,7 +262,7 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
         """Get leaderboard for memory game"""
         difficulty = request.query_params.get('difficulty', 'easy')
         hotel_slug = request.query_params.get('hotel')
-        limit = int(request.query_params.get('limit', 10))
+        limit = int(request.query_params.get('limit', 50))
         
         # Build base queryset
         qs = MemoryGameSession.objects.filter(
@@ -537,6 +537,70 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
             'tournaments': serializer.data,
             'count': tournaments.count()
         })
+
+    @action(
+        detail=False,
+        methods=['get'],
+        permission_classes=[permissions.AllowAny]
+    )
+    def summary(self, request):
+        """Return a compact summary for frontend: active, next (upcoming), previous (most recent completed).
+
+        Query params:
+        - hotel: hotel slug (required)
+
+        Response shape:
+        {
+          "active": {id, name, start_date, end_date} | null,
+          "next": {id, name, start_date} | null,
+          "previous": {id, name, end_date} | null
+        }
+        """
+        hotel_slug = request.query_params.get('hotel')
+        if not hotel_slug:
+            return Response({'error': 'hotel parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        now = timezone.now()
+
+        # Currently active tournament (if any)
+        active = MemoryGameTournament.objects.filter(
+            hotel__slug=hotel_slug,
+            status=MemoryGameTournament.TournamentStatus.ACTIVE,
+            start_date__lte=now,
+            end_date__gte=now
+        ).order_by('start_date').first()
+
+        # Next upcoming tournament (earliest start_date in future)
+        next_t = MemoryGameTournament.objects.filter(
+            hotel__slug=hotel_slug,
+            status=MemoryGameTournament.TournamentStatus.UPCOMING,
+            start_date__gt=now
+        ).order_by('start_date').first()
+
+        # Most recent completed tournament
+        previous = MemoryGameTournament.objects.filter(
+            hotel__slug=hotel_slug,
+            status=MemoryGameTournament.TournamentStatus.COMPLETED,
+            end_date__lt=now
+        ).order_by('-end_date').first()
+
+        def short(t, include_start=False, include_end=False):
+            if not t:
+                return None
+            data = {'id': t.id, 'name': t.name}
+            if include_start and getattr(t, 'start_date', None):
+                data['start_date'] = t.start_date
+            if include_end and getattr(t, 'end_date', None):
+                data['end_date'] = t.end_date
+            return data
+
+        payload = {
+            'active': short(active, include_start=True, include_end=True),
+            'next': short(next_t, include_start=True),
+            'previous': short(previous, include_end=True)
+        }
+
+        return Response(payload)
     
     @action(detail=True, methods=['get'])
     def leaderboard(self, request, pk=None):

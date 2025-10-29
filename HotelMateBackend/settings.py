@@ -22,7 +22,8 @@ env = environ.Env(
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 environ.Env.read_env(os.path.join(BASE_DIR, '.env'))
-REDIS_URL = env("REDIS_URL")
+# Read REDIS_URL if present; default to empty so app can run without Redis
+REDIS_URL = env("REDIS_URL", default="")
 
 SECRET_KEY = env('SECRET_KEY')
 
@@ -138,18 +139,30 @@ PUSHER_SECRET = env('PUSHER_SECRET')
 PUSHER_CLUSTER = env('PUSHER_CLUSTER')
 
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [{
-                "address": os.environ["REDIS_URL"],
-                "ssl_cert_reqs": ssl.CERT_REQUIRED,
-                "ssl_ca_certs": certifi.where(),
-            }],
+# Channel layer: prefer a Redis channel layer when REDIS_URL is provided,
+# otherwise fall back to the in-memory channel layer (single-process).
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [{
+                    "address": REDIS_URL,
+                    "ssl_cert_reqs": ssl.CERT_REQUIRED,
+                    "ssl_ca_certs": certifi.where(),
+                }],
+            },
         },
-    },
-}
+    }
+else:
+    # In-memory channel layer is fine for apps that don't need cross-process
+    # pub/sub (or when running a single dyno). This lets you remove the
+    # Redis add-on safely and keep Channels installed for local dev.
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        },
+    }
 
 
 REST_FRAMEWORK = {
