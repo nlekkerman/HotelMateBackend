@@ -92,8 +92,8 @@ class UserSerializer(serializers.ModelSerializer):
             reg_code.used_at = timezone.now()
             reg_code.save()
 
-            # Optional: assign hotel to user/staff if you have a Staff object
-            Staff.objects.create(user=user, hotel_slug=reg_code.hotel_slug)
+            # Note: Staff creation is now handled in StaffRegisterAPIView
+            # to ensure proper hotel assignment
 
         return user
 

@@ -4,12 +4,13 @@ from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.contrib.auth.models import User
+from django.utils import timezone
 from .models import Staff, Department, Role, UserProfile, RegistrationCode
 from hotel.models import Hotel
 from .serializers import (
     StaffSerializer, UserSerializer,
     StaffLoginOutputSerializer, StaffLoginInputSerializer,
-    RegisterStaffSerializer,
+    RegisterStaffSerializer, DepartmentSerializer, RoleSerializer,
 )
 from rest_framework.decorators import action
 from .permissions import Permissions
@@ -149,10 +150,33 @@ class StaffViewSet(viewsets.ModelViewSet):
         hotel_slug = kwargs.get("hotel_slug")  # get hotel slug from URL
         hotel = get_object_or_404(Hotel, slug=hotel_slug)  # fetch hotel instance
 
+        # Only allow authenticated users who belong to this hotel
+        user = request.user
+        if not user.is_authenticated:
+            return Response(
+                {"detail": "Authentication required."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        try:
+            Staff.objects.get(user=user, hotel=hotel)
+        except Staff.DoesNotExist:
+            return Response(
+                {
+                    "detail": (
+                        "You must be a staff member of this hotel to "
+                        "create staff."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # Pass hotel to serializer if needed
-        serializer = RegisterStaffSerializer(data=request.data, context={'request': request})
+        serializer = RegisterStaffSerializer(
+            data=request.data,
+            context={"request": request}
+        )
         serializer.is_valid(raise_exception=True)
-        
+
         # Save staff with hotel assigned
         staff = serializer.save(hotel=hotel)
 
@@ -164,7 +188,10 @@ class StaffViewSet(viewsets.ModelViewSet):
             user.is_superuser = request.data["is_superuser"]
         user.save()
 
-        return Response(self.get_serializer(staff).data, status=status.HTTP_201_CREATED)
+        return Response(
+            self.get_serializer(staff).data,
+            status=status.HTTP_201_CREATED
+        )
 
     @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated], url_path='me')
     def me(self, request, hotel_slug=None):
@@ -246,34 +273,84 @@ class StaffRegisterAPIView(APIView):
         data = request.data
         username = data.get('username')
         password = data.get('password')
-        registration_code_value = data.get('registration_code', None)  # optional
+        registration_code_value = data.get('registration_code')
 
+        # Validate required fields
         if not username or not password:
-            return Response({'error': 'Username and password are required.'}, status=400)
+            return Response(
+                {'error': 'Username and password are required.'},
+                status=400
+            )
 
-        user, created = User.objects.get_or_create(username=username)
+        if not registration_code_value:
+            return Response(
+                {'error': 'Registration code is required.'},
+                status=400
+            )
+
+        # Validate registration code and get hotel
+        try:
+            reg_code = RegistrationCode.objects.get(
+                code=registration_code_value
+            )
+
+            # Check if registration code is already used
+            if reg_code.used_by is not None:
+                return Response(
+                    {'error': 'This registration code has already been used.'},
+                    status=400
+                )
+
+        except RegistrationCode.DoesNotExist:
+            return Response(
+                {'error': 'Invalid registration code.'},
+                status=400
+            )
+
+        # Get the hotel using the registration code's hotel_slug
+        try:
+            hotel = Hotel.objects.get(slug=reg_code.hotel_slug)
+        except Hotel.DoesNotExist:
+            return Response(
+                {'error': 'Hotel not found for this registration code.'},
+                status=400
+            )
+
+        # Create or get user
+        if User.objects.filter(username=username).exists():
+            return Response(
+                {'error': 'Username already exists.'},
+                status=400
+            )
+
+        user = User.objects.create(username=username)
         user.set_password(password)
         user.save()
 
-        profile, _ = UserProfile.objects.get_or_create(user=user)
+        # Create user profile linked to registration code
+        UserProfile.objects.create(user=user, registration_code=reg_code)
 
-        if registration_code_value:
-            try:
-                reg_code = RegistrationCode.objects.get(code=registration_code_value)
-                profile.registration_code = reg_code
-                profile.save()
-            except RegistrationCode.DoesNotExist:
-                return Response({'error': 'Invalid registration code.'}, status=400)
+        # Mark the registration code as used (don't delete yet)
+        # Code will be deleted when manager creates the staff profile
+        reg_code.used_by = user
+        reg_code.used_at = timezone.now()
+        reg_code.save()
 
+        # Create authentication token
         token, _ = Token.objects.get_or_create(user=user)
 
         return Response({
             'user_id': user.id,
             'username': user.username,
             'token': token.key,
-            'registration_code': profile.registration_code.code if profile.registration_code else None,
-            'created': created,
-        }, status=201 if created else 200)
+            'registration_code': reg_code.code,
+            'hotel_slug': hotel.slug,
+            'hotel_name': hotel.name,
+            'message': (
+                'User created successfully. '
+                'Please wait for manager to complete your staff profile.'
+            ),
+        }, status=201)
 
 
 class PasswordResetRequestView(APIView):
@@ -361,4 +438,236 @@ class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
                 pass  # user has no profile, skip
 
         return users_with_codes
+
+
+class PendingRegistrationsAPIView(APIView):
+    """
+    GET endpoint to fetch users who have registered but don't have
+    a Staff profile yet.
+    Returns users with their registration codes for manager review.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, hotel_slug):
+        # Verify requesting user has access to this hotel
+        try:
+            requesting_staff = Staff.objects.get(user=request.user)
+            if requesting_staff.hotel.slug != hotel_slug:
+                return Response(
+                    {'error': 'Access denied to this hotel.'},
+                    status=403
+                )
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Only staff members can access this endpoint.'},
+                status=403
+            )
+
+        # Get all used registration codes for this hotel
+        used_codes = RegistrationCode.objects.filter(
+            hotel_slug=hotel_slug,
+            used_by__isnull=False
+        ).select_related('used_by')
+
+        pending_users = []
+        for code in used_codes:
+            user = code.used_by
+            # Check if user has no staff profile
+            if not hasattr(user, 'staff_profile'):
+                pending_users.append({
+                    'user_id': user.id,
+                    'username': user.username,
+                    'registration_code': code.code,
+                    'registered_at': code.used_at,
+                })
+
+        return Response({
+            'hotel_slug': hotel_slug,
+            'pending_count': len(pending_users),
+            'pending_users': pending_users,
+        }, status=200)
+
+
+class CreateStaffFromUserAPIView(APIView):
+    """
+    POST endpoint to create a Staff profile for a registered user.
+    Deletes the registration code after successful staff creation.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, hotel_slug):
+        # Verify requesting user has manager/admin access
+        try:
+            requesting_staff = Staff.objects.get(user=request.user)
+            if requesting_staff.hotel.slug != hotel_slug:
+                return Response(
+                    {'error': 'Access denied to this hotel.'},
+                    status=403
+                )
+            # Only managers and admins can create staff
+            if requesting_staff.access_level not in ['manager', 'admin']:
+                return Response(
+                    {'error': 'Only managers can create staff profiles.'},
+                    status=403
+                )
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Only staff members can access this endpoint.'},
+                status=403
+            )
+
+        # Get data from request
+        user_id = request.data.get('user_id')
+        first_name = request.data.get('first_name', '')
+        last_name = request.data.get('last_name', '')
+        email = request.data.get('email', '')
+        department_id = request.data.get('department_id')
+        role_id = request.data.get('role_id')
+        access_level = request.data.get('access_level', 'regular_staff')
+        is_active = request.data.get('is_active', True)
+
+        if not user_id:
+            return Response(
+                {'error': 'user_id is required.'},
+                status=400
+            )
+
+        # Get the user
+        try:
+            user = User.objects.get(id=user_id)
+        except User.DoesNotExist:
+            return Response(
+                {'error': 'User not found.'},
+                status=404
+            )
+
+        # Check if staff already exists
+        if hasattr(user, 'staff_profile'):
+            return Response(
+                {'error': 'Staff profile already exists for this user.'},
+                status=400
+            )
+
+        # Get hotel
+        try:
+            hotel = Hotel.objects.get(slug=hotel_slug)
+        except Hotel.DoesNotExist:
+            return Response(
+                {'error': 'Hotel not found.'},
+                status=404
+            )
+
+        # Get department and role if provided
+        department = None
+        role = None
+        if department_id:
+            try:
+                department = Department.objects.get(id=department_id)
+            except Department.DoesNotExist:
+                return Response(
+                    {'error': 'Department not found.'},
+                    status=404
+                )
+
+        if role_id:
+            try:
+                role = Role.objects.get(id=role_id)
+            except Role.DoesNotExist:
+                return Response(
+                    {'error': 'Role not found.'},
+                    status=404
+                )
+
+        # Create the staff profile
+        staff = Staff.objects.create(
+            user=user,
+            hotel=hotel,
+            first_name=first_name,
+            last_name=last_name,
+            email=email,
+            department=department,
+            role=role,
+            access_level=access_level,
+            is_active=is_active,
+            is_on_duty=False
+        )
+
+        # Find and DELETE the registration code
+        try:
+            reg_code = RegistrationCode.objects.get(
+                hotel_slug=hotel_slug,
+                used_by=user
+            )
+            deleted_code = reg_code.code
+            reg_code.delete()
+        except RegistrationCode.DoesNotExist:
+            deleted_code = None  # Code might already be deleted
+
+        # Serialize the created staff
+        serializer = StaffSerializer(staff)
+
+        return Response({
+            'message': 'Staff profile created successfully.',
+            'staff': serializer.data,
+            'deleted_code': deleted_code,
+        }, status=201)
+
+
+class DepartmentViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing departments.
+    List, create, retrieve, update, delete departments.
+    """
+    queryset = Department.objects.all()
+    serializer_class = DepartmentSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'slug'
+    
+    filter_backends = [
+        filters.SearchFilter,
+        filters.OrderingFilter
+    ]
+    search_fields = ['name', 'slug', 'description']
+    ordering_fields = ['name', 'id']
+    ordering = ['name']
+
+
+class RoleViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing roles.
+    List, create, retrieve, update, delete roles.
+    Filter by department using ?department_slug=<slug>
+    """
+    queryset = Role.objects.all()
+    serializer_class = RoleSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'slug'
+    
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter
+    ]
+    filterset_fields = ['department', 'department__slug']
+    search_fields = ['name', 'slug', 'description']
+    ordering_fields = ['name', 'id']
+    ordering = ['name']
+    
+    def get_queryset(self):
+        """
+        Filter roles by department_slug query parameter.
+        """
+        queryset = Role.objects.select_related('department').all()
+        department_slug = self.request.query_params.get(
+            'department_slug', None
+        )
+        
+        if department_slug is not None:
+            queryset = queryset.filter(
+                department__slug=department_slug
+            )
+        
+        return queryset
+
+
 
