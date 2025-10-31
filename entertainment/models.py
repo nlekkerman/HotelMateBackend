@@ -530,11 +530,19 @@ class MemoryGameTournament(models.Model):
         """Get current number of participants"""
         return self.participants.filter(status='registered').count()
 
-    def get_leaderboard(self, limit=50):
-        """Get tournament leaderboard - one entry per player (their best score)"""
-        return (self.sessions
-                .filter(completed=True)
-                .order_by('-score', 'time_seconds')[:limit])
+    def get_leaderboard(self, limit=None):
+                """Get tournament leaderboard.
+
+                By default this returns the full ordered set of completed sessions for
+                the tournament. Callers may pass `limit` to cap results if desired.
+                """
+                qs = (self.sessions
+                            .filter(completed=True)
+                            .order_by('-score', 'time_seconds'))
+
+                if limit:
+                        return qs[:limit]
+                return qs
 
 
 class TournamentParticipation(models.Model):

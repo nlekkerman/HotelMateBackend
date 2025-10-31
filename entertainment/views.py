@@ -262,8 +262,7 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
         """Get leaderboard for memory game"""
         difficulty = request.query_params.get('difficulty', 'easy')
         hotel_slug = request.query_params.get('hotel')
-        limit = int(request.query_params.get('limit', 50))
-        
+        # Always return the full ordered leaderboard (ignore any 'limit' param)
         # Build base queryset
         qs = MemoryGameSession.objects.filter(
             completed=True,
@@ -274,16 +273,31 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
         if hotel_slug:
             qs = qs.filter(hotel__slug=hotel_slug)
         
-        # Get top scores
-        top_sessions = qs.order_by('-score', 'time_seconds')[:limit]
-        
-        # Build leaderboard data
+        # Get full ordered sessions
+        ordered_sessions = qs.order_by('-score', 'time_seconds')
+
+        # Deduplicate by player token (stored as "DisplayName|token"). Keep first
+        # occurrence since queryset is ordered by best score / best time.
+        seen_tokens = set()
+        unique_sessions = []
+        for session in ordered_sessions:
+            name = session.player_name or "Anonymous"
+            if '|' in name:
+                token = name.split('|', 1)[1]
+            else:
+                token = name
+
+            if token in seen_tokens:
+                continue
+            seen_tokens.add(token)
+            unique_sessions.append(session)
+
+        # Build leaderboard data (one entry per player)
         leaderboard_data = []
-        for rank, session in enumerate(top_sessions, 1):
-            # Get clean player name from token format
-            player_name = (session.player_name.split('|')[0]
+        for rank, session in enumerate(unique_sessions, 1):
+            player_name = (session.player_name.split('|', 1)[0]
                            if session.player_name else "Anonymous")
-            
+
             leaderboard_data.append({
                 'rank': rank,
                 'user': player_name,
@@ -293,7 +307,7 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
                 'achieved_at': session.created_at,
                 'hotel': session.hotel.name if session.hotel else None
             })
-        
+
         serializer = LeaderboardSerializer(leaderboard_data, many=True)
         return Response(serializer.data)
 
@@ -606,20 +620,29 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
     def leaderboard(self, request, pk=None):
         """Get tournament leaderboard with clean player names"""
         tournament = self.get_object()
-        limit = int(request.query_params.get('limit', 20))
-        
-        # Get sessions directly to handle name cleaning
+
+        # Always return the full ordered tournament leaderboard (ignore 'limit')
         sessions = MemoryGameSession.objects.filter(
             tournament=tournament,
             completed=True
-        ).order_by('-score', 'time_seconds')[:limit]
-        
+        ).order_by('-score', 'time_seconds')
+
+        # Deduplicate by player token (keep best score / best time per player)
+        seen = set()
+        unique = []
+        for s in sessions:
+            name = s.player_name or "Anonymous"
+            token = name.split('|', 1)[1] if '|' in name else name
+            if token in seen:
+                continue
+            seen.add(token)
+            unique.append(s)
+
         leaderboard_data = []
-        for session in sessions:
-            # Extract clean player name (before the | token separator)
-            clean_name = session.player_name.split('|')[0] if '|' in session.player_name else session.player_name
-            
+        for rank, session in enumerate(unique, 1):
+            clean_name = session.player_name.split('|', 1)[0] if '|' in session.player_name else session.player_name
             leaderboard_data.append({
+                'rank': rank,
                 'session_id': session.id,
                 'player_name': clean_name,
                 'room_number': session.room_number,
@@ -628,7 +651,7 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
                 'moves_count': session.moves_count,
                 'created_at': session.created_at
             })
-        
+
         return Response(leaderboard_data)
     
     @action(detail=True, methods=['get'])
