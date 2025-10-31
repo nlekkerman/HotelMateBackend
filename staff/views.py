@@ -504,12 +504,7 @@ class CreateStaffFromUserAPIView(APIView):
                     {'error': 'Access denied to this hotel.'},
                     status=403
                 )
-            # Only managers and admins can create staff
-            if requesting_staff.access_level not in ['manager', 'admin']:
-                return Response(
-                    {'error': 'Only managers can create staff profiles.'},
-                    status=403
-                )
+            # Any staff member of the hotel can create staff (no access_level restriction)
         except Staff.DoesNotExist:
             return Response(
                 {'error': 'Only staff members can access this endpoint.'},
