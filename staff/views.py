@@ -124,10 +124,25 @@ class CustomAuthToken(ObtainAuthToken):
         return Response(output_serializer.data)
 
 
+from .permissions_superuser import IsSuperUser
+
 class StaffViewSet(viewsets.ModelViewSet):
+    def update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not instance.user or instance.user != request.user:
+            return Response({"detail": "You can only update your own staff profile."}, status=status.HTTP_403_FORBIDDEN)
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if not instance.user or instance.user != request.user:
+            return Response({"detail": "You can only update your own staff profile."}, status=status.HTTP_403_FORBIDDEN)
+        return super().partial_update(request, *args, **kwargs)
+
     serializer_class = StaffSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    permission_classes = [IsSuperUser]
 
     filterset_fields = ['department__slug', 'role__slug', 'hotel__slug']
     ordering_fields = ['user__username', 'department__name', 'role__name', 'hotel__name']
