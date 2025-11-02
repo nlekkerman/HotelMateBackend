@@ -15,17 +15,21 @@ class RoomMessageSerializer(serializers.ModelSerializer):
     status = serializers.CharField(read_only=True)
     is_read_by_recipient = serializers.SerializerMethodField()
     read_at = serializers.SerializerMethodField()
+    
+    # Staff info for guest display
+    staff_info = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomMessage
         fields = [
             'id', 'conversation', 'room', 'room_number',
             'sender_type', 'staff', 'staff_name',
-            'guest_name',
+            'guest_name', 'staff_info',
             'message', 'timestamp',
             'status', 'is_read_by_recipient', 'read_at',
             'read_by_staff', 'read_by_guest',
-            'staff_read_at', 'guest_read_at', 'delivered_at'
+            'staff_read_at', 'guest_read_at', 'delivered_at',
+            'staff_display_name', 'staff_role_name'
         ]
         read_only_fields = ['timestamp', 'delivered_at']
 
@@ -49,6 +53,19 @@ class RoomMessageSerializer(serializers.ModelSerializer):
             return obj.staff_read_at
         else:
             return obj.guest_read_at
+
+    def get_staff_info(self, obj):
+        """Return staff info for guest-facing display"""
+        if obj.sender_type == 'staff' and obj.staff:
+            return {
+                'name': (obj.staff_display_name or
+                         f"{obj.staff.first_name} {obj.staff.last_name}"),
+                'role': (obj.staff_role_name or
+                         (obj.staff.role.name if obj.staff.role else 'Staff')),
+                'profile_image': (obj.staff.profile_image.url
+                                  if obj.staff.profile_image else None)
+            }
+        return None
 
 
 class ConversationSerializer(serializers.ModelSerializer):

@@ -4,10 +4,11 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db.models import Count
 from django.utils import timezone
+from datetime import timedelta
 from rooms.models import Room
 from hotel.models import Hotel
 from staff.models import Staff
-from .models import Conversation, RoomMessage
+from .models import Conversation, RoomMessage, GuestChatSession
 from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
 import logging
@@ -66,7 +67,13 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # Determine sender
     staff_instance = getattr(request.user, "staff_profile", None)
     sender_type = "staff" if staff_instance else "guest"
-    logger.info(f"Message sender type: {sender_type}, user_id: {request.user.id}")
+    logger.info(
+        f"Message sender type: {sender_type}, "
+        f"user_id: {request.user.id}"
+    )
+
+    # Get session token for guest
+    session_token = request.data.get("session_token")
 
     # Create the message
     message = RoomMessage.objects.create(
@@ -76,6 +83,26 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         message=message_text,
         sender_type=sender_type,
     )
+
+    # Update session handler when staff replies
+    if sender_type == "staff" and session_token:
+        try:
+            session = GuestChatSession.objects.get(
+                session_token=session_token,
+                conversation=conversation,
+                is_active=True
+            )
+            session.current_staff_handler = staff_instance
+            session.save()
+            logger.info(
+                f"Updated session handler to {staff_instance} "
+                f"for session {session_token}"
+            )
+        except GuestChatSession.DoesNotExist:
+            logger.warning(
+                f"Session token {session_token} not found "
+                f"for conversation {conversation.id}"
+            )
 
     serializer = RoomMessageSerializer(message)
     logger.info(f"Message created with ID: {message.id}")
@@ -139,18 +166,49 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             except Exception as e:
                 logger.error(f"Failed to trigger Pusher for staff_channel={staff_channel}: {e}")
 
+    else:
+        # Staff sent a message - notify guest on room-specific channel
+        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+        try:
+            pusher_client.trigger(
+                guest_channel,
+                "new-staff-message",
+                serializer.data
+            )
+            logger.info(
+                f"Pusher triggered: guest_channel={guest_channel}, "
+                f"event=new-staff-message, message_id={message.id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to trigger Pusher for "
+                f"guest_channel={guest_channel}: {e}"
+            )
+
     # Trigger Pusher for the actual new message (for all listeners)
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
     try:
         pusher_client.trigger(message_channel, "new-message", serializer.data)
-        logger.info(f"Pusher triggered for new message: channel={message_channel}, message_id={message.id}")
+        logger.info(
+            f"Pusher triggered for new message: "
+            f"channel={message_channel}, message_id={message.id}"
+        )
     except Exception as e:
-        logger.error(f"Failed to trigger Pusher for message_channel={message_channel}: {e}")
+        logger.error(
+            f"Failed to trigger Pusher for "
+            f"message_channel={message_channel}: {e}"
+        )
 
-    return Response({
+    # Prepare response with staff info
+    response_data = {
         "conversation_id": conversation.id,
         "message": serializer.data
-    })
+    }
+
+    if sender_type == "staff":
+        response_data["staff_info"] = get_staff_info(staff_instance)
+
+    return Response(response_data)
 
 # Keep validation unchanged
 @api_view(['POST'])
@@ -389,3 +447,193 @@ def get_unread_conversation_count(request, hotel_slug):
         "unread_count": unread_count,
         "rooms": rooms_with_unread
     })
+
+
+# Helper functions for guest sessions
+def get_staff_info(staff):
+    """Format staff info for guest display"""
+    if not staff:
+        return None
+    return {
+        'name': f"{staff.first_name} {staff.last_name}".strip(),
+        'role': staff.role.name if staff.role else 'Staff',
+        'profile_image': (staff.profile_image.url
+                          if staff.profile_image else None)
+    }
+
+
+def get_client_ip(request):
+    """Extract client IP from request"""
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(',')[0]
+    else:
+        ip = request.META.get('REMOTE_ADDR')
+    return ip
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def initialize_guest_session(request, hotel_slug, room_number):
+    """
+    Create or retrieve a guest chat session.
+    Returns session token for local storage.
+    """
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
+
+    # Validate PIN first
+    pin = request.data.get('pin')
+    if pin != room.guest_id_pin:
+        return Response({'error': 'Invalid PIN'}, status=401)
+
+    # Get or create conversation
+    conversation, _ = Conversation.objects.get_or_create(room=room)
+
+    # Check if session token provided (returning guest)
+    existing_token = request.data.get('session_token')
+
+    if existing_token:
+        try:
+            session = GuestChatSession.objects.get(
+                session_token=existing_token,
+                room=room,
+                is_active=True
+            )
+            if not session.is_expired():
+                # Refresh activity
+                session.last_activity = timezone.now()
+                session.save()
+
+                logger.info(
+                    f"Existing guest session refreshed: "
+                    f"{session.session_token} for room {room_number}"
+                )
+
+                return Response({
+                    'session_token': str(session.session_token),
+                    'conversation_id': conversation.id,
+                    'room_number': room.room_number,
+                    'is_new_session': False,
+                    'pusher_channel': (
+                        f"{hotel.slug}-room-{room.room_number}-chat"
+                    ),
+                    'current_staff_handler': get_staff_info(
+                        session.current_staff_handler
+                    )
+                })
+        except GuestChatSession.DoesNotExist:
+            pass
+
+    # Create new session
+    session = GuestChatSession.objects.create(
+        conversation=conversation,
+        room=room,
+        user_agent=request.META.get('HTTP_USER_AGENT', ''),
+        last_ip=get_client_ip(request),
+        expires_at=timezone.now() + timedelta(days=7)
+    )
+
+    logger.info(
+        f"New guest session created: {session.session_token} "
+        f"for room {room_number}"
+    )
+
+    return Response({
+        'session_token': str(session.session_token),
+        'conversation_id': conversation.id,
+        'room_number': room.room_number,
+        'is_new_session': True,
+        'pusher_channel': f"{hotel.slug}-room-{room.room_number}-chat",
+        'current_staff_handler': None
+    })
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def validate_guest_session(request, session_token):
+    """
+    Validate if guest session is still active.
+    Called on page load to verify local storage token.
+    """
+    try:
+        session = GuestChatSession.objects.get(
+            session_token=session_token,
+            is_active=True
+        )
+
+        if session.is_expired():
+            session.is_active = False
+            session.save()
+            logger.info(f"Guest session expired: {session_token}")
+            return Response(
+                {'valid': False, 'reason': 'expired'},
+                status=401
+            )
+
+        # Update activity
+        session.last_activity = timezone.now()
+        session.save()
+
+        return Response({
+            'valid': True,
+            'conversation_id': session.conversation.id,
+            'room_number': session.room.room_number,
+            'hotel_slug': session.room.hotel.slug,
+            'current_staff_handler': get_staff_info(
+                session.current_staff_handler
+            ),
+            'pusher_channel': (
+                f"{session.room.hotel.slug}-room-"
+                f"{session.room.room_number}-chat"
+            )
+        })
+
+    except GuestChatSession.DoesNotExist:
+        return Response(
+            {'valid': False, 'reason': 'not_found'},
+            status=404
+        )
+
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_unread_messages_for_guest(request, session_token):
+    """
+    Get count of unread messages for a guest session.
+    Used for browser notifications.
+    """
+    try:
+        session = GuestChatSession.objects.get(
+            session_token=session_token,
+            is_active=True
+        )
+
+        if session.is_expired():
+            return Response({'unread_count': 0})
+
+        unread_count = session.conversation.messages.filter(
+            sender_type='staff',
+            read_by_guest=False
+        ).count()
+
+        # Get latest unread message for preview
+        latest_unread = session.conversation.messages.filter(
+            sender_type='staff',
+            read_by_guest=False
+        ).order_by('-timestamp').first()
+
+        return Response({
+            'unread_count': unread_count,
+            'latest_message': {
+                'text': (latest_unread.message[:50]
+                         if latest_unread else None),
+                'staff_name': (latest_unread.staff_display_name
+                               if latest_unread else None),
+                'timestamp': (latest_unread.timestamp
+                              if latest_unread else None)
+            } if latest_unread else None
+        })
+
+    except GuestChatSession.DoesNotExist:
+        return Response({'unread_count': 0})

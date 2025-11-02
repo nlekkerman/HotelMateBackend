@@ -9,6 +9,9 @@ from .views import (
     get_unread_count,
     mark_conversation_read,
     get_unread_conversation_count,
+    initialize_guest_session,
+    validate_guest_session,
+    get_unread_messages_for_guest,
 )
 
 urlpatterns = [
@@ -35,4 +38,21 @@ urlpatterns = [
     # --- New URLs for unread tracking ---
     path("<slug:hotel_slug>/conversations/unread-count/", get_unread_count, name="get_unread_count"),
     path("conversations/<int:conversation_id>/mark-read/", mark_conversation_read, name="mark_conversation_read"),
+    
+    # --- Guest session management ---
+    path(
+        "<slug:hotel_slug>/guest-session/room/<int:room_number>/initialize/",
+        initialize_guest_session,
+        name="initialize_guest_session"
+    ),
+    path(
+        "guest-session/<uuid:session_token>/validate/",
+        validate_guest_session,
+        name="validate_guest_session"
+    ),
+    path(
+        "guest-session/<uuid:session_token>/unread-count/",
+        get_unread_messages_for_guest,
+        name="get_unread_messages_for_guest"
+    ),
 ]
