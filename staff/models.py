@@ -3,6 +3,57 @@ from django.db import models
 from cloudinary.models import CloudinaryField
 
 
+class NavigationItem(models.Model):
+    """
+    Navigation links that can be assigned to staff members.
+    Each hotel can have different navigation items.
+    Only Django superuser can create/edit these.
+    Super Staff Admin assigns them to staff members within their hotel.
+    """
+    hotel = models.ForeignKey(
+        'hotel.Hotel',
+        on_delete=models.CASCADE,
+        related_name='navigation_items',
+        help_text="Hotel this navigation item belongs to"
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="Display name (e.g., 'Home', 'Chat')"
+    )
+    slug = models.SlugField(
+        max_length=100,
+        help_text="Unique identifier (e.g., 'home', 'chat')"
+    )
+    path = models.CharField(
+        max_length=255,
+        help_text="Frontend route (e.g., '/', '/chat')"
+    )
+    description = models.TextField(
+        blank=True,
+        null=True,
+        help_text="What this navigation link does"
+    )
+    display_order = models.IntegerField(
+        default=0,
+        help_text="Order in navigation menu"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this link is currently active"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.hotel.slug} - {self.name}"
+
+    class Meta:
+        ordering = ['hotel', 'display_order', 'name']
+        unique_together = [['hotel', 'slug']]
+        verbose_name = 'Navigation Item'
+        verbose_name_plural = 'Navigation Items'
+
+
 class Department(models.Model):
     name = models.CharField(max_length=100, unique=True)
     slug = models.SlugField(max_length=100, unique=True)
@@ -92,6 +143,14 @@ class Staff(models.Model):
             "crop": "thumb",
             "gravity": "face"
         }
+    )
+
+    # Navigation permissions - assigned by super_staff_admin
+    allowed_navigation_items = models.ManyToManyField(
+        NavigationItem,
+        blank=True,
+        related_name='staff_members',
+        help_text="Navigation links this staff member can access"
     )
 
     def __str__(self):

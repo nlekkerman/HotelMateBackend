@@ -5,15 +5,18 @@ from rest_framework.authtoken.models import Token
 from rest_framework.views import APIView
 from django.contrib.auth.models import User
 from django.utils import timezone
-from .models import Staff, Department, Role, UserProfile, RegistrationCode
+from .models import (
+    Staff, Department, Role, UserProfile,
+    RegistrationCode, NavigationItem
+)
 from hotel.models import Hotel
 from .serializers import (
     StaffSerializer, UserSerializer,
     StaffLoginOutputSerializer, StaffLoginInputSerializer,
     RegisterStaffSerializer, DepartmentSerializer, RoleSerializer,
+    NavigationItemSerializer,
 )
 from rest_framework.decorators import action
-from .permissions import Permissions
 
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -84,7 +87,9 @@ class CustomAuthToken(ObtainAuthToken):
         token = Token.objects.get(key=token_key)
         user = token.user
 
-        staff = Staff.objects.select_related('department', 'hotel', 'role').get(user=user)
+        staff = Staff.objects.select_related(
+            'department', 'hotel', 'role'
+        ).prefetch_related('allowed_navigation_items').get(user=user)
 
         hotel_id = staff.hotel.id if staff and staff.hotel else None
         hotel_name = staff.hotel.name if staff and staff.hotel else None
@@ -94,7 +99,13 @@ class CustomAuthToken(ObtainAuthToken):
         profile_image_url = None
         if staff and staff.profile_image:
             profile_image_url = str(staff.profile_image)
-        allowed_navs = Permissions.get_accessible_navs(staff)
+        
+        # Get allowed navigation slugs from database
+        allowed_navs = [
+            nav.slug for nav in staff.allowed_navigation_items.filter(
+                is_active=True
+            )
+        ]
 
         # Firebase FCM token handling has been removed
 
@@ -679,5 +690,140 @@ class RoleViewSet(viewsets.ModelViewSet):
         
         return queryset
 
+
+class NavigationItemViewSet(viewsets.ModelViewSet):
+    """
+    Manage Navigation Items (Links).
+    - List/Retrieve: Any authenticated user
+    - Create/Update/Delete: Only Django superuser (is_superuser=True)
+    """
+    queryset = NavigationItem.objects.all()
+    serializer_class = NavigationItemSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    lookup_field = 'slug'
+    
+    filter_backends = [
+        filters.SearchFilter,
+        filters.OrderingFilter
+    ]
+    search_fields = ['name', 'slug', 'path', 'description']
+    ordering_fields = ['display_order', 'name', 'id']
+    ordering = ['display_order', 'name']
+    
+    def get_queryset(self):
+        """Filter to active items by default"""
+        queryset = NavigationItem.objects.all()
+        
+        # Allow filtering by is_active
+        is_active = self.request.query_params.get('is_active', None)
+        if is_active is not None:
+            queryset = queryset.filter(
+                is_active=is_active.lower() == 'true'
+            )
+        
+        return queryset
+    
+    def perform_create(self, serializer):
+        """Only Django superuser can create navigation items"""
+        if not self.request.user.is_superuser:
+            raise permissions.PermissionDenied(
+                "Only Django superusers can create navigation items."
+            )
+        serializer.save()
+    
+    def perform_update(self, serializer):
+        """Only Django superuser can update navigation items"""
+        if not self.request.user.is_superuser:
+            raise permissions.PermissionDenied(
+                "Only Django superusers can update navigation items."
+            )
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """Only Django superuser can delete navigation items"""
+        if not self.request.user.is_superuser:
+            raise permissions.PermissionDenied(
+                "Only Django superusers can delete navigation items."
+            )
+        instance.delete()
+
+
+class StaffNavigationPermissionsView(APIView):
+    """
+    Manage staff navigation permissions.
+    Only super_staff_admin can assign navigation items to staff.
+    
+    GET /api/staff/staff/{staff_id}/navigation-permissions/
+    PUT /api/staff/staff/{staff_id}/navigation-permissions/
+    """
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get(self, request, staff_id):
+        """Get navigation permissions for a staff member"""
+        staff = get_object_or_404(Staff, id=staff_id)
+        
+        # Check if requester is super_staff_admin
+        requester_staff = get_object_or_404(Staff, user=request.user)
+        if requester_staff.access_level != 'super_staff_admin':
+            return Response(
+                {
+                    "detail": "Only Super Staff Admins can view "
+                    "navigation permissions."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        navigation_items = staff.allowed_navigation_items.all()
+        serializer = NavigationItemSerializer(navigation_items, many=True)
+        
+        return Response({
+            'staff_id': staff.id,
+            'staff_name': f"{staff.first_name} {staff.last_name}",
+            'navigation_items': serializer.data,
+            'navigation_item_ids': [item.id for item in navigation_items]
+        })
+    
+    def put(self, request, staff_id):
+        """Update navigation permissions for a staff member"""
+        staff = get_object_or_404(Staff, id=staff_id)
+        
+        # Check if requester is super_staff_admin
+        requester_staff = get_object_or_404(Staff, user=request.user)
+        if requester_staff.access_level != 'super_staff_admin':
+            return Response(
+                {
+                    "detail": "Only Super Staff Admins can update "
+                    "navigation permissions."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get navigation item IDs from request
+        nav_item_ids = request.data.get('navigation_item_ids', [])
+        
+        # Validate that all IDs exist
+        navigation_items = NavigationItem.objects.filter(
+            id__in=nav_item_ids, is_active=True
+        )
+        
+        if len(navigation_items) != len(nav_item_ids):
+            return Response(
+                {"detail": "Some navigation item IDs are invalid."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update the staff's allowed navigation items
+        staff.allowed_navigation_items.set(navigation_items)
+        
+        # Return updated data
+        serializer = NavigationItemSerializer(navigation_items, many=True)
+        
+        return Response({
+            'staff_id': staff.id,
+            'staff_name': f"{staff.first_name} {staff.last_name}",
+            'message': 'Navigation permissions updated successfully.',
+            'navigation_items': serializer.data,
+            'navigation_item_ids': [item.id for item in navigation_items]
+        })
 
 

@@ -1,9 +1,24 @@
 from django.contrib.auth.models import User
 from rest_framework import serializers
-from .models import Staff, Department, Role, RegistrationCode
+from .models import (
+    Staff, Department, Role, RegistrationCode,
+    NavigationItem
+)
 from hotel.serializers import HotelSerializer
 from hotel.models import Hotel
 from django.utils import timezone
+
+
+class NavigationItemSerializer(serializers.ModelSerializer):
+    """Serializer for NavigationItem model"""
+    class Meta:
+        model = NavigationItem
+        fields = [
+            'id', 'name', 'slug', 'path',
+            'description', 'display_order', 'is_active',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
@@ -165,34 +180,17 @@ class StaffSerializer(serializers.ModelSerializer):
         read_only_fields = ['user', 'allowed_navs', 'hotel_name', 'profile_image_url', 'department_detail', 'role_detail']
 
     def get_allowed_navs(self, obj):
-        if not obj.role or not obj.access_level:
-            return []
-
-        # Define allowed navs by role slug
-        role_nav_map = {
-            'porter': ['room_service', 'home'],
-            'chef': ['stock_dashboard', 'home'],
-            'manager': ['stock_dashboard', 'staff', 'roster', 'settings', 'home'],
-            'receptionist': ['reception', 'rooms', 'guests', 'home'],
-            'staff_admin': ['staff', 'good_to_know', 'home'],
-            'super_staff_admin': ['staff', 'good_to_know', 'settings', 'home'],
-            # Add other roles as needed
-        }
-
-        # Define allowed navs by access level
-        access_level_nav_map = {
-            'super_staff_admin': ['settings', 'staff', 'roster', 'home', 'good_to_know'],
-            'staff_admin': ['staff', 'good_to_know', 'home'],
-            'regular_staff': [],  # no extra navs
-        }
-
-        role_slug = obj.role.slug.lower()
-        navs_for_role = role_nav_map.get(role_slug, ['home'])
-        navs_for_access = access_level_nav_map.get(obj.access_level, [])
-
-        # Union of role navs and access level navs
-        allowed_navs = list(set(navs_for_role) | set(navs_for_access))
-        return allowed_navs
+        """
+        Returns list of navigation link slugs assigned to this staff.
+        Based on ManyToMany relationship managed by super_staff_admin.
+        Non-authenticated users get empty list.
+        """
+        return [
+            nav_item.slug
+            for nav_item in obj.allowed_navigation_items.filter(
+                is_active=True
+            )
+        ]
 
     def create(self, validated_data):
         user_data = validated_data.pop('user', None)

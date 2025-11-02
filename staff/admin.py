@@ -1,6 +1,39 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Staff, Department, Role, RegistrationCode, UserProfile
+from .models import (
+    Staff, Department, Role, RegistrationCode,
+    UserProfile, NavigationItem
+)
+
+
+@admin.register(NavigationItem)
+class NavigationItemAdmin(admin.ModelAdmin):
+    list_display = (
+        'name',
+        'slug',
+        'path',
+        'display_order',
+        'is_active',
+        'created_at'
+    )
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('name', 'slug', 'path', 'description')
+    prepopulated_fields = {'slug': ('name',)}
+    ordering = ('display_order', 'name')
+    list_editable = ('display_order', 'is_active')
+    
+    fieldsets = (
+        (None, {
+            'fields': (
+                'name',
+                'slug',
+                'path',
+                'description',
+                'display_order',
+                'is_active',
+            )
+        }),
+    )
 
 
 @admin.register(Department)
@@ -76,10 +109,12 @@ class StaffAdmin(admin.ModelAdmin):
                 ('is_active', 'is_on_duty', 'has_registered_face'),
                 'profile_image',
                 'profile_image_preview',
+                'allowed_navigation_items',
             )
         }),
     )
     readonly_fields = ('profile_image_preview',)
+    filter_horizontal = ('allowed_navigation_items',)
 
     def profile_image_preview(self, obj):
         if obj.profile_image:

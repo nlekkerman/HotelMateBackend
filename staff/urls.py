@@ -13,6 +13,8 @@ from .views import (
     UsersByHotelRegistrationCodeAPIView,
     PendingRegistrationsAPIView,
     CreateStaffFromUserAPIView,
+    NavigationItemViewSet,
+    StaffNavigationPermissionsView,
 )
 
 # Staff router (hotel-specific)
@@ -29,6 +31,14 @@ departments_router.register(
 
 roles_router = DefaultRouter()
 roles_router.register(r'roles', RoleViewSet, basename='role')
+
+# Navigation Items router (global)
+navigation_router = DefaultRouter()
+navigation_router.register(
+    r'navigation-items',
+    NavigationItemViewSet,
+    basename='navigation-item'
+)
 
 urlpatterns = [
     # Authentication
@@ -62,6 +72,14 @@ urlpatterns = [
     # Department and Role endpoints
     path('', include(departments_router.urls)),
     path('', include(roles_router.urls)),
+    path('', include(navigation_router.urls)),
+    
+    # Staff navigation permissions (super_staff_admin only)
+    path(
+        'staff/<int:staff_id>/navigation-permissions/',
+        StaffNavigationPermissionsView.as_view(),
+        name='staff-navigation-permissions'
+    ),
     
     # Hotel-specific staff endpoints
     path(
