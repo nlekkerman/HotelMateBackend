@@ -700,6 +700,7 @@ class NavigationItemViewSet(viewsets.ModelViewSet):
     queryset = NavigationItem.objects.all()
     serializer_class = NavigationItemSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None  # Disable pagination
     lookup_field = 'slug'
     
     filter_backends = [
@@ -711,8 +712,13 @@ class NavigationItemViewSet(viewsets.ModelViewSet):
     ordering = ['display_order', 'name']
     
     def get_queryset(self):
-        """Filter to active items by default"""
+        """Filter navigation items by hotel and active status"""
         queryset = NavigationItem.objects.all()
+        
+        # Filter by hotel slug if provided
+        hotel_slug = self.request.query_params.get('hotel_slug', None)
+        if hotel_slug:
+            queryset = queryset.filter(hotel__slug=hotel_slug)
         
         # Allow filtering by is_active
         is_active = self.request.query_params.get('is_active', None)
