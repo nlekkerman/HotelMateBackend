@@ -76,12 +76,20 @@ class ConversationSerializer(serializers.ModelSerializer):
     )
     conversation_id = serializers.IntegerField(source='id', read_only=True)
     has_unread = serializers.BooleanField(read_only=True)
+    
+    # Guest information
+    guest_name = serializers.SerializerMethodField()
+    guest_first_name = serializers.SerializerMethodField()
+    guest_last_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
         fields = [
             'conversation_id',
             'room_number',
+            'guest_name',
+            'guest_first_name',
+            'guest_last_name',
             'last_message',
             'last_message_time',
             'has_unread',
@@ -98,6 +106,23 @@ class ConversationSerializer(serializers.ModelSerializer):
         if last_msg:
             return last_msg.timestamp
         return None
+    
+    def get_guest_name(self, obj):
+        """Get full guest name"""
+        guest = obj.room.guests.first()
+        if guest:
+            return f"{guest.first_name} {guest.last_name}".strip()
+        return None
+    
+    def get_guest_first_name(self, obj):
+        """Get guest first name"""
+        guest = obj.room.guests.first()
+        return guest.first_name if guest else None
+    
+    def get_guest_last_name(self, obj):
+        """Get guest last name"""
+        guest = obj.room.guests.first()
+        return guest.last_name if guest else None
 
 
 class ConversationUnreadCountSerializer(serializers.Serializer):

@@ -157,6 +157,10 @@ def checkout_rooms(request, hotel_slug):
             # Delete all Guest objects linked to this room
             Guest.objects.filter(room=room).delete()
 
+            # Delete all guest chat sessions for this room
+            from chat.models import GuestChatSession
+            GuestChatSession.objects.filter(room=room).delete()
+
             # Delete all conversations & their messages for this room
             Conversation.objects.filter(room=room).delete()
             # RoomMessage objects will cascade delete automatically because they have FK to Conversation with on_delete=models.CASCADE
@@ -174,7 +178,12 @@ def checkout_rooms(request, hotel_slug):
             room.save()
 
     return Response(
-        {"detail": f"Checked out {rooms.count()} room(s) in hotel '{hotel_slug}', deleted guests, conversations, and messages."},
+        {
+            "detail": (
+                f"Checked out {rooms.count()} room(s) in hotel '{hotel_slug}', "
+                f"deleted guests, chat sessions, conversations, and messages."
+            )
+        },
         status=status.HTTP_200_OK
     ) 
 @api_view(['GET'])
