@@ -2,7 +2,8 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-from django.db.models import Count, Q
+from django.db.models import Count
+from django.utils import timezone
 from rooms.models import Room
 from hotel.models import Hotel
 from staff.models import Staff
@@ -78,6 +79,23 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
     serializer = RoomMessageSerializer(message)
     logger.info(f"Message created with ID: {message.id}")
+
+    # Trigger message-delivered event
+    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+    try:
+        pusher_client.trigger(message_channel, "message-delivered", {
+            "message_id": message.id,
+            "delivered_at": message.delivered_at.isoformat(),
+            "status": "delivered"
+        })
+        logger.info(
+            f"Pusher triggered for message delivered: "
+            f"message_id={message.id}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to trigger Pusher for message-delivered: {e}"
+        )
 
     # Update conversation unread status if guest sends a message
     if sender_type == "guest":
@@ -214,31 +232,106 @@ def get_unread_count(request, hotel_slug):
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def mark_conversation_read(request, conversation_id):
+    """Mark messages as read with detailed tracking for staff and guests"""
     staff = getattr(request.user, "staff_profile", None)
-    if not staff:
-        return Response({"detail": "Unauthorized"}, status=403)
-
+    is_staff = staff is not None
+    
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
     hotel = room.hotel
 
-    # Mark all guest messages in this conversation as read
-    updated_count = conversation.messages.filter(
-        sender_type="guest",
-        read_by_staff=False
-    ).update(read_by_staff=True)
+    if is_staff:
+        # Staff reading guest messages
+        messages_to_update = conversation.messages.filter(
+            sender_type="guest",
+            read_by_staff=False
+        )
+        message_ids = list(messages_to_update.values_list('id', flat=True))
+        
+        updated_count = messages_to_update.update(
+            read_by_staff=True,
+            staff_read_at=timezone.now(),
+            status='read'
+        )
+        
+        # Trigger Pusher for guest to show read receipt
+        if message_ids:
+            message_channel = (
+                f"{hotel.slug}-conversation-{conversation.id}-chat"
+            )
+            try:
+                pusher_client.trigger(
+                    message_channel,
+                    "messages-read-by-staff",
+                    {
+                        "message_ids": message_ids,
+                        "read_at": timezone.now().isoformat(),
+                        "staff_name": str(staff)
+                    }
+                )
+                logger.info(
+                    f"Pusher triggered: messages-read-by-staff, "
+                    f"count={len(message_ids)}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to trigger Pusher for "
+                    f"messages-read-by-staff: {e}"
+                )
+        
+        # Clear conversation unread flag
+        if conversation.has_unread:
+            conversation.has_unread = False
+            conversation.save()
 
-    # Clear conversation unread flag
-    if conversation.has_unread:
-        conversation.has_unread = False
-        conversation.save()
-
-        # Trigger Pusher to update sidebar badge
-        badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
-        pusher_client.trigger(badge_channel, "conversation-read", {
-            "conversation_id": conversation.id,
-            "room_number": room.room_number,
-        })
+            # Trigger Pusher to update sidebar badge
+            badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+            try:
+                pusher_client.trigger(badge_channel, "conversation-read", {
+                    "conversation_id": conversation.id,
+                    "room_number": room.room_number,
+                })
+            except Exception as e:
+                logger.error(f"Failed to trigger conversation-read: {e}")
+    
+    else:
+        # Guest reading staff messages
+        messages_to_update = conversation.messages.filter(
+            sender_type="staff",
+            read_by_guest=False
+        )
+        message_ids = list(messages_to_update.values_list('id', flat=True))
+        
+        updated_count = messages_to_update.update(
+            read_by_guest=True,
+            guest_read_at=timezone.now(),
+            status='read'
+        )
+        
+        # Trigger Pusher for staff to show read receipt
+        if message_ids:
+            message_channel = (
+                f"{hotel.slug}-conversation-{conversation.id}-chat"
+            )
+            try:
+                pusher_client.trigger(
+                    message_channel,
+                    "messages-read-by-guest",
+                    {
+                        "message_ids": message_ids,
+                        "read_at": timezone.now().isoformat(),
+                        "room_number": room.room_number
+                    }
+                )
+                logger.info(
+                    f"Pusher triggered: messages-read-by-guest, "
+                    f"count={len(message_ids)}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to trigger Pusher for "
+                    f"messages-read-by-guest: {e}"
+                )
 
     return Response({
         "conversation_id": conversation.id,

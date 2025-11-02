@@ -7,7 +7,11 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .models import RoomServiceItem, BreakfastItem, Order, BreakfastOrder
 from django.http import Http404
-from notifications.utils import notify_porters_of_room_service_order
+from notifications.pusher_utils import (
+    notify_kitchen_staff,
+    notify_porters,
+    notify_room_service_waiters
+)
 from django.db import transaction
 import logging
 from django.conf import settings
@@ -78,8 +82,41 @@ class OrderViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
-        order = serializer.save(hotel=hotel)  # Save and capture the order
-        notify_porters_of_room_service_order(order)  # Send notification
+        order = serializer.save(hotel=hotel)
+        
+        # Prepare notification data
+        order_data = {
+            "order_id": order.id,
+            "room_number": order.room_number,
+            "total_price": float(order.total_price),
+            "created_at": order.created_at.isoformat(),
+            "status": order.status
+        }
+        
+        # Notify Kitchen staff (they prepare the food)
+        kitchen_count = notify_kitchen_staff(
+            hotel, 'new-room-service-order', order_data
+        )
+        logger.info(
+            f"Room service order {order.id}: "
+            f"Notified {kitchen_count} kitchen staff"
+        )
+        
+        # Notify Room Service Waiters (they coordinate)
+        waiter_count = notify_room_service_waiters(
+            hotel, 'new-room-service-order', order_data
+        )
+        logger.info(
+            f"Room service order {order.id}: "
+            f"Notified {waiter_count} room service waiters"
+        )
+        
+        # Notify Porters (they deliver)
+        porter_count = notify_porters(hotel, 'new-delivery-order', order_data)
+        logger.info(
+            f"Room service order {order.id}: "
+            f"Notified {porter_count} porters"
+        )
     
     @action(detail=False, methods=["get"], url_path="pending-count")
     def pending_count(self, request, *args, **kwargs):
@@ -155,7 +192,44 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         hotel = self.get_serializer_context()['hotel']
-        serializer.save(hotel=hotel)
+        order = serializer.save(hotel=hotel)
+        
+        # Prepare notification data
+        order_data = {
+            "order_id": order.id,
+            "room_number": order.room_number,
+            "delivery_time": (order.delivery_time.isoformat()
+                            if order.delivery_time else None),
+            "created_at": order.created_at.isoformat(),
+            "status": order.status
+        }
+        
+        # Notify Kitchen staff
+        kitchen_count = notify_kitchen_staff(
+            hotel, 'new-breakfast-order', order_data
+        )
+        logger.info(
+            f"Breakfast order {order.id}: "
+            f"Notified {kitchen_count} kitchen staff"
+        )
+        
+        # Notify Room Service Waiters
+        waiter_count = notify_room_service_waiters(
+            hotel, 'new-breakfast-order', order_data
+        )
+        logger.info(
+            f"Breakfast order {order.id}: "
+            f"Notified {waiter_count} room service waiters"
+        )
+        
+        # Notify Porters
+        porter_count = notify_porters(
+            hotel, 'new-breakfast-delivery', order_data
+        )
+        logger.info(
+            f"Breakfast order {order.id}: "
+            f"Notified {porter_count} porters"
+        )
     
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
