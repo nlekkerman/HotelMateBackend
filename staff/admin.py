@@ -53,9 +53,6 @@ class RoleAdmin(admin.ModelAdmin):
     ordering = ('department__name', 'name')
 
 
-
-# Firebase FCM functionality has been removed
-
 @admin.register(Staff)
 class StaffAdmin(admin.ModelAdmin):
     list_display = (
@@ -69,6 +66,7 @@ class StaffAdmin(admin.ModelAdmin):
         'has_registered_face',
         'is_active',
         'is_on_duty',
+        'has_fcm_token',
     )
     list_filter = (
         'hotel',
@@ -112,9 +110,43 @@ class StaffAdmin(admin.ModelAdmin):
                 'allowed_navigation_items',
             )
         }),
+        ('Push Notifications', {
+            'fields': ('fcm_token', 'fcm_token_preview'),
+            'classes': ('collapse',),
+        }),
     )
-    readonly_fields = ('profile_image_preview',)
+    readonly_fields = ('profile_image_preview', 'fcm_token_preview')
     filter_horizontal = ('allowed_navigation_items',)
+
+    def has_fcm_token(self, obj):
+        """Display if staff has FCM token saved"""
+        if obj.fcm_token:
+            return format_html('<span style="color:green;">✓</span>')
+        return format_html('<span style="color:red;">✗</span>')
+    has_fcm_token.short_description = 'FCM Token'
+    has_fcm_token.admin_order_field = 'fcm_token'
+
+    def fcm_token_preview(self, obj):
+        """Show preview of FCM token in admin"""
+        if obj.fcm_token:
+            preview = obj.fcm_token[:50] + '...' if len(obj.fcm_token) > 50 else obj.fcm_token
+            return format_html(
+                '<div style="font-family:monospace; font-size:11px; background:#f0f0f0; padding:8px; border-radius:4px;">'
+                '<strong>Token saved:</strong><br>{}<br><br>'
+                '<strong>Length:</strong> {} characters<br>'
+                '<strong>Status:</strong> <span style="color:green;">✓ Ready for push notifications</span>'
+                '</div>',
+                preview,
+                len(obj.fcm_token)
+            )
+        return format_html(
+            '<div style="background:#fff3cd; padding:8px; border-radius:4px; border-left:4px solid #ffc107;">'
+            '<strong>No FCM token saved</strong><br>'
+            'Staff will not receive push notifications when browser is closed.<br><br>'
+            'To save token: Staff must login to React web app and grant notification permissions.'
+            '</div>'
+        )
+    fcm_token_preview.short_description = 'FCM Token Status'
 
     def profile_image_preview(self, obj):
         if obj.profile_image:

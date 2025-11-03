@@ -12,6 +12,7 @@ from notifications.pusher_utils import (
     notify_porters,
     notify_room_service_waiters
 )
+from notifications.utils import notify_porters_of_room_service_order
 from django.db import transaction
 import logging
 from django.conf import settings
@@ -83,8 +84,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
         order = serializer.save(hotel=hotel)
-        
-        # Prepare notification data
+
+        # Notify Kitchen staff (they prepare the food)
         order_data = {
             "order_id": order.id,
             "room_number": order.room_number,
@@ -92,8 +93,6 @@ class OrderViewSet(viewsets.ModelViewSet):
             "created_at": order.created_at.isoformat(),
             "status": order.status
         }
-        
-        # Notify Kitchen staff (they prepare the food)
         kitchen_count = notify_kitchen_staff(
             hotel, 'new-room-service-order', order_data
         )
@@ -101,7 +100,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             f"Room service order {order.id}: "
             f"Notified {kitchen_count} kitchen staff"
         )
-        
+
         # Notify Room Service Waiters (they coordinate)
         waiter_count = notify_room_service_waiters(
             hotel, 'new-room-service-order', order_data
@@ -110,13 +109,9 @@ class OrderViewSet(viewsets.ModelViewSet):
             f"Room service order {order.id}: "
             f"Notified {waiter_count} room service waiters"
         )
-        
-        # Notify Porters (they deliver)
-        porter_count = notify_porters(hotel, 'new-delivery-order', order_data)
-        logger.info(
-            f"Room service order {order.id}: "
-            f"Notified {porter_count} porters"
-        )
+
+        # Notify Porters (they deliver) - both Pusher and FCM push
+        notify_porters_of_room_service_order(order)
     
     @action(detail=False, methods=["get"], url_path="pending-count")
     def pending_count(self, request, *args, **kwargs):

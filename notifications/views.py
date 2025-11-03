@@ -3,15 +3,20 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
 
-# Firebase/FCM functionality has been removed
-# This view is kept as a placeholder for future notification systems
+# FCM token functionality has been moved to /api/staff/save-fcm-token/
+# This redirect view helps with migration
 class SaveFcmTokenView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         return Response({
-            "error": "FCM token functionality has been removed"
-        }, status=400)
+            "error": (
+                "FCM token endpoint has moved to "
+                "/api/staff/save-fcm-token/"
+            ),
+            "new_endpoint": "/api/staff/save-fcm-token/",
+            "message": "Please update your frontend to use the new endpoint"
+        }, status=410)  # 410 Gone - resource permanently moved
 
 
 

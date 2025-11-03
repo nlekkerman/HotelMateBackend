@@ -153,6 +153,214 @@ async function handleLoginSuccess(userData) {
 
 ---
 
+## 🔑 CRITICAL: What to Do on Login
+
+### When User Logs In Successfully:
+
+**Step 1: Check if user is a Porter**
+```javascript
+if (userData.role === 'Porter' || userData.role?.slug === 'porter') {
+  // Only porters need push notifications
+}
+```
+
+**Step 2: Check if backend has FCM token**
+```javascript
+// Get staff profile
+const response = await axios.get(
+  `${API_URL}/api/staff/${hotelSlug}/`,
+  { headers: { Authorization: `Token ${authToken}` } }
+);
+
+const hasToken = response.data.has_fcm_token; // boolean
+```
+
+**Step 3: If no token, request permission and save**
+```javascript
+async function handlePorterLogin(userData, hotelSlug) {
+  try {
+    // 1. Save auth token
+    localStorage.setItem('auth_token', userData.token);
+    
+    // 2. Get staff profile to check if token exists
+    const staffResponse = await axios.get(
+      `${API_URL}/api/staff/${hotelSlug}/`,
+      { headers: { Authorization: `Token ${userData.token}` } }
+    );
+    
+    // 3. If no FCM token saved, set it up
+    if (!staffResponse.data.has_fcm_token) {
+      console.log('No FCM token found, requesting permission...');
+      
+      // Request notification permission
+      const permission = await Notification.requestPermission();
+      
+      if (permission === 'granted') {
+        // Get FCM token from Firebase
+        const fcmToken = await getToken(messaging, {
+          vapidKey: VAPID_KEY
+        });
+        
+        if (fcmToken) {
+          // Save to backend
+          await axios.post(
+            `${API_URL}/api/staff/save-fcm-token/`,
+            { fcm_token: fcmToken },
+            { headers: { Authorization: `Token ${userData.token}` } }
+          );
+          
+          console.log('✅ FCM token saved! Push notifications enabled.');
+          localStorage.setItem('fcm_token', fcmToken);
+        }
+      } else {
+        console.log('⚠️ Notification permission denied');
+      }
+    } else {
+      console.log('✅ FCM token already saved');
+    }
+  } catch (error) {
+    console.error('Error setting up notifications:', error);
+  }
+}
+```
+
+**Step 4: Use in your login flow**
+```javascript
+// In your login component
+const handleLogin = async (credentials) => {
+  try {
+    // Login request
+    const response = await axios.post(`${API_URL}/api/staff/login/`, credentials);
+    const userData = response.data;
+    
+    // Check if porter
+    if (userData.role === 'Porter' || userData.role?.slug === 'porter') {
+      // Set up push notifications
+      await handlePorterLogin(userData, userData.hotel_slug);
+    }
+    
+    // Navigate to dashboard
+    navigate('/dashboard');
+  } catch (error) {
+    console.error('Login error:', error);
+  }
+};
+```
+
+---
+
+## Complete Login Flow Example
+
+```javascript
+import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getToken } from 'firebase/messaging';
+import { messaging } from './config/firebase';
+import axios from 'axios';
+
+const API_URL = process.env.REACT_APP_API_URL;
+const VAPID_KEY = process.env.REACT_APP_FIREBASE_VAPID_KEY;
+
+function LoginPage() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async (email, password) => {
+    setLoading(true);
+    try {
+      // 1. Login
+      const loginResponse = await axios.post(`${API_URL}/api/staff/login/`, {
+        username: email,
+        password: password
+      });
+      
+      const { token, user, role, hotel_slug } = loginResponse.data;
+      
+      // 2. Save auth token
+      localStorage.setItem('auth_token', token);
+      localStorage.setItem('user', JSON.stringify(user));
+      
+      // 3. If porter, check and set up FCM token
+      if (role === 'Porter' || role?.slug === 'porter') {
+        await setupPushNotifications(token, hotel_slug);
+      }
+      
+      // 4. Navigate to dashboard
+      navigate('/dashboard');
+      
+    } catch (error) {
+      console.error('Login error:', error);
+      alert('Login failed. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const setupPushNotifications = async (authToken, hotelSlug) => {
+    try {
+      // Check if token already exists in backend
+      const staffResponse = await axios.get(
+        `${API_URL}/api/staff/${hotelSlug}/`,
+        { headers: { Authorization: `Token ${authToken}` } }
+      );
+      
+      if (staffResponse.data.has_fcm_token) {
+        console.log('✅ FCM token already saved');
+        return;
+      }
+      
+      // No token yet - request permission
+      const permission = await Notification.requestPermission();
+      
+      if (permission === 'granted') {
+        // Get FCM token
+        const fcmToken = await getToken(messaging, { vapidKey: VAPID_KEY });
+        
+        if (fcmToken) {
+          // Save to backend
+          await axios.post(
+            `${API_URL}/api/staff/save-fcm-token/`,
+            { fcm_token: fcmToken },
+            { headers: { Authorization: `Token ${authToken}` } }
+          );
+          
+          localStorage.setItem('fcm_token', fcmToken);
+          console.log('✅ Push notifications enabled!');
+        }
+      } else {
+        console.log('⚠️ Notification permission denied by user');
+      }
+    } catch (error) {
+      console.error('Error setting up push notifications:', error);
+      // Don't fail login if notifications fail
+    }
+  };
+
+  return (
+    <div>
+      <h1>Login</h1>
+      <form onSubmit={(e) => {
+        e.preventDefault();
+        const email = e.target.email.value;
+        const password = e.target.password.value;
+        handleLogin(email, password);
+      }}>
+        <input name="email" type="text" placeholder="Email" required />
+        <input name="password" type="password" placeholder="Password" required />
+        <button type="submit" disabled={loading}>
+          {loading ? 'Logging in...' : 'Login'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export default LoginPage;
+```
+```
+
+---
+
 ## Using Fetch Instead of Axios
 
 If you prefer `fetch` over `axios`:

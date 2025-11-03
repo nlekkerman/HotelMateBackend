@@ -160,7 +160,7 @@ class StaffSerializer(serializers.ModelSerializer):
 
     access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
     allowed_navs = serializers.SerializerMethodField()
-    # Firebase FCM tokens removed
+    has_fcm_token = serializers.SerializerMethodField()
     has_registered_face = serializers.BooleanField()
     profile_image = serializers.ImageField(required=False, allow_null=True, use_url=True)
     profile_image_url = serializers.CharField(source='profile_image.url', read_only=True)
@@ -176,8 +176,16 @@ class StaffSerializer(serializers.ModelSerializer):
             'hotel', 'access_level', 'hotel_name',
             'profile_image', 'profile_image_url',
             'has_registered_face', 'allowed_navs',
+            'has_fcm_token',
         ]
-        read_only_fields = ['user', 'allowed_navs', 'hotel_name', 'profile_image_url', 'department_detail', 'role_detail']
+        read_only_fields = ['user', 'allowed_navs', 'hotel_name', 'profile_image_url', 'department_detail', 'role_detail', 'has_fcm_token']
+
+    def get_has_fcm_token(self, obj):
+        """
+        Returns whether staff has FCM token saved (for push notifications).
+        Does not expose the actual token for security.
+        """
+        return bool(obj.fcm_token)
 
     def get_allowed_navs(self, obj):
         """
