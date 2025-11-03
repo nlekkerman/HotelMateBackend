@@ -195,21 +195,20 @@ class RegistrationCodeAdmin(admin.ModelAdmin):
         'code',
         'hotel_slug',
         'has_qr_code',
-        'used_by',
+        'used_status',
         'created_at',
-        'used_at'
     )
     list_filter = ('hotel_slug', 'used_at')
-    search_fields = ('code', 'hotel_slug', 'used_by__username', 'qr_token')
+    search_fields = ('code', 'hotel_slug', 'used_by__username')
     readonly_fields = (
         'used_by',
         'used_at',
         'created_at',
-        'qr_token',
         'qr_code_preview',
-        'registration_url'
+        'registration_url',
     )
-    ordering = ('-created_at', 'hotel_slug', 'code')
+    ordering = ('hotel_slug', '-created_at', 'code')
+    list_per_page = 50
     
     fieldsets = (
         ('Registration Code Information', {
@@ -253,6 +252,17 @@ class RegistrationCodeAdmin(admin.ModelAdmin):
             '<span style="color:red;">✗ No QR</span>'
         )
     has_qr_code.short_description = 'QR Status'
+    
+    def used_status(self, obj):
+        """Display if registration code has been used"""
+        if obj.used_by:
+            return format_html(
+                '<span style="color:red;">Used</span>'
+            )
+        return format_html(
+            '<span style="color:green;">Available</span>'
+        )
+    used_status.short_description = 'Status'
     
     def qr_code_preview(self, obj):
         """Display QR code image in admin"""
@@ -314,7 +324,7 @@ class RegistrationCodeAdmin(admin.ModelAdmin):
     
     actions = ['generate_qr_codes']
     
-    @admin.action(description="Generate QR codes for selected registration codes")
+    @admin.action(description="Generate QR codes for selected codes")
     def generate_qr_codes(self, request, queryset):
         """Generate QR codes for codes that don't have them"""
         count = 0
@@ -327,7 +337,7 @@ class RegistrationCodeAdmin(admin.ModelAdmin):
         
         self.message_user(
             request,
-            f'Successfully generated QR codes for {count} registration code(s).'
+            f'Successfully generated {count} QR code(s).'
         )
 
     

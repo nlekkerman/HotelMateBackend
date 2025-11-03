@@ -1,0 +1,105 @@
+{% extends "admin/change_list.html" %}
+{% load static %}
+
+{% block result_list %}
+    {% if hotel_param %}
+        {# Show registration codes for selected hotel #}
+        <div style="margin: 20px 0;">
+            <h2>Registration Codes - {{ hotel_param }}</h2>
+            <div style="margin-bottom: 20px;">
+                <a href="{% url 'admin:staff_registrationcode_changelist' %}" style="text-decoration: none; padding: 8px 16px; background: #417690; color: white; border-radius: 4px; display: inline-block;">← Back to All Hotels</a>
+            </div>
+        
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                        <th style="padding: 12px; text-align: left;">Code</th>
+                        <th style="padding: 12px; text-align: left;">QR Status</th>
+                        <th style="padding: 12px; text-align: left;">Usage Status</th>
+                        <th style="padding: 12px; text-align: left;">Created</th>
+                        <th style="padding: 12px; text-align: left;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for code in codes_for_hotel %}
+                    <tr style="border-bottom: 1px solid #dee2e6;">
+                        <td style="padding: 12px;">
+                            <strong>{{ code.code }}</strong>
+                        </td>
+                        <td style="padding: 12px;">
+                            {% if code.qr_code_url and code.qr_token %}
+                                <span style="color: green;">✓ Ready</span>
+                            {% elif code.qr_token %}
+                                <span style="color: orange;">⚠ Token Only</span>
+                            {% else %}
+                                <span style="color: red;">✗ None</span>
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px;">
+                            {% if code.used_by %}
+                                <span style="color: red;">✓ Used by {{ code.used_by.username }}</span>
+                            {% else %}
+                                <span style="color: green;">○ Available</span>
+                            {% endif %}
+                        </td>
+                        <td style="padding: 12px;">{{ code.created_at|date:"Y-m-d H:i" }}</td>
+                        <td style="padding: 12px;">
+                            <a href="/admin/staff/registrationcode/{{ code.id }}/change/" style="text-decoration: none; padding: 6px 12px; background: #417690; color: white; border-radius: 4px;">View Details</a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="padding: 20px; text-align: center;">
+                            No registration codes found for this hotel.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        
+    {% else %}
+        {# Show all hotels #}
+        <div style="margin: 20px 0;">
+            <h2>Registration Codes by Hotel</h2>
+            <p>Click a hotel to view its registration codes:</p>
+        
+            <table style="width: 100%; border-collapse: collapse;">
+                <thead>
+                    <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                        <th style="padding: 12px; text-align: left;">Hotel</th>
+                        <th style="padding: 12px; text-align: center;">Total</th>
+                        <th style="padding: 12px; text-align: center;">Available</th>
+                        <th style="padding: 12px; text-align: center;">Used</th>
+                        <th style="padding: 12px; text-align: center;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for hotel in hotel_stats %}
+                    <tr style="border-bottom: 1px solid #dee2e6;">
+                        <td style="padding: 12px;">
+                            <a href="?hotel={{ hotel.hotel_slug }}" style="text-decoration: none; color: #417690; font-weight: bold;">
+                                📁 {{ hotel.hotel_slug }}
+                            </a>
+                        </td>
+                        <td style="padding: 12px; text-align: center;">{{ hotel.total }}</td>
+                        <td style="padding: 12px; text-align: center; color: green;">{{ hotel.available }}</td>
+                        <td style="padding: 12px; text-align: center; color: red;">{{ hotel.used }}</td>
+                        <td style="padding: 12px; text-align: center;">
+                            <a href="?hotel={{ hotel.hotel_slug }}" style="text-decoration: none; padding: 6px 12px; background: #417690; color: white; border-radius: 4px; display: inline-block;">
+                                View Codes →
+                            </a>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="5" style="padding: 20px; text-align: center;">
+                            No hotels with registration codes found.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+{% endblock %}
