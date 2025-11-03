@@ -173,8 +173,9 @@ def send_porter_order_notification(staff, order):
         bool: True if notification sent successfully
     """
     if not staff.fcm_token:
-        logger.debug(
-            f"No FCM token for porter {staff.first_name} {staff.last_name}"
+        logger.warning(
+            f"❌ No FCM token for porter {staff.first_name} "
+            f"{staff.last_name} (ID: {staff.id})"
         )
         return False
     
@@ -190,7 +191,23 @@ def send_porter_order_notification(staff, order):
         "route": "/orders/room-service"
     }
     
-    return send_fcm_notification(staff.fcm_token, title, body, data)
+    logger.info(
+        f"📤 Sending FCM to porter {staff.first_name} {staff.last_name} "
+        f"for order #{order.id}"
+    )
+    
+    result = send_fcm_notification(staff.fcm_token, title, body, data)
+    
+    if result:
+        logger.info(
+            f"✅ FCM sent successfully to porter {staff.id}"
+        )
+    else:
+        logger.error(
+            f"❌ FCM failed for porter {staff.id}"
+        )
+    
+    return result
 
 
 def send_porter_breakfast_notification(staff, order):

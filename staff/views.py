@@ -14,7 +14,7 @@ from .serializers import (
     StaffSerializer, UserSerializer,
     StaffLoginOutputSerializer, StaffLoginInputSerializer,
     RegisterStaffSerializer, DepartmentSerializer, RoleSerializer,
-    NavigationItemSerializer,
+    NavigationItemSerializer, RegistrationCodeSerializer,
 )
 from rest_framework.decorators import action
 
@@ -300,6 +300,7 @@ class StaffRegisterAPIView(APIView):
         username = data.get('username')
         password = data.get('password')
         registration_code_value = data.get('registration_code')
+        qr_token_value = data.get('qr_token')
 
         # Validate required fields
         if not username or not password:
@@ -314,7 +315,7 @@ class StaffRegisterAPIView(APIView):
                 status=400
             )
 
-        # Validate registration code and get hotel
+        # Validate registration code
         try:
             reg_code = RegistrationCode.objects.get(
                 code=registration_code_value
@@ -326,6 +327,33 @@ class StaffRegisterAPIView(APIView):
                     {'error': 'This registration code has already been used.'},
                     status=400
                 )
+
+            # Validate QR token if the registration code has one
+            if reg_code.qr_token:
+                # If the code has a token, it MUST be provided and match
+                if not qr_token_value:
+                    return Response(
+                        {
+                            'error': (
+                                'QR token is required for this '
+                                'registration code.'
+                            )
+                        },
+                        status=400
+                    )
+                
+                if reg_code.qr_token != qr_token_value:
+                    return Response(
+                        {
+                            'error': (
+                                'Invalid QR token. Please use the QR code '
+                                'provided with your registration package.'
+                            )
+                        },
+                        status=400
+                    )
+            # Else: Backward compatibility - old codes without tokens
+            # can still register with just the code
 
         except RegistrationCode.DoesNotExist:
             return Response(
@@ -377,6 +405,154 @@ class StaffRegisterAPIView(APIView):
                 'Please wait for manager to complete your staff profile.'
             ),
         }, status=201)
+
+
+class GenerateRegistrationPackageAPIView(APIView):
+    """
+    Generate or retrieve a registration package for staff onboarding.
+    Returns registration code + QR code URL + token.
+    Only authenticated staff with proper permissions can access.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        """
+        Create a new registration code with QR code or retrieve existing one
+        """
+        hotel_slug = request.data.get('hotel_slug')
+        code = request.data.get('code')  # Optional: provide specific code
+
+        if not hotel_slug:
+            return Response(
+                {'error': 'hotel_slug is required.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Verify hotel exists
+        try:
+            hotel = Hotel.objects.get(slug=hotel_slug)
+        except Hotel.DoesNotExist:
+            return Response(
+                {'error': 'Hotel not found.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Check permissions: user must be staff of this hotel
+        try:
+            staff = request.user.staff_profile
+            if staff.hotel.slug != hotel_slug:
+                return Response(
+                    {'error': 'You can only create codes for your hotel.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            # Only staff_admin and super_staff_admin can create codes
+            if staff.access_level not in [
+                'staff_admin', 'super_staff_admin'
+            ]:
+                return Response(
+                    {
+                        'error': (
+                            'You do not have permission '
+                            'to generate registration codes.'
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Staff.DoesNotExist:
+            return Response(
+                {
+                    'error': (
+                        'Only staff members can '
+                        'generate registration codes.'
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Create or get registration code
+        if code:
+            # Check if code already exists
+            if RegistrationCode.objects.filter(code=code).exists():
+                return Response(
+                    {'error': 'Registration code already exists.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            reg_code = RegistrationCode.objects.create(
+                code=code,
+                hotel_slug=hotel_slug
+            )
+        else:
+            # Generate random code
+            import random
+            import string
+            code = ''.join(
+                random.choices(
+                    string.ascii_uppercase + string.digits,
+                    k=8
+                )
+            )
+            while RegistrationCode.objects.filter(code=code).exists():
+                code = ''.join(
+                    random.choices(
+                        string.ascii_uppercase + string.digits,
+                        k=8
+                    )
+                )
+            reg_code = RegistrationCode.objects.create(
+                code=code,
+                hotel_slug=hotel_slug
+            )
+
+        # Generate QR token and QR code
+        reg_code.generate_qr_token()
+        qr_code_url = reg_code.generate_qr_code()
+
+        # Return the registration package
+        serializer = RegistrationCodeSerializer(reg_code)
+        return Response({
+            'registration_code': reg_code.code,
+            'qr_token': reg_code.qr_token,
+            'qr_code_url': qr_code_url,
+            'hotel_slug': reg_code.hotel_slug,
+            'hotel_name': hotel.name,
+            'message': (
+                'Registration package created successfully. '
+                'Provide both the registration code and QR code '
+                'to the new employee.'
+            ),
+            'package_details': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    def get(self, request):
+        """
+        List all registration codes for the authenticated user's hotel
+        """
+        try:
+            staff = request.user.staff_profile
+            hotel_slug = staff.hotel.slug
+
+            # Filter codes by hotel
+            codes = RegistrationCode.objects.filter(
+                hotel_slug=hotel_slug
+            ).order_by('-created_at')
+
+            serializer = RegistrationCodeSerializer(codes, many=True)
+            return Response({
+                'hotel_slug': hotel_slug,
+                'hotel_name': staff.hotel.name,
+                'registration_codes': serializer.data
+            }, status=status.HTTP_200_OK)
+
+        except Staff.DoesNotExist:
+            return Response(
+                {
+                    'error': (
+                        'Only staff members can '
+                        'view registration codes.'
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
 
 
 class PasswordResetRequestView(APIView):

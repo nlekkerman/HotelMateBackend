@@ -280,6 +280,23 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
         except User.DoesNotExist:
             raise serializers.ValidationError({'user_id': 'User not found.'})
         if Staff.objects.filter(user=user).exists():
-            raise serializers.ValidationError({'user_id': 'Staff already exists for this user.'})
+            raise serializers.ValidationError(
+                {'user_id': 'Staff already exists for this user.'}
+            )
         staff = Staff.objects.create(user=user, **validated_data)
         return staff
+
+
+class RegistrationCodeSerializer(serializers.ModelSerializer):
+    """Serializer for RegistrationCode with QR code info"""
+    
+    class Meta:
+        model = RegistrationCode
+        fields = [
+            'id', 'code', 'hotel_slug', 'qr_token',
+            'qr_code_url', 'created_at', 'used_at', 'used_by'
+        ]
+        read_only_fields = [
+            'id', 'qr_token', 'qr_code_url',
+            'created_at', 'used_at', 'used_by'
+        ]

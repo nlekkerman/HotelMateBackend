@@ -16,6 +16,7 @@ from .views import (
     NavigationItemViewSet,
     StaffNavigationPermissionsView,
     SaveFCMTokenView,
+    GenerateRegistrationPackageAPIView,
 )
 
 # Staff router (hotel-specific)
@@ -48,6 +49,13 @@ urlpatterns = [
         'register/',
         StaffRegisterAPIView.as_view(),
         name='staff-register'
+    ),
+    
+    # Registration Package Management (QR Code + Code)
+    path(
+        'registration-package/',
+        GenerateRegistrationPackageAPIView.as_view(),
+        name='generate-registration-package'
     ),
     
     # FCM push notification token

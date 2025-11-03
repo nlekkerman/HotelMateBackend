@@ -170,10 +170,20 @@ def checkout_rooms(request, hotel_slug):
             # Mark room unoccupied & regenerate guest PIN
             room.is_occupied = False
             room.generate_guest_pin()
+            
+            # Clear guest FCM token to prevent old guest
+            # from receiving notifications
+            room.guest_fcm_token = None
 
             # Delete any open room-service & breakfast orders
-            Order.objects.filter(hotel=room.hotel, room_number=room.room_number).delete()
-            BreakfastOrder.objects.filter(hotel=room.hotel, room_number=room.room_number).delete()
+            Order.objects.filter(
+                hotel=room.hotel,
+                room_number=room.room_number
+            ).delete()
+            BreakfastOrder.objects.filter(
+                hotel=room.hotel,
+                room_number=room.room_number
+            ).delete()
 
             room.save()
 

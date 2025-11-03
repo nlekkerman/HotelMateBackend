@@ -191,11 +191,145 @@ class StaffAdmin(admin.ModelAdmin):
 
 @admin.register(RegistrationCode)
 class RegistrationCodeAdmin(admin.ModelAdmin):
-    list_display = ('code', 'hotel_slug', 'used_by', 'created_at', 'used_at')
-    list_filter = ('hotel_slug',)
-    search_fields = ('code', 'hotel_slug', 'used_by__username')
-    readonly_fields = ('used_by', 'used_at', 'created_at')
-    ordering = ('hotel_slug', 'code')
+    list_display = (
+        'code',
+        'hotel_slug',
+        'has_qr_code',
+        'used_by',
+        'created_at',
+        'used_at'
+    )
+    list_filter = ('hotel_slug', 'used_at')
+    search_fields = ('code', 'hotel_slug', 'used_by__username', 'qr_token')
+    readonly_fields = (
+        'used_by',
+        'used_at',
+        'created_at',
+        'qr_token',
+        'qr_code_preview',
+        'registration_url'
+    )
+    ordering = ('-created_at', 'hotel_slug', 'code')
+    
+    fieldsets = (
+        ('Registration Code Information', {
+            'fields': (
+                'code',
+                'hotel_slug',
+                'created_at',
+            )
+        }),
+        ('QR Code Information', {
+            'fields': (
+                'qr_token',
+                'qr_code_url',
+                'qr_code_preview',
+                'registration_url',
+            ),
+            'description': (
+                'QR code links registration code with a secure token. '
+                'Both code and QR must be provided to new employees.'
+            )
+        }),
+        ('Usage Information', {
+            'fields': (
+                'used_by',
+                'used_at',
+            )
+        }),
+    )
+    
+    def has_qr_code(self, obj):
+        """Display if registration code has QR code generated"""
+        if obj.qr_code_url and obj.qr_token:
+            return format_html(
+                '<span style="color:green;">✓ QR Ready</span>'
+            )
+        elif obj.qr_token:
+            return format_html(
+                '<span style="color:orange;">⚠ Token only</span>'
+            )
+        return format_html(
+            '<span style="color:red;">✗ No QR</span>'
+        )
+    has_qr_code.short_description = 'QR Status'
+    
+    def qr_code_preview(self, obj):
+        """Display QR code image in admin"""
+        if obj.qr_code_url:
+            return format_html(
+                '<div style="padding:10px; background:#f8f9fa; '
+                'border-radius:8px;">'
+                '<img src="{}" style="max-width:200px; '
+                'max-height:200px; display:block; margin-bottom:10px;" />'
+                '<div style="font-size:12px; color:#666;">'
+                '<strong>QR Code URL:</strong><br>'
+                '<a href="{}" target="_blank" '
+                'style="word-break:break-all;">{}</a>'
+                '</div>'
+                '</div>',
+                obj.qr_code_url,
+                obj.qr_code_url,
+                obj.qr_code_url
+            )
+        return format_html(
+            '<div style="background:#fff3cd; padding:12px; '
+            'border-radius:4px; border-left:4px solid #ffc107;">'
+            '<strong>⚠ No QR Code Generated</strong><br>'
+            'Use the API endpoint to generate QR code:<br>'
+            '<code>POST /api/staff/registration-package/</code>'
+            '</div>'
+        )
+    qr_code_preview.short_description = 'QR Code Preview'
+    
+    def registration_url(self, obj):
+        """Display the registration URL that QR code points to"""
+        if obj.qr_token:
+            url = (
+                f"https://hotelsmates.com/register?"
+                f"token={obj.qr_token}&hotel={obj.hotel_slug}"
+            )
+            return format_html(
+                '<div style="background:#e7f3ff; padding:12px; '
+                'border-radius:4px; border-left:4px solid #2196F3;">'
+                '<strong>Registration URL:</strong><br>'
+                '<a href="{}" target="_blank" '
+                'style="word-break:break-all; font-family:monospace; '
+                'font-size:11px;">{}</a><br><br>'
+                '<strong style="color:#d32f2f;">⚠ Security Note:</strong><br>'
+                '<span style="font-size:11px;">Employee must also enter '
+                'registration code: <strong>{}</strong></span>'
+                '</div>',
+                url,
+                url,
+                obj.code
+            )
+        return format_html(
+            '<div style="background:#ffebee; padding:12px; '
+            'border-radius:4px;">'
+            'No QR token generated yet'
+            '</div>'
+        )
+    registration_url.short_description = 'Registration URL'
+    
+    actions = ['generate_qr_codes']
+    
+    @admin.action(description="Generate QR codes for selected registration codes")
+    def generate_qr_codes(self, request, queryset):
+        """Generate QR codes for codes that don't have them"""
+        count = 0
+        for reg_code in queryset:
+            if not reg_code.qr_token:
+                reg_code.generate_qr_token()
+            if not reg_code.qr_code_url:
+                reg_code.generate_qr_code()
+                count += 1
+        
+        self.message_user(
+            request,
+            f'Successfully generated QR codes for {count} registration code(s).'
+        )
+
     
 @admin.register(UserProfile)
 class UserProfileAdmin(admin.ModelAdmin):

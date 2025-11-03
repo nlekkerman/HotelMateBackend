@@ -26,7 +26,9 @@ def notify_porters_of_room_service_order(order):
     }
     
     # Send via Pusher (real-time when app is open)
-    pusher_count = notify_porters(order.hotel, 'new-room-service-order', order_data)
+    pusher_count = notify_porters(
+        order.hotel, 'new-room-service-order', order_data
+    )
     
     # Send FCM push notifications (when app is closed)
     fcm_count = 0
@@ -36,7 +38,17 @@ def notify_porters_of_room_service_order(order):
         is_active=True,
         is_on_duty=True
     )
+    
+    logger.info(
+        f"🔍 Found {porters.count()} on-duty porters for order {order.id}"
+    )
+    
     for porter in porters:
+        has_token = bool(porter.fcm_token)
+        logger.info(
+            f"🔍 Porter {porter.id} ({porter.first_name} "
+            f"{porter.last_name}): has_token={has_token}"
+        )
         if send_porter_order_notification(porter, order):
             fcm_count += 1
     

@@ -1,6 +1,10 @@
 from django.contrib.auth.models import User
 from django.db import models
 from cloudinary.models import CloudinaryField
+import secrets
+import qrcode
+from io import BytesIO
+import cloudinary.uploader
 
 
 class NavigationItem(models.Model):
@@ -187,15 +191,83 @@ class Staff(models.Model):
 class RegistrationCode(models.Model):
     code = models.CharField(max_length=20, unique=True)
     hotel_slug = models.SlugField(max_length=50)  # identifies the hotel
-    used_by = models.OneToOneField(User, on_delete=models.SET_NULL, null=True, blank=True)
+    used_by = models.OneToOneField(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     used_at = models.DateTimeField(null=True, blank=True)
+    
+    # QR Code fields
+    qr_token = models.CharField(
+        max_length=64,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text="Unique token embedded in QR code URL"
+    )
+    qr_code_url = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Cloudinary URL of the generated QR code"
+    )
 
     def __str__(self):
-        return f"{self.code} - {self.hotel_slug}" + (f" (Used by {self.used_by.username})" if self.used_by else "")
+        used_info = (
+            f" (Used by {self.used_by.username})"
+            if self.used_by else ""
+        )
+        return f"{self.code} - {self.hotel_slug}{used_info}"
+    
+    def generate_qr_token(self):
+        """Generate a unique token for QR code"""
+        if not self.qr_token:
+            # Generate a cryptographically secure token
+            self.qr_token = secrets.token_urlsafe(32)
+            self.save()
+        return self.qr_token
+    
+    def generate_qr_code(self):
+        """Generate QR code image and upload to Cloudinary"""
+        # Ensure we have a token first
+        if not self.qr_token:
+            self.generate_qr_token()
+        
+        # Build the registration URL
+        url = (
+            f"https://hotelsmates.com/register?"
+            f"token={self.qr_token}&hotel={self.hotel_slug}"
+        )
+        
+        # Generate QR code
+        qr = qrcode.make(url)
+        img_io = BytesIO()
+        qr.save(img_io, 'PNG')
+        img_io.seek(0)
+        
+        # Upload to Cloudinary
+        upload_result = cloudinary.uploader.upload(
+            img_io,
+            resource_type="image",
+            public_id=f"registration_qr/{self.hotel_slug}_{self.code}",
+            overwrite=True
+        )
+        
+        # Save the URL
+        self.qr_code_url = upload_result['secure_url']
+        self.save()
+        
+        return self.qr_code_url
+
 
 class UserProfile(models.Model):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='profile'
+    )
     registration_code = models.OneToOneField(
         "staff.RegistrationCode",
         on_delete=models.SET_NULL,
