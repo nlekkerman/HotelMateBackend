@@ -17,6 +17,15 @@ class Room(models.Model):
     in_room_breakfast_qr_code = models.URLField(blank=True, null=True)
     dinner_booking_qr_code = models.URLField(blank=True, null=True)
     chat_pin_qr_code = models.URLField(blank=True, null=True)
+    
+    # FCM token for anonymous guest in this room
+    guest_fcm_token = models.CharField(
+        max_length=255, 
+        blank=True, 
+        null=True,
+        help_text="Firebase Cloud Messaging token for push notifications to guest's device"
+    )
+    
     class Meta:
         unique_together = ('hotel', 'room_number')
 

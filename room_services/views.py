@@ -15,8 +15,6 @@ from notifications.pusher_utils import (
 from notifications.utils import notify_porters_of_room_service_order
 from django.db import transaction
 import logging
-from django.conf import settings
-import pusher
 
 logger = logging.getLogger(__name__)
 
@@ -138,27 +136,86 @@ class OrderViewSet(viewsets.ModelViewSet):
     
 
     def partial_update(self, request, *args, **kwargs):
-        import sys
-
         instance = self.get_object()
+        old_status = instance.status
         new_status = request.data.get("status")
 
         instance.status = new_status
         instance.save()
-        # Send update via Pusher so clients receive order status changes
-        try:
-            pusher_client = pusher.Pusher(
-                app_id=getattr(settings, 'PUSHER_APP_ID', None),
-                key=getattr(settings, 'PUSHER_KEY', None),
-                secret=getattr(settings, 'PUSHER_SECRET', None),
-                cluster=getattr(settings, 'PUSHER_CLUSTER', None),
-                ssl=True,
+        
+        # Prepare notification data
+        order_data = {
+            "order_id": instance.id,
+            "room_number": instance.room_number,
+            "total_price": float(instance.total_price),
+            "status": instance.status,
+            "old_status": old_status,
+            "updated_at": instance.updated_at.isoformat()
+        }
+        
+        # Notify guest in room via Pusher (browser open)
+        from notifications.pusher_utils import notify_guest_in_room
+        guest_notified = notify_guest_in_room(
+            instance.hotel,
+            instance.room_number,
+            'order-status-update',
+            order_data
+        )
+        
+        # Send FCM push notification to guest (browser closed)
+        from notifications.fcm_service import send_fcm_notification
+        room = Room.objects.filter(
+            hotel=instance.hotel,
+            room_number=instance.room_number
+        ).first()
+        
+        if room and room.guest_fcm_token:
+            title = "🔔 Order Status Update"
+            body = f"Your order is now {instance.status}"
+            
+            # FCM data must contain only strings
+            fcm_data = {
+                "order_id": str(instance.id),
+                "room_number": str(instance.room_number),
+                "total_price": str(instance.total_price),
+                "status": instance.status,
+                "old_status": old_status,
+                "updated_at": instance.updated_at.isoformat()
+            }
+            
+            send_fcm_notification(
+                room.guest_fcm_token,
+                title,
+                body,
+                data=fcm_data
             )
-            channel_name = f"order_{instance.id}"
-            pusher_client.trigger(channel_name, "order_update", {"id": instance.id, "status": instance.status})
-        except Exception as e:
-            # Fail-safe: log to stdout (keeps behaviour simple in Heroku logs)
-            print(f"!!! [VIEW] pusher trigger failed: {e!r}")
+            logger.info(
+                f"FCM sent to guest in room {instance.room_number}"
+            )
+        
+        if guest_notified:
+            logger.info(
+                f"Room service order {instance.id} status changed: "
+                f"{old_status} → {new_status}. "
+                f"Guest in room {instance.room_number} notified via Pusher"
+            )
+        
+        # Also notify porters about updated pending count
+        pending_count = Order.objects.filter(
+            hotel=instance.hotel,
+            status='pending'
+        ).count()
+        
+        count_data = {
+            "pending_count": pending_count,
+            "order_type": "room_service_orders"
+        }
+        
+        notify_porters(
+            instance.hotel,
+            'order-count-update',
+            count_data
+        )
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
@@ -255,13 +312,46 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def validate_pin(request, hotel_slug,room_number):  # add hotel_slug here
+def validate_pin(request, hotel_slug, room_number):  # add hotel_slug here
     hotel = get_hotel_from_request(request)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
     pin = request.data.get('pin')
     if pin == room.guest_id_pin:
         return Response({'valid': True})
     return Response({'valid': False}, status=401)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def save_guest_fcm_token(request, hotel_slug, room_number):
+    """
+    Save FCM token for anonymous guest in a specific room.
+    Called after PIN verification to enable push notifications.
+    """
+    hotel = get_hotel_from_request(request)
+    room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
+    fcm_token = request.data.get('fcm_token')
+    
+    if not fcm_token:
+        return Response(
+            {'error': 'fcm_token is required'},
+            status=400
+        )
+    
+    # Save FCM token to room
+    room.guest_fcm_token = fcm_token
+    room.save()
+    
+    logger.info(
+        f"FCM token saved for room {room_number} "
+        f"at {hotel.name}"
+    )
+    
+    return Response({
+        'success': True,
+        'message': 'FCM token saved successfully'
+    })
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
