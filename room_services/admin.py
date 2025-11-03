@@ -8,11 +8,18 @@ from .models import (
 
 # --- RoomServiceItem admin ---
 class RoomServiceItemAdmin(admin.ModelAdmin):
-    list_display = ('name', 'category', 'price', 'description', 'hotel', 'image_preview')
+    list_display = ('name', 'category', 'price', 'hotel', 'is_on_stock', 'image_preview')
     search_fields = ('name', 'description')
-    list_filter = ('category', 'price', 'hotel')
-    ordering = ('category', 'name')
+    list_filter = ('category', 'hotel', 'is_on_stock')
+    ordering = ('hotel', 'category', 'name')
     list_per_page = 20
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Optionally filter by staff's hotel if they have one
+        if hasattr(request.user, 'staff') and request.user.staff.hotel:
+            return qs.filter(hotel=request.user.staff.hotel)
+        return qs
 
     def image_preview(self, obj):
         if obj.image:
@@ -40,17 +47,22 @@ class OrderItemInline(admin.TabularInline):
 # --- Order admin ---
 class OrderAdmin(admin.ModelAdmin):
     list_display = ('id', 'hotel', 'room_number', 'status', 'created_at', 'total_price')
-    list_filter = ('status', 'created_at', 'hotel')
-    search_fields = ('room_number',)
+    list_filter = ('status', 'hotel', 'created_at')
+    search_fields = ('room_number', 'id')
+    ordering = ('-created_at',)
     inlines = [OrderItemInline]
+    list_per_page = 50
+    
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Filter by staff's hotel if applicable
+        if hasattr(request.user, 'staff') and request.user.staff.hotel:
+            qs = qs.filter(hotel=request.user.staff.hotel)
+        return qs.prefetch_related('orderitem_set__item')
 
     def total_price(self, obj):
         return f"€{sum(item.item.price * item.quantity for item in obj.orderitem_set.all()):.2f}"
     total_price.short_description = 'Total Price'
-    
-    def get_queryset(self, request):
-        qs = super().get_queryset(request)
-        return qs.prefetch_related('orderitem_set__item')
 
 
 # --- BreakfastItem admin ---
@@ -83,11 +95,17 @@ class BreakfastOrderItemInline(admin.TabularInline):
 class BreakfastOrderAdmin(admin.ModelAdmin):
     list_display = ('id', 'hotel', 'room_number', 'status', 'created_at', 'delivery_time')
     ordering = ('-created_at',)
-    list_filter = ('status', 'created_at', 'hotel')
-    search_fields = ('room_number',)
+    list_filter = ('status', 'hotel', 'created_at', 'delivery_time')
+    search_fields = ('room_number', 'id')
     inlines = [BreakfastOrderItemInline]
-
+    list_per_page = 50
     
+    def get_queryset(self, request):
+        qs = super().get_queryset(request)
+        # Filter by staff's hotel if applicable
+        if hasattr(request.user, 'staff') and request.user.staff.hotel:
+            return qs.filter(hotel=request.user.staff.hotel)
+        return qs
 
 
 # --- Register models ---

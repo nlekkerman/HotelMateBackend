@@ -13,13 +13,23 @@ order_pending_count = OrderViewSet.as_view({
     'get': 'pending_count'
 })
 
+order_summary = OrderViewSet.as_view({
+    'get': 'all_orders_summary'
+})
+
+order_history = OrderViewSet.as_view({
+    'get': 'order_history'
+})
+
 breakfast_order_pending_count = BreakfastOrderViewSet.as_view({
     'get': 'pending_count'
 })
+
 # Hotel-scoped room-service orders:
 order_list = OrderViewSet.as_view({
     'get': 'list','post': 'create'
 })
+
 order_detail = OrderViewSet.as_view({
     'get': 'retrieve','put': 'update','patch': 'partial_update','delete': 'destroy'
 })
@@ -46,6 +56,10 @@ urlpatterns = [
     path('', include(router.urls)),
     path('<str:hotel_slug>/orders/', order_list, name='hotel-order-list'),
     path('<str:hotel_slug>/orders/<int:pk>/', order_detail,name='hotel-order-detail'),
+    path('<str:hotel_slug>/orders/all-orders-summary/', order_summary, name='hotel-orders-summary'),
+    path('<str:hotel_slug>/orders/order-history/', order_history, name='hotel-order-history'),
+    path('<str:hotel_slug>/orders/pending-count/', order_pending_count, name='hotel-order-pending-count'),
+    path('<str:hotel_slug>/orders/pending-count.<str:format>/', order_pending_count, name='hotel-order-pending-count-format'),
     path('<str:hotel_slug>/room/<int:room_number>/menu/', room_service_items, name='room-service-menu'),
     path('<str:hotel_slug>/room/<int:room_number>/breakfast/', breakfast_items, name='breakfast-menu'),
     path('<str:hotel_slug>/room/<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
@@ -57,15 +71,5 @@ urlpatterns = [
         '<str:hotel_slug>/restaurant/<str:restaurant_slug>/room/<int:room_number>/validate-dinner-pin/',
         validate_dinner_pin,
         name='validate-dinner-pin'
-    ),
-    path(
-        '<str:hotel_slug>/orders/pending-count/',
-        order_pending_count,
-        name='hotel-order-pending-count'
-    ),
-    path(
-        '<str:hotel_slug>/orders/pending-count.<str:format>/',
-        order_pending_count,
-        name='hotel-order-pending-count-format'
     ),
 ]

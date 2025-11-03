@@ -134,30 +134,237 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     
+    @action(detail=False, methods=["get"], url_path="all-orders-summary")
+    def all_orders_summary(self, request, hotel_slug=None):
+        """
+        GET /room_services/{hotel_slug}/orders/all-orders-summary/
+        Query params:
+            - room_number: filter by specific room
+            - status: filter by status (pending/accepted/completed)
+            - include_completed: include completed orders (default: true)
+            - page_size: number of orders per page (default: 20)
+            - page: page number (default: 1)
+        Returns all orders grouped by status with summary statistics
+        """
+        hotel = get_hotel_from_request(request)
+        
+        # Get query parameters
+        room_number = request.query_params.get('room_number')
+        status_filter = request.query_params.get('status')
+        include_completed_param = request.query_params.get(
+            'include_completed', 'true'
+        )
+        include_completed = include_completed_param.lower() == 'true'
+        page_size = int(request.query_params.get('page_size', 20))
+        page = int(request.query_params.get('page', 1))
+        
+        # Start with base queryset - ALWAYS filter by hotel
+        queryset = Order.objects.filter(hotel=hotel)
+        
+        # Exclude completed orders only if requested
+        if not include_completed:
+            queryset = queryset.exclude(status='completed')
+        
+        # Apply filters
+        if room_number:
+            queryset = queryset.filter(room_number=room_number)
+        
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        # Order by most recent
+        queryset = queryset.order_by('-created_at')
+        
+        # Get total count before pagination
+        total_count = queryset.count()
+        
+        # Apply pagination
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_orders = queryset[start:end]
+        
+        # Serialize paginated orders
+        serializer = self.get_serializer(paginated_orders, many=True)
+        
+        # Calculate summary statistics (on full queryset, not paginated)
+        from django.db.models import Count
+        status_summary = Order.objects.filter(hotel=hotel)
+        
+        # Apply same completed filter to summary
+        if not include_completed:
+            status_summary = status_summary.exclude(status='completed')
+        
+        # Apply same filters to summary
+        if room_number:
+            status_summary = status_summary.filter(room_number=room_number)
+        
+        status_summary = status_summary.values('status').annotate(
+            count=Count('id')
+        )
+        
+        # Group orders by room (from paginated results)
+        room_summary = {}
+        for order in paginated_orders:
+            room = str(order.room_number)
+            if room not in room_summary:
+                room_summary[room] = {
+                    'room_number': order.room_number,
+                    'order_count': 0,
+                    'orders': []
+                }
+            room_summary[room]['order_count'] += 1
+            room_summary[room]['orders'].append({
+                'id': order.id,
+                'status': order.status,
+                'total_price': float(order.total_price),
+                'created_at': order.created_at.isoformat(),
+                'updated_at': order.updated_at.isoformat()
+            })
+        
+        # Calculate pagination info
+        total_pages = (total_count + page_size - 1) // page_size
+        has_next = page < total_pages
+        has_previous = page > 1
+        
+        return Response({
+            'pagination': {
+                'total_orders': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': total_pages,
+                'has_next': has_next,
+                'has_previous': has_previous
+            },
+            'filters': {
+                'room_number': room_number,
+                'status': status_filter,
+                'include_completed': include_completed
+            },
+            'status_breakdown': list(status_summary),
+            'orders_by_room': list(room_summary.values()),
+            'orders': serializer.data
+        })
+
+    @action(detail=False, methods=["get"], url_path="order-history")
+    def order_history(self, request, hotel_slug=None):
+        """
+        GET /room_services/{hotel_slug}/orders/order-history/
+        Returns ONLY completed orders with filtering options
+        Query params:
+            - room_number: filter by specific room
+            - date_from: filter orders from this date (YYYY-MM-DD)
+            - date_to: filter orders until this date (YYYY-MM-DD)
+            - page_size: number of orders per page (default: 20)
+            - page: page number (default: 1)
+        """
+        hotel = get_hotel_from_request(request)
+        
+        # Get query parameters
+        room_number = request.query_params.get('room_number')
+        date_from = request.query_params.get('date_from')
+        date_to = request.query_params.get('date_to')
+        page_size = int(request.query_params.get('page_size', 20))
+        page = int(request.query_params.get('page', 1))
+        
+        # Start with completed orders only
+        queryset = Order.objects.filter(
+            hotel=hotel,
+            status='completed'
+        )
+        
+        # Apply filters
+        if room_number:
+            queryset = queryset.filter(room_number=room_number)
+        
+        if date_from:
+            from datetime import datetime
+            date_from_obj = datetime.strptime(date_from, '%Y-%m-%d').date()
+            queryset = queryset.filter(created_at__date__gte=date_from_obj)
+        
+        if date_to:
+            from datetime import datetime
+            date_to_obj = datetime.strptime(date_to, '%Y-%m-%d').date()
+            queryset = queryset.filter(created_at__date__lte=date_to_obj)
+        
+        # Order by most recent
+        queryset = queryset.order_by('-created_at')
+        
+        # Get total count before pagination
+        total_count = queryset.count()
+        
+        # Apply pagination
+        start = (page - 1) * page_size
+        end = start + page_size
+        paginated_orders = queryset[start:end]
+        
+        # Serialize
+        serializer = self.get_serializer(paginated_orders, many=True)
+        
+        # Calculate pagination info
+        total_pages = (total_count + page_size - 1) // page_size
+        has_next = page < total_pages
+        has_previous = page > 1
+        
+        return Response({
+            'pagination': {
+                'total_orders': total_count,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': total_pages,
+                'has_next': has_next,
+                'has_previous': has_previous
+            },
+            'filters': {
+                'room_number': room_number,
+                'date_from': date_from,
+                'date_to': date_to
+            },
+            'orders': serializer.data
+        })
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         old_status = instance.status
         new_status = request.data.get("status")
 
+        logger.info(
+            f"🔄 Order {instance.id} status update: "
+            f"{old_status} → {new_status} (Room {instance.room_number})"
+        )
+
         instance.status = new_status
         instance.save()
         
-        # Prepare notification data
+        # Get all active orders for the hotel (not completed)
+        all_hotel_orders = Order.objects.filter(
+            hotel=instance.hotel
+        ).exclude(status='completed').order_by('-created_at')
+        
+        # Serialize all hotel orders
+        from .serializers import OrderSerializer
+        serializer = OrderSerializer(all_hotel_orders, many=True)
+        
+        # Prepare notification data with all orders
         order_data = {
-            "order_id": instance.id,
+            "updated_order_id": instance.id,
             "room_number": instance.room_number,
-            "total_price": float(instance.total_price),
-            "status": instance.status,
             "old_status": old_status,
-            "updated_at": instance.updated_at.isoformat()
+            "new_status": instance.status,
+            "updated_at": instance.updated_at.isoformat(),
+            "all_orders": serializer.data  # Send ALL orders for the entire hotel
         }
+        
+        logger.info(
+            f"📤 Sending notifications for order {instance.id}: "
+            f"channel={instance.hotel.slug}-room-{instance.room_number}, "
+            f"total hotel orders: {all_hotel_orders.count()}"
+        )
         
         # Notify guest in room via Pusher (browser open)
         from notifications.pusher_utils import notify_guest_in_room
         guest_notified = notify_guest_in_room(
             instance.hotel,
-            instance.room_number,
+            str(instance.room_number),  # Convert to string for channel name
             'order-status-update',
             order_data
         )
@@ -171,16 +378,16 @@ class OrderViewSet(viewsets.ModelViewSet):
         
         if room and room.guest_fcm_token:
             title = "🔔 Order Status Update"
-            body = f"Your order is now {instance.status}"
+            body = f"Your order #{instance.id} is now {instance.status}"
             
             # FCM data must contain only strings
             fcm_data = {
-                "order_id": str(instance.id),
+                "updated_order_id": str(instance.id),
                 "room_number": str(instance.room_number),
-                "total_price": str(instance.total_price),
-                "status": instance.status,
+                "new_status": instance.status,
                 "old_status": old_status,
-                "updated_at": instance.updated_at.isoformat()
+                "updated_at": instance.updated_at.isoformat(),
+                "total_orders": str(all_hotel_orders.count())
             }
             
             send_fcm_notification(
@@ -190,14 +397,17 @@ class OrderViewSet(viewsets.ModelViewSet):
                 data=fcm_data
             )
             logger.info(
-                f"FCM sent to guest in room {instance.room_number}"
+                f"FCM sent to guest in room {instance.room_number} "
+                f"for order #{instance.id}"
             )
         
         if guest_notified:
             logger.info(
-                f"Room service order {instance.id} status changed: "
-                f"{old_status} → {new_status}. "
-                f"Guest in room {instance.room_number} notified via Pusher"
+                f"✅ Pusher notification sent successfully to guest in room {instance.room_number}"
+            )
+        else:
+            logger.warning(
+                f"❌ Failed to send Pusher notification to room {instance.room_number}"
             )
         
         # Also notify porters about updated pending count
