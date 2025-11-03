@@ -140,7 +140,17 @@ PUSHER_SECRET = env('PUSHER_SECRET')
 PUSHER_CLUSTER = env('PUSHER_CLUSTER')
 
 # Firebase Cloud Messaging configuration
-FIREBASE_SERVICE_ACCOUNT_JSON = env('FIREBASE_SERVICE_ACCOUNT_JSON', default='')
+FIREBASE_CRED_PATH = os.path.join(BASE_DIR, 'firebase-service-account.json')
+
+if os.path.exists(FIREBASE_CRED_PATH):
+    # Local development: load from file
+    with open(FIREBASE_CRED_PATH) as f:
+        FIREBASE_SERVICE_ACCOUNT_JSON = f.read()
+else:
+    # Heroku: load from environment variable
+    FIREBASE_SERVICE_ACCOUNT_JSON = env(
+        'FIREBASE_SERVICE_ACCOUNT_JSON', default=''
+    )
 
 
 # Channel layer: prefer a Redis channel layer when REDIS_URL is provided,
