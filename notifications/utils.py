@@ -2,7 +2,8 @@ from notifications.pusher_utils import notify_porters
 from notifications.fcm_service import (
     send_porter_order_notification,
     send_porter_breakfast_notification,
-    send_porter_count_update
+    send_porter_count_update,
+    send_kitchen_staff_order_notification
 )
 
 import logging
@@ -43,6 +44,31 @@ def notify_porters_of_room_service_order(order):
         f"Room service order {order.id}: "
         f"Notified {pusher_count} porters via Pusher, "
         f"{fcm_count} via FCM push"
+    )
+
+
+def notify_kitchen_staff_of_room_service_order(order):
+    """
+    Notify all active, on-duty kitchen staff of a new room service order.
+    Sends via FCM push notifications (when app is closed).
+    """
+    from staff.models import Staff
+    
+    # Send FCM push notifications to kitchen staff
+    fcm_count = 0
+    kitchen_staff = Staff.objects.filter(
+        hotel=order.hotel,
+        department__slug='kitchen',
+        is_active=True,
+        is_on_duty=True
+    )
+    for staff_member in kitchen_staff:
+        if send_kitchen_staff_order_notification(staff_member, order):
+            fcm_count += 1
+    
+    logger.info(
+        f"Room service order {order.id}: "
+        f"Notified {fcm_count} kitchen staff via FCM push"
     )
 
 

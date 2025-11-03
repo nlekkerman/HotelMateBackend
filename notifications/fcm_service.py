@@ -256,3 +256,36 @@ def send_porter_count_update(staff, pending_count, order_type):
     }
     
     return send_fcm_notification(staff.fcm_token, title, body, data)
+
+
+def send_kitchen_staff_order_notification(staff, order):
+    """
+    Send push notification to kitchen staff about new room service order
+    
+    Args:
+        staff: Staff instance (kitchen staff member)
+        order: Order instance
+    
+    Returns:
+        bool: True if notification sent successfully
+    """
+    if not staff.fcm_token:
+        logger.debug(
+            f"No FCM token for kitchen staff "
+            f"{staff.first_name} {staff.last_name}"
+        )
+        return False
+    
+    title = "🔔 New Room Service Order"
+    body = f"Room {order.room_number} - €{order.total_price:.2f}"
+    data = {
+        "type": "room_service_order",
+        "order_id": str(order.id),
+        "room_number": str(order.room_number),
+        "total_price": str(order.total_price),
+        "status": order.status,
+        "click_action": "FLUTTER_NOTIFICATION_CLICK",
+        "route": "/orders/room-service"
+    }
+    
+    return send_fcm_notification(staff.fcm_token, title, body, data)

@@ -12,7 +12,10 @@ from notifications.pusher_utils import (
     notify_porters,
     notify_room_service_waiters
 )
-from notifications.utils import notify_porters_of_room_service_order
+from notifications.utils import (
+    notify_porters_of_room_service_order,
+    notify_kitchen_staff_of_room_service_order
+)
 from django.db import transaction
 import logging
 
@@ -110,6 +113,9 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         # Notify Porters (they deliver) - both Pusher and FCM push
         notify_porters_of_room_service_order(order)
+        
+        # Notify Kitchen Staff - FCM push notifications
+        notify_kitchen_staff_of_room_service_order(order)
     
     @action(detail=False, methods=["get"], url_path="pending-count")
     def pending_count(self, request, *args, **kwargs):
