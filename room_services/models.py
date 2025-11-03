@@ -46,6 +46,7 @@ class Order(models.Model):
     items = models.ManyToManyField(RoomServiceItem, through='OrderItem')
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     @property
     def total_price(self):
