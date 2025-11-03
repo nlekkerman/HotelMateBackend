@@ -388,7 +388,9 @@ class OrderViewSet(viewsets.ModelViewSet):
             
             # FCM data must contain only strings
             fcm_data = {
+                "type": "order_status_update",
                 "updated_order_id": str(instance.id),
+                "order_id": str(instance.id),
                 "room_number": str(instance.room_number),
                 "new_status": instance.status,
                 "old_status": old_status,
