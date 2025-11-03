@@ -132,6 +132,14 @@ class Staff(models.Model):
     is_on_duty = models.BooleanField(default=False)
     has_registered_face = models.BooleanField(default=False, null=True)
 
+    # Firebase Cloud Messaging token for push notifications
+    fcm_token = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+        help_text="Firebase device token for push notifications"
+    )
+
     profile_image = CloudinaryField(
         "profile image",
         blank=True,
@@ -175,8 +183,6 @@ class Staff(models.Model):
     class Meta:
         ordering = ['department__name', 'last_name']
 
-
-# Firebase FCM functionality has been removed    
 
 class RegistrationCode(models.Model):
     code = models.CharField(max_length=20, unique=True)

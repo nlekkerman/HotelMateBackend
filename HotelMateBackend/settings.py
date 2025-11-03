@@ -133,10 +133,14 @@ AUTH_PASSWORD_VALIDATORS = [
 ASGI_APPLICATION = "HotelMateBackend.asgi.application"
 
 
+# Pusher configuration
 PUSHER_APP_ID = env('PUSHER_APP_ID')
 PUSHER_KEY = env('PUSHER_KEY')
 PUSHER_SECRET = env('PUSHER_SECRET')
 PUSHER_CLUSTER = env('PUSHER_CLUSTER')
+
+# Firebase Cloud Messaging configuration
+FIREBASE_SERVICE_ACCOUNT_JSON = env('FIREBASE_SERVICE_ACCOUNT_JSON', default='')
 
 
 # Channel layer: prefer a Redis channel layer when REDIS_URL is provided,

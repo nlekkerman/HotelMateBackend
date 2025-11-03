@@ -15,6 +15,7 @@ from .views import (
     CreateStaffFromUserAPIView,
     NavigationItemViewSet,
     StaffNavigationPermissionsView,
+    SaveFCMTokenView,
 )
 
 # Staff router (hotel-specific)
@@ -47,6 +48,13 @@ urlpatterns = [
         'register/',
         StaffRegisterAPIView.as_view(),
         name='staff-register'
+    ),
+    
+    # FCM push notification token
+    path(
+        'save-fcm-token/',
+        SaveFCMTokenView.as_view(),
+        name='save-fcm-token'
     ),
     
     # Password management

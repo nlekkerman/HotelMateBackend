@@ -833,3 +833,37 @@ class StaffNavigationPermissionsView(APIView):
         })
 
 
+class SaveFCMTokenView(APIView):
+    """
+    Save FCM device token for push notifications
+    POST: /api/staff/save-fcm-token/
+    Body: {"fcm_token": "device_token_here"}
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        fcm_token = request.data.get('fcm_token')
+        
+        if not fcm_token:
+            return Response(
+                {"error": "FCM token is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            staff = Staff.objects.get(user=request.user)
+            staff.fcm_token = fcm_token
+            staff.save(update_fields=['fcm_token'])
+            
+            return Response({
+                "message": "FCM token saved successfully",
+                "staff_id": staff.id,
+                "has_fcm_token": True
+            }, status=status.HTTP_200_OK)
+            
+        except Staff.DoesNotExist:
+            return Response(
+                {"error": "Staff profile not found for this user"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
