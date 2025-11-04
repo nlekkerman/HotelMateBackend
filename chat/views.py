@@ -1130,12 +1130,14 @@ def delete_message(request, message_id):
     hotel = message.room.hotel
     room = message.room
     conversation = message.conversation
+    room_number = room.room_number
+    hotel_slug = hotel.slug
     
     # Prepare Pusher channels
-    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
-    guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+    message_channel = f"{hotel_slug}-conversation-{conversation.id}-chat"
+    guest_channel = f"{hotel_slug}-room-{room_number}-chat"
     
-    print(f"🗑️ DELETE REQUEST | message_id={message_id} | hotel={hotel.slug} | room={room.room_number}")
+    print(f"🗑️ DELETE REQUEST | message_id={message_id} | hotel={hotel_slug} | room={room_number}")
     print(f"🗑️ CHANNELS | conversation={message_channel} | guest={guest_channel}")
     print(f"🗑️ SENDER | type={message.sender_type} | is_staff={is_staff} | hard_delete={hard_delete}")
     
@@ -1172,7 +1174,23 @@ def delete_message(request, message_id):
             except Exception as e:
                 logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
 
-            # 2. Guest channel (so guest sees deletion)
+            # 2. Room channel for guest (critical for guest real-time updates)
+            pusher_client.trigger(
+                f'{hotel_slug}-room-{room_number}-chat',
+                'message-deleted',
+                pusher_data
+            )
+            logger.info(f"✅ Pusher: message-deleted → {hotel_slug}-room-{room_number}-chat")
+            
+            # Also broadcast 'message-removed' alias
+            pusher_client.trigger(
+                f'{hotel_slug}-room-{room_number}-chat',
+                'message-removed',
+                pusher_data
+            )
+            logger.info(f"✅ Pusher: message-removed → {hotel_slug}-room-{room_number}-chat")
+
+            # 3. Guest channel (so guest sees deletion) - kept for compatibility
             pusher_client.trigger(
                 guest_channel,
                 "message-deleted",
@@ -1256,7 +1274,23 @@ def delete_message(request, message_id):
             except Exception as e:
                 logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
             
-            # 2. Guest channel (so guest sees deletion)
+            # 2. Room channel for guest (critical for guest real-time updates)
+            pusher_client.trigger(
+                f'{hotel_slug}-room-{room_number}-chat',
+                'message-deleted',
+                pusher_data
+            )
+            logger.info(f"✅ Pusher: message-deleted → {hotel_slug}-room-{room_number}-chat")
+            
+            # Also broadcast 'message-removed' alias
+            pusher_client.trigger(
+                f'{hotel_slug}-room-{room_number}-chat',
+                'message-removed',
+                pusher_data
+            )
+            logger.info(f"✅ Pusher: message-removed → {hotel_slug}-room-{room_number}-chat")
+
+            # 3. Guest channel (so guest sees deletion) - kept for compatibility
             pusher_client.trigger(
                 guest_channel,
                 "message-deleted",
