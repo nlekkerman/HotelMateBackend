@@ -7,10 +7,10 @@ The backend now supports file and image uploads in chat between guests and staff
 **✅ What's Configured:**
 - File upload endpoint ready
 - Cloudinary storage configured
-- File size validation (10MB max)
+- File size validation (50MB max per file)
 - File type validation (images, PDF, documents)
 - Real-time Pusher notifications
-- Multiple file uploads supported
+- Multiple file uploads supported (no total limit)
 
 ---
 
@@ -183,7 +183,7 @@ POST /api/chat/<hotel_slug>/conversations/<conversation_id>/upload-attachment/
 ## 📋 File Constraints & Validation
 
 ### Backend Validation
-- **Max size**: 10MB per file (enforced on backend)
+- **Max size**: 50MB per file (enforced on backend)
 - **Allowed types**: 
   - 📷 **Images**: `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`
   - 📄 **PDF**: `.pdf`
@@ -196,7 +196,7 @@ Add client-side validation for better UX:
 
 ```javascript
 const validateFile = (file) => {
-  const maxSize = 10 * 1024 * 1024; // 10MB
+  const maxSize = 50 * 1024 * 1024; // 50MB
   const allowedTypes = [
     'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp',
     'application/pdf',
@@ -206,7 +206,7 @@ const validateFile = (file) => {
   ];
   
   if (file.size > maxSize) {
-    return { valid: false, error: `File too large (${(file.size / (1024*1024)).toFixed(2)}MB, max 10MB)` };
+    return { valid: false, error: `File too large (${(file.size / (1024*1024)).toFixed(2)}MB, max 50MB)` };
   }
   
   if (!allowedTypes.includes(file.type)) {
@@ -236,9 +236,9 @@ const ChatInput = ({ conversationId, hotelSlug, onMessageSent }) => {
     
     // Validate each file
     const validFiles = files.filter(file => {
-      // Check file size (10MB max)
-      if (file.size > 10 * 1024 * 1024) {
-        errors.push(`${file.name}: Too large (${(file.size / (1024*1024)).toFixed(2)}MB, max 10MB)`);
+      // Check file size (50MB max per file)
+      if (file.size > 50 * 1024 * 1024) {
+        errors.push(`${file.name}: Too large (${(file.size / (1024*1024)).toFixed(2)}MB, max 50MB)`);
         return false;
       }
       
@@ -675,8 +675,8 @@ formData.append('files', fileInputElement.files[0]);  // Actual File object from
 ### ❌ DON'T forget to validate file size
 ```javascript
 // Add validation before upload
-if (file.size > 10 * 1024 * 1024) {
-  alert('File too large. Max 10MB.');
+if (file.size > 50 * 1024 * 1024) {
+  alert('File too large. Max 50MB per file.');
   return;
 }
 ```
@@ -698,7 +698,7 @@ if (file.size > 10 * 1024 * 1024) {
 **Symptoms**: Upload fails, no error message or generic error
 
 **Solutions**: 
-1. Check file size is under 10MB
+1. Check file size is under 50MB per file
 2. Verify file extension is in allowed list
 3. Check browser console for detailed errors
 4. Verify API endpoint URL includes correct `hotel_slug` and `conversation_id`
@@ -817,5 +817,5 @@ const compressImage = async (file) => {
 **Last Updated**: November 4, 2025  
 **Backend Status**: ✅ Complete & Tested  
 **Storage**: Cloudinary Cloud Storage  
-**Max File Size**: 10MB per file  
+**Max File Size**: 50MB per file (unlimited total when sending multiple files)  
 **Supported Types**: Images, PDF, Documents

@@ -1178,8 +1178,16 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
     message_id = request.data.get('message_id')
     message_text = request.data.get('message', '').strip()
     
+    # Determine sender type based on authentication
     staff_instance = getattr(request.user, "staff_profile", None)
     sender_type = "staff" if staff_instance else "guest"
+    
+    logger.info(
+        f"📤 File upload request | User: {request.user} | "
+        f"Is authenticated: {request.user.is_authenticated} | "
+        f"Has staff_profile: {staff_instance is not None} | "
+        f"Sender type: {sender_type}"
+    )
     
     if message_id:
         # Attach to existing message
@@ -1205,8 +1213,8 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
             status=400
         )
     
-    # File size limit (10MB per file)
-    MAX_FILE_SIZE = 10 * 1024 * 1024
+    # File size limit (50MB per file for high-resolution images)
+    MAX_FILE_SIZE = 50 * 1024 * 1024
     
     # Allowed extensions
     ALLOWED_EXTENSIONS = [
@@ -1223,7 +1231,7 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
         if file.size > MAX_FILE_SIZE:
             size_mb = file.size / (1024 * 1024)
             errors.append(
-                f"{file.name}: File too large ({size_mb:.2f}MB, max 10MB)"
+                f"{file.name}: File too large ({size_mb:.2f}MB, max 50MB)"
             )
             continue
         

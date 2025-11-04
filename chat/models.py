@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from datetime import timedelta
+from cloudinary.models import CloudinaryField
 import uuid
 import os
 
@@ -204,10 +205,10 @@ def message_attachment_path(instance, filename):
 
 
 def validate_file_size(file):
-    """Validate file size - max 10MB"""
-    max_size = 10 * 1024 * 1024  # 10MB
+    """Validate file size - max 50MB"""
+    max_size = 50 * 1024 * 1024  # 50MB
     if file.size > max_size:
-        raise ValidationError(f'File size cannot exceed 10MB. Current size: {file.size / (1024*1024):.2f}MB')
+        raise ValidationError(f'File size cannot exceed 50MB. Current size: {file.size / (1024*1024):.2f}MB')
 
 
 def validate_file_extension(file):
@@ -239,11 +240,11 @@ class MessageAttachment(models.Model):
         on_delete=models.CASCADE,
         related_name='attachments'
     )
-    file = models.FileField(
-        upload_to=message_attachment_path,
-        max_length=500,
-        validators=[validate_file_size, validate_file_extension],
-        help_text="Max 10MB. Supported: images (jpg, png, gif, webp, bmp), PDF, documents (doc, docx, xls, xlsx, txt, csv)"
+    file = CloudinaryField(
+        "attachment",
+        folder="chat_attachments",
+        resource_type="auto",
+        validators=[validate_file_size, validate_file_extension]
     )
     file_name = models.CharField(max_length=255)
     file_type = models.CharField(
