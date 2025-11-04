@@ -1139,6 +1139,7 @@ def delete_message(request, message_id):
     
     print(f"🗑️ DELETE REQUEST | message_id={message_id} | hotel={hotel_slug} | room={room_number}")
     print(f"🗑️ CHANNELS | conversation={message_channel} | guest={guest_channel}")
+    print(f"🗑️ ROOM CHANNEL | {hotel_slug}-room-{room_number}-chat")
     print(f"🗑️ SENDER | type={message.sender_type} | is_staff={is_staff} | hard_delete={hard_delete}")
     
     if hard_delete and is_staff:
@@ -1175,19 +1176,25 @@ def delete_message(request, message_id):
                 logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
 
             # 2. Room channel for guest (critical for guest real-time updates)
+            room_channel = f'{hotel_slug}-room-{room_number}-chat'
+            print(f"📡 BROADCASTING TO ROOM CHANNEL: {room_channel}")
+            print(f"📦 PAYLOAD: {pusher_data}")
+            
             pusher_client.trigger(
-                f'{hotel_slug}-room-{room_number}-chat',
+                room_channel,
                 'message-deleted',
                 pusher_data
             )
+            print(f"✅ SENT message-deleted to {room_channel}")
             logger.info(f"✅ Pusher: message-deleted → {hotel_slug}-room-{room_number}-chat")
             
             # Also broadcast 'message-removed' alias
             pusher_client.trigger(
-                f'{hotel_slug}-room-{room_number}-chat',
+                room_channel,
                 'message-removed',
                 pusher_data
             )
+            print(f"✅ SENT message-removed to {room_channel}")
             logger.info(f"✅ Pusher: message-removed → {hotel_slug}-room-{room_number}-chat")
 
             # 3. Guest channel (so guest sees deletion) - kept for compatibility
@@ -1275,19 +1282,25 @@ def delete_message(request, message_id):
                 logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
             
             # 2. Room channel for guest (critical for guest real-time updates)
+            room_channel = f'{hotel_slug}-room-{room_number}-chat'
+            print(f"📡 [SOFT DELETE] BROADCASTING TO ROOM CHANNEL: {room_channel}")
+            print(f"📦 [SOFT DELETE] PAYLOAD: {pusher_data}")
+            
             pusher_client.trigger(
-                f'{hotel_slug}-room-{room_number}-chat',
+                room_channel,
                 'message-deleted',
                 pusher_data
             )
+            print(f"✅ [SOFT DELETE] SENT message-deleted to {room_channel}")
             logger.info(f"✅ Pusher: message-deleted → {hotel_slug}-room-{room_number}-chat")
             
             # Also broadcast 'message-removed' alias
             pusher_client.trigger(
-                f'{hotel_slug}-room-{room_number}-chat',
+                room_channel,
                 'message-removed',
                 pusher_data
             )
+            print(f"✅ [SOFT DELETE] SENT message-removed to {room_channel}")
             logger.info(f"✅ Pusher: message-removed → {hotel_slug}-room-{room_number}-chat")
 
             # 3. Guest channel (so guest sees deletion) - kept for compatibility
