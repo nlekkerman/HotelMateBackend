@@ -119,7 +119,21 @@ class RoomMessage(models.Model):
         """Soft delete the message"""
         self.is_deleted = True
         self.deleted_at = timezone.now()
-        self.message = "[Message deleted]"
+        
+        # Check if message had attachments
+        has_attachments = self.attachments.exists()
+        had_text = bool(self.message and self.message.strip())
+        
+        if has_attachments and not had_text:
+            # Only files, no text
+            self.message = "[File deleted]"
+        elif has_attachments and had_text:
+            # Both text and files
+            self.message = "[Message and file(s) deleted]"
+        else:
+            # Only text message
+            self.message = "[Message deleted]"
+        
         self.save()
 
     def __str__(self):

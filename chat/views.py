@@ -1094,25 +1094,52 @@ def delete_message(request, message_id):
         )
     
     hotel = message.room.hotel
-    message_channel = (
-        f"{hotel.slug}-conversation-{message.conversation.id}-chat"
-    )
+    room = message.room
+    conversation = message.conversation
+    
+    # Prepare Pusher channels
+    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+    guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
     
     if hard_delete and is_staff:
         # Hard delete (only for admin staff)
         message_id_copy = message.id
+        pusher_data = {"message_id": message_id_copy, "hard_delete": True}
+        
         message.delete()
         
         logger.info(
             f"Message {message_id_copy} hard deleted by staff {staff}"
         )
         
+        # Trigger Pusher to multiple channels
         try:
+            # 1. Conversation channel (for all participants)
             pusher_client.trigger(
                 message_channel,
                 "message-deleted",
-                {"message_id": message_id_copy, "hard_delete": True}
+                pusher_data
             )
+            logger.info(f"✅ Pusher: message-deleted → {message_channel}")
+            
+            # 2. Guest channel (so guest sees deletion)
+            pusher_client.trigger(
+                guest_channel,
+                "message-deleted",
+                pusher_data
+            )
+            logger.info(f"✅ Pusher: message-deleted → {guest_channel}")
+            
+            # 3. Individual staff channels (so all staff see deletion)
+            for staff_member in conversation.participants_staff.all():
+                staff_channel = f"{hotel.slug}-staff-{staff_member.id}-chat"
+                pusher_client.trigger(
+                    staff_channel,
+                    "message-deleted",
+                    pusher_data
+                )
+                logger.info(f"✅ Pusher: message-deleted → {staff_channel}")
+                
         except Exception as e:
             logger.error(f"Failed to trigger Pusher for message-deleted: {e}")
         
@@ -1133,16 +1160,39 @@ def delete_message(request, message_id):
         from .serializers import RoomMessageSerializer
         serializer = RoomMessageSerializer(message)
         
+        pusher_data = {
+            "message_id": message.id,
+            "hard_delete": False,
+            "message": serializer.data
+        }
+        
         try:
+            # 1. Conversation channel (for all participants)
             pusher_client.trigger(
                 message_channel,
                 "message-deleted",
-                {
-                    "message_id": message.id,
-                    "hard_delete": False,
-                    "message": serializer.data
-                }
+                pusher_data
             )
+            logger.info(f"✅ Pusher: message-deleted → {message_channel}")
+            
+            # 2. Guest channel (so guest sees deletion)
+            pusher_client.trigger(
+                guest_channel,
+                "message-deleted",
+                pusher_data
+            )
+            logger.info(f"✅ Pusher: message-deleted → {guest_channel}")
+            
+            # 3. Individual staff channels (so all staff see deletion)
+            for staff_member in conversation.participants_staff.all():
+                staff_channel = f"{hotel.slug}-staff-{staff_member.id}-chat"
+                pusher_client.trigger(
+                    staff_channel,
+                    "message-deleted",
+                    pusher_data
+                )
+                logger.info(f"✅ Pusher: message-deleted → {staff_channel}")
+                
         except Exception as e:
             logger.error(f"Failed to trigger Pusher for message-deleted: {e}")
         
