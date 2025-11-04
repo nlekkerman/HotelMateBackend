@@ -269,15 +269,18 @@ When you fetch messages, each message with a reply will include `reply_to_messag
     "name": "John Smith",
     "role": "Receptionist"
   },
-  "reply_to": 123,
-  "reply_to_message": {
+  "reply_to": 123,                    // ← ID of original message
+  "reply_to_message": {               // ← Original message data
     "id": 123,
     "message": "Can you send me extra towels?",
     "sender_type": "guest",
-    "sender_name": "Guest"
+    "sender_name": "Guest",
+    "timestamp": "2025-11-04T14:25:00Z"
   }
 }
 ```
+
+**Note:** The `reply_to_message` object is **automatically populated by the backend** when you provide `reply_to` in your request. You don't need to send the original message data - just the ID!
 
 ### Example: Guest Reply to Staff Message
 
@@ -286,15 +289,58 @@ When you fetch messages, each message with a reply will include `reply_to_messag
   "id": 789,
   "message": "Thank you so much!",
   "sender_type": "guest",
-  "reply_to": 456,
-  "reply_to_message": {
+  "reply_to": 456,                    // ← ID of original message
+  "reply_to_message": {               // ← Original message data (auto-populated)
     "id": 456,
     "message": "Yes, I'll send them right away!",
     "sender_type": "staff",
-    "sender_name": "John Smith"
+    "sender_name": "John Smith",
+    "timestamp": "2025-11-04T14:30:00Z"
   }
 }
 ```
+
+**Important:** The backend automatically includes the original message details in `reply_to_message`. The message text is truncated to 100 characters for display in the reply preview.
+
+---
+
+## 🎯 How It Works (Backend Processing)
+
+When you send a reply, here's what happens:
+
+1. **Frontend sends:**
+   ```json
+   {
+     "message": "Thank you!",
+     "reply_to": 644
+   }
+   ```
+
+2. **Backend receives and processes:**
+   - Extracts `reply_to` field (message ID: 644)
+   - Looks up the original message in database
+   - Creates new message with `reply_to` set to original message object
+   - Serializer automatically populates `reply_to_message` with original message data
+
+3. **Backend returns:**
+   ```json
+   {
+     "message": {
+       "id": 647,
+       "message": "Thank you!",
+       "reply_to": 644,
+       "reply_to_message": {
+         "id": 644,
+         "message": "Original message text here...",
+         "sender_type": "staff",
+         "sender_name": "John Smith",
+         "timestamp": "2025-11-04T14:00:00Z"
+       }
+     }
+   }
+   ```
+
+**✅ You only send the ID (`reply_to`), backend returns the full original message data!**
 
 ---
 

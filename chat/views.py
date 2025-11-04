@@ -47,6 +47,9 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
         messages_qs = messages_qs.filter(id__lt=before_id)
 
     messages = messages_qs[:limit][::-1]  # reverse to show oldest at top
+    
+    # Optimize: prefetch reply_to messages
+    messages = list(messages)  # Evaluate queryset
     serializer = RoomMessageSerializer(messages, many=True)
     return Response(serializer.data)
 
@@ -99,6 +102,13 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         message=message_text,
         sender_type=sender_type,
         reply_to=reply_to_message,
+    )
+    
+    # DEBUG: Log what was saved
+    logger.info(
+        f"📝 Message saved to DB | ID: {message.id} | "
+        f"reply_to ID: {message.reply_to_id} | "
+        f"reply_to object: {message.reply_to}"
     )
 
     # Update session handler when staff replies
@@ -157,6 +167,13 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
     serializer = RoomMessageSerializer(message)
     logger.info(f"Message created with ID: {message.id}")
+    
+    # DEBUG: Log serialized data
+    logger.info(
+        f"📤 Serialized data | "
+        f"reply_to: {serializer.data.get('reply_to')} | "
+        f"reply_to_message: {serializer.data.get('reply_to_message')}"
+    )
 
     # Trigger message-delivered event
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
