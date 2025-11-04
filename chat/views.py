@@ -490,23 +490,24 @@ def mark_conversation_read(request, conversation_id):
         )
         
         # Trigger Pusher for guest to show read receipt
+        # IMPORTANT: Send to GUEST's room channel, not conversation channel
         if message_ids:
-            message_channel = (
-                f"{hotel.slug}-conversation-{conversation.id}-chat"
-            )
+            guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
             try:
                 pusher_client.trigger(
-                    message_channel,
+                    guest_channel,
                     "messages-read-by-staff",
                     {
                         "message_ids": message_ids,
                         "read_at": timezone.now().isoformat(),
-                        "staff_name": str(staff)
+                        "staff_name": str(staff),
+                        "conversation_id": conversation.id
                     }
                 )
                 logger.info(
-                    f"Pusher triggered: messages-read-by-staff, "
-                    f"count={len(message_ids)}"
+                    f"📡 Pusher triggered: messages-read-by-staff to "
+                    f"guest channel {guest_channel}, "
+                    f"message_ids={message_ids}, count={len(message_ids)}"
                 )
             except Exception as e:
                 logger.error(
@@ -900,11 +901,55 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
         )
         updated_count = 0
     
+    # IMPORTANT: Mark all unread guest messages as read when staff opens conversation
+    room = conversation.room
+    messages_to_mark_read = conversation.messages.filter(
+        sender_type="guest",
+        read_by_staff=False
+    )
+    message_ids = list(messages_to_mark_read.values_list('id', flat=True))
+    
+    if message_ids:
+        # Mark messages as read
+        read_count = messages_to_mark_read.update(
+            read_by_staff=True,
+            staff_read_at=timezone.now(),
+            status='read'
+        )
+        
+        # Clear conversation unread flag
+        if conversation.has_unread:
+            conversation.has_unread = False
+            conversation.save()
+        
+        # Send Pusher event to GUEST's channel
+        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+        try:
+            pusher_client.trigger(
+                guest_channel,
+                "messages-read-by-staff",
+                {
+                    "message_ids": message_ids,
+                    "read_at": timezone.now().isoformat(),
+                    "staff_name": str(staff),
+                    "conversation_id": conversation.id
+                }
+            )
+            logger.info(
+                f"📡 Staff opened conversation: marked {read_count} messages as read, "
+                f"sent to guest channel {guest_channel}, message_ids={message_ids}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to send messages-read-by-staff event: {e}"
+            )
+    
     return Response({
         "conversation_id": conversation.id,
         "assigned_staff": get_staff_info(staff),
         "sessions_updated": updated_count,
-        "room_number": room.room_number
+        "room_number": room.room_number,
+        "messages_marked_read": len(message_ids)
     })
 
 
