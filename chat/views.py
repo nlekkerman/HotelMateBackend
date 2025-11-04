@@ -65,6 +65,21 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         logger.warning("Empty message attempted to send")
         return Response({"error": "Message cannot be empty"}, status=400)
 
+    # Get reply_to field (if this is a reply)
+    reply_to_id = request.data.get("reply_to")
+    reply_to_message = None
+    
+    if reply_to_id:
+        try:
+            reply_to_message = RoomMessage.objects.get(
+                id=reply_to_id,
+                conversation=conversation
+            )
+            logger.info(f"Message is replying to message ID: {reply_to_id}")
+        except RoomMessage.DoesNotExist:
+            logger.warning(f"Reply target message {reply_to_id} not found")
+            # Continue without reply - don't fail the whole request
+
     # Determine sender
     staff_instance = getattr(request.user, "staff_profile", None)
     sender_type = "staff" if staff_instance else "guest"
@@ -72,7 +87,8 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     logger.info(
         f"🔵 NEW MESSAGE | Type: {sender_type} | "
         f"Hotel: {hotel.slug} | Room: {room.room_number} | "
-        f"Conversation: {conversation.id}"
+        f"Conversation: {conversation.id} | "
+        f"Reply to: {reply_to_id if reply_to_id else 'None'}"
     )
 
     # Create the message
@@ -82,6 +98,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         staff=staff_instance if staff_instance else None,
         message=message_text,
         sender_type=sender_type,
+        reply_to=reply_to_message,
     )
 
     # Update session handler when staff replies
@@ -1227,6 +1244,7 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
     # Get or create message
     message_id = request.data.get('message_id')
     message_text = request.data.get('message', '').strip()
+    reply_to_id = request.data.get('reply_to')
     
     # Determine sender type based on authentication
     staff_instance = getattr(request.user, "staff_profile", None)
@@ -1236,7 +1254,8 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
         f"📤 File upload request | User: {request.user} | "
         f"Is authenticated: {request.user.is_authenticated} | "
         f"Has staff_profile: {staff_instance is not None} | "
-        f"Sender type: {sender_type}"
+        f"Sender type: {sender_type} | "
+        f"Reply to: {reply_to_id if reply_to_id else 'None'}"
     )
     
     if message_id:
@@ -1247,12 +1266,31 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
         if not message_text:
             message_text = "[File shared]"
         
+        # Handle reply_to if provided
+        reply_to_message = None
+        if reply_to_id:
+            try:
+                reply_to_message = RoomMessage.objects.get(
+                    id=reply_to_id,
+                    conversation=conversation
+                )
+                logger.info(
+                    f"File attachment message is replying to "
+                    f"message ID: {reply_to_id}"
+                )
+            except RoomMessage.DoesNotExist:
+                logger.warning(
+                    f"Reply target message {reply_to_id} not found "
+                    f"for file upload"
+                )
+        
         message = RoomMessage.objects.create(
             conversation=conversation,
             room=conversation.room,
             staff=staff_instance if staff_instance else None,
             message=message_text,
             sender_type=sender_type,
+            reply_to=reply_to_message,
         )
     
     # Process uploaded files

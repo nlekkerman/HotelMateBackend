@@ -18,6 +18,9 @@ The implementation is identical for both user types - the backend automatically 
 - ✅ You haven't sent any replies yet (existing messages won't have replies)
 - ✅ The feature is new and old messages don't have reply data
 
+**⚠️ IMPORTANT - Backend Fix Applied:**
+The backend has been updated to properly handle the `reply_to` field. If you sent test replies **before this fix**, they won't have reply data. You need to send **new** replies after this update.
+
 **To test the functionality:**
 1. Click "Reply" button on any message
 2. Type a response and send it
