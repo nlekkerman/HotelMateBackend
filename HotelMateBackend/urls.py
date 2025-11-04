@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.urls import path, include, re_path
 from django.http import HttpResponse
 from django.views.generic import TemplateView
+from django.conf import settings
+from django.conf.urls.static import static
 
 apps = [
     'rooms',
@@ -40,4 +42,8 @@ urlpatterns = [
 ]
 
 urlpatterns += [path(f'api/{app}/', include(f'{app}.urls')) for app in apps]
+
+# Serve media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

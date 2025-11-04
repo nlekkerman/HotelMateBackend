@@ -1,5 +1,6 @@
 from django.db import models
 from django.utils import timezone
+from django.core.exceptions import ValidationError
 from datetime import timedelta
 import uuid
 import os
@@ -196,7 +197,29 @@ def message_attachment_path(instance, filename):
     """Generate upload path for message attachments"""
     # Organize by hotel -> room -> date
     date_str = timezone.now().strftime('%Y/%m/%d')
-    return f'chat/{instance.message.room.hotel.slug}/room_{instance.message.room.room_number}/{date_str}/{filename}'
+    # Sanitize filename to prevent issues
+    import re
+    safe_filename = re.sub(r'[^\w\s.-]', '', filename)
+    return f'chat/{instance.message.room.hotel.slug}/room_{instance.message.room.room_number}/{date_str}/{safe_filename}'
+
+
+def validate_file_size(file):
+    """Validate file size - max 10MB"""
+    max_size = 10 * 1024 * 1024  # 10MB
+    if file.size > max_size:
+        raise ValidationError(f'File size cannot exceed 10MB. Current size: {file.size / (1024*1024):.2f}MB')
+
+
+def validate_file_extension(file):
+    """Validate file extension"""
+    allowed_extensions = [
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',  # Images
+        '.pdf',  # PDF
+        '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv'  # Documents
+    ]
+    ext = os.path.splitext(file.name)[1].lower()
+    if ext not in allowed_extensions:
+        raise ValidationError(f'File type "{ext}" is not allowed. Allowed types: {", ".join(allowed_extensions)}')
 
 
 class MessageAttachment(models.Model):
@@ -219,7 +242,8 @@ class MessageAttachment(models.Model):
     file = models.FileField(
         upload_to=message_attachment_path,
         max_length=500,
-        help_text="Supported: images (jpg, png, gif), documents (pdf, doc, docx, xls, xlsx), text files"
+        validators=[validate_file_size, validate_file_extension],
+        help_text="Max 10MB. Supported: images (jpg, png, gif, webp, bmp), PDF, documents (doc, docx, xls, xlsx, txt, csv)"
     )
     file_name = models.CharField(max_length=255)
     file_type = models.CharField(

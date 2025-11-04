@@ -19,20 +19,30 @@ class MessageAttachmentSerializer(serializers.ModelSerializer):
     
     def get_file_url(self, obj):
         """Get absolute URL for file"""
-        request = self.context.get('request')
         if obj.file and hasattr(obj.file, 'url'):
+            file_url = obj.file.url
+            # Cloudinary URLs are already absolute, don't modify them
+            if file_url.startswith('http://') or file_url.startswith('https://'):
+                return file_url
+            # For local storage, build absolute URI
+            request = self.context.get('request')
             if request:
-                return request.build_absolute_uri(obj.file.url)
-            return obj.file.url
+                return request.build_absolute_uri(file_url)
+            return file_url
         return None
     
     def get_thumbnail_url(self, obj):
         """Get absolute URL for thumbnail"""
-        request = self.context.get('request')
         if obj.thumbnail and hasattr(obj.thumbnail, 'url'):
+            thumbnail_url = obj.thumbnail.url
+            # Cloudinary URLs are already absolute, don't modify them
+            if thumbnail_url.startswith('http://') or thumbnail_url.startswith('https://'):
+                return thumbnail_url
+            # For local storage, build absolute URI
+            request = self.context.get('request')
             if request:
-                return request.build_absolute_uri(obj.thumbnail.url)
-            return obj.thumbnail.url
+                return request.build_absolute_uri(thumbnail_url)
+            return thumbnail_url
         return None
     
     def get_file_size_display(self, obj):

@@ -56,6 +56,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'dal',
     'dal_select2',
+    'cloudinary_storage',
+    'cloudinary',
     # Custom apps
     'rooms',
     'guests',
@@ -209,8 +211,18 @@ STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Optional media settings if you use Cloudinary
+# Media files settings (user uploads)
+# Files stored in Cloudinary cloud storage (not locally)
 CLOUDINARY_URL = env('CLOUDINARY_URL', default='')
+
+if CLOUDINARY_URL:
+    # Use Cloudinary for media file storage
+    DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+    MEDIA_URL = '/media/'  # Cloudinary will serve files
+else:
+    # Fallback to local storage for development
+    MEDIA_URL = '/media/'
+    MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

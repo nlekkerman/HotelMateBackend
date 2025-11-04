@@ -214,17 +214,22 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             print(f"⚠️ No reception staff. Targeting front-office: {target_staff.count()}")
             logger.info(f"No reception staff found. Targeting front-office staff: count={target_staff.count()}")
 
+        print(f"📬 Sending notifications to {target_staff.count()} staff members")
         for staff in target_staff:
             staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
+            
+            # Send Pusher event
             try:
                 pusher_client.trigger(staff_channel, "new-guest-message", serializer.data)
+                print(f"✅ Pusher sent to staff {staff.id}: {staff_channel}")
                 logger.info(f"Pusher triggered: staff_channel={staff_channel}, event=new-guest-message, message_id={message.id}")
             except Exception as e:
+                print(f"❌ Pusher FAILED for staff {staff.id}: {e}")
                 logger.error(f"Failed to trigger Pusher for staff_channel={staff_channel}: {e}")
             
             # Send FCM notification to staff
             if staff.fcm_token:
-                print(f"🔔 Staff {staff.id} has FCM token: {staff.fcm_token[:20]}...")
+                print(f"🔔 Staff {staff.id} ({staff.user.username}) has FCM token, sending notification...")
                 try:
                     fcm_title = f"💬 New Message - Room {room.room_number}"
                     fcm_body = message_text[:100]  # Preview of message
@@ -490,12 +495,12 @@ def mark_conversation_read(request, conversation_id):
         )
         
         # Trigger Pusher for guest to show read receipt
-        # IMPORTANT: Send to GUEST's room channel, not conversation channel
+        # Send to CONVERSATION channel (both guest and staff can listen)
         if message_ids:
-            guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+            conversation_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
             try:
                 pusher_client.trigger(
-                    guest_channel,
+                    conversation_channel,
                     "messages-read-by-staff",
                     {
                         "message_ids": message_ids,
@@ -506,7 +511,7 @@ def mark_conversation_read(request, conversation_id):
                 )
                 logger.info(
                     f"📡 Pusher triggered: messages-read-by-staff to "
-                    f"guest channel {guest_channel}, "
+                    f"conversation channel {conversation_channel}, "
                     f"message_ids={message_ids}, count={len(message_ids)}"
                 )
             except Exception as e:
@@ -909,6 +914,9 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
     )
     message_ids = list(messages_to_mark_read.values_list('id', flat=True))
     
+    print(f"👁️ Staff {staff.id} opened conversation {conversation_id}")
+    print(f"👁️ Found {len(message_ids)} unread guest messages: {message_ids}")
+    
     if message_ids:
         # Mark messages as read
         read_count = messages_to_mark_read.update(
@@ -917,16 +925,22 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
             status='read'
         )
         
+        print(f"✅ Marked {read_count} messages as read_by_staff=True")
+        
         # Clear conversation unread flag
         if conversation.has_unread:
             conversation.has_unread = False
             conversation.save()
+            print(f"✅ Cleared conversation unread flag")
         
-        # Send Pusher event to GUEST's channel
-        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+        # Send Pusher event to CONVERSATION channel (both guest and staff listen)
+        conversation_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+        print(f"📡 Sending messages-read-by-staff to: {conversation_channel}")
+        print(f"📡 Event payload: message_ids={message_ids}")
+        
         try:
             pusher_client.trigger(
-                guest_channel,
+                conversation_channel,
                 "messages-read-by-staff",
                 {
                     "message_ids": message_ids,
@@ -935,14 +949,18 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
                     "conversation_id": conversation.id
                 }
             )
+            print("✅ Successfully sent messages-read-by-staff event")
             logger.info(
                 f"📡 Staff opened conversation: marked {read_count} messages as read, "
-                f"sent to guest channel {guest_channel}, message_ids={message_ids}"
+                f"sent to conversation channel {conversation_channel}, message_ids={message_ids}"
             )
         except Exception as e:
+            print(f"❌ FAILED to send messages-read-by-staff event: {e}")
             logger.error(
                 f"Failed to send messages-read-by-staff event: {e}"
             )
+    else:
+        print(f"ℹ️ No unread guest messages to mark as read")
     
     return Response({
         "conversation_id": conversation.id,
@@ -1203,25 +1221,39 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
     for file in files:
         # Validate file size
         if file.size > MAX_FILE_SIZE:
-            errors.append(f"{file.name}: File too large (max 10MB)")
+            size_mb = file.size / (1024 * 1024)
+            errors.append(
+                f"{file.name}: File too large ({size_mb:.2f}MB, max 10MB)"
+            )
             continue
         
         # Validate file extension
         import os
         ext = os.path.splitext(file.name)[1].lower()
         if ext not in ALLOWED_EXTENSIONS:
-            errors.append(f"{file.name}: File type not allowed")
+            errors.append(
+                f"{file.name}: File type '{ext}' not allowed. "
+                f"Allowed: images, PDF, documents"
+            )
             continue
         
-        # Create attachment
-        attachment = MessageAttachment.objects.create(
-            message=message,
-            file=file,
-            file_name=file.name,
-            file_size=file.size,
-            mime_type=file.content_type or ''
-        )
-        attachments.append(attachment)
+        try:
+            # Create attachment
+            attachment = MessageAttachment.objects.create(
+                message=message,
+                file=file,
+                file_name=file.name,
+                file_size=file.size,
+                mime_type=file.content_type or ''
+            )
+            attachments.append(attachment)
+            logger.info(
+                f"File uploaded: {file.name} ({file.size} bytes) "
+                f"by {sender_type}"
+            )
+        except Exception as e:
+            errors.append(f"{file.name}: Upload failed - {str(e)}")
+            logger.error(f"Failed to upload {file.name}: {e}")
     
     if not attachments and errors:
         return Response(
@@ -1272,6 +1304,8 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
         
         for staff in target_staff:
             staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
+            
+            # Send Pusher notification
             try:
                 pusher_client.trigger(
                     staff_channel,
@@ -1280,6 +1314,111 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
                 )
             except Exception as e:
                 logger.error(f"Failed to trigger Pusher: {e}")
+            
+            # Send FCM notification
+            if staff.fcm_token:
+                try:
+                    # Create notification based on attachment type
+                    file_types = [att.file_type for att in attachments]
+                    if 'image' in file_types:
+                        fcm_title = f"📷 Guest sent {len(attachments)} image(s) - Room {conversation.room.room_number}"
+                    elif 'pdf' in file_types:
+                        fcm_title = f"📄 Guest sent document(s) - Room {conversation.room.room_number}"
+                    else:
+                        fcm_title = f"📎 Guest sent {len(attachments)} file(s) - Room {conversation.room.room_number}"
+                    
+                    fcm_body = message_text if message_text else f"{len(attachments)} file(s) attached"
+                    fcm_data = {
+                        "type": "new_chat_message_with_files",
+                        "conversation_id": str(conversation.id),
+                        "room_number": str(conversation.room.room_number),
+                        "message_id": str(message.id),
+                        "sender_type": "guest",
+                        "has_attachments": "true",
+                        "attachment_count": str(len(attachments)),
+                        "hotel_slug": hotel.slug,
+                        "click_action": f"/chat/{hotel.slug}/conversation/{conversation.id}",
+                        "url": f"https://hotelsmates.com/chat/{hotel.slug}/conversation/{conversation.id}"
+                    }
+                    send_fcm_notification(
+                        staff.fcm_token,
+                        fcm_title,
+                        fcm_body,
+                        data=fcm_data
+                    )
+                    logger.info(
+                        f"✅ FCM sent to staff {staff.id} for file upload from room {conversation.room.room_number}"
+                    )
+                except Exception as fcm_error:
+                    logger.error(
+                        f"❌ Failed to send FCM to staff {staff.id}: {fcm_error}"
+                    )
+    else:
+        # Staff sent files - notify guest
+        guest_channel = f"{hotel.slug}-room-{conversation.room.room_number}-chat"
+        
+        # Send Pusher notification
+        try:
+            pusher_client.trigger(
+                guest_channel,
+                "new-staff-message",
+                message_serializer.data
+            )
+            logger.info(
+                f"Pusher triggered: guest_channel={guest_channel}, "
+                f"event=new-staff-message with {len(attachments)} file(s)"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to trigger Pusher for guest_channel={guest_channel}: {e}"
+            )
+        
+        # Send FCM notification to guest
+        if conversation.room.guest_fcm_token:
+            try:
+                staff_name = (
+                    f"{staff_instance.first_name} {staff_instance.last_name}".strip()
+                    if staff_instance else "Hotel Staff"
+                )
+                
+                # Create notification based on attachment type
+                file_types = [att.file_type for att in attachments]
+                if 'image' in file_types:
+                    fcm_title = f"📷 {staff_name} sent {len(attachments)} image(s)"
+                elif 'pdf' in file_types:
+                    fcm_title = f"📄 {staff_name} sent document(s)"
+                else:
+                    fcm_title = f"📎 {staff_name} sent {len(attachments)} file(s)"
+                
+                fcm_body = message_text if message_text else "View attachment(s)"
+                fcm_data = {
+                    "type": "new_chat_message_with_files",
+                    "conversation_id": str(conversation.id),
+                    "room_number": str(conversation.room.room_number),
+                    "message_id": str(message.id),
+                    "sender_type": "staff",
+                    "staff_name": staff_name,
+                    "has_attachments": "true",
+                    "attachment_count": str(len(attachments)),
+                    "hotel_slug": hotel.slug,
+                    "click_action": f"/chat/{hotel.slug}/room/{conversation.room.room_number}",
+                    "url": f"https://hotelsmates.com/chat/{hotel.slug}/room/{conversation.room.room_number}"
+                }
+                send_fcm_notification(
+                    conversation.room.guest_fcm_token,
+                    fcm_title,
+                    fcm_body,
+                    data=fcm_data
+                )
+                logger.info(
+                    f"✅ FCM sent to guest in room {conversation.room.room_number} "
+                    f"for file upload from staff"
+                )
+            except Exception as fcm_error:
+                logger.error(
+                    f"❌ Failed to send FCM to guest room "
+                    f"{conversation.room.room_number}: {fcm_error}"
+                )
     
     response_data = {
         "message": message_serializer.data,
