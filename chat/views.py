@@ -1135,6 +1135,10 @@ def delete_message(request, message_id):
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
     guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
     
+    print(f"🗑️ DELETE REQUEST | message_id={message_id} | hotel={hotel.slug} | room={room.room_number}")
+    print(f"🗑️ CHANNELS | conversation={message_channel} | guest={guest_channel}")
+    print(f"🗑️ SENDER | type={message.sender_type} | is_staff={is_staff} | hard_delete={hard_delete}")
+    
     if hard_delete and is_staff:
         # Hard delete (only for admin staff)
         message_id_copy = message.id
