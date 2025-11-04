@@ -11,6 +11,7 @@ from staff.models import Staff
 from .models import Conversation, RoomMessage, GuestChatSession
 from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
+from notifications.fcm_service import send_fcm_notification
 import logging
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,11 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # Determine sender
     staff_instance = getattr(request.user, "staff_profile", None)
     sender_type = "staff" if staff_instance else "guest"
+    
     logger.info(
-        f"Message sender type: {sender_type}, "
-        f"user_id: {request.user.id}"
+        f"🔵 NEW MESSAGE | Type: {sender_type} | "
+        f"Hotel: {hotel.slug} | Room: {room.room_number} | "
+        f"Conversation: {conversation.id}"
     )
 
     # Get session token for guest
@@ -131,6 +134,24 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             conversation.save()
             logger.info(f"Conversation {conversation.id} marked as unread")
 
+        # CRITICAL: Send message back to guest's channel so they see it!
+        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+        try:
+            pusher_client.trigger(
+                guest_channel,
+                "new-message",
+                serializer.data
+            )
+            logger.info(
+                f"✅ Pusher sent to GUEST channel: {guest_channel}, "
+                f"message_id={message.id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"❌ Failed to send Pusher to guest channel "
+                f"{guest_channel}: {e}"
+            )
+
         # Trigger Pusher for sidebar badge update
         badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
         try:
@@ -165,6 +186,37 @@ def send_conversation_message(request, hotel_slug, conversation_id):
                 logger.info(f"Pusher triggered: staff_channel={staff_channel}, event=new-guest-message, message_id={message.id}")
             except Exception as e:
                 logger.error(f"Failed to trigger Pusher for staff_channel={staff_channel}: {e}")
+            
+            # Send FCM notification to staff
+            if staff.fcm_token:
+                try:
+                    fcm_title = f"💬 New Message - Room {room.room_number}"
+                    fcm_body = message_text[:100]  # Preview of message
+                    fcm_data = {
+                        "type": "new_chat_message",
+                        "conversation_id": str(conversation.id),
+                        "room_number": str(room.room_number),
+                        "message_id": str(message.id),
+                        "sender_type": "guest",
+                        "hotel_slug": hotel.slug,
+                        "click_action": f"/chat/{hotel.slug}/conversation/{conversation.id}",
+                        "url": f"https://hotelsmates.com/chat/{hotel.slug}/conversation/{conversation.id}"
+                    }
+                    send_fcm_notification(
+                        staff.fcm_token,
+                        fcm_title,
+                        fcm_body,
+                        data=fcm_data
+                    )
+                    logger.info(
+                        f"FCM sent to staff {staff.id} "
+                        f"for message from room {room.room_number}"
+                    )
+                except Exception as fcm_error:
+                    logger.error(
+                        f"Failed to send FCM to staff {staff.id}: "
+                        f"{fcm_error}"
+                    )
 
     else:
         # Staff sent a message - notify guest on room-specific channel
@@ -184,6 +236,43 @@ def send_conversation_message(request, hotel_slug, conversation_id):
                 f"Failed to trigger Pusher for "
                 f"guest_channel={guest_channel}: {e}"
             )
+        
+        # Send FCM notification to guest
+        if room.guest_fcm_token:
+            try:
+                staff_name = (
+                    message.staff_display_name 
+                    if message.staff_display_name 
+                    else "Hotel Staff"
+                )
+                fcm_title = f"💬 {staff_name}"
+                fcm_body = message_text[:100]  # Preview of message
+                fcm_data = {
+                    "type": "new_chat_message",
+                    "conversation_id": str(conversation.id),
+                    "room_number": str(room.room_number),
+                    "message_id": str(message.id),
+                    "sender_type": "staff",
+                    "staff_name": staff_name,
+                    "hotel_slug": hotel.slug,
+                    "click_action": f"/chat/{hotel.slug}/room/{room.room_number}",
+                    "url": f"https://hotelsmates.com/chat/{hotel.slug}/room/{room.room_number}"
+                }
+                send_fcm_notification(
+                    room.guest_fcm_token,
+                    fcm_title,
+                    fcm_body,
+                    data=fcm_data
+                )
+                logger.info(
+                    f"FCM sent to guest in room {room.room_number} "
+                    f"for message from staff"
+                )
+            except Exception as fcm_error:
+                logger.error(
+                    f"Failed to send FCM to guest room "
+                    f"{room.room_number}: {fcm_error}"
+                )
 
     # Trigger Pusher for the actual new message (for all listeners)
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
@@ -208,6 +297,13 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     if sender_type == "staff":
         response_data["staff_info"] = get_staff_info(staff_instance)
 
+    logger.info(
+        f"✅ MESSAGE COMPLETE | ID: {message.id} | "
+        f"Type: {sender_type} | "
+        f"Guest Channel: {hotel.slug}-room-{room.room_number}-chat | "
+        f"FCM Sent: {bool(room.guest_fcm_token if sender_type == 'staff' else None)}"
+    )
+
     return Response(response_data)
 
 # Keep validation unchanged
@@ -216,13 +312,28 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 def validate_chat_pin(request, hotel_slug, room_number):
     """
     Validates the PIN for accessing a chat room.
+    Also saves guest FCM token if provided.
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
     
     pin = request.data.get('pin')
-    if pin == room.guest_id_pin:  # you can add a separate field for chat if needed
-        return Response({'valid': True})
+    fcm_token = request.data.get('fcm_token')  # Optional FCM token
+    
+    if pin == room.guest_id_pin:
+        # Save FCM token if provided
+        if fcm_token:
+            room.guest_fcm_token = fcm_token
+            room.save()
+            logger.info(
+                f"FCM token saved for room {room_number} "
+                f"during chat PIN validation at {hotel.name}"
+            )
+        
+        return Response({
+            'valid': True,
+            'fcm_token_saved': bool(fcm_token)
+        })
     
     return Response({'valid': False}, status=401)
 
