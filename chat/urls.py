@@ -12,6 +12,7 @@ from .views import (
     initialize_guest_session,
     validate_guest_session,
     get_unread_messages_for_guest,
+    assign_staff_to_conversation,
 )
 
 urlpatterns = [
@@ -54,5 +55,12 @@ urlpatterns = [
         "guest-session/<uuid:session_token>/unread-count/",
         get_unread_messages_for_guest,
         name="get_unread_messages_for_guest"
+    ),
+    
+    # --- Staff assignment (conversation handoff) ---
+    path(
+        "<slug:hotel_slug>/conversations/<int:conversation_id>/assign-staff/",
+        assign_staff_to_conversation,
+        name="assign_staff_to_conversation"
     ),
 ]

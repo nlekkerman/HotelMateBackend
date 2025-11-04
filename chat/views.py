@@ -75,9 +75,6 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         f"Conversation: {conversation.id}"
     )
 
-    # Get session token for guest
-    session_token = request.data.get("session_token")
-
     # Create the message
     message = RoomMessage.objects.create(
         conversation=conversation,
@@ -88,23 +85,38 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     )
 
     # Update session handler when staff replies
-    if sender_type == "staff" and session_token:
+    # This supports conversation handoff - any staff who sends a message
+    # becomes the current handler
+    if sender_type == "staff":
+        sessions_updated = GuestChatSession.objects.filter(
+            conversation=conversation,
+            is_active=True
+        ).update(current_staff_handler=staff_instance)
+        
+        logger.info(
+            f"Updated {sessions_updated} session(s) handler to "
+            f"{staff_instance} for conversation {conversation.id}"
+        )
+        
+        # Notify guest that staff member is now handling their chat
+        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
         try:
-            session = GuestChatSession.objects.get(
-                session_token=session_token,
-                conversation=conversation,
-                is_active=True
+            pusher_client.trigger(
+                guest_channel,
+                "staff-assigned",
+                {
+                    "staff_name": f"{staff_instance.first_name} {staff_instance.last_name}".strip(),
+                    "staff_role": staff_instance.role.name if staff_instance.role else "Staff",
+                    "conversation_id": conversation.id
+                }
             )
-            session.current_staff_handler = staff_instance
-            session.save()
             logger.info(
-                f"Updated session handler to {staff_instance} "
-                f"for session {session_token}"
+                f"Pusher triggered: staff-assigned event for "
+                f"{staff_instance} on channel {guest_channel}"
             )
-        except GuestChatSession.DoesNotExist:
-            logger.warning(
-                f"Session token {session_token} not found "
-                f"for conversation {conversation.id}"
+        except Exception as e:
+            logger.error(
+                f"Failed to trigger Pusher for staff-assigned: {e}"
             )
 
     serializer = RoomMessageSerializer(message)
@@ -783,3 +795,75 @@ def get_unread_messages_for_guest(request, session_token):
 
     except GuestChatSession.DoesNotExist:
         return Response({'unread_count': 0})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def assign_staff_to_conversation(request, hotel_slug, conversation_id):
+    """
+    Assign the authenticated staff member as the current handler when they
+    open/click on a conversation. Supports conversation handoff between
+    multiple staff members (e.g., shift changes, coverage).
+    
+    This allows any staff member to take over a conversation at any time,
+    and the guest will see the new staff member's name in their chat window.
+    """
+    staff = getattr(request.user, "staff_profile", None)
+    if not staff:
+        return Response(
+            {"error": "Not authenticated as staff"},
+            status=403
+        )
+    
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    conversation = get_object_or_404(Conversation, id=conversation_id)
+    
+    # Verify conversation belongs to this hotel
+    if conversation.room.hotel != hotel:
+        return Response(
+            {"error": "Conversation does not belong to this hotel"},
+            status=400
+        )
+    
+    # Update all active guest sessions for this conversation
+    sessions = GuestChatSession.objects.filter(
+        conversation=conversation,
+        is_active=True
+    )
+    
+    updated_count = sessions.update(current_staff_handler=staff)
+    
+    logger.info(
+        f"Staff {staff} assigned to conversation {conversation_id}. "
+        f"Updated {updated_count} guest session(s)"
+    )
+    
+    # Notify guest that a staff member is now handling their chat
+    room = conversation.room
+    guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+    
+    try:
+        pusher_client.trigger(
+            guest_channel,
+            "staff-assigned",
+            {
+                "staff_name": f"{staff.first_name} {staff.last_name}".strip(),
+                "staff_role": staff.role.name if staff.role else "Staff",
+                "conversation_id": conversation.id
+            }
+        )
+        logger.info(
+            f"Pusher triggered: staff-assigned event sent to guest "
+            f"on channel {guest_channel}"
+        )
+    except Exception as e:
+        logger.error(
+            f"Failed to trigger Pusher for staff-assigned: {e}"
+        )
+    
+    return Response({
+        "conversation_id": conversation.id,
+        "assigned_staff": get_staff_info(staff),
+        "sessions_updated": updated_count,
+        "room_number": room.room_number
+    })
