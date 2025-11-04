@@ -13,6 +13,10 @@ from .views import (
     validate_guest_session,
     get_unread_messages_for_guest,
     assign_staff_to_conversation,
+    update_message,
+    delete_message,
+    upload_message_attachment,
+    delete_attachment,
 )
 
 urlpatterns = [
@@ -62,5 +66,29 @@ urlpatterns = [
         "<slug:hotel_slug>/conversations/<int:conversation_id>/assign-staff/",
         assign_staff_to_conversation,
         name="assign_staff_to_conversation"
+    ),
+    
+    # --- Message CRUD operations ---
+    path(
+        "messages/<int:message_id>/update/",
+        update_message,
+        name="update_message"
+    ),
+    path(
+        "messages/<int:message_id>/delete/",
+        delete_message,
+        name="delete_message"
+    ),
+    
+    # --- File attachment operations ---
+    path(
+        "<slug:hotel_slug>/conversations/<int:conversation_id>/upload-attachment/",
+        upload_message_attachment,
+        name="upload_message_attachment"
+    ),
+    path(
+        "attachments/<int:attachment_id>/delete/",
+        delete_attachment,
+        name="delete_attachment"
     ),
 ]

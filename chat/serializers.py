@@ -1,5 +1,48 @@
 from rest_framework import serializers
-from .models import Conversation, RoomMessage
+from .models import Conversation, RoomMessage, MessageAttachment
+
+
+class MessageAttachmentSerializer(serializers.ModelSerializer):
+    """Serializer for message file attachments"""
+    file_url = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
+    file_size_display = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = MessageAttachment
+        fields = [
+            'id', 'file', 'file_url', 'file_name', 'file_type',
+            'file_size', 'file_size_display', 'mime_type',
+            'thumbnail', 'thumbnail_url', 'uploaded_at'
+        ]
+        read_only_fields = ['uploaded_at', 'file_size', 'mime_type']
+    
+    def get_file_url(self, obj):
+        """Get absolute URL for file"""
+        request = self.context.get('request')
+        if obj.file and hasattr(obj.file, 'url'):
+            if request:
+                return request.build_absolute_uri(obj.file.url)
+            return obj.file.url
+        return None
+    
+    def get_thumbnail_url(self, obj):
+        """Get absolute URL for thumbnail"""
+        request = self.context.get('request')
+        if obj.thumbnail and hasattr(obj.thumbnail, 'url'):
+            if request:
+                return request.build_absolute_uri(obj.thumbnail.url)
+            return obj.thumbnail.url
+        return None
+    
+    def get_file_size_display(self, obj):
+        """Human-readable file size"""
+        size = obj.file_size
+        for unit in ['B', 'KB', 'MB', 'GB']:
+            if size < 1024.0:
+                return f"{size:.1f} {unit}"
+            size /= 1024.0
+        return f"{size:.1f} TB"
 
 
 class RoomMessageSerializer(serializers.ModelSerializer):
@@ -18,6 +61,13 @@ class RoomMessageSerializer(serializers.ModelSerializer):
     
     # Staff info for guest display
     staff_info = serializers.SerializerMethodField()
+    
+    # Attachments
+    attachments = MessageAttachmentSerializer(many=True, read_only=True)
+    has_attachments = serializers.SerializerMethodField()
+    
+    # Reply functionality
+    reply_to_message = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomMessage
@@ -29,9 +79,15 @@ class RoomMessageSerializer(serializers.ModelSerializer):
             'status', 'is_read_by_recipient', 'read_at',
             'read_by_staff', 'read_by_guest',
             'staff_read_at', 'guest_read_at', 'delivered_at',
-            'staff_display_name', 'staff_role_name'
+            'staff_display_name', 'staff_role_name',
+            'is_edited', 'edited_at', 'is_deleted', 'deleted_at',
+            'reply_to', 'reply_to_message',
+            'attachments', 'has_attachments'
         ]
-        read_only_fields = ['timestamp', 'delivered_at']
+        read_only_fields = [
+            'timestamp', 'delivered_at', 'is_edited', 
+            'edited_at', 'is_deleted', 'deleted_at'
+        ]
 
     def get_guest_name(self, obj):
         # Since only one guest per room, grab the first (if any)
@@ -64,6 +120,26 @@ class RoomMessageSerializer(serializers.ModelSerializer):
                          (obj.staff.role.name if obj.staff.role else 'Staff')),
                 'profile_image': (obj.staff.profile_image.url
                                   if obj.staff.profile_image else None)
+            }
+        return None
+    
+    def get_has_attachments(self, obj):
+        """Check if message has attachments"""
+        return obj.attachments.exists()
+    
+    def get_reply_to_message(self, obj):
+        """Get basic info about the message being replied to"""
+        if obj.reply_to and not obj.reply_to.is_deleted:
+            return {
+                'id': obj.reply_to.id,
+                'message': obj.reply_to.message[:100],
+                'sender_type': obj.reply_to.sender_type,
+                'sender_name': (
+                    obj.reply_to.staff_display_name 
+                    if obj.reply_to.sender_type == 'staff' 
+                    else 'Guest'
+                ),
+                'timestamp': obj.reply_to.timestamp
             }
         return None
 

@@ -2,6 +2,7 @@ from django.db import models
 from django.utils import timezone
 from datetime import timedelta
 import uuid
+import os
 
 
 # Conversation model
@@ -86,6 +87,22 @@ class RoomMessage(models.Model):
     
     # Delivery confirmation
     delivered_at = models.DateTimeField(default=timezone.now)
+    
+    # Message editing and deletion
+    is_edited = models.BooleanField(default=False)
+    edited_at = models.DateTimeField(null=True, blank=True)
+    is_deleted = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    
+    # Reply functionality
+    reply_to = models.ForeignKey(
+        'self',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='replies',
+        help_text="Message this is replying to"
+    )
 
     def save(self, *args, **kwargs):
         # Auto-populate staff display info when staff sends message
@@ -95,6 +112,13 @@ class RoomMessage(models.Model):
             if self.staff.role:
                 self.staff_role_name = self.staff.role.name
         super().save(*args, **kwargs)
+    
+    def soft_delete(self):
+        """Soft delete the message"""
+        self.is_deleted = True
+        self.deleted_at = timezone.now()
+        self.message = "[Message deleted]"
+        self.save()
 
     def __str__(self):
         return (f"[{self.timestamp}] Room {self.room.room_number} - "
@@ -166,3 +190,83 @@ class GuestChatSession(models.Model):
         ordering = ['-last_activity']
         verbose_name = 'Guest Chat Session'
         verbose_name_plural = 'Guest Chat Sessions'
+
+
+def message_attachment_path(instance, filename):
+    """Generate upload path for message attachments"""
+    # Organize by hotel -> room -> date
+    date_str = timezone.now().strftime('%Y/%m/%d')
+    return f'chat/{instance.message.room.hotel.slug}/room_{instance.message.room.room_number}/{date_str}/{filename}'
+
+
+class MessageAttachment(models.Model):
+    """
+    File attachments for chat messages.
+    Supports images, PDFs, and common document formats.
+    """
+    ATTACHMENT_TYPES = (
+        ('image', 'Image'),
+        ('document', 'Document'),
+        ('pdf', 'PDF'),
+        ('other', 'Other'),
+    )
+    
+    message = models.ForeignKey(
+        RoomMessage,
+        on_delete=models.CASCADE,
+        related_name='attachments'
+    )
+    file = models.FileField(
+        upload_to=message_attachment_path,
+        max_length=500,
+        help_text="Supported: images (jpg, png, gif), documents (pdf, doc, docx, xls, xlsx), text files"
+    )
+    file_name = models.CharField(max_length=255)
+    file_type = models.CharField(
+        max_length=20,
+        choices=ATTACHMENT_TYPES,
+        default='other'
+    )
+    file_size = models.PositiveIntegerField(
+        help_text="File size in bytes"
+    )
+    mime_type = models.CharField(max_length=100, blank=True)
+    
+    # Optional thumbnail for images
+    thumbnail = models.ImageField(
+        upload_to=message_attachment_path,
+        null=True,
+        blank=True,
+        help_text="Auto-generated thumbnail for images"
+    )
+    
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['uploaded_at']
+        verbose_name = 'Message Attachment'
+        verbose_name_plural = 'Message Attachments'
+    
+    def __str__(self):
+        return f"{self.file_name} ({self.get_file_type_display()})"
+    
+    def get_file_extension(self):
+        """Get file extension"""
+        return os.path.splitext(self.file_name)[1].lower()
+    
+    def is_image(self):
+        """Check if file is an image"""
+        return self.file_type == 'image'
+    
+    def save(self, *args, **kwargs):
+        # Auto-detect file type based on extension
+        if not self.file_type or self.file_type == 'other':
+            ext = self.get_file_extension()
+            if ext in ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']:
+                self.file_type = 'image'
+            elif ext == '.pdf':
+                self.file_type = 'pdf'
+            elif ext in ['.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv']:
+                self.file_type = 'document'
+        
+        super().save(*args, **kwargs)

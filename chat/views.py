@@ -88,35 +88,54 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # This supports conversation handoff - any staff who sends a message
     # becomes the current handler
     if sender_type == "staff":
-        sessions_updated = GuestChatSession.objects.filter(
+        # Check if staff handler is changing before updating
+        active_sessions = GuestChatSession.objects.filter(
             conversation=conversation,
             is_active=True
-        ).update(current_staff_handler=staff_instance)
-        
-        logger.info(
-            f"Updated {sessions_updated} session(s) handler to "
-            f"{staff_instance} for conversation {conversation.id}"
         )
         
-        # Notify guest that staff member is now handling their chat
-        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
-        try:
-            pusher_client.trigger(
-                guest_channel,
-                "staff-assigned",
-                {
-                    "staff_name": f"{staff_instance.first_name} {staff_instance.last_name}".strip(),
-                    "staff_role": staff_instance.role.name if staff_instance.role else "Staff",
-                    "conversation_id": conversation.id
-                }
+        # Get current handler (if any)
+        current_handler = None
+        if active_sessions.exists():
+            current_handler = active_sessions.first().current_staff_handler
+        
+        # Only update and notify if staff handler is changing
+        staff_changed = current_handler != staff_instance
+        
+        if staff_changed:
+            sessions_updated = active_sessions.update(
+                current_staff_handler=staff_instance
             )
+            
             logger.info(
-                f"Pusher triggered: staff-assigned event for "
-                f"{staff_instance} on channel {guest_channel}"
+                f"Staff handler changed from {current_handler} to {staff_instance} "
+                f"for conversation {conversation.id}. Updated {sessions_updated} session(s)"
             )
-        except Exception as e:
-            logger.error(
-                f"Failed to trigger Pusher for staff-assigned: {e}"
+            
+            # Notify guest that a NEW staff member is now handling their chat
+            guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+            try:
+                pusher_client.trigger(
+                    guest_channel,
+                    "staff-assigned",
+                    {
+                        "staff_name": f"{staff_instance.first_name} {staff_instance.last_name}".strip(),
+                        "staff_role": staff_instance.role.name if staff_instance.role else "Staff",
+                        "conversation_id": conversation.id
+                    }
+                )
+                logger.info(
+                    f"Pusher triggered: staff-assigned event for "
+                    f"{staff_instance} on channel {guest_channel}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to trigger Pusher for staff-assigned: {e}"
+                )
+        else:
+            logger.debug(
+                f"Staff handler unchanged ({staff_instance}), "
+                f"skipping staff-assigned event for conversation {conversation.id}"
             )
 
     serializer = RoomMessageSerializer(message)
@@ -825,45 +844,473 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
             status=400
         )
     
-    # Update all active guest sessions for this conversation
+    # Check current staff handler before updating
     sessions = GuestChatSession.objects.filter(
         conversation=conversation,
         is_active=True
     )
     
-    updated_count = sessions.update(current_staff_handler=staff)
+    # Get current handler (if any)
+    current_handler = None
+    if sessions.exists():
+        current_handler = sessions.first().current_staff_handler
     
-    logger.info(
-        f"Staff {staff} assigned to conversation {conversation_id}. "
-        f"Updated {updated_count} guest session(s)"
-    )
+    # Only update and notify if staff handler is changing
+    staff_changed = current_handler != staff
     
-    # Notify guest that a staff member is now handling their chat
-    room = conversation.room
-    guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
-    
-    try:
-        pusher_client.trigger(
-            guest_channel,
-            "staff-assigned",
-            {
-                "staff_name": f"{staff.first_name} {staff.last_name}".strip(),
-                "staff_role": staff.role.name if staff.role else "Staff",
-                "conversation_id": conversation.id
-            }
-        )
+    if staff_changed:
+        updated_count = sessions.update(current_staff_handler=staff)
+        
         logger.info(
-            f"Pusher triggered: staff-assigned event sent to guest "
-            f"on channel {guest_channel}"
+            f"Staff handler changed from {current_handler} to {staff} "
+            f"for conversation {conversation_id}. "
+            f"Updated {updated_count} guest session(s)"
         )
-    except Exception as e:
-        logger.error(
-            f"Failed to trigger Pusher for staff-assigned: {e}"
+        
+        # Notify guest that a NEW staff member is now handling their chat
+        room = conversation.room
+        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+        
+        try:
+            pusher_client.trigger(
+                guest_channel,
+                "staff-assigned",
+                {
+                    "staff_name": (
+                        f"{staff.first_name} {staff.last_name}".strip()
+                    ),
+                    "staff_role": (
+                        staff.role.name if staff.role else "Staff"
+                    ),
+                    "conversation_id": conversation.id
+                }
+            )
+            logger.info(
+                f"Pusher triggered: staff-assigned event sent to guest "
+                f"on channel {guest_channel}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to trigger Pusher for staff-assigned: {e}"
+            )
+    else:
+        logger.info(
+            f"Staff {staff} already assigned to conversation "
+            f"{conversation_id}, skipping staff-assigned event"
         )
+        updated_count = 0
     
     return Response({
         "conversation_id": conversation.id,
         "assigned_staff": get_staff_info(staff),
         "sessions_updated": updated_count,
         "room_number": room.room_number
+    })
+
+
+# ==================== MESSAGE CRUD OPERATIONS ====================
+
+@api_view(['PATCH'])
+@permission_classes([AllowAny])
+def update_message(request, message_id):
+    """
+    Update/edit a message. Only the sender can edit their own messages.
+    Staff can edit their messages, guests can edit their messages.
+    """
+    message = get_object_or_404(RoomMessage, id=message_id)
+    
+    # Check permissions
+    staff = getattr(request.user, "staff_profile", None)
+    is_staff = staff is not None
+    
+    # Staff can only edit their own messages
+    if is_staff and message.sender_type == "staff":
+        if message.staff != staff:
+            return Response(
+                {"error": "You can only edit your own messages"},
+                status=403
+            )
+    # Guest messages can only be edited if sender is guest
+    elif not is_staff and message.sender_type == "guest":
+        # For guests, we allow editing if they're in the same room
+        # (more permissive since guests don't have accounts)
+        pass
+    else:
+        return Response(
+            {"error": "You don't have permission to edit this message"},
+            status=403
+        )
+    
+    # Check if message is already deleted
+    if message.is_deleted:
+        return Response(
+            {"error": "Cannot edit a deleted message"},
+            status=400
+        )
+    
+    # Update message
+    new_text = request.data.get('message', '').strip()
+    if not new_text:
+        return Response(
+            {"error": "Message cannot be empty"},
+            status=400
+        )
+    
+    message.message = new_text
+    message.is_edited = True
+    message.edited_at = timezone.now()
+    message.save()
+    
+    logger.info(
+        f"Message {message_id} edited by "
+        f"{'staff ' + str(staff) if is_staff else 'guest'}"
+    )
+    
+    # Trigger Pusher for real-time update
+    from .serializers import RoomMessageSerializer
+    serializer = RoomMessageSerializer(message)
+    
+    hotel = message.room.hotel
+    message_channel = (
+        f"{hotel.slug}-conversation-{message.conversation.id}-chat"
+    )
+    
+    try:
+        pusher_client.trigger(
+            message_channel,
+            "message-updated",
+            serializer.data
+        )
+        logger.info(f"Pusher triggered: message-updated for message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to trigger Pusher for message-updated: {e}")
+    
+    return Response({
+        "message": serializer.data,
+        "success": True
+    })
+
+
+@api_view(['DELETE'])
+@permission_classes([AllowAny])
+def delete_message(request, message_id):
+    """
+    Soft delete a message. Only the sender can delete their own messages.
+    Hard delete is available for staff with admin permissions.
+    """
+    message = get_object_or_404(RoomMessage, id=message_id)
+    
+    # Check permissions
+    staff = getattr(request.user, "staff_profile", None)
+    is_staff = staff is not None
+    hard_delete = request.query_params.get('hard_delete') == 'true'
+    
+    # Staff can only delete their own messages (or with admin permission)
+    if is_staff and message.sender_type == "staff":
+        if message.staff != staff:
+            # Check if staff has admin/manager role for hard delete
+            if hard_delete and not (
+                staff.role and staff.role.slug in ['manager', 'admin']
+            ):
+                return Response(
+                    {"error": "Only managers can hard delete other's messages"},
+                    status=403
+                )
+            elif not hard_delete:
+                return Response(
+                    {"error": "You can only delete your own messages"},
+                    status=403
+                )
+    # Guest messages can only be deleted by the guest
+    elif not is_staff and message.sender_type == "guest":
+        pass
+    else:
+        return Response(
+            {"error": "You don't have permission to delete this message"},
+            status=403
+        )
+    
+    hotel = message.room.hotel
+    message_channel = (
+        f"{hotel.slug}-conversation-{message.conversation.id}-chat"
+    )
+    
+    if hard_delete and is_staff:
+        # Hard delete (only for admin staff)
+        message_id_copy = message.id
+        message.delete()
+        
+        logger.info(
+            f"Message {message_id_copy} hard deleted by staff {staff}"
+        )
+        
+        try:
+            pusher_client.trigger(
+                message_channel,
+                "message-deleted",
+                {"message_id": message_id_copy, "hard_delete": True}
+            )
+        except Exception as e:
+            logger.error(f"Failed to trigger Pusher for message-deleted: {e}")
+        
+        return Response({
+            "success": True,
+            "hard_delete": True,
+            "message_id": message_id_copy
+        })
+    else:
+        # Soft delete
+        message.soft_delete()
+        
+        logger.info(
+            f"Message {message_id} soft deleted by "
+            f"{'staff ' + str(staff) if is_staff else 'guest'}"
+        )
+        
+        from .serializers import RoomMessageSerializer
+        serializer = RoomMessageSerializer(message)
+        
+        try:
+            pusher_client.trigger(
+                message_channel,
+                "message-deleted",
+                {
+                    "message_id": message.id,
+                    "hard_delete": False,
+                    "message": serializer.data
+                }
+            )
+        except Exception as e:
+            logger.error(f"Failed to trigger Pusher for message-deleted: {e}")
+        
+        return Response({
+            "success": True,
+            "hard_delete": False,
+            "message": serializer.data
+        })
+
+
+# ==================== FILE ATTACHMENT OPERATIONS ====================
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def upload_message_attachment(request, hotel_slug, conversation_id):
+    """
+    Upload file attachment(s) to a message.
+    Supports multiple files per message.
+    """
+    from .models import MessageAttachment
+    from .serializers import MessageAttachmentSerializer
+    
+    conversation = get_object_or_404(Conversation, id=conversation_id)
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    
+    if conversation.room.hotel != hotel:
+        return Response(
+            {"error": "Conversation does not belong to this hotel"},
+            status=400
+        )
+    
+    # Get or create message
+    message_id = request.data.get('message_id')
+    message_text = request.data.get('message', '').strip()
+    
+    staff_instance = getattr(request.user, "staff_profile", None)
+    sender_type = "staff" if staff_instance else "guest"
+    
+    if message_id:
+        # Attach to existing message
+        message = get_object_or_404(RoomMessage, id=message_id)
+    else:
+        # Create new message with attachment
+        if not message_text:
+            message_text = "[File shared]"
+        
+        message = RoomMessage.objects.create(
+            conversation=conversation,
+            room=conversation.room,
+            staff=staff_instance if staff_instance else None,
+            message=message_text,
+            sender_type=sender_type,
+        )
+    
+    # Process uploaded files
+    files = request.FILES.getlist('files')
+    if not files:
+        return Response(
+            {"error": "No files provided"},
+            status=400
+        )
+    
+    # File size limit (10MB per file)
+    MAX_FILE_SIZE = 10 * 1024 * 1024
+    
+    # Allowed extensions
+    ALLOWED_EXTENSIONS = [
+        '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',  # Images
+        '.pdf',  # PDF
+        '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv'  # Documents
+    ]
+    
+    attachments = []
+    errors = []
+    
+    for file in files:
+        # Validate file size
+        if file.size > MAX_FILE_SIZE:
+            errors.append(f"{file.name}: File too large (max 10MB)")
+            continue
+        
+        # Validate file extension
+        import os
+        ext = os.path.splitext(file.name)[1].lower()
+        if ext not in ALLOWED_EXTENSIONS:
+            errors.append(f"{file.name}: File type not allowed")
+            continue
+        
+        # Create attachment
+        attachment = MessageAttachment.objects.create(
+            message=message,
+            file=file,
+            file_name=file.name,
+            file_size=file.size,
+            mime_type=file.content_type or ''
+        )
+        attachments.append(attachment)
+    
+    if not attachments and errors:
+        return Response(
+            {"error": "No valid files uploaded", "details": errors},
+            status=400
+        )
+    
+    # Serialize attachments
+    serializer = MessageAttachmentSerializer(
+        attachments,
+        many=True,
+        context={'request': request}
+    )
+    
+    # Get full message with attachments
+    from .serializers import RoomMessageSerializer
+    message_serializer = RoomMessageSerializer(message, context={'request': request})
+    
+    logger.info(
+        f"Uploaded {len(attachments)} file(s) to message {message.id} "
+        f"by {'staff ' + str(staff_instance) if staff_instance else 'guest'}"
+    )
+    
+    # Trigger Pusher for real-time update
+    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+    
+    try:
+        pusher_client.trigger(
+            message_channel,
+            "new-message" if not message_id else "message-updated",
+            message_serializer.data
+        )
+    except Exception as e:
+        logger.error(f"Failed to trigger Pusher: {e}")
+    
+    # Send notifications similar to text messages
+    if sender_type == "guest":
+        # Notify staff
+        reception_staff = Staff.objects.filter(
+            hotel=hotel,
+            role__slug="receptionist"
+        )
+        
+        target_staff = (
+            reception_staff if reception_staff.exists()
+            else Staff.objects.filter(hotel=hotel, department__slug="front-office")
+        )
+        
+        for staff in target_staff:
+            staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
+            try:
+                pusher_client.trigger(
+                    staff_channel,
+                    "new-guest-message",
+                    message_serializer.data
+                )
+            except Exception as e:
+                logger.error(f"Failed to trigger Pusher: {e}")
+    
+    response_data = {
+        "message": message_serializer.data,
+        "attachments": serializer.data,
+        "success": True
+    }
+    
+    if errors:
+        response_data["warnings"] = errors
+    
+    return Response(response_data)
+
+
+@api_view(['DELETE'])
+@permission_classes([AllowAny])
+def delete_attachment(request, attachment_id):
+    """
+    Delete a file attachment.
+    Only the message sender can delete attachments.
+    """
+    from .models import MessageAttachment
+    
+    attachment = get_object_or_404(MessageAttachment, id=attachment_id)
+    message = attachment.message
+    
+    # Check permissions
+    staff = getattr(request.user, "staff_profile", None)
+    is_staff = staff is not None
+    
+    if is_staff and message.sender_type == "staff":
+        if message.staff != staff:
+            return Response(
+                {"error": "You can only delete your own attachments"},
+                status=403
+            )
+    elif not is_staff and message.sender_type == "guest":
+        pass
+    else:
+        return Response(
+            {"error": "You don't have permission to delete this attachment"},
+            status=403
+        )
+    
+    # Delete the file from storage
+    if attachment.file:
+        attachment.file.delete(save=False)
+    if attachment.thumbnail:
+        attachment.thumbnail.delete(save=False)
+    
+    attachment_id_copy = attachment.id
+    attachment.delete()
+    
+    logger.info(
+        f"Attachment {attachment_id_copy} deleted from message {message.id}"
+    )
+    
+    # Trigger Pusher for real-time update
+    hotel = message.room.hotel
+    message_channel = (
+        f"{hotel.slug}-conversation-{message.conversation.id}-chat"
+    )
+    
+    try:
+        pusher_client.trigger(
+            message_channel,
+            "attachment-deleted",
+            {
+                "attachment_id": attachment_id_copy,
+                "message_id": message.id
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to trigger Pusher: {e}")
+    
+    return Response({
+        "success": True,
+        "attachment_id": attachment_id_copy,
+        "message_id": message.id
     })
