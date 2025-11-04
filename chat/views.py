@@ -366,7 +366,6 @@ def validate_chat_pin(request, hotel_slug, room_number):
                 'room_number': room.room_number,
                 'hotel_slug': hotel.slug,
                 'conversation_id': str(conversation.id),
-                'guest_name': room.guest_name or 'Guest',
                 'pusher_channel': f"{hotel.slug}-room-{room.room_number}-chat"
             }
         })
