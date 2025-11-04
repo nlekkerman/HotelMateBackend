@@ -343,10 +343,13 @@ def validate_chat_pin(request, hotel_slug, room_number):
         # Get or create conversation for this room
         conversation, created = Conversation.objects.get_or_create(room=room)
         
-        # Get or create guest session
+        # Get or create guest session (conversation is required)
         guest_session, session_created = GuestChatSession.objects.get_or_create(
             room=room,
-            defaults={'is_active': True}
+            defaults={
+                'conversation': conversation,
+                'is_active': True
+            }
         )
         
         if not guest_session.is_active:
