@@ -1156,6 +1156,18 @@ def delete_message(request, message_id):
             )
             logger.info(f"✅ Pusher: message-deleted → {message_channel}")
             
+            # Also emit a secondary event name for clients that listen for
+            # a different event (some frontends expect "message-removed")
+            try:
+                pusher_client.trigger(
+                    message_channel,
+                    "message-removed",
+                    pusher_data
+                )
+                logger.info(f"✅ Pusher: message-removed → {message_channel}")
+            except Exception as e:
+                logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
+
             # 2. Guest channel (so guest sees deletion)
             pusher_client.trigger(
                 guest_channel,
@@ -1163,6 +1175,17 @@ def delete_message(request, message_id):
                 pusher_data
             )
             logger.info(f"✅ Pusher: message-deleted → {guest_channel}")
+
+            # Secondary event for guest channel as well
+            try:
+                pusher_client.trigger(
+                    guest_channel,
+                    "message-removed",
+                    pusher_data
+                )
+                logger.info(f"✅ Pusher: message-removed → {guest_channel}")
+            except Exception as e:
+                logger.debug(f"Optional secondary trigger failed for {guest_channel}: {e}")
             
             # 3. Individual staff channels (so all staff see deletion)
             for staff_member in conversation.participants_staff.all():
@@ -1173,6 +1196,15 @@ def delete_message(request, message_id):
                     pusher_data
                 )
                 logger.info(f"✅ Pusher: message-deleted → {staff_channel}")
+                try:
+                    pusher_client.trigger(
+                        staff_channel,
+                        "message-removed",
+                        pusher_data
+                    )
+                    logger.info(f"✅ Pusher: message-removed → {staff_channel}")
+                except Exception as e:
+                    logger.debug(f"Optional secondary trigger failed for {staff_channel}: {e}")
                 
         except Exception as e:
             logger.error(f"Failed to trigger Pusher for message-deleted: {e}")
@@ -1208,6 +1240,17 @@ def delete_message(request, message_id):
                 pusher_data
             )
             logger.info(f"✅ Pusher: message-deleted → {message_channel}")
+
+            # Also emit secondary "message-removed" event for compatibility
+            try:
+                pusher_client.trigger(
+                    message_channel,
+                    "message-removed",
+                    pusher_data
+                )
+                logger.info(f"✅ Pusher: message-removed → {message_channel}")
+            except Exception as e:
+                logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
             
             # 2. Guest channel (so guest sees deletion)
             pusher_client.trigger(
@@ -1216,6 +1259,17 @@ def delete_message(request, message_id):
                 pusher_data
             )
             logger.info(f"✅ Pusher: message-deleted → {guest_channel}")
+
+            # Secondary event for guest channel as well
+            try:
+                pusher_client.trigger(
+                    guest_channel,
+                    "message-removed",
+                    pusher_data
+                )
+                logger.info(f"✅ Pusher: message-removed → {guest_channel}")
+            except Exception as e:
+                logger.debug(f"Optional secondary trigger failed for {guest_channel}: {e}")
             
             # 3. Individual staff channels (so all staff see deletion)
             for staff_member in conversation.participants_staff.all():
@@ -1226,6 +1280,15 @@ def delete_message(request, message_id):
                     pusher_data
                 )
                 logger.info(f"✅ Pusher: message-deleted → {staff_channel}")
+                try:
+                    pusher_client.trigger(
+                        staff_channel,
+                        "message-removed",
+                        pusher_data
+                    )
+                    logger.info(f"✅ Pusher: message-removed → {staff_channel}")
+                except Exception as e:
+                    logger.debug(f"Optional secondary trigger failed for {staff_channel}: {e}")
                 
         except Exception as e:
             logger.error(f"Failed to trigger Pusher for message-deleted: {e}")

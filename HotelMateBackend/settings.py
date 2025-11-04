@@ -227,6 +227,11 @@ else:
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# File upload settings
+# Allow files up to 50MB (matches backend validation in chat/views.py)
+DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB in bytes
+FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB in bytes
+
 # CORS (adjust if deploying React frontend)
 CORS_ALLOWED_ORIGINS = [
     "https://dashing-klepon-d9f0c6.netlify.app",
