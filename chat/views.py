@@ -169,14 +169,18 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             role__slug="receptionist"
         )
 
+        print(f"🔍 Looking for staff to notify. Reception staff count: {reception_staff.count()}")
+
         if reception_staff.exists():
             target_staff = reception_staff
+            print(f"✅ Targeting reception staff: {reception_staff.count()}")
             logger.info(f"Targeting reception staff for notifications: count={reception_staff.count()}")
         else:
             target_staff = Staff.objects.filter(
                 hotel=hotel,
                 department__slug="front-office"
             )
+            print(f"⚠️ No reception staff. Targeting front-office: {target_staff.count()}")
             logger.info(f"No reception staff found. Targeting front-office staff: count={target_staff.count()}")
 
         for staff in target_staff:
@@ -189,6 +193,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             
             # Send FCM notification to staff
             if staff.fcm_token:
+                print(f"🔔 Staff {staff.id} has FCM token: {staff.fcm_token[:20]}...")
                 try:
                     fcm_title = f"💬 New Message - Room {room.room_number}"
                     fcm_body = message_text[:100]  # Preview of message
@@ -208,15 +213,19 @@ def send_conversation_message(request, hotel_slug, conversation_id):
                         fcm_body,
                         data=fcm_data
                     )
+                    print(f"✅ FCM sent to staff {staff.id} for message from room {room.room_number}")
                     logger.info(
                         f"FCM sent to staff {staff.id} "
                         f"for message from room {room.room_number}"
                     )
                 except Exception as fcm_error:
+                    print(f"❌ FCM FAILED for staff {staff.id}: {fcm_error}")
                     logger.error(
                         f"Failed to send FCM to staff {staff.id}: "
                         f"{fcm_error}"
                     )
+            else:
+                print(f"⚠️ Staff {staff.id} ({staff.user.username}) has NO FCM token")
 
     else:
         # Staff sent a message - notify guest on room-specific channel
@@ -313,6 +322,7 @@ def validate_chat_pin(request, hotel_slug, room_number):
     """
     Validates the PIN for accessing a chat room.
     Also saves guest FCM token if provided.
+    Returns complete session data for the frontend.
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
@@ -330,9 +340,32 @@ def validate_chat_pin(request, hotel_slug, room_number):
                 f"during chat PIN validation at {hotel.name}"
             )
         
+        # Get or create conversation for this room
+        conversation, created = Conversation.objects.get_or_create(room=room)
+        
+        # Get or create guest session
+        guest_session, session_created = GuestChatSession.objects.get_or_create(
+            room=room,
+            defaults={'is_active': True}
+        )
+        
+        if not guest_session.is_active:
+            guest_session.is_active = True
+            guest_session.save()
+        
+        print(f"✅ Guest PIN validated for room {room_number}, session ID: {guest_session.id}")
+        
         return Response({
             'valid': True,
-            'fcm_token_saved': bool(fcm_token)
+            'fcm_token_saved': bool(fcm_token),
+            'session_data': {
+                'session_id': str(guest_session.id),
+                'room_number': room.room_number,
+                'hotel_slug': hotel.slug,
+                'conversation_id': str(conversation.id),
+                'guest_name': room.guest_name or 'Guest',
+                'pusher_channel': f"{hotel.slug}-room-{room.room_number}-chat"
+            }
         })
     
     return Response({'valid': False}, status=401)
