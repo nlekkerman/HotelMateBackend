@@ -21,6 +21,7 @@ apps = [
     'attendance',
     'chat',
     'entertainment',
+    'staff_chat',
 ]
 
 

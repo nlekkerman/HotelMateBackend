@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     'attendance',
     'chat',
     'entertainment',
+    'staff_chat',
 ]
 
 MIDDLEWARE = [
