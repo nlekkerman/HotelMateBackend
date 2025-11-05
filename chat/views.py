@@ -1351,16 +1351,24 @@ def delete_message(request, message_id):
         )
         
         from .serializers import RoomMessageSerializer
+        import json
+        from django.core.serializers.json import DjangoJSONEncoder
+        
         serializer = RoomMessageSerializer(message)
         
         # Get attachment IDs for UI update
         attachment_ids = list(message.attachments.values_list('id', flat=True))
         
+        # Convert serializer.data to ensure datetime objects are strings
+        message_data = json.loads(
+            json.dumps(serializer.data, cls=DjangoJSONEncoder)
+        )
+        
         pusher_data = {
             "message_id": message.id,
             "hard_delete": False,
             "soft_delete": True,  # Inverse of hard_delete for frontend
-            "message": serializer.data,
+            "message": message_data,
             "attachment_ids": attachment_ids,
             "deleted_by": deleter_type,  # Who performed the deletion
             "original_sender": original_sender_type,  # Who sent the message
