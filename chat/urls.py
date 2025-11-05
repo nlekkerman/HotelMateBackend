@@ -17,6 +17,7 @@ from .views import (
     delete_message,
     upload_message_attachment,
     delete_attachment,
+    test_deletion_broadcast,
 )
 
 urlpatterns = [
@@ -90,5 +91,12 @@ urlpatterns = [
         "attachments/<int:attachment_id>/delete/",
         delete_attachment,
         name="delete_attachment"
+    ),
+    
+    # --- TEST ENDPOINTS (Development/Debug Only) ---
+    path(
+        "test/<slug:hotel_slug>/room/<int:room_number>/test-deletion/",
+        test_deletion_broadcast,
+        name="test_deletion_broadcast"
     ),
 ]

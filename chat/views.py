@@ -1145,7 +1145,23 @@ def delete_message(request, message_id):
     if hard_delete and is_staff:
         # Hard delete (only for admin staff)
         message_id_copy = message.id
-        pusher_data = {"message_id": message_id_copy, "hard_delete": True}
+        
+        # Get attachment IDs before deleting message
+        attachment_ids = list(message.attachments.values_list('id', flat=True))
+        
+        pusher_data = {
+            "message_id": message_id_copy,
+            "hard_delete": True,
+            "attachment_ids": attachment_ids  # Include attachment IDs for UI cleanup
+        }
+        
+        print("=" * 80)
+        print(f"🗑️ HARD DELETE INITIATED")
+        print(f"Message ID: {message_id_copy}")
+        print(f"Attachments: {attachment_ids}")
+        print(f"Staff: {staff}")
+        print(f"Pusher Data: {pusher_data}")
+        print("=" * 80)
         
         message.delete()
         
@@ -1177,25 +1193,42 @@ def delete_message(request, message_id):
 
             # 2. Room channel for guest (critical for guest real-time updates)
             room_channel = f'{hotel_slug}-room-{room_number}-chat'
-            print(f"📡 BROADCASTING TO ROOM CHANNEL: {room_channel}")
-            print(f"📦 PAYLOAD: {pusher_data}")
+            print("\n" + "=" * 80)
+            print(f"📡 BROADCASTING TO ROOM CHANNEL")
+            print(f"   Channel: {room_channel}")
+            print(f"   Payload: {pusher_data}")
+            print(f"   Event 1: message-deleted")
+            print(f"   Event 2: message-removed")
+            print("=" * 80)
             
-            pusher_client.trigger(
-                room_channel,
-                'message-deleted',
-                pusher_data
-            )
-            print(f"✅ SENT message-deleted to {room_channel}")
-            logger.info(f"✅ Pusher: message-deleted → {hotel_slug}-room-{room_number}-chat")
+            try:
+                result = pusher_client.trigger(
+                    room_channel,
+                    'message-deleted',
+                    pusher_data
+                )
+                print(f"✅ SENT message-deleted to {room_channel}")
+                print(f"   Pusher response: {result}")
+                logger.info(f"Pusher: message-deleted sent to {room_channel}")
+            except Exception as e:
+                print(f"❌ FAILED to send message-deleted: {e}")
+                logger.error(f"Failed to trigger message-deleted: {e}")
             
             # Also broadcast 'message-removed' alias
-            pusher_client.trigger(
-                room_channel,
-                'message-removed',
-                pusher_data
-            )
-            print(f"✅ SENT message-removed to {room_channel}")
-            logger.info(f"✅ Pusher: message-removed → {hotel_slug}-room-{room_number}-chat")
+            try:
+                result = pusher_client.trigger(
+                    room_channel,
+                    'message-removed',
+                    pusher_data
+                )
+                print(f"✅ SENT message-removed to {room_channel}")
+                print(f"   Pusher response: {result}")
+                logger.info(f"Pusher: message-removed sent to {room_channel}")
+            except Exception as e:
+                print(f"❌ FAILED to send message-removed: {e}")
+                logger.error(f"Failed to trigger message-removed: {e}")
+            
+            print("=" * 80 + "\n")
 
             # 3. Guest channel (so guest sees deletion) - kept for compatibility
             pusher_client.trigger(
@@ -1255,10 +1288,14 @@ def delete_message(request, message_id):
         from .serializers import RoomMessageSerializer
         serializer = RoomMessageSerializer(message)
         
+        # Get attachment IDs for UI update
+        attachment_ids = list(message.attachments.values_list('id', flat=True))
+        
         pusher_data = {
             "message_id": message.id,
             "hard_delete": False,
-            "message": serializer.data
+            "message": serializer.data,
+            "attachment_ids": attachment_ids  # Include attachment IDs for UI cleanup
         }
         
         try:
@@ -1725,3 +1762,109 @@ def delete_attachment(request, attachment_id):
         "attachment_id": attachment_id_copy,
         "message_id": message.id
     })
+
+
+# ==================== TEST ENDPOINTS ====================
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def test_deletion_broadcast(request, hotel_slug, room_number):
+    """
+    TEST ENDPOINT: Simulate a deletion broadcast to guest channel.
+    This helps verify that Pusher events reach the guest UI.
+    
+    Usage: POST /api/chat/test/{hotel_slug}/room/{room_number}/test-deletion/
+    Body: {"message_id": 123, "hard_delete": true}
+    """
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
+    
+    # Get test data from request
+    message_id = request.data.get('message_id', 999)
+    hard_delete = request.data.get('hard_delete', True)
+    
+    # Prepare channels
+    room_channel = f'{hotel_slug}-room-{room_number}-chat'
+    
+    # Prepare payload
+    pusher_data = {
+        "message_id": message_id,
+        "hard_delete": hard_delete
+    }
+    
+    print("\n" + "=" * 80)
+    print("🧪 TEST DELETION BROADCAST")
+    print(f"   Hotel: {hotel_slug}")
+    print(f"   Room: {room_number}")
+    print(f"   Channel: {room_channel}")
+    print(f"   Message ID: {message_id}")
+    print(f"   Hard Delete: {hard_delete}")
+    print(f"   Payload: {pusher_data}")
+    print("=" * 80)
+    
+    results = {
+        "test": "deletion_broadcast",
+        "hotel": hotel_slug,
+        "room": room_number,
+        "channel": room_channel,
+        "payload": pusher_data,
+        "broadcasts": []
+    }
+    
+    # Broadcast to room channel (guest)
+    try:
+        print(f"\n📡 Broadcasting 'message-deleted' to {room_channel}...")
+        result = pusher_client.trigger(
+            room_channel,
+            'message-deleted',
+            pusher_data
+        )
+        print(f"✅ SUCCESS: message-deleted sent")
+        print(f"   Pusher response: {result}")
+        results["broadcasts"].append({
+            "event": "message-deleted",
+            "channel": room_channel,
+            "status": "success",
+            "response": str(result)
+        })
+    except Exception as e:
+        print(f"❌ FAILED: message-deleted - {e}")
+        results["broadcasts"].append({
+            "event": "message-deleted",
+            "channel": room_channel,
+            "status": "error",
+            "error": str(e)
+        })
+    
+    # Also try message-removed alias
+    try:
+        print(f"\n📡 Broadcasting 'message-removed' to {room_channel}...")
+        result = pusher_client.trigger(
+            room_channel,
+            'message-removed',
+            pusher_data
+        )
+        print(f"✅ SUCCESS: message-removed sent")
+        print(f"   Pusher response: {result}")
+        results["broadcasts"].append({
+            "event": "message-removed",
+            "channel": room_channel,
+            "status": "success",
+            "response": str(result)
+        })
+    except Exception as e:
+        print(f"❌ FAILED: message-removed - {e}")
+        results["broadcasts"].append({
+            "event": "message-removed",
+            "channel": room_channel,
+            "status": "error",
+            "error": str(e)
+        })
+    
+    print("=" * 80 + "\n")
+    
+    logger.info(
+        f"Test deletion broadcast completed for {hotel_slug}/room-{room_number}"
+    )
+    
+    return Response(results)
