@@ -2,7 +2,7 @@ from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
-from django.db.models import Q, Max
+from django.db.models import Q
 from .models import (
     StaffConversation, StaffChatMessage, StaffChatAttachment
 )
@@ -153,6 +153,10 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
         # Check if a conversation already exists with these participants
         # For 1-on-1 conversations
         if len(participant_ids) == 1:
+            # Find conversations where both current_staff and the other
+            # participant are members, and it's not a group chat
+            from django.db.models import Count
+            
             existing_conversation = StaffConversation.objects.filter(
                 hotel=hotel,
                 is_group=False,
@@ -160,7 +164,7 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
             ).filter(
                 participants__id=participant_ids[0]
             ).annotate(
-                participant_count=Max('participants__id')
+                participant_count=Count('participants')
             ).filter(participant_count=2).first()
 
             if existing_conversation:
