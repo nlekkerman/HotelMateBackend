@@ -83,6 +83,55 @@ class StaffConversation(models.Model):
             [f"{p.first_name} {p.last_name}" for p in participants]
         )
         return f"Conversation: {participant_names}"
+    
+    @classmethod
+    def get_or_create_conversation(cls, hotel, staff_list, title=''):
+        """
+        Get existing conversation or create new one.
+        For 1-on-1: Returns existing conversation between two staff members
+        For groups: Always creates new (groups can have same members)
+        
+        Args:
+            hotel: Hotel instance
+            staff_list: List of Staff instances (excluding creator)
+            title: Optional title for group chats
+        
+        Returns:
+            tuple: (conversation, created)
+        """
+        from django.db.models import Count
+        
+        # For 1-on-1 conversations (2 total participants)
+        if len(staff_list) == 2:
+            # Check if conversation exists between these two staff members
+            conversation = cls.objects.filter(
+                hotel=hotel,
+                is_group=False
+            ).filter(
+                participants=staff_list[0]
+            ).filter(
+                participants=staff_list[1]
+            ).annotate(
+                participant_count=Count('participants')
+            ).filter(participant_count=2).first()
+            
+            if conversation:
+                return conversation, False
+        
+        # Create new conversation
+        is_group = len(staff_list) > 2
+        conversation = cls.objects.create(
+            hotel=hotel,
+            title=title,
+            is_group=is_group,
+            created_by=staff_list[0],  # First in list is creator
+            has_unread=False
+        )
+        
+        # Add all participants
+        conversation.participants.add(*staff_list)
+        
+        return conversation, True
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)

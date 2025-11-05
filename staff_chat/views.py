@@ -150,46 +150,24 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Check if a conversation already exists with these participants
-        # For 1-on-1 conversations
-        if len(participant_ids) == 1:
-            # Find conversations where both current_staff and the other
-            # participant are members, and it's not a group chat
-            from django.db.models import Count
-            
-            existing_conversation = StaffConversation.objects.filter(
-                hotel=hotel,
-                is_group=False,
-                participants=current_staff
-            ).filter(
-                participants__id=participant_ids[0]
-            ).annotate(
-                participant_count=Count('participants')
-            ).filter(participant_count=2).first()
-
-            if existing_conversation:
-                serializer = self.get_serializer(existing_conversation)
-                return Response(
-                    serializer.data,
-                    status=status.HTTP_200_OK
-                )
-
-        # Create new conversation
+        # Build complete staff list (current user + other participants)
         title = request.data.get('title', '')
-        conversation = StaffConversation.objects.create(
+        staff_list = [current_staff] + list(participants)
+        
+        # Get or create conversation (enforces 1-on-1 uniqueness)
+        conversation, created = StaffConversation.get_or_create_conversation(
             hotel=hotel,
-            title=title,
-            created_by=current_staff,
-            has_unread=False
+            staff_list=staff_list,
+            title=title
         )
 
-        # Add participants (including current user)
-        conversation.participants.add(current_staff)
-        for participant in participants:
-            conversation.participants.add(participant)
-
         serializer = self.get_serializer(conversation)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        response_status = (
+            status.HTTP_201_CREATED if created
+            else status.HTTP_200_OK
+        )
+
+        return Response(serializer.data, status=response_status)
 
     @action(detail=True, methods=['post'])
     def send_message(self, request, pk=None, hotel_slug=None):
