@@ -138,18 +138,47 @@ class RoomMessageSerializer(serializers.ModelSerializer):
         return obj.attachments.exists()
     
     def get_reply_to_message(self, obj):
-        """Get basic info about the message being replied to"""
+        """
+        Get basic info about the message being replied to,
+        including attachment previews
+        """
         if obj.reply_to and not obj.reply_to.is_deleted:
+            # Get attachment info for preview
+            attachments_data = []
+            if obj.reply_to.attachments.exists():
+                # Limit to 3 previews
+                for attachment in obj.reply_to.attachments.all()[:3]:
+                    file_url = None
+                    if hasattr(attachment.file, 'url'):
+                        file_url = attachment.file.url
+
+                    thumbnail_url = None
+                    if (attachment.thumbnail and
+                            hasattr(attachment.thumbnail, 'url')):
+                        thumbnail_url = attachment.thumbnail.url
+
+                    attachments_data.append({
+                        'id': attachment.id,
+                        'file_name': attachment.file_name,
+                        'file_type': attachment.file_type,
+                        'file_url': file_url,
+                        'thumbnail_url': thumbnail_url,
+                        'mime_type': attachment.mime_type
+                    })
+
             return {
                 'id': obj.reply_to.id,
                 'message': obj.reply_to.message[:100],
                 'sender_type': obj.reply_to.sender_type,
                 'sender_name': (
-                    obj.reply_to.staff_display_name 
-                    if obj.reply_to.sender_type == 'staff' 
+                    obj.reply_to.staff_display_name
+                    if obj.reply_to.sender_type == 'staff'
                     else 'Guest'
                 ),
-                'timestamp': obj.reply_to.timestamp
+                'timestamp': obj.reply_to.timestamp,
+                'has_attachments': obj.reply_to.attachments.exists(),
+                'attachments': attachments_data,
+                'attachment_count': obj.reply_to.attachments.count()
             }
         return None
 

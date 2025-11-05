@@ -363,7 +363,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # Trigger Pusher for the actual new message (for all listeners)
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
     try:
-        pusher_client.trigger(message_channel, "new-message", serializer.data)
+        pusher_client.trigger(message_channel, "new-message", message_data)
         logger.info(
             f"Pusher triggered for new message: "
             f"channel={message_channel}, message_id={message.id}"
@@ -377,7 +377,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # Prepare response with staff info
     response_data = {
         "conversation_id": conversation.id,
-        "message": serializer.data
+        "message": message_data
     }
 
     if sender_type == "staff":
