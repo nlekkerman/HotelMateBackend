@@ -1165,11 +1165,13 @@ def delete_message(request, message_id):
         pusher_data = {
             "message_id": message_id_copy,
             "hard_delete": True,
+            "soft_delete": False,  # Inverse of hard_delete for frontend
             "attachment_ids": attachment_ids,
             "deleted_by": "staff",  # Who performed the deletion
             "original_sender": original_sender_type,  # Who sent the message
             "staff_id": staff.id if staff else None,
-            "staff_name": f"{staff.first_name} {staff.last_name}".strip() if staff else None
+            "staff_name": f"{staff.first_name} {staff.last_name}".strip() if staff else None,
+            "timestamp": timezone.now().isoformat()
         }
         
         print("=" * 80)
@@ -1342,15 +1344,17 @@ def delete_message(request, message_id):
         pusher_data = {
             "message_id": message.id,
             "hard_delete": False,
+            "soft_delete": True,  # Inverse of hard_delete for frontend
             "message": serializer.data,
             "attachment_ids": attachment_ids,
             "deleted_by": deleter_type,  # Who performed the deletion
             "original_sender": original_sender_type,  # Who sent the message
             "staff_id": staff.id if is_staff else None,
             "staff_name": (
-                f"{staff.first_name} {staff.last_name}".strip() 
+                f"{staff.first_name} {staff.last_name}".strip()
                 if is_staff and staff else None
-            )
+            ),
+            "timestamp": timezone.now().isoformat()
         }
         
         try:
@@ -1840,9 +1844,20 @@ def delete_attachment(request, attachment_id):
     # NEW: Dedicated deletion channel
     deletion_channel = f"{hotel.slug}-room-{room.room_number}-deletions"
     
+    # Determine who deleted the attachment
+    deleter_type = "staff" if is_staff else "guest"
+    
     pusher_data = {
         "attachment_id": attachment_id_copy,
-        "message_id": message.id
+        "message_id": message.id,
+        "deleted_by": deleter_type,
+        "original_sender": message.sender_type,
+        "staff_id": staff.id if is_staff else None,
+        "staff_name": (
+            f"{staff.first_name} {staff.last_name}".strip()
+            if is_staff and staff else None
+        ),
+        "timestamp": timezone.now().isoformat()
     }
     
     # Broadcast to conversation channel (for compatibility)
