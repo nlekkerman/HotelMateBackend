@@ -1102,30 +1102,40 @@ def delete_message(request, message_id):
     is_staff = staff is not None
     hard_delete = request.query_params.get('hard_delete') == 'true'
     
-    # Staff can only delete their own messages (or with admin permission)
-    if is_staff and message.sender_type == "staff":
-        if message.staff != staff:
-            # Check if staff has admin/manager role for hard delete
-            if hard_delete and not (
-                staff.role and staff.role.slug in ['manager', 'admin']
-            ):
-                return Response(
-                    {"error": "Only managers can hard delete other's messages"},
-                    status=403
-                )
-            elif not hard_delete:
-                return Response(
-                    {"error": "You can only delete your own messages"},
-                    status=403
-                )
-    # Guest messages can only be deleted by the guest
-    elif not is_staff and message.sender_type == "guest":
-        pass
+    # Permission logic:
+    # 1. Staff can delete their own staff messages
+    # 2. Staff can delete ANY guest messages (moderation)
+    # 3. Guest (anonymous) can delete their own guest messages
+    # 4. Guest CANNOT delete staff messages
+    
+    if is_staff:
+        # Staff user (authenticated)
+        if message.sender_type == "staff":
+            # Staff deleting a staff message - must be their own
+            if message.staff != staff:
+                # Check if staff has admin/manager role for hard delete
+                if hard_delete and not (
+                    staff.role and staff.role.slug in ['manager', 'admin']
+                ):
+                    return Response(
+                        {"error": "Only managers can hard delete other staff messages"},
+                        status=403
+                    )
+                elif not hard_delete:
+                    return Response(
+                        {"error": "You can only delete your own messages"},
+                        status=403
+                    )
+        # else: Staff deleting guest message - ALLOWED (moderation)
     else:
-        return Response(
-            {"error": "You don't have permission to delete this message"},
-            status=403
-        )
+        # Guest user (anonymous via QR/PIN)
+        if message.sender_type == "staff":
+            # Guest cannot delete staff messages
+            return Response(
+                {"error": "Guests cannot delete staff messages"},
+                status=403
+            )
+        # else: Guest deleting their own guest message - ALLOWED
     
     hotel = message.room.hotel
     room = message.room
@@ -1136,15 +1146,18 @@ def delete_message(request, message_id):
     # Prepare Pusher channels
     message_channel = f"{hotel_slug}-conversation-{conversation.id}-chat"
     guest_channel = f"{hotel_slug}-room-{room_number}-chat"
+    # NEW: Dedicated deletion channel for clearer event handling
+    deletion_channel = f"{hotel_slug}-room-{room_number}-deletions"
     
     print(f"🗑️ DELETE REQUEST | message_id={message_id} | hotel={hotel_slug} | room={room_number}")
     print(f"🗑️ CHANNELS | conversation={message_channel} | guest={guest_channel}")
-    print(f"🗑️ ROOM CHANNEL | {hotel_slug}-room-{room_number}-chat")
+    print(f"🗑️ DELETION CHANNEL | {deletion_channel}")
     print(f"🗑️ SENDER | type={message.sender_type} | is_staff={is_staff} | hard_delete={hard_delete}")
     
     if hard_delete and is_staff:
         # Hard delete (only for admin staff)
         message_id_copy = message.id
+        original_sender_type = message.sender_type
         
         # Get attachment IDs before deleting message
         attachment_ids = list(message.attachments.values_list('id', flat=True))
@@ -1152,14 +1165,19 @@ def delete_message(request, message_id):
         pusher_data = {
             "message_id": message_id_copy,
             "hard_delete": True,
-            "attachment_ids": attachment_ids  # Include attachment IDs for UI cleanup
+            "attachment_ids": attachment_ids,
+            "deleted_by": "staff",  # Who performed the deletion
+            "original_sender": original_sender_type,  # Who sent the message
+            "staff_id": staff.id if staff else None,
+            "staff_name": f"{staff.first_name} {staff.last_name}".strip() if staff else None
         }
         
         print("=" * 80)
-        print(f"🗑️ HARD DELETE INITIATED")
+        print("🗑️ HARD DELETE INITIATED")
         print(f"Message ID: {message_id_copy}")
+        print(f"Original Sender: {original_sender_type}")
+        print(f"Deleted By: staff ({staff})")
         print(f"Attachments: {attachment_ids}")
-        print(f"Staff: {staff}")
         print(f"Pusher Data: {pusher_data}")
         print("=" * 80)
         
@@ -1191,14 +1209,14 @@ def delete_message(request, message_id):
             except Exception as e:
                 logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
 
-            # 2. Room channel for guest (critical for guest real-time updates)
+            # 2. Room channel for guest (existing channel, for compatibility)
             room_channel = f'{hotel_slug}-room-{room_number}-chat'
             print("\n" + "=" * 80)
-            print(f"📡 BROADCASTING TO ROOM CHANNEL")
+            print("📡 BROADCASTING TO ROOM CHANNEL")
             print(f"   Channel: {room_channel}")
             print(f"   Payload: {pusher_data}")
-            print(f"   Event 1: message-deleted")
-            print(f"   Event 2: message-removed")
+            print("   Event 1: message-deleted")
+            print("   Event 2: message-removed")
             print("=" * 80)
             
             try:
@@ -1227,6 +1245,34 @@ def delete_message(request, message_id):
             except Exception as e:
                 print(f"❌ FAILED to send message-removed: {e}")
                 logger.error(f"Failed to trigger message-removed: {e}")
+            
+            print("=" * 80 + "\n")
+            
+            # 2B. NEW DEDICATED DELETION CHANNEL
+            # Separate channel for deletion events for clearer handling
+            print("=" * 80)
+            print("🗑️ BROADCASTING TO DEDICATED DELETION CHANNEL")
+            print(f"   Channel: {deletion_channel}")
+            print(f"   Payload: {pusher_data}")
+            print("=" * 80)
+            
+            try:
+                result = pusher_client.trigger(
+                    deletion_channel,
+                    'content-deleted',
+                    pusher_data
+                )
+                print(f"✅ SENT content-deleted to {deletion_channel}")
+                print(f"   Pusher response: {result}")
+                logger.info(
+                    f"Pusher: content-deleted sent to {deletion_channel}"
+                )
+            except Exception as e:
+                print(f"❌ FAILED to send to deletion channel: {e}")
+                logger.error(
+                    f"Failed to trigger content-deleted on "
+                    f"{deletion_channel}: {e}"
+                )
             
             print("=" * 80 + "\n")
 
@@ -1278,11 +1324,13 @@ def delete_message(request, message_id):
         })
     else:
         # Soft delete
+        original_sender_type = message.sender_type
         message.soft_delete()
         
+        deleter_type = "staff" if is_staff else "guest"
         logger.info(
             f"Message {message_id} soft deleted by "
-            f"{'staff ' + str(staff) if is_staff else 'guest'}"
+            f"{deleter_type} ({staff if is_staff else 'anonymous guest'})"
         )
         
         from .serializers import RoomMessageSerializer
@@ -1295,7 +1343,14 @@ def delete_message(request, message_id):
             "message_id": message.id,
             "hard_delete": False,
             "message": serializer.data,
-            "attachment_ids": attachment_ids  # Include attachment IDs for UI cleanup
+            "attachment_ids": attachment_ids,
+            "deleted_by": deleter_type,  # Who performed the deletion
+            "original_sender": original_sender_type,  # Who sent the message
+            "staff_id": staff.id if is_staff else None,
+            "staff_name": (
+                f"{staff.first_name} {staff.last_name}".strip() 
+                if is_staff and staff else None
+            )
         }
         
         try:
@@ -1318,9 +1373,10 @@ def delete_message(request, message_id):
             except Exception as e:
                 logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
             
-            # 2. Room channel for guest (critical for guest real-time updates)
+            # 2. Room channel for guest (existing channel, for compatibility)
             room_channel = f'{hotel_slug}-room-{room_number}-chat'
-            print(f"📡 [SOFT DELETE] BROADCASTING TO ROOM CHANNEL: {room_channel}")
+            print(f"📡 [SOFT DELETE] BROADCASTING TO ROOM: "
+                  f"{room_channel}")
             print(f"📦 [SOFT DELETE] PAYLOAD: {pusher_data}")
             
             pusher_client.trigger(
@@ -1328,8 +1384,12 @@ def delete_message(request, message_id):
                 'message-deleted',
                 pusher_data
             )
-            print(f"✅ [SOFT DELETE] SENT message-deleted to {room_channel}")
-            logger.info(f"✅ Pusher: message-deleted → {hotel_slug}-room-{room_number}-chat")
+            print(f"✅ [SOFT DELETE] SENT message-deleted to "
+                  f"{room_channel}")
+            logger.info(
+                f"✅ Pusher: message-deleted → "
+                f"{hotel_slug}-room-{room_number}-chat"
+            )
             
             # Also broadcast 'message-removed' alias
             pusher_client.trigger(
@@ -1337,8 +1397,40 @@ def delete_message(request, message_id):
                 'message-removed',
                 pusher_data
             )
-            print(f"✅ [SOFT DELETE] SENT message-removed to {room_channel}")
-            logger.info(f"✅ Pusher: message-removed → {hotel_slug}-room-{room_number}-chat")
+            print(f"✅ [SOFT DELETE] SENT message-removed to "
+                  f"{room_channel}")
+            logger.info(
+                f"✅ Pusher: message-removed → "
+                f"{hotel_slug}-room-{room_number}-chat"
+            )
+            
+            # 2B. NEW DEDICATED DELETION CHANNEL
+            # Separate channel for deletion events for clearer handling
+            print("=" * 80)
+            print("🗑️ [SOFT DELETE] BROADCASTING TO DELETION CHANNEL")
+            print(f"   Channel: {deletion_channel}")
+            print(f"   Payload: {pusher_data}")
+            print("=" * 80)
+            
+            try:
+                result = pusher_client.trigger(
+                    deletion_channel,
+                    'content-deleted',
+                    pusher_data
+                )
+                print(f"✅ SENT content-deleted to {deletion_channel}")
+                print(f"   Pusher response: {result}")
+                logger.info(
+                    f"Pusher: content-deleted sent to {deletion_channel}"
+                )
+            except Exception as e:
+                print(f"❌ FAILED to send to deletion channel: {e}")
+                logger.error(
+                    f"Failed to trigger content-deleted on "
+                    f"{deletion_channel}: {e}"
+                )
+            
+            print("=" * 80 + "\n")
 
             # 3. Guest channel (so guest sees deletion) - kept for compatibility
             pusher_client.trigger(
@@ -1741,21 +1833,48 @@ def delete_attachment(request, attachment_id):
     
     # Trigger Pusher for real-time update
     hotel = message.room.hotel
+    room = message.room
     message_channel = (
         f"{hotel.slug}-conversation-{message.conversation.id}-chat"
     )
+    # NEW: Dedicated deletion channel
+    deletion_channel = f"{hotel.slug}-room-{room.room_number}-deletions"
     
+    pusher_data = {
+        "attachment_id": attachment_id_copy,
+        "message_id": message.id
+    }
+    
+    # Broadcast to conversation channel (for compatibility)
     try:
         pusher_client.trigger(
             message_channel,
             "attachment-deleted",
-            {
-                "attachment_id": attachment_id_copy,
-                "message_id": message.id
-            }
+            pusher_data
+        )
+        logger.info(
+            f"Pusher: attachment-deleted → {message_channel}"
         )
     except Exception as e:
         logger.error(f"Failed to trigger Pusher: {e}")
+    
+    # Broadcast to dedicated deletion channel (NEW)
+    try:
+        pusher_client.trigger(
+            deletion_channel,
+            "attachment-deleted",
+            pusher_data
+        )
+        print(f"✅ Attachment deletion sent to {deletion_channel}")
+        logger.info(
+            f"Pusher: attachment-deleted → {deletion_channel}"
+        )
+    except Exception as e:
+        print(f"❌ Failed to send attachment deletion: {e}")
+        logger.error(
+            f"Failed to trigger attachment-deleted on "
+            f"{deletion_channel}: {e}"
+        )
     
     return Response({
         "success": True,
