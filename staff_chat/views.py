@@ -174,7 +174,9 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
         title = request.data.get('title', '')
         conversation = StaffConversation.objects.create(
             hotel=hotel,
-            title=title
+            title=title,
+            created_by=current_staff,
+            has_unread=False
         )
 
         # Add participants (including current user)
