@@ -12,6 +12,8 @@ from .models import Conversation, RoomMessage, GuestChatSession
 from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
 from notifications.fcm_service import send_fcm_notification
+import json
+from django.core.serializers.json import DjangoJSONEncoder
 import logging
 
 logger = logging.getLogger(__name__)
@@ -168,11 +170,16 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     serializer = RoomMessageSerializer(message)
     logger.info(f"Message created with ID: {message.id}")
     
+    # Convert serializer data to JSON-safe format (handles datetime objects)
+    message_data = json.loads(
+        json.dumps(serializer.data, cls=DjangoJSONEncoder)
+    )
+    
     # DEBUG: Log serialized data
     logger.info(
         f"📤 Serialized data | "
-        f"reply_to: {serializer.data.get('reply_to')} | "
-        f"reply_to_message: {serializer.data.get('reply_to_message')}"
+        f"reply_to: {message_data.get('reply_to')} | "
+        f"reply_to_message: {message_data.get('reply_to_message')}"
     )
 
     # Trigger message-delivered event
@@ -205,7 +212,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             pusher_client.trigger(
                 guest_channel,
                 "new-message",
-                serializer.data
+                message_data
             )
             logger.info(
                 f"✅ Pusher sent to GUEST channel: {guest_channel}, "
@@ -254,7 +261,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             
             # Send Pusher event
             try:
-                pusher_client.trigger(staff_channel, "new-guest-message", serializer.data)
+                pusher_client.trigger(staff_channel, "new-guest-message", message_data)
                 print(f"✅ Pusher sent to staff {staff.id}: {staff_channel}")
                 logger.info(f"Pusher triggered: staff_channel={staff_channel}, event=new-guest-message, message_id={message.id}")
             except Exception as e:
@@ -304,7 +311,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             pusher_client.trigger(
                 guest_channel,
                 "new-staff-message",
-                serializer.data
+                message_data
             )
             logger.info(
                 f"Pusher triggered: guest_channel={guest_channel}, "
