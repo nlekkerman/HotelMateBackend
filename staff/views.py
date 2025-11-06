@@ -575,10 +575,28 @@ class PasswordResetRequestView(APIView):
         token = default_token_generator.make_token(user)
         reset_url = f"{frontend_base_url}/reset-password/{uid}/{token}/"
 
+        email_message = f"""
+HotelsMates Password Reset Link
+
+Hello {user.username},
+
+You have requested to reset your password for your HotelsMates account.
+
+Click the link below to reset your password:
+{reset_url}
+
+This link will expire in 24 hours.
+
+If you did not request this password reset, please ignore this email.
+
+Best regards,
+HotelsMates Team
+"""
+        
         send_mail(
-            subject="Password Reset Request",
-            message=f"Hello {user.username},\n\nClick below to reset your password:\n{reset_url}",
-            from_email=settings.EMAIL_HOST_USER,
+            subject="HotelsMates - Password Reset Link",
+            message=email_message,
+            from_email=f"HotelsMates Team <{settings.EMAIL_HOST_USER}>",
             recipient_list=[user.email],
         )
 
