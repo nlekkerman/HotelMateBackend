@@ -13,29 +13,30 @@ apps = [
     'room_services',
     'hotel',
     'bookings',
+    'common',
     'notifications',
+    'stock_tracker',
     'maintenance',
     'home',
     'attendance',
     'chat',
     'entertainment',
     'staff_chat',
-    'stock_tracker',
 ]
 
 
 def home(request):
     # Create list of API URLs for each app
     urls = [f"/api/{app}/" for app in apps]
-    urls.append("/api/hotels/{hotel_identifier}/theme/")
     # Build HTML list to display
     list_items = "".join(
-        f'<li><a href="#">{url}</a></li>' for url in urls
+        f'<li><a href="{url}">{url}</a></li>' for url in urls
     )
     urls_html = f"<ul>{list_items}</ul>"
-    title = "<h1>Welcome to HotelMate API</h1>"
-    intro = "<p>Available API endpoints:</p>"
-    return HttpResponse(f"{title}{intro}{urls_html}")
+    return HttpResponse(
+        f"<h1>Welcome to HotelMate API</h1>"
+        f"<p>Available API endpoints:</p>{urls_html}"
+    )
 
 
 # --- custom 404 handler ---
@@ -48,11 +49,7 @@ urlpatterns = [
     path('', home),  # root URL shows home page
 ]
 
-urlpatterns += [
-    path(f'api/{app}/', include(f'{app}.urls')) for app in apps
-]
-# Common app is hotel-based
-urlpatterns.append(path('api/hotels/', include('common.urls')))
+urlpatterns += [path(f'api/{app}/', include(f'{app}.urls')) for app in apps]
 
 # Serve media files in development
 if settings.DEBUG:
