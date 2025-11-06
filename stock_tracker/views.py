@@ -186,7 +186,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         serializer.save(hotel=hotel)
 
     @action(detail=True, methods=['post'])
-    def populate(self, request, pk=None):
+    def populate(self, request, pk=None, hotel_identifier=None):
         """
         Generate stocktake lines with opening balances
         and period movements.
@@ -212,7 +212,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=True, methods=['post'])
-    def approve(self, request, pk=None):
+    def approve(self, request, pk=None, hotel_identifier=None):
         """
         Approve stocktake and create adjustment movements
         for variances.
@@ -241,7 +241,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=True, methods=['get'])
-    def category_totals(self, request, pk=None):
+    def category_totals(self, request, pk=None, hotel_identifier=None):
         """
         Get totals grouped by category.
         """
