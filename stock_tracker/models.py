@@ -450,7 +450,18 @@ class StockItem(models.Model):
         Calculate pints per keg for draught beer.
         1 pint = 568ml (UK imperial pint)
         """
-        if not self.size_value or self.product_type != 'Draught':
+        if not self.size_value:
+            return None
+        
+        # Check if it's a keg (draught beer/cider)
+        # Identified by "Keg" in size or "(Draught)" in name
+        is_keg = (
+            'keg' in self.size.lower() if self.size else False
+        ) or (
+            '(draught)' in self.name.lower() if self.name else False
+        )
+        
+        if not is_keg:
             return None
         
         # Convert to ml
@@ -475,11 +486,36 @@ class StockItem(models.Model):
     @property
     def shots_per_bottle(self):
         """
-        Calculate shots per bottle for spirits.
+        Calculate shots per bottle for spirits and liqueurs.
         Standard UK shot = 25ml or 35ml
         """
-        spirit_types = ['Spirit', 'Liqueur']
-        if not self.size_value or self.product_type not in spirit_types:
+        if not self.size_value or not self.serving_size:
+            return None
+        
+        # Check if it's a spirit/liqueur based on category or product_type
+        is_spirit_or_liqueur = False
+        
+        # Check category name
+        if self.category and self.category.name:
+            category_lower = self.category.name.lower()
+            spirit_categories = [
+                'spirits', 'liqueurs', 'aperitif', 'fortified'
+            ]
+            if category_lower in spirit_categories:
+                is_spirit_or_liqueur = True
+        
+        # Check product type (covers Vodka, Gin, Rum, Whiskey, etc.)
+        if self.product_type:
+            product_lower = self.product_type.lower()
+            spirit_types = [
+                'vodka', 'gin', 'rum', 'whiskey', 'whisky', 'tequila',
+                'brandy', 'cognac', 'bourbon', 'liqueur', 'spirit',
+                'vermouth', 'aperitif', 'pastis', 'sherry', 'port'
+            ]
+            if any(spirit in product_lower for spirit in spirit_types):
+                is_spirit_or_liqueur = True
+        
+        if not is_spirit_or_liqueur:
             return None
         
         # Convert to ml
@@ -487,9 +523,8 @@ class StockItem(models.Model):
         if not size_ml:
             return None
         
-        # Use serving_size if set, otherwise default to 25ml
-        shot_size = self.serving_size if self.serving_size else Decimal('25')
-        shots = size_ml / shot_size
+        # Calculate shots using serving_size
+        shots = size_ml / self.serving_size
         return round(shots, 1)
     
     def _convert_to_ml(self, value, unit):
