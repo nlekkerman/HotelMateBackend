@@ -2,7 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .analytics import ingredient_usage, convert_units
+from .analytics import ingredient_usage
 from .models import (
     Ingredient,
     CocktailRecipe,
@@ -14,13 +14,9 @@ from .cocktail_serializers import (
     CocktailConsumptionSerializer
 )
 
-class StockItemPagination(PageNumberPagination):
-    page_size = 10
-    page_size_query_param = "page_size"
-    max_page_size = 10000
 
-
-class StockCategoryViewSet(viewsets.ModelViewSet):
+# --- Ingredient ---
+class IngredientViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockCategory (with slug support).
     """
