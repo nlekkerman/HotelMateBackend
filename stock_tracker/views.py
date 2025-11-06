@@ -157,6 +157,25 @@ class StockMovementViewSet(viewsets.ModelViewSet):
         )
         return StockMovement.objects.filter(hotel=hotel)
 
+    def perform_create(self, serializer):
+        """
+        Auto-set hotel from URL parameter and staff from request.user.
+        This prevents the client needing to provide the hotel field and
+        avoids invalid staff PK errors when client omits staff (we set it).
+        """
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+
+        staff = None
+        if hasattr(self.request, 'user') and self.request.user.is_authenticated:
+            staff = self.request.user
+
+        # Save with hotel and staff (staff may be None)
+        serializer.save(hotel=hotel, staff=staff)
+
 
 class StocktakeViewSet(viewsets.ModelViewSet):
     pagination_class = None
