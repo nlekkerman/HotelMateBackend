@@ -1,6 +1,7 @@
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from .models import (
@@ -16,13 +17,29 @@ from staff.models import Staff
 from hotel.models import Hotel
 
 
+class StaffListPagination(PageNumberPagination):
+    """
+    Custom pagination for staff list
+    Supports infinite scroll with 50 items per page
+    """
+    page_size = 50
+    page_size_query_param = 'page_size'
+    max_page_size = 200
+
+
 class StaffListViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ViewSet for listing staff members for chat UI
     GET /api/staff-chat/<hotel_slug>/staff-list/
+    
+    Supports pagination for infinite scroll:
+    - Default: 50 staff per page
+    - Query params: ?page=2, ?page_size=100
+    - Search: ?search=John
     """
     serializer_class = StaffListSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StaffListPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
         'first_name', 'last_name', 'email',

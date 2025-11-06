@@ -12,14 +12,25 @@ This guide covers how to **forward/share messages and files** to other staff mem
 1. ✅ **Select staff members** (not conversations)
 2. ✅ **Get or create conversation** with selected staff
 3. ✅ **Share actual files** (images display, not just text)
-4. ✅ **No duplicate conversations** created
+4. ✅ **No duplicate conversations** created (FIXED ✅)
 5. ✅ Can share **same message multiple times** (same or different conversations)
 
 ### 🔄 Get-or-Create Behavior:
-- If conversation with selected staff **exists** → Use existing
-- If conversation **doesn't exist** → Create new one
-- **1-on-1 conversations**: Always unique per staff pair
-- **Group conversations**: Unique by participant set
+- If conversation with selected staff **exists** → Use existing ✅
+- If conversation **doesn't exist** → Create new one ✅
+- **1-on-1 conversations**: Always unique per staff pair ✅
+- **Group conversations**: Unique by participant set ✅
+- **Participant order doesn't matter**: [A, B, C] = [C, A, B] ✅
+
+### 🐛 Fixed Issue (Nov 6, 2025):
+**Problem**: Sharing to same people created duplicate conversations
+- ❌ Groups (3+ people) always created new conversations
+- ❌ 1-on-1 query counted participants incorrectly
+
+**Solution**: Updated `get_or_create_conversation` in `staff_chat/models.py`
+- ✅ Groups now check for existing conversations with same participants
+- ✅ 1-on-1 query fixed: annotate count before filtering participants
+- ✅ All tests passing - no more duplicates!
 
 ---
 
@@ -868,7 +879,7 @@ function MessageComponent({ message, currentUserId }) {
 ## ✅ Summary
 
 ### What This Guide Covers:
-1. ✅ **Get-or-create conversation** (no duplicates)
+1. ✅ **Get-or-create conversation** (no duplicates) - **FIXED ✅**
 2. ✅ **Forward text messages** to staff members
 3. ✅ **Forward messages with files** (actual images/documents)
 4. ✅ **Forward same message multiple times** (allowed)
@@ -876,19 +887,33 @@ function MessageComponent({ message, currentUserId }) {
 6. ✅ **Real file uploads** (not just text links)
 
 ### Key Benefits:
-- ✅ **No duplicate conversations** - uses get-or-create
+- ✅ **No duplicate conversations** - properly fixed in backend
 - ✅ **Actual files display** - images show inline, documents are attachments
 - ✅ **Unlimited forwarding** - same message to same/different staff
 - ✅ **Clean UX** - select people, not conversations
 - ✅ **Search functionality** - find staff easily
+- ✅ **Tested and verified** - all scenarios passing
 
 ### Flow:
 1. User clicks "Forward" on a message
 2. Modal opens with staff list
 3. User selects one or more staff members
-4. System **gets or creates** conversation
+4. System **gets or creates** conversation (no duplicates!)
 5. Files are downloaded and re-uploaded (if any)
 6. Message appears in target conversation
 7. Recipients see actual images/documents
+
+### Technical Details (Backend):
+**File**: `staff_chat/models.py` → `get_or_create_conversation()`
+
+**Fix Applied (Nov 6, 2025)**:
+- **1-on-1 conversations**: Query fixed to annotate participant count before filtering
+- **Group conversations**: Added check for existing conversations with same participant set
+- **Participant order**: Uses set comparison, so order doesn't matter
+
+**Test Results**: ✅ All pass
+- ✅ 1-on-1: No duplicates when sharing to same person
+- ✅ Group (3+): No duplicates when sharing to same group
+- ✅ Different order: Finds same conversation regardless of participant order
 
 **Everything production-ready!** 🚀
