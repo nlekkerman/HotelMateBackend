@@ -15,7 +15,6 @@ from .cocktail_serializers import (
 )
 
 
-# --- Ingredient ---
 class IngredientViewSet(viewsets.ModelViewSet):
     """
     CRUD for StockCategory (with slug support).
