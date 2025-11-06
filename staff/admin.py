@@ -11,20 +11,22 @@ class NavigationItemAdmin(admin.ModelAdmin):
     list_display = (
         'name',
         'slug',
+        'hotel',
         'path',
         'display_order',
         'is_active',
         'created_at'
     )
-    list_filter = ('is_active', 'created_at')
-    search_fields = ('name', 'slug', 'path', 'description')
+    list_filter = ('is_active', 'hotel', 'created_at')
+    search_fields = ('name', 'slug', 'path', 'description', 'hotel__name')
     prepopulated_fields = {'slug': ('name',)}
-    ordering = ('display_order', 'name')
+    ordering = ('hotel', 'display_order', 'name')
     list_editable = ('display_order', 'is_active')
     
     fieldsets = (
         (None, {
             'fields': (
+                'hotel',
                 'name',
                 'slug',
                 'path',
