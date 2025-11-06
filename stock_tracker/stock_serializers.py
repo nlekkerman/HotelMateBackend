@@ -49,6 +49,26 @@ class StockItemSerializer(serializers.ModelSerializer):
         decimal_places=2,
         read_only=True
     )
+    servings_per_unit = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        read_only=True
+    )
+    pints_per_keg = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        read_only=True
+    )
+    half_pints_per_keg = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        read_only=True
+    )
+    shots_per_bottle = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=1,
+        read_only=True
+    )
 
     class Meta:
         model = StockItem
@@ -64,7 +84,8 @@ class StockItemSerializer(serializers.ModelSerializer):
             'active', 'hide_on_menu',
             'gp_percentage', 'is_below_par', 'pour_cost',
             'pour_cost_percentage', 'profit_per_serving',
-            'profit_margin_percentage'
+            'profit_margin_percentage', 'servings_per_unit',
+            'pints_per_keg', 'half_pints_per_keg', 'shots_per_bottle'
         ]
 
 

@@ -424,6 +424,97 @@ class StockItem(models.Model):
                 (self.profit_per_serving / self.menu_price) * 100, 2
             )
         return None
+    
+    # Serving yield calculations
+    @property
+    def servings_per_unit(self):
+        """
+        Calculate how many servings/pours per unit based on product type.
+        Returns number of servings (shots, pints, half-pints, or bottles).
+        """
+        if not self.size_value or not self.serving_size:
+            return None
+        
+        # Convert size to ml if needed
+        size_ml = self._convert_to_ml(self.size_value, self.size_unit)
+        if not size_ml:
+            return None
+        
+        # Calculate servings
+        servings = size_ml / self.serving_size
+        return round(servings, 2)
+    
+    @property
+    def pints_per_keg(self):
+        """
+        Calculate pints per keg for draught beer.
+        1 pint = 568ml (UK imperial pint)
+        """
+        if not self.size_value or self.product_type != 'Draught':
+            return None
+        
+        # Convert to ml
+        size_ml = self._convert_to_ml(self.size_value, self.size_unit)
+        if not size_ml:
+            return None
+        
+        # Calculate pints (568ml per UK pint)
+        pints = size_ml / Decimal('568')
+        return round(pints, 1)
+    
+    @property
+    def half_pints_per_keg(self):
+        """
+        Calculate half-pints per keg for draught beer.
+        1 half-pint = 284ml
+        """
+        if not self.pints_per_keg:
+            return None
+        return round(self.pints_per_keg * 2, 1)
+    
+    @property
+    def shots_per_bottle(self):
+        """
+        Calculate shots per bottle for spirits.
+        Standard UK shot = 25ml or 35ml
+        """
+        spirit_types = ['Spirit', 'Liqueur']
+        if not self.size_value or self.product_type not in spirit_types:
+            return None
+        
+        # Convert to ml
+        size_ml = self._convert_to_ml(self.size_value, self.size_unit)
+        if not size_ml:
+            return None
+        
+        # Use serving_size if set, otherwise default to 25ml
+        shot_size = self.serving_size if self.serving_size else Decimal('25')
+        shots = size_ml / shot_size
+        return round(shots, 1)
+    
+    def _convert_to_ml(self, value, unit):
+        """
+        Convert various units to milliliters.
+        """
+        if not value or not unit:
+            return None
+        
+        unit = unit.lower()
+        value = Decimal(str(value))
+        
+        conversions = {
+            'ml': Decimal('1'),
+            'cl': Decimal('10'),
+            'l': Decimal('1000'),
+            'lt': Decimal('1000'),
+            'litre': Decimal('1000'),
+            'liter': Decimal('1000'),
+        }
+        
+        multiplier = conversions.get(unit)
+        if multiplier:
+            return value * multiplier
+        return None
 
 
 class StockMovement(models.Model):
