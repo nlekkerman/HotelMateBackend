@@ -23,7 +23,8 @@ from .serializers_messages import (
     MessageCreateSerializer,
     MessageUpdateSerializer,
     MessageReactionCreateSerializer,
-    MessageReactionSerializer
+    MessageReactionSerializer,
+    ForwardMessageSerializer
 )
 from .permissions import (
     IsStaffMember,
@@ -715,3 +716,322 @@ def remove_reaction(request, hotel_slug, message_id, emoji):
             {'error': 'Reaction not found'},
             status=status.HTTP_404_NOT_FOUND
         )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def forward_message(request, hotel_slug, message_id):
+    """
+    Forward a message to multiple conversations
+    POST /api/staff-chat/<hotel_slug>/messages/<id>/forward/
+    
+    Body:
+    {
+        "conversation_ids": [1, 2, 3],  // existing conversations
+        "new_participant_ids": [4, 5]   // create new conversations
+    }
+    
+    Returns:
+    {
+        "success": true,
+        "forwarded_to_existing": 3,
+        "forwarded_to_new": 2,
+        "total_forwarded": 5,
+        "results": [
+            {
+                "conversation_id": 1,
+                "message_id": 123,
+                "created_conversation": false
+            },
+            ...
+        ]
+    }
+    """
+    # Get the original message
+    original_message = get_object_or_404(
+        StaffChatMessage,
+        id=message_id,
+        conversation__hotel__slug=hotel_slug
+    )
+    
+    # Check if user has access
+    try:
+        staff = request.user.staff_profile
+    except AttributeError:
+        return Response(
+            {'error': 'Staff profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Verify staff is participant in original conversation
+    if not original_message.conversation.participants.filter(
+        id=staff.id
+    ).exists():
+        return Response(
+            {
+                'error': 'You must be a participant in the conversation '
+                         'to forward messages'
+            },
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Cannot forward deleted messages
+    if original_message.is_deleted:
+        return Response(
+            {'error': 'Cannot forward a deleted message'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Validate request data
+    serializer = ForwardMessageSerializer(data=request.data)
+    if not serializer.is_valid():
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    conversation_ids = serializer.validated_data.get('conversation_ids', [])
+    new_participant_ids = serializer.validated_data.get(
+        'new_participant_ids',
+        []
+    )
+    
+    hotel = original_message.conversation.hotel
+    results = []
+    forwarded_to_existing = 0
+    forwarded_to_new = 0
+    
+    logger.info(
+        f"📤 FORWARD MESSAGE | Message: {message_id} | "
+        f"From Staff: {staff.id} | "
+        f"To Conversations: {conversation_ids} | "
+        f"New Participants: {new_participant_ids} | "
+        f"Hotel: {hotel_slug}"
+    )
+    
+    # Forward to existing conversations
+    for conv_id in conversation_ids:
+        try:
+            conversation = StaffConversation.objects.get(
+                id=conv_id,
+                hotel=hotel
+            )
+            
+            # Verify user is participant in target conversation
+            if not conversation.participants.filter(id=staff.id).exists():
+                results.append({
+                    'conversation_id': conv_id,
+                    'error': 'You are not a participant in this conversation',
+                    'created_conversation': False,
+                    'success': False
+                })
+                continue
+            
+            # Create forwarded message
+            forwarded_msg = StaffChatMessage.objects.create(
+                conversation=conversation,
+                sender=staff,
+                message=original_message.message,
+                reply_to=None  # Forwarded messages don't preserve reply chain
+            )
+            
+            # Update conversation timestamp
+            conversation.has_unread = True
+            conversation.save()
+            
+            # Broadcast the forwarded message
+            message_serializer = StaffChatMessageSerializer(
+                forwarded_msg,
+                context={'request': request}
+            )
+            message_data = json.loads(
+                json.dumps(
+                    message_serializer.data,
+                    cls=DjangoJSONEncoder
+                )
+            )
+            
+            try:
+                broadcast_new_message(
+                    hotel_slug,
+                    conversation.id,
+                    message_data
+                )
+            except Exception as e:
+                logger.error(
+                    f"❌ Failed to broadcast forwarded message: {e}"
+                )
+            
+            # Send FCM notifications
+            try:
+                notify_conversation_participants(
+                    conversation,
+                    staff,
+                    original_message.message,
+                    exclude_sender=True
+                )
+            except Exception as e:
+                logger.error(
+                    f"❌ Failed to send FCM for forwarded message: {e}"
+                )
+            
+            results.append({
+                'conversation_id': conversation.id,
+                'message_id': forwarded_msg.id,
+                'created_conversation': False,
+                'success': True
+            })
+            forwarded_to_existing += 1
+            
+            logger.info(
+                f"✅ Forwarded to existing conversation {conv_id}"
+            )
+            
+        except StaffConversation.DoesNotExist:
+            results.append({
+                'conversation_id': conv_id,
+                'error': 'Conversation not found',
+                'created_conversation': False,
+                'success': False
+            })
+            logger.warning(
+                f"❌ Conversation {conv_id} not found"
+            )
+        except Exception as e:
+            results.append({
+                'conversation_id': conv_id,
+                'error': str(e),
+                'created_conversation': False,
+                'success': False
+            })
+            logger.error(
+                f"❌ Error forwarding to conversation {conv_id}: {e}"
+            )
+    
+    # Forward to new participants (create new conversations)
+    for participant_id in new_participant_ids:
+        try:
+            participant = Staff.objects.get(
+                id=participant_id,
+                hotel=hotel,
+                is_active=True
+            )
+            
+            # Don't forward to self
+            if participant.id == staff.id:
+                results.append({
+                    'participant_id': participant_id,
+                    'error': 'Cannot forward message to yourself',
+                    'created_conversation': False,
+                    'success': False
+                })
+                continue
+            
+            # Get or create 1-on-1 conversation
+            conversation, created = (
+                StaffConversation.get_or_create_conversation(
+                    hotel=hotel,
+                    staff_list=[staff, participant],
+                    title=''
+                )
+            )
+            
+            # Create forwarded message
+            forwarded_msg = StaffChatMessage.objects.create(
+                conversation=conversation,
+                sender=staff,
+                message=original_message.message,
+                reply_to=None
+            )
+            
+            # Update conversation timestamp
+            conversation.has_unread = True
+            conversation.save()
+            
+            # Broadcast the forwarded message
+            message_serializer = StaffChatMessageSerializer(
+                forwarded_msg,
+                context={'request': request}
+            )
+            message_data = json.loads(
+                json.dumps(
+                    message_serializer.data,
+                    cls=DjangoJSONEncoder
+                )
+            )
+            
+            try:
+                broadcast_new_message(
+                    hotel_slug,
+                    conversation.id,
+                    message_data
+                )
+            except Exception as e:
+                logger.error(
+                    f"❌ Failed to broadcast forwarded message: {e}"
+                )
+            
+            # Send FCM notifications
+            try:
+                notify_conversation_participants(
+                    conversation,
+                    staff,
+                    original_message.message,
+                    exclude_sender=True
+                )
+            except Exception as e:
+                logger.error(
+                    f"❌ Failed to send FCM for forwarded message: {e}"
+                )
+            
+            results.append({
+                'conversation_id': conversation.id,
+                'message_id': forwarded_msg.id,
+                'created_conversation': created,
+                'participant_id': participant_id,
+                'success': True
+            })
+            forwarded_to_new += 1
+            
+            logger.info(
+                f"✅ Forwarded to participant {participant_id} "
+                f"(conversation {'created' if created else 'existing'})"
+            )
+            
+        except Staff.DoesNotExist:
+            results.append({
+                'participant_id': participant_id,
+                'error': 'Staff member not found or inactive',
+                'created_conversation': False,
+                'success': False
+            })
+            logger.warning(
+                f"❌ Staff {participant_id} not found"
+            )
+        except Exception as e:
+            results.append({
+                'participant_id': participant_id,
+                'error': str(e),
+                'created_conversation': False,
+                'success': False
+            })
+            logger.error(
+                f"❌ Error forwarding to participant {participant_id}: {e}"
+            )
+    
+    total_forwarded = forwarded_to_existing + forwarded_to_new
+    
+    logger.info(
+        f"✅ FORWARD COMPLETE | Message: {message_id} | "
+        f"Total: {total_forwarded} | "
+        f"Existing: {forwarded_to_existing} | "
+        f"New: {forwarded_to_new}"
+    )
+    
+    return Response({
+        'success': True,
+        'forwarded_to_existing': forwarded_to_existing,
+        'forwarded_to_new': forwarded_to_new,
+        'total_forwarded': total_forwarded,
+        'results': results
+    }, status=status.HTTP_200_OK)

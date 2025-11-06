@@ -24,6 +24,13 @@ urlpatterns = [
         name='conversation-list'
     ),
     path(
+        '<slug:hotel_slug>/conversations/for-forwarding/',
+        StaffConversationViewSet.as_view({
+            'get': 'for_forwarding'
+        }),
+        name='conversation-for-forwarding'
+    ),
+    path(
         '<slug:hotel_slug>/conversations/<int:pk>/',
         StaffConversationViewSet.as_view({
             'get': 'retrieve',
@@ -76,6 +83,13 @@ urlpatterns = [
         '<slug:hotel_slug>/messages/<int:message_id>/react/<str:emoji>/',
         views_messages.remove_reaction,
         name='remove-reaction'
+    ),
+    
+    # Forward message to conversations
+    path(
+        '<slug:hotel_slug>/messages/<int:message_id>/forward/',
+        views_messages.forward_message,
+        name='forward-message'
     ),
     
     # ==================== FILE ATTACHMENT ENDPOINTS ====================

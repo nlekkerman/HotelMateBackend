@@ -1,52 +1,18 @@
-from django.db import IntegrityError
 from rest_framework import viewsets, status
-from rest_framework.decorators import action
 from rest_framework.response import Response
-from decimal import Decimal
-from django.shortcuts import get_object_or_404
-from django.conf import settings
-from django.db.models import F, Sum, Q
-from rest_framework.exceptions import ValidationError
-from django.utils.dateparse import parse_date
-from django.utils.timezone import make_aware
-from datetime import date, datetime, timedelta
 from rest_framework.views import APIView
 
-from hotel.models import Hotel
-from .analytics import (
-    calculate_item_snapshot,
-    get_hotel_analytics,
-    ingredient_usage,
-    get_item_analytics,  # make sure this is the new period-based version
-    get_period_dates,
-    convert_units
-)
-
-from .models import (StockCategory, StockItem, Stock, StockItemType,
-                     StockMovement, StockInventory, Ingredient, CocktailRecipe,
-                     RecipeIngredient, CocktailConsumption, StockPeriod)
-from .serializers import (
-    StockAnalyticsSerializer,
-    StockCategorySerializer,
-    StockItemSerializer,
-    StockItemTypeSerializer,
-    StockPeriodSerializer,
-    StockSerializer,
-    StockMovementSerializer
+from .analytics import ingredient_usage, convert_units
+from .models import (
+    Ingredient,
+    CocktailRecipe,
+    CocktailConsumption
 )
 from .cocktail_serializers import (
     IngredientSerializer,
     CocktailRecipeSerializer,
-    RecipeIngredientSerializer,
     CocktailConsumptionSerializer
 )
-# In pagination.py or views.py
-from rest_framework.pagination import PageNumberPagination
-
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 class StockItemPagination(PageNumberPagination):
     page_size = 10

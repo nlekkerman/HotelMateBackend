@@ -300,3 +300,114 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
             context={'request': request}
         )
         return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def for_forwarding(self, request, hotel_slug=None):
+        """
+        Get conversations list optimized for forwarding UI
+        GET /api/staff-chat/<hotel_slug>/conversations/for-forwarding/
+        
+        Returns a simplified list of conversations with:
+        - conversation id, title, participants
+        - last message preview
+        - is_group flag
+        
+        Supports search: ?search=John
+        """
+        user = request.user
+        hotel_slug = self.kwargs.get('hotel_slug')
+
+        if not hotel_slug:
+            return Response(
+                {'error': 'Hotel slug is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            staff = Staff.objects.get(user=user)
+            if staff.hotel.slug != hotel_slug:
+                return Response(
+                    {'error': 'Access denied'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Get conversations
+        conversations = StaffConversation.objects.filter(
+            hotel__slug=hotel_slug,
+            participants=staff
+        ).select_related('hotel').prefetch_related(
+            'participants'
+        ).distinct().order_by('-updated_at')
+        
+        # Apply search filter if provided
+        search = request.query_params.get('search', '').strip()
+        if search:
+            conversations = conversations.filter(
+                Q(title__icontains=search) |
+                Q(participants__first_name__icontains=search) |
+                Q(participants__last_name__icontains=search)
+            ).distinct()
+        
+        # Build simplified response
+        results = []
+        for conv in conversations:
+            # Get other participant(s)
+            other_participants = conv.participants.exclude(id=staff.id)
+            
+            # Build title
+            if conv.is_group:
+                title = conv.title or f"Group ({conv.participants.count()})"
+            else:
+                other = other_participants.first()
+                if other:
+                    title = f"{other.first_name} {other.last_name}".strip()
+                else:
+                    title = "Unknown"
+            
+            # Get last message
+            last_msg = conv.messages.filter(
+                is_deleted=False
+            ).order_by('-timestamp').first()
+            
+            last_message_preview = None
+            if last_msg:
+                last_message_preview = {
+                    'message': last_msg.message[:50],
+                    'timestamp': last_msg.timestamp,
+                    'sender_name': (
+                        f"{last_msg.sender.first_name} "
+                        f"{last_msg.sender.last_name}"
+                    ).strip()
+                }
+            
+            # Get participant info
+            participants_info = []
+            for p in other_participants:
+                participants_info.append({
+                    'id': p.id,
+                    'name': f"{p.first_name} {p.last_name}".strip(),
+                    'profile_image_url': (
+                        p.profile_image.url if p.profile_image and
+                        hasattr(p.profile_image, 'url') else None
+                    )
+                })
+            
+            results.append({
+                'id': conv.id,
+                'title': title,
+                'is_group': conv.is_group,
+                'participants': participants_info,
+                'participant_count': conv.participants.count(),
+                'last_message': last_message_preview,
+                'updated_at': conv.updated_at
+            })
+        
+        return Response({
+            'count': len(results),
+            'conversations': results
+        })

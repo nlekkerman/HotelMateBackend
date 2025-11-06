@@ -316,3 +316,58 @@ class MessageReactionCreateSerializer(serializers.Serializer):
                 f"Emoji '{value}' is not allowed"
             )
         return value
+
+
+class ForwardMessageSerializer(serializers.Serializer):
+    """
+    Serializer for forwarding messages to multiple conversations
+    
+    Accepts:
+    - conversation_ids: List of existing conversation IDs to forward to
+    - new_participant_ids: List of staff IDs to create new conversations with
+    
+    At least one of the above must be provided.
+    """
+    conversation_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        help_text="IDs of existing conversations to forward message to"
+    )
+    new_participant_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        allow_empty=True,
+        help_text="IDs of staff members to create new conversations with"
+    )
+
+    def validate(self, data):
+        """
+        Validate that at least one target is provided
+        """
+        conversation_ids = data.get('conversation_ids', [])
+        new_participant_ids = data.get('new_participant_ids', [])
+
+        if not conversation_ids and not new_participant_ids:
+            raise serializers.ValidationError(
+                "Must provide at least one conversation_id or "
+                "new_participant_id"
+            )
+
+        return data
+
+    def validate_conversation_ids(self, value):
+        """Ensure conversation IDs are unique"""
+        if value and len(value) != len(set(value)):
+            raise serializers.ValidationError(
+                "Conversation IDs must be unique"
+            )
+        return value
+
+    def validate_new_participant_ids(self, value):
+        """Ensure participant IDs are unique"""
+        if value and len(value) != len(set(value)):
+            raise serializers.ValidationError(
+                "Participant IDs must be unique"
+            )
+        return value

@@ -6,6 +6,44 @@ This guide covers the **complete frontend implementation** for forwarding/sharin
 
 ---
 
+## 🚨 CRITICAL: Preventing Duplicate Conversations
+
+### ⚡ Prefetch Solution (IMPLEMENTED)
+
+**The Problem:** 
+Calling `POST /conversations/` every time creates duplicates because the backend can only check AFTER the request.
+
+**The Solution:**
+```
+1. Modal Opens → Prefetch ALL conversations
+2. User Forwards → Check prefetch cache (instant, synchronous)
+3. If found → Use existing conversation
+4. If not found → Create new, add to cache
+```
+
+**Benefits:**
+- ⚡ **Instant** - No API delay when checking
+- 🎯 **Simple** - One prefetch, all checks are synchronous
+- 🚫 **No Duplicates** - Cache is always current
+- 📱 **Better UX** - Immediate response
+
+**Flow:**
+```javascript
+// On modal open:
+prefetchConversations() // Load all conversations once
+
+// On forward:
+existing = findExistingConversation(selectedStaff) // Instant check
+if (existing) {
+  useConversation(existing.id) // ✅ Reuse
+} else {
+  newConv = createConversation() // 🆕 Create
+  addToCache(newConv) // Update cache for next forward
+}
+```
+
+---
+
 ## 🎯 Overview
 
 ### Features:
@@ -14,7 +52,7 @@ This guide covers the **complete frontend implementation** for forwarding/sharin
 - ✅ **Forward text messages** - With optional additional context
 - ✅ **Forward files** - Images, PDFs, documents
 - ✅ **Multi-select** - Forward to multiple staff at once
-- ✅ **No duplicate conversations** - Backend handles get-or-create
+- ✅ **🆕 No duplicate conversations** - Prefetch + cache checking
 - ✅ **Pusher real-time updates** - Instant delivery notification
 
 ---
@@ -137,12 +175,17 @@ function ForwardMessageModal({
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   
+  // 🆕 PREFETCH conversations to prevent duplicates
+  const [allConversations, setAllConversations] = useState([]);
+  const [prefetchLoading, setPrefetchLoading] = useState(true);
+  
   const staffListRef = useRef(null);
   const searchTimeoutRef = useRef(null);
 
-  // Load staff on mount
+  // Load staff AND prefetch conversations on mount
   useEffect(() => {
     loadStaff();
+    prefetchConversations();
   }, []);
 
   // Debounced search
@@ -165,6 +208,40 @@ function ForwardMessageModal({
       }
     };
   }, [searchTerm]);
+
+  /**
+   * 🆕 PREFETCH all conversations on modal open
+   * This prevents duplicate conversations by checking before creating
+   */
+  async function prefetchConversations() {
+    setPrefetchLoading(true);
+    try {
+      const response = await fetch(
+        `/api/staff_chat/${hotelSlug}/conversations/`,
+        {
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to load conversations');
+      }
+
+      const data = await response.json();
+      setAllConversations(data.results || data);
+      console.log('✅ Prefetched', data.results?.length || data.length, 'conversations');
+
+    } catch (error) {
+      console.error('Failed to prefetch conversations:', error);
+      // Continue anyway - worst case is potential duplicate
+      setAllConversations([]);
+    } finally {
+      setPrefetchLoading(false);
+    }
+  }
 
   /**
    * Load staff list with pagination
@@ -244,9 +321,57 @@ function ForwardMessageModal({
   }
 
   /**
-   * Get or create conversation
+   * 🆕 FIND existing conversation (synchronous - uses prefetch cache)
+   * Checks if conversation already exists with same participants
+   */
+  function findExistingConversation(participantIds) {
+    // Include current user in participant check
+    const targetIds = new Set([currentUserId, ...participantIds]);
+    
+    console.log('🔍 Looking for conversation with participants:', Array.from(targetIds));
+    
+    // Search through prefetched conversations
+    const existing = allConversations.find(conv => {
+      const convParticipantIds = new Set(
+        conv.participants.map(p => p.id)
+      );
+      
+      // Check if sets are equal
+      if (convParticipantIds.size !== targetIds.size) {
+        return false;
+      }
+      
+      for (let id of targetIds) {
+        if (!convParticipantIds.has(id)) {
+          return false;
+        }
+      }
+      
+      return true;
+    });
+    
+    if (existing) {
+      console.log('✅ Found existing conversation:', existing.id);
+    } else {
+      console.log('🆕 No existing conversation found');
+    }
+    
+    return existing;
+  }
+
+  /**
+   * Get or create conversation (now checks prefetch cache first!)
    */
   async function getOrCreateConversation(participantIds) {
+    // 🆕 CHECK PREFETCH CACHE FIRST
+    const existing = findExistingConversation(participantIds);
+    if (existing) {
+      console.log('♻️ Reusing existing conversation:', existing.id);
+      return existing;
+    }
+
+    // Create new conversation only if not found
+    console.log('🆕 Creating new conversation');
     const response = await fetch(
       `/api/staff_chat/${hotelSlug}/conversations/`,
       {
@@ -266,7 +391,13 @@ function ForwardMessageModal({
       throw new Error('Failed to create conversation');
     }
 
-    return await response.json();
+    const newConversation = await response.json();
+    
+    // 🆕 ADD TO PREFETCH CACHE for subsequent forwards in same session
+    setAllConversations(prev => [...prev, newConversation]);
+    console.log('✅ Added new conversation to cache:', newConversation.id);
+    
+    return newConversation;
   }
 
   /**
@@ -346,7 +477,7 @@ function ForwardMessageModal({
 
     setForwarding(true);
     try {
-      // Get or create conversation
+      // 🆕 Get or create conversation (checks prefetch cache first!)
       const conversation = await getOrCreateConversation(selectedStaff);
 
       // Format forwarded message
@@ -389,10 +520,18 @@ function ForwardMessageModal({
         {/* Header */}
         <div className="modal-header">
           <h3>📤 Forward Message</h3>
-          <button onClick={onClose} className="close-btn" disabled={forwarding}>
+          <button onClick={onClose} className="close-btn" disabled={forwarding || prefetchLoading}>
             ✕
           </button>
         </div>
+
+        {/* 🆕 Prefetch Loading Indicator */}
+        {prefetchLoading && (
+          <div className="prefetch-loading">
+            <div className="spinner"></div>
+            <span>Loading conversations...</span>
+          </div>
+        )}
 
         {/* Message Preview */}
         <div className="message-preview">
@@ -508,14 +647,14 @@ function ForwardMessageModal({
         <div className="modal-actions">
           <button 
             onClick={onClose} 
-            disabled={forwarding} 
+            disabled={forwarding || prefetchLoading} 
             className="cancel-btn"
           >
             Cancel
           </button>
           <button
             onClick={handleForward}
-            disabled={forwarding || selectedStaff.length === 0}
+            disabled={forwarding || prefetchLoading || selectedStaff.length === 0}
             className="forward-btn"
           >
             {forwarding ? (
@@ -818,6 +957,27 @@ export default ForwardMessageModal;
   font-size: 20px;
 }
 
+/* 🆕 Prefetch Loading */
+.prefetch-loading {
+  padding: 16px 24px;
+  background: #e3f2fd;
+  border-bottom: 1px solid #90caf9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: #1976d2;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.prefetch-loading .spinner {
+  width: 18px;
+  height: 18px;
+  border-color: #bbdefb;
+  border-top-color: #1976d2;
+}
+
 /* Loading/Empty States */
 .loading-more,
 .all-loaded,
@@ -1104,11 +1264,21 @@ function MessageComponent({ message }) {
 - Supports images, PDFs, documents
 - Shows file badges in preview
 
-### ✅ No Duplicates
-- Backend handles get-or-create
-- Returns 201 for new, 200 for existing
-- Reuses existing conversations
-- Frontend doesn't need special handling
+### ✅ 🆕 No Duplicates (PREFETCH SOLUTION)
+- **Prefetch all conversations on modal open**
+- **Instant synchronous duplicate check**
+- **Reuses existing conversations**
+- **Updates cache when new conversation created**
+- **Zero network delay when forwarding**
+
+**How it works:**
+```javascript
+1. Modal opens → prefetchConversations()
+2. User forwards → findExistingConversation() (instant!)
+3. If exists → Use it
+4. If new → Create + add to cache
+5. Next forward → Cache has latest data
+```
 
 ### ✅ Real-Time
 - Pusher broadcasts message immediately
