@@ -1,16 +1,70 @@
 # Stock Tracker Frontend Integration Guide
 
+---
+
+## ⚠️⚠️⚠️ MOST IMPORTANT: QUANTITIES ARE IN MILLILITERS (ml), NOT BOTTLES! ⚠️⚠️⚠️
+
+```
+Backend Returns:    current_qty: 1400  (this is 1400ml, NOT 1400 bottles!)
+Frontend Displays:  "2 bottles" (after conversion: 1400ml ÷ 700ml/bottle)
+```
+
+**You MUST convert ml to bottles in your frontend!**
+- 70cl bottle = 700ml
+- current_qty: 1400 = **2 bottles** (1400 ÷ 700)
+- current_qty: 2100 = **3 bottles** (2100 ÷ 700)
+
+---
+
+## 🚀 Quick Start Summary
+
+### Critical Information
+
+**🚨 NO PAGINATION**
+- All endpoints return complete datasets in a single request
+- Response is a plain array: `[{...}, {...}, {...}]`
+- No `count`, `next`, `previous`, or `results` wrapper
+
+**🔍 Category Filtering**
+- Single category: `?category=1`
+- Multiple categories: `?category=1&category=2&category=3`
+- With search: `?category=1&search=vodka`
+
+**📍 URL Pattern**
+- Base: `/api/stock_tracker/{hotel_identifier}/`
+- hotel_identifier = hotel `slug` OR `subdomain`
+- Example: `/api/stock_tracker/hotel-killarney/items/`
+
+**🔧 Available Filters**
+- `?category=1` - Filter by category ID
+- `?search=vodka` - Search SKU, name, description
+- Combine: `?category=1&category=2&search=absolut`
+
+**⚠️ CRITICAL: Quantities Are in ml (Not Bottles!)**
+- `current_qty`: Stored in **milliliters (ml)** for liquids
+- `par_level`: Also in **ml**
+- Frontend MUST convert to bottles for display
+- Formula: `bottles = Math.floor(current_qty_ml / bottle_size_ml)`
+- Example: `current_qty: 1400` = 2 bottles of 70cl (700ml each)
+- See full section: [Understanding Quantities](#️-critical-understanding-quantities-ml-vs-bottles)
+
+---
+
 ## Table of Contents
 1. [Overview](#overview)
 2. [API Endpoints](#api-endpoints)
 3. [Data Models](#data-models)
-4. [Getting All Stock Items](#getting-all-stock-items)
-5. [Displaying Item Data](#displaying-item-data)
-6. [Creating New Items](#creating-new-items)
-7. [Filtering and Searching](#filtering-and-searching)
-8. [Stock Movements](#stock-movements)
-9. [Stocktake Workflow](#stocktake-workflow)
-10. [Error Handling](#error-handling)
+4. [⚠️ CRITICAL: Understanding Quantities (ml vs Bottles)](#️-critical-understanding-quantities-ml-vs-bottles)
+5. [No Pagination - Important](#-important-no-pagination---all-results-returned)
+6. [Category Filtering](#-filtering-stock-items-by-category)
+7. [Getting All Stock Items](#getting-all-stock-items)
+8. [Complete Category Filter Implementation](#-complete-category-filtering-implementation)
+9. [Displaying Item Data](#displaying-item-data)
+10. [Creating New Items](#creating-new-items)
+11. [Filtering and Searching](#filtering-and-searching)
+12. [Stock Movements](#stock-movements)
+13. [Stocktake Workflow](#stocktake-workflow)
+14. [Error Handling](#error-handling)
 
 ---
 
@@ -30,6 +84,11 @@ The Stock Tracker app manages inventory for hotels including:
 **Example URLs**:
 - `/api/stock_tracker/hotel-killarney/items/` - Using hotel slug
 - `/api/stock_tracker/hilton/categories/` - Using hotel subdomain
+
+**Important Notes**:
+- ⚠️ **NO PAGINATION**: All endpoints return complete results without pagination
+- 🔍 **Filtering**: Use query parameters to filter results (see examples below)
+- 📊 **All Data Returned**: You get all items, categories, movements, etc. in a single request
 
 ---
 
@@ -138,8 +197,8 @@ interface StockItem {
   selling_price: number | null; // Selling price per unit
   
   // Inventory
-  current_qty: number;       // Current stock in base units
-  par_level: number;         // Minimum stock level
+  current_qty: number;       // ⚠️ IMPORTANT: Current stock in BASE UNITS (ml for liquids, not bottles!)
+  par_level: number;         // Minimum stock level in BASE UNITS
   
   // Storage
   bin: number | null;        // Location/bin ID
@@ -179,6 +238,204 @@ interface StockItem {
   profit_margin_percentage?: number; // (profit / menu_price) × 100
 }
 ```
+
+---
+
+## ⚠️ CRITICAL: Understanding Quantities (ml vs Bottles)
+
+### How Quantities Are Stored
+
+**All quantities are stored in BASE UNITS (not bottles/cases!)**
+
+- **`current_qty`**: Stored in **ml** (milliliters) for liquids
+- **`par_level`**: Also in **ml**
+- **`quantity` in movements**: Also in **ml**
+
+### Example: Vodka Bottle
+
+```javascript
+{
+  "sku": "S0001",
+  "name": "Dingle Vodka",
+  "size": "70cl",           // Display size
+  "size_value": 70,         // Numeric value
+  "size_unit": "cl",        // Unit (centiliters)
+  "base_unit": "ml",        // All quantities in ml
+  "current_qty": 1400,      // ← THIS IS 1400ml (2 bottles × 700ml)
+  "par_level": 700          // ← THIS IS 700ml (1 bottle)
+}
+```
+
+### Converting ml to Bottles
+
+To display quantities in bottles, you MUST convert:
+
+```javascript
+// Helper function to convert ml to bottles
+function convertToBottles(currentQtyInMl, sizeValue, sizeUnit) {
+  // Convert size to ml
+  let bottleSizeInMl;
+  
+  switch (sizeUnit.toLowerCase()) {
+    case 'cl':
+      bottleSizeInMl = sizeValue * 10; // 70cl = 700ml
+      break;
+    case 'l':
+      bottleSizeInMl = sizeValue * 1000; // 1L = 1000ml
+      break;
+    case 'ml':
+      bottleSizeInMl = sizeValue; // already in ml
+      break;
+    default:
+      bottleSizeInMl = sizeValue;
+  }
+  
+  // Calculate full bottles
+  const fullBottles = Math.floor(currentQtyInMl / bottleSizeInMl);
+  
+  // Calculate remaining ml
+  const remainingMl = currentQtyInMl % bottleSizeInMl;
+  
+  return {
+    fullBottles,
+    remainingMl,
+    totalMl: currentQtyInMl,
+    display: `${fullBottles} bottles + ${remainingMl.toFixed(0)}ml`
+  };
+}
+
+// Example usage
+const item = {
+  current_qty: 1450,  // ml
+  size_value: 70,     // cl
+  size_unit: 'cl'
+};
+
+const result = convertToBottles(item.current_qty, item.size_value, item.size_unit);
+console.log(result);
+// Output: {
+//   fullBottles: 2,
+//   remainingMl: 50,
+//   totalMl: 1450,
+//   display: "2 bottles + 50ml"
+// }
+```
+
+### React Component for Displaying Quantities
+
+```javascript
+function StockQuantityDisplay({ item }) {
+  const getBottleSizeInMl = () => {
+    switch (item.size_unit?.toLowerCase()) {
+      case 'cl': return item.size_value * 10;
+      case 'l': return item.size_value * 1000;
+      case 'ml': return item.size_value;
+      default: return item.size_value;
+    }
+  };
+
+  const bottleSizeInMl = getBottleSizeInMl();
+  const fullBottles = Math.floor(item.current_qty / bottleSizeInMl);
+  const remainingMl = item.current_qty % bottleSizeInMl;
+
+  return (
+    <div className="stock-quantity">
+      <div className="bottles">
+        <strong>{fullBottles}</strong> bottles
+      </div>
+      {remainingMl > 0 && (
+        <div className="partial">
+          + {remainingMl.toFixed(0)}ml
+        </div>
+      )}
+      <div className="total-ml">
+        Total: {item.current_qty}ml
+      </div>
+      <div className="par-level">
+        Par: {Math.floor(item.par_level / bottleSizeInMl)} bottles 
+        ({item.par_level}ml)
+      </div>
+    </div>
+  );
+}
+```
+
+### Quantity Display Examples
+
+```javascript
+// Example 1: Vodka (70cl bottles)
+{
+  size: "70cl",
+  size_value: 70,
+  size_unit: "cl",
+  current_qty: 2100,  // ml
+  // Display: "3 bottles (2100ml)"
+}
+
+// Example 2: Wine (750ml bottles)
+{
+  size: "750ml",
+  size_value: 750,
+  size_unit: "ml",
+  current_qty: 2250,  // ml
+  // Display: "3 bottles (2250ml)"
+}
+
+// Example 3: Partial bottle
+{
+  size: "70cl",
+  size_value: 70,
+  size_unit: "cl",
+  current_qty: 1550,  // ml
+  // Display: "2 bottles + 150ml (1550ml total)"
+}
+
+// Example 4: Keg (50L)
+{
+  size: "50L",
+  size_value: 50,
+  size_unit: "L",
+  current_qty: 125000,  // ml (2.5 kegs)
+  // Display: "2 kegs + 25000ml (125000ml total)"
+}
+```
+
+### Important Notes
+
+1. **Backend stores everything in ml** - Never assume bottles
+2. **Frontend converts for display** - Calculate bottles from ml
+3. **Partial quantities exist** - Handle remainders (opened bottles)
+4. **Different container sizes** - Wine (750ml), Spirits (700ml), Kegs (50L)
+5. **Stock movements in ml** - When creating movements, use ml not bottles
+
+### Creating Movement with Bottle Conversion
+
+```javascript
+// User enters: "Add 3 bottles of vodka"
+function createPurchaseMovement(item, numberOfBottles) {
+  // Convert bottles to ml
+  const bottleSizeInMl = item.size_unit === 'cl' 
+    ? item.size_value * 10 
+    : item.size_value;
+  
+  const quantityInMl = numberOfBottles * bottleSizeInMl;
+  
+  // Create movement with ml quantity
+  return {
+    item: item.id,
+    movement_type: 'PURCHASE',
+    quantity: quantityInMl,  // ← MUST BE IN ML
+    unit_cost: item.unit_cost,
+    reference: 'PO-12345'
+  };
+}
+
+// Example: 3 bottles of 70cl vodka
+const movement = createPurchaseMovement(vodkaItem, 3);
+// movement.quantity = 2100 (ml)
+```
+
+---
 
 ### StockMovement
 ```typescript
@@ -418,9 +675,205 @@ function StockManagement({ hotelIdentifier }) {
 
 ---
 
+## 🚨 Important: No Pagination - All Results Returned
+
+**All stock tracker endpoints return complete datasets without pagination.**
+
+- ✅ **No page limits**: Get all items, categories, movements, etc. in one request
+- ✅ **No page parameters**: No need for `?page=1`, `?offset=0`, or `?limit=100`
+- ✅ **Full dataset**: Response is a plain array, not a paginated object
+- ⚠️ **Client-side filtering**: Handle large datasets with local filtering/search
+- ⚠️ **Performance**: Consider implementing virtual scrolling for large lists
+
+**Response Format:**
+```json
+// ✅ Direct array - NO pagination wrapper
+[
+  { "id": 1, "name": "Item 1", ... },
+  { "id": 2, "name": "Item 2", ... },
+  { "id": 3, "name": "Item 3", ... }
+]
+
+// ❌ NOT like this (no pagination object):
+{
+  "count": 100,
+  "next": "...",
+  "previous": "...",
+  "results": [...]
+}
+```
+
+---
+
+## 🔍 Filtering Stock Items by Category
+
+### Single Category Filter
+
+**Endpoint:** `GET /api/stock_tracker/{hotel_identifier}/items/?category={categoryId}`
+
+```javascript
+// Filter by single category
+async function getItemsByCategory(hotelIdentifier, categoryId) {
+  const response = await fetch(
+    `/api/stock_tracker/${hotelIdentifier}/items/?category=${categoryId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`
+      }
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`);
+  }
+  
+  const items = await response.json();
+  return items; // Returns ALL items for this category
+}
+
+// Example: Get all spirits
+const spirits = await getItemsByCategory('hotel-killarney', 1);
+```
+
+### Multiple Categories Filter
+
+**Endpoint:** `GET /api/stock_tracker/{hotel_identifier}/items/?category=1&category=2&category=3`
+
+```javascript
+// Filter by multiple categories
+async function getItemsByMultipleCategories(hotelIdentifier, categoryIds) {
+  const categoryParams = categoryIds.map(id => `category=${id}`).join('&');
+  const url = `/api/stock_tracker/${hotelIdentifier}/items/?${categoryParams}`;
+  
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`
+    }
+  });
+  
+  return await response.json();
+}
+
+// Example: Get spirits, wines, and beers
+const beverages = await getItemsByMultipleCategories('hotel-killarney', [1, 6, 7]);
+```
+
+### Category Filter with React Hooks
+
+```javascript
+import { useState, useEffect } from 'react';
+import axios from 'axios';
+
+function useFilteredStockItems(hotelIdentifier, selectedCategoryIds = []) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const fetchItems = async () => {
+      if (!hotelIdentifier) return;
+      
+      try {
+        setLoading(true);
+        setError(null);
+        
+        // Build query params
+        let url = `/api/stock_tracker/${hotelIdentifier}/items/`;
+        
+        if (selectedCategoryIds.length > 0) {
+          const params = selectedCategoryIds.map(id => `category=${id}`).join('&');
+          url += `?${params}`;
+        }
+        
+        const response = await axios.get(url, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        });
+        
+        setItems(response.data); // All items returned, no pagination
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchItems();
+  }, [hotelIdentifier, selectedCategoryIds]);
+
+  return { items, loading, error };
+}
+
+// Usage in component
+function StockItemsWithCategoryFilter({ hotelIdentifier }) {
+  const [selectedCategories, setSelectedCategories] = useState([]);
+  const { items, loading, error } = useFilteredStockItems(hotelIdentifier, selectedCategories);
+
+  const handleCategoryToggle = (categoryId) => {
+    setSelectedCategories(prev => 
+      prev.includes(categoryId)
+        ? prev.filter(id => id !== categoryId)
+        : [...prev, categoryId]
+    );
+  };
+
+  if (loading) return <div>Loading items...</div>;
+  if (error) return <div>Error: {error}</div>;
+
+  return (
+    <div>
+      <h2>Stock Items</h2>
+      <p>Total items: {items.length}</p>
+      {/* Category checkboxes would go here */}
+      <ul>
+        {items.map(item => (
+          <li key={item.id}>{item.name} - {item.category_name}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+```
+
+### Combined Filters: Category + Search
+
+```javascript
+async function filterItemsByCategoryAndSearch(hotelIdentifier, categoryIds, searchTerm) {
+  const params = new URLSearchParams();
+  
+  // Add category filters
+  categoryIds.forEach(id => params.append('category', id));
+  
+  // Add search term
+  if (searchTerm) {
+    params.append('search', searchTerm);
+  }
+  
+  const url = `/api/stock_tracker/${hotelIdentifier}/items/?${params.toString()}`;
+  
+  const response = await fetch(url, {
+    headers: {
+      'Authorization': `Bearer ${accessToken}`
+    }
+  });
+  
+  return await response.json();
+}
+
+// Example: Get vodka items from spirits and liqueurs categories
+const vodkaItems = await filterItemsByCategoryAndSearch(
+  'hotel-killarney',
+  [1, 4], // Spirits and Liqueurs
+  'vodka'
+);
+```
+
+---
+
 ## Getting All Stock Items
 
-### Basic GET Request
+### Basic GET Request (All Items)
 
 **JavaScript/Fetch:**
 ```javascript
@@ -440,6 +893,8 @@ async function getAllStockItems(hotelIdentifier) {
   }
   
   const items = await response.json();
+  // items is a plain array with ALL stock items - no pagination
+  console.log(`Loaded ${items.length} items`);
   return items;
 }
 ```
@@ -458,6 +913,8 @@ async function getAllStockItems(hotelIdentifier) {
         }
       }
     );
+    // response.data is a plain array with ALL items
+    console.log(`Loaded ${response.data.length} items`);
     return response.data;
   } catch (error) {
     console.error('Error fetching stock items:', error);
@@ -466,28 +923,13 @@ async function getAllStockItems(hotelIdentifier) {
 }
 ```
 
-### With Filtering
+### Search Filtering
 
-**Filter by category:**
-```javascript
-async function getItemsByCategory(hotelIdentifier, categoryId) {
-  const response = await fetch(
-    `/api/stock_tracker/${hotelIdentifier}/items/?category=${categoryId}`,
-    {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      }
-    }
-  );
-  return await response.json();
-}
-```
-
-**Search by SKU or name:**
+**Search by SKU, name, or description:**
 ```javascript
 async function searchItems(hotelIdentifier, searchTerm) {
   const response = await fetch(
-    `/api/stock_tracker/${hotelIdentifier}/items/?search=${searchTerm}`,
+    `/api/stock_tracker/${hotelIdentifier}/items/?search=${encodeURIComponent(searchTerm)}`,
     {
       headers: {
         'Authorization': `Bearer ${accessToken}`
@@ -1167,6 +1609,226 @@ function CreateStockItemForm({ hotelId, hotelIdentifier, categories, onSuccess }
   );
 }
 ```
+
+---
+
+## 📋 Complete Category Filtering Implementation
+
+### Full React Component with Multi-Category Selection
+
+```javascript
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+
+function StockInventoryWithCategoryFilter({ hotelIdentifier }) {
+  const [categories, setCategories] = useState([]);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState([]);
+  const [items, setItems] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // 1. Fetch categories on mount
+  useEffect(() => {
+    fetchCategories();
+  }, [hotelIdentifier]);
+
+  // 2. Fetch items when filters change
+  useEffect(() => {
+    fetchFilteredItems();
+  }, [selectedCategoryIds, searchTerm]);
+
+  const fetchCategories = async () => {
+    try {
+      const response = await axios.get(
+        `/api/stock_tracker/${hotelIdentifier}/categories/`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          }
+        }
+      );
+      setCategories(response.data); // All categories, no pagination
+    } catch (error) {
+      console.error('Error fetching categories:', error);
+    }
+  };
+
+  const fetchFilteredItems = async () => {
+    try {
+      setLoading(true);
+      
+      // Build URL with category filters
+      const params = new URLSearchParams();
+      
+      // Add each selected category
+      selectedCategoryIds.forEach(id => {
+        params.append('category', id);
+      });
+      
+      // Add search term if present
+      if (searchTerm.trim()) {
+        params.append('search', searchTerm);
+      }
+      
+      const url = `/api/stock_tracker/${hotelIdentifier}/items/?${params.toString()}`;
+      
+      const response = await axios.get(url, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        }
+      });
+      
+      setItems(response.data); // All matching items, no pagination
+    } catch (error) {
+      console.error('Error fetching items:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCategoryToggle = (categoryId) => {
+    setSelectedCategoryIds(prev => 
+      prev.includes(categoryId)
+        ? prev.filter(id => id !== categoryId) // Remove if already selected
+        : [...prev, categoryId] // Add if not selected
+    );
+  };
+
+  const handleSelectAllCategories = () => {
+    setSelectedCategoryIds(categories.map(cat => cat.id));
+  };
+
+  const handleDeselectAllCategories = () => {
+    setSelectedCategoryIds([]);
+  };
+
+  return (
+    <div className="stock-inventory">
+      <h1>Stock Inventory</h1>
+      
+      {/* Category Filters */}
+      <div className="filters-section">
+        <h2>Filter by Category</h2>
+        
+        <div className="category-actions">
+          <button onClick={handleSelectAllCategories}>Select All</button>
+          <button onClick={handleDeselectAllCategories}>Clear All</button>
+        </div>
+        
+        <div className="category-checkboxes">
+          {categories.map(category => (
+            <label key={category.id} className="category-checkbox">
+              <input
+                type="checkbox"
+                checked={selectedCategoryIds.includes(category.id)}
+                onChange={() => handleCategoryToggle(category.id)}
+              />
+              {category.name}
+            </label>
+          ))}
+        </div>
+        
+        {/* Search Box */}
+        <div className="search-box">
+          <input
+            type="text"
+            placeholder="Search by SKU, name, or description..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Results */}
+      <div className="results-section">
+        <h2>
+          Stock Items 
+          <span className="count">
+            ({loading ? '...' : items.length} items)
+          </span>
+        </h2>
+        
+        {loading ? (
+          <div>Loading items...</div>
+        ) : (
+          <table className="items-table">
+            <thead>
+              <tr>
+                <th>SKU</th>
+                <th>Name</th>
+                <th>Category</th>
+                <th>Stock</th>
+                <th>Par Level</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
+                <tr>
+                  <td colSpan="7" style={{ textAlign: 'center' }}>
+                    No items found
+                  </td>
+                </tr>
+              ) : (
+                items.map(item => (
+                  <tr key={item.id}>
+                    <td>{item.sku}</td>
+                    <td>{item.name}</td>
+                    <td>{item.category_name || 'N/A'}</td>
+                    <td>{item.quantity_in_stock}</td>
+                    <td>{item.par_level}</td>
+                    <td>
+                      {item.is_below_par ? (
+                        <span className="status-warning">Below Par</span>
+                      ) : (
+                        <span className="status-ok">OK</span>
+                      )}
+                    </td>
+                    <td>
+                      <button onClick={() => viewDetails(item.id)}>View</button>
+                      <button onClick={() => editItem(item.id)}>Edit</button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default StockInventoryWithCategoryFilter;
+```
+
+### URL Examples Generated by Component
+
+```
+# No filters - all items
+GET /api/stock_tracker/hotel-killarney/items/
+
+# Single category
+GET /api/stock_tracker/hotel-killarney/items/?category=1
+
+# Multiple categories (Spirits + Wines)
+GET /api/stock_tracker/hotel-killarney/items/?category=1&category=6
+
+# Multiple categories with search
+GET /api/stock_tracker/hotel-killarney/items/?category=1&category=4&search=vodka
+
+# Search only
+GET /api/stock_tracker/hotel-killarney/items/?search=jameson
+```
+
+### Key Points About Category Filtering
+
+1. **No Pagination**: All endpoints return complete results
+2. **Multiple Categories**: Use `?category=1&category=2&category=3` format
+3. **Combine Filters**: Mix category filters with search terms
+4. **Client-Side Filtering**: For complex logic (below par, date ranges), filter on client after receiving all data
+5. **Performance**: All data loads at once - use debouncing for search, consider virtual scrolling for large lists
 
 ---
 

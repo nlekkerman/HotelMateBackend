@@ -54,6 +54,7 @@ class IngredientViewSet(viewsets.ModelViewSet):
 
 class CocktailRecipeViewSet(viewsets.ModelViewSet):
     serializer_class = CocktailRecipeSerializer
+    pagination_class = None
     search_fields = ['name']
     ordering_fields = ['name']
 
@@ -70,6 +71,7 @@ class CocktailRecipeViewSet(viewsets.ModelViewSet):
 
 class CocktailConsumptionViewSet(viewsets.ModelViewSet):
     serializer_class = CocktailConsumptionSerializer
+    pagination_class = None
     ordering = ['-timestamp']
 
     def get_queryset(self):
@@ -115,6 +117,7 @@ class IngredientUsageView(APIView):
 
 class StockCategoryViewSet(viewsets.ModelViewSet):
     serializer_class = StockCategorySerializer
+    pagination_class = None
 
     def get_queryset(self):
         hotel_identifier = self.kwargs.get('hotel_identifier')
@@ -127,6 +130,7 @@ class StockCategoryViewSet(viewsets.ModelViewSet):
 
 class StockItemViewSet(viewsets.ModelViewSet):
     serializer_class = StockItemSerializer
+    pagination_class = None
     filterset_fields = ['category']
     search_fields = ['sku', 'name', 'description']
 
@@ -141,6 +145,7 @@ class StockItemViewSet(viewsets.ModelViewSet):
 
 class StockMovementViewSet(viewsets.ModelViewSet):
     serializer_class = StockMovementSerializer
+    pagination_class = None
     filterset_fields = ['item', 'movement_type']
     ordering = ['-timestamp']
 
@@ -154,6 +159,7 @@ class StockMovementViewSet(viewsets.ModelViewSet):
 
 
 class StocktakeViewSet(viewsets.ModelViewSet):
+    pagination_class = None
     filterset_fields = ['status']
     ordering = ['-period_end']
 
@@ -237,6 +243,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
 
 class StocktakeLineViewSet(viewsets.ModelViewSet):
     serializer_class = StocktakeLineSerializer
+    pagination_class = None
     filterset_fields = ['stocktake', 'item']
 
     def get_queryset(self):
