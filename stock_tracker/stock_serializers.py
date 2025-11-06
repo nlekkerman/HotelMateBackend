@@ -81,7 +81,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
             'staff', 'staff_name', 'timestamp'
         ]
         # Make 'staff' read-only so the API sets it from the authenticated user
-        # and clients don't need to (and cannot) include an arbitrary staff PK.
+        # and clients don't need to include an arbitrary staff PK.
         read_only_fields = ['timestamp', 'staff']
 
     def get_staff_name(self, obj):
