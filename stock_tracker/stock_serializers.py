@@ -85,8 +85,13 @@ class StockMovementSerializer(serializers.ModelSerializer):
         read_only_fields = ['timestamp', 'staff']
 
     def get_staff_name(self, obj):
+        """Get staff full name from Staff model"""
         if obj.staff:
-            return f"{obj.staff.first_name} {obj.staff.last_name}".strip()
+            full_name = (
+                f"{obj.staff.first_name} {obj.staff.last_name}".strip()
+            )
+            # Fallback to email or ID if names not set
+            return full_name or obj.staff.email or f"Staff #{obj.staff.id}"
         return None
 
 

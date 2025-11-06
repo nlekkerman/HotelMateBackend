@@ -170,8 +170,11 @@ class StockMovementViewSet(viewsets.ModelViewSet):
         )
 
         staff = None
-        if hasattr(self.request, 'user') and self.request.user.is_authenticated:
-            staff = self.request.user
+        if hasattr(self.request, 'user') and \
+           self.request.user.is_authenticated:
+            # Get the Staff instance from the authenticated user
+            if hasattr(self.request.user, 'staff_profile'):
+                staff = self.request.user.staff_profile
 
         # Save with hotel and staff (staff may be None)
         serializer.save(hotel=hotel, staff=staff)
@@ -245,9 +248,14 @@ class StocktakeViewSet(viewsets.ModelViewSet):
             )
 
         try:
+            # Get Staff instance from authenticated user
+            staff = None
+            if hasattr(request.user, 'staff_profile'):
+                staff = request.user.staff_profile
+            
             adjustments_created = approve_stocktake(
                 stocktake,
-                request.user
+                staff
             )
             return Response({
                 "message": "Stocktake approved",

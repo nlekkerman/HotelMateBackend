@@ -159,7 +159,7 @@ def approve_stocktake(stocktake, approved_by):
 
     Args:
         stocktake: Stocktake instance
-        approved_by: User approving the stocktake
+        approved_by: Staff approving the stocktake
 
     Returns:
         int: Number of adjustment movements created

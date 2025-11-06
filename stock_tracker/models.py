@@ -1,6 +1,5 @@
 # models.py
 from django.db import models
-from django.conf import settings
 from decimal import Decimal
 
 
@@ -481,10 +480,11 @@ class StockMovement(models.Model):
     )
     notes = models.TextField(blank=True)
     staff = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        'staff.Staff',
         on_delete=models.SET_NULL,
         null=True,
-        blank=True
+        blank=True,
+        related_name='stock_movements'
     )
     timestamp = models.DateTimeField(auto_now_add=True)
 
@@ -545,7 +545,7 @@ class Stocktake(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     approved_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        'staff.Staff',
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

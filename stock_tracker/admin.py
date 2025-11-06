@@ -79,12 +79,26 @@ class StockItemAdmin(admin.ModelAdmin):
 class StockMovementAdmin(admin.ModelAdmin):
     list_display = (
         'timestamp', 'hotel', 'item', 'movement_type',
-        'quantity', 'staff'
+        'quantity', 'get_staff_name', 'reference'
     )
     list_filter = ('hotel', 'movement_type', 'timestamp')
-    search_fields = ('item__sku', 'item__name', 'reference')
+    search_fields = (
+        'item__sku', 'item__name', 'reference',
+        'staff__first_name', 'staff__last_name'
+    )
     ordering = ('-timestamp',)
     readonly_fields = ('timestamp',)
+    
+    def get_staff_name(self, obj):
+        """Display staff full name instead of just ID"""
+        if obj.staff:
+            full_name = (
+                f"{obj.staff.first_name} {obj.staff.last_name}".strip()
+            )
+            return full_name or obj.staff.username
+        return "-"
+    get_staff_name.short_description = 'Staff'
+    get_staff_name.admin_order_field = 'staff__last_name'
 
 
 class StocktakeLineInline(admin.TabularInline):
