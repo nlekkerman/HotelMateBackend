@@ -19,7 +19,32 @@ class StockItemSerializer(serializers.ModelSerializer):
         source='category.name',
         read_only=True
     )
+    bin_name = serializers.CharField(
+        source='bin.name',
+        read_only=True
+    )
     gp_percentage = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        read_only=True
+    )
+    is_below_par = serializers.BooleanField(read_only=True)
+    pour_cost = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        read_only=True
+    )
+    pour_cost_percentage = serializers.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        read_only=True
+    )
+    profit_per_serving = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        read_only=True
+    )
+    profit_margin_percentage = serializers.DecimalField(
         max_digits=5,
         decimal_places=2,
         read_only=True
@@ -28,20 +53,30 @@ class StockItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockItem
         fields = [
-            'id', 'hotel', 'category', 'category_name', 'code',
-            'description', 'size', 'uom', 'unit_cost', 'selling_price',
-            'current_qty', 'base_unit', 'gp_percentage'
+            'id', 'hotel', 'category', 'category_name', 'sku', 'name',
+            'description', 'product_type', 'subtype', 'tag',
+            'size', 'size_value', 'size_unit', 'uom', 'base_unit',
+            'unit_cost', 'cost_per_base', 'case_cost', 'selling_price',
+            'current_qty', 'par_level', 'bin', 'bin_name',
+            'vendor', 'country', 'region', 'subregion', 'producer', 'vineyard',
+            'abv_percent', 'vintage', 'unit_upc', 'case_upc',
+            'serving_size', 'serving_unit', 'menu_price',
+            'active', 'hide_on_menu',
+            'gp_percentage', 'is_below_par', 'pour_cost',
+            'pour_cost_percentage', 'profit_per_serving',
+            'profit_margin_percentage'
         ]
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
-    item_code = serializers.CharField(source='item.code', read_only=True)
+    item_sku = serializers.CharField(source='item.sku', read_only=True)
+    item_name = serializers.CharField(source='item.name', read_only=True)
     staff_name = serializers.SerializerMethodField()
 
     class Meta:
         model = StockMovement
         fields = [
-            'id', 'hotel', 'item', 'item_code', 'movement_type',
+            'id', 'hotel', 'item', 'item_sku', 'item_name', 'movement_type',
             'quantity', 'unit_cost', 'reference', 'notes',
             'staff', 'staff_name', 'timestamp'
         ]
@@ -54,7 +89,8 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 
 class StocktakeLineSerializer(serializers.ModelSerializer):
-    item_code = serializers.CharField(source='item.code', read_only=True)
+    item_sku = serializers.CharField(source='item.sku', read_only=True)
+    item_name = serializers.CharField(source='item.name', read_only=True)
     item_description = serializers.CharField(
         source='item.description',
         read_only=True
@@ -97,10 +133,10 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
     class Meta:
         model = StocktakeLine
         fields = [
-            'id', 'stocktake', 'item', 'item_code', 'item_description',
-            'category_name', 'opening_qty', 'purchases', 'sales', 'waste',
-            'transfers_in', 'transfers_out', 'adjustments',
-            'counted_full_units', 'counted_partial_units',
+            'id', 'stocktake', 'item', 'item_sku', 'item_name',
+            'item_description', 'category_name', 'opening_qty',
+            'purchases', 'sales', 'waste', 'transfers_in', 'transfers_out',
+            'adjustments', 'counted_full_units', 'counted_partial_units',
             'counted_qty', 'expected_qty', 'variance_qty',
             'valuation_cost', 'expected_value', 'counted_value',
             'variance_value'
