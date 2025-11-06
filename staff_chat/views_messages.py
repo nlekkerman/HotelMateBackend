@@ -566,18 +566,33 @@ def add_reaction(request, hotel_slug, message_id):
     
     emoji = serializer.validated_data['emoji']
     
-    # Create or get reaction
-    reaction, created = StaffMessageReaction.objects.get_or_create(
+    # Remove any existing reactions by this user on this message
+    existing_reactions = StaffMessageReaction.objects.filter(
+        message=message,
+        staff=staff
+    )
+    
+    removed_reactions = []
+    if existing_reactions.exists():
+        # Store reaction info before deletion for broadcast
+        for old_reaction in existing_reactions:
+            removed_reactions.append({
+                'id': old_reaction.id,
+                'emoji': old_reaction.emoji,
+                'staff': staff.id
+            })
+        existing_reactions.delete()
+        logger.info(
+            f"🔄 Removed {len(removed_reactions)} existing reaction(s) "
+            f"by staff {staff.id} on message {message_id}"
+        )
+    
+    # Create the new reaction
+    reaction = StaffMessageReaction.objects.create(
         message=message,
         staff=staff,
         emoji=emoji
     )
-    
-    if not created:
-        return Response(
-            {'message': 'Reaction already exists'},
-            status=status.HTTP_200_OK
-        )
     
     logger.info(
         f"👍 Reaction added: {emoji} by staff {staff.id} "
@@ -587,21 +602,35 @@ def add_reaction(request, hotel_slug, message_id):
     # Serialize reaction
     reaction_serializer = MessageReactionSerializer(reaction)
     
-    # Broadcast reaction via Pusher
-    reaction_data = {
-        'message_id': message.id,
-        'reaction': reaction_serializer.data,
-        'action': 'add'
-    }
-    
+    # Broadcast removed reactions (if any) and new reaction via Pusher
     try:
+        # First, broadcast removal of old reactions
+        for removed in removed_reactions:
+            removal_data = {
+                'message_id': message.id,
+                'reaction': removed,
+                'action': 'remove'
+            }
+            broadcast_message_reaction(
+                hotel_slug,
+                message.conversation.id,
+                removal_data
+            )
+        
+        # Then broadcast the new reaction
+        reaction_data = {
+            'message_id': message.id,
+            'reaction': reaction_serializer.data,
+            'action': 'add'
+        }
         broadcast_message_reaction(
             hotel_slug,
             message.conversation.id,
             reaction_data
         )
         logger.info(
-            f"✅ Reaction broadcasted via Pusher"
+            f"✅ Reaction change broadcasted via Pusher "
+            f"(removed: {len(removed_reactions)}, added: 1)"
         )
     except Exception as e:
         logger.error(

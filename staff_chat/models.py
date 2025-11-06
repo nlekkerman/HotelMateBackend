@@ -89,11 +89,11 @@ class StaffConversation(models.Model):
         """
         Get existing conversation or create new one.
         For 1-on-1: Returns existing conversation between two staff members
-        For groups: Always creates new (groups can have same members)
+        For groups: Returns existing conversation with same participants
         
         Args:
             hotel: Hotel instance
-            staff_list: List of Staff instances (excluding creator)
+            staff_list: List of Staff instances (including creator)
             title: Optional title for group chats
         
         Returns:
@@ -104,19 +104,39 @@ class StaffConversation(models.Model):
         # For 1-on-1 conversations (2 total participants)
         if len(staff_list) == 2:
             # Check if conversation exists between these two staff members
-            conversation = cls.objects.filter(
+            # First get all non-group conversations with correct count
+            conversations = cls.objects.filter(
                 hotel=hotel,
                 is_group=False
+            ).annotate(
+                participant_count=Count('participants')
+            ).filter(
+                participant_count=2
             ).filter(
                 participants=staff_list[0]
             ).filter(
                 participants=staff_list[1]
+            )
+            
+            if conversations.exists():
+                return conversations.first(), False
+        
+        # For group conversations (3+ participants)
+        else:
+            # Check if conversation exists with exact same participants
+            # Start with conversations that have the right participant count
+            conversations = cls.objects.filter(
+                hotel=hotel,
+                is_group=True
             ).annotate(
                 participant_count=Count('participants')
-            ).filter(participant_count=2).first()
+            ).filter(participant_count=len(staff_list))
             
-            if conversation:
-                return conversation, False
+            # Filter to find one with exact same participants
+            for conv in conversations:
+                conv_participants = set(conv.participants.all())
+                if conv_participants == set(staff_list):
+                    return conv, False
         
         # Create new conversation
         is_group = len(staff_list) > 2
@@ -436,7 +456,8 @@ class StaffMessageReaction(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
-        unique_together = ('message', 'staff', 'emoji')
+        # Only one reaction per user per message
+        unique_together = ('message', 'staff')
         ordering = ['created_at']
         verbose_name = 'Staff Message Reaction'
         verbose_name_plural = 'Staff Message Reactions'

@@ -4,7 +4,7 @@
 1. [Setup & Authentication](#setup--authentication)
 2. [Create Conversations](#create-conversations)
 3. [Send Messages](#send-messages)
-4. [Upload Files](#upload-files)
+4. [Upload Files](#upload-files) ⚠️ **See [STAFF_CHAT_FILE_SHARING_GUIDE.md](./STAFF_CHAT_FILE_SHARING_GUIDE.md) for complete file upload guide**
 5. [Edit Messages](#edit-messages)
 6. [Delete Messages](#delete-messages)
 7. [Message Reactions](#message-reactions)
@@ -848,93 +848,44 @@ await sendMessage(45, "Hey @Jane can you check this?");
 
 ## Upload Files
 
-### Upload Files with Message
+⚠️ **For complete file upload documentation, see [STAFF_CHAT_FILE_SHARING_GUIDE.md](./STAFF_CHAT_FILE_SHARING_GUIDE.md)**
+
+The dedicated file sharing guide includes:
+- Multiple upload methods (with message, reply, or attach to existing)
+- Image and document handling
+- Drag & drop implementation
+- File preview and validation
+- Upload progress tracking
+- Image compression
+- Complete UI components
+
+### Quick Example
+
 ```javascript
 // POST /api/staff_chat/{hotel_slug}/conversations/{conversation_id}/upload/
 async function uploadFiles(conversationId, files, messageText = '') {
   const formData = new FormData();
   
-  // Add files (max 10 files, 50MB each)
-  files.forEach(file => {
-    formData.append('files', file);
-  });
+  files.forEach(file => formData.append('files', file));
+  if (messageText) formData.append('message', messageText);
   
-  // Optional message text
-  if (messageText) {
-    formData.append('message', messageText);
-  }
-  
-  const url = `${BASE_URL}/${hotelSlug}/conversations/${conversationId}/upload/`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${userToken}`
-      // Don't set Content-Type, browser will set it with boundary
-    },
-    body: formData
-  });
+  const response = await fetch(
+    `${BASE_URL}/${hotelSlug}/conversations/${conversationId}/upload/`,
+    {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${userToken}` },
+      body: formData
+    }
+  );
   
   return await response.json();
 }
-
-// Example: Upload from file input
-const fileInput = document.getElementById('fileInput');
-const files = Array.from(fileInput.files);
-await uploadFiles(45, files, "Check these documents");
-
-// Example: Drag & drop
-dropZone.addEventListener('drop', async (e) => {
-  e.preventDefault();
-  const files = Array.from(e.dataTransfer.files);
-  await uploadFiles(45, files, "Here are the files");
-});
 ```
-
-**Supported File Types:**
-- Images: `.jpg`, `.jpeg`, `.png`, `.gif`, `.webp`, `.bmp`
-- PDF: `.pdf`
-- Documents: `.doc`, `.docx`, `.xls`, `.xlsx`, `.txt`, `.csv`
 
 **File Limits:**
 - Max 10 files per upload
 - Max 50MB per file
-
-**Response:**
-```json
-{
-  "message": {
-    "id": 235,
-    "message": "Check these documents",
-    "attachments": [
-      {
-        "id": 67,
-        "file_name": "report.pdf",
-        "file_type": "pdf",
-        "file_size": 1048576,
-        "file_url": "https://cloudinary.com/...",
-        "thumbnail": null,
-        "uploaded_at": "2025-11-05T14:35:00Z"
-      }
-    ]
-  }
-}
-```
-
-### Delete Attachment
-```javascript
-// DELETE /api/staff_chat/{hotel_slug}/attachments/{attachment_id}/delete/
-async function deleteAttachment(attachmentId) {
-  const url = `${BASE_URL}/${hotelSlug}/attachments/${attachmentId}/delete/`;
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers
-  });
-  return response.ok;
-}
-
-// Example
-await deleteAttachment(67);
-```
+- Supported: Images (JPG, PNG, GIF, WebP, BMP), PDF, Word, Excel, TXT, CSV
 
 ---
 
@@ -1029,6 +980,9 @@ await hardDeleteMessage(234);
 ## Message Reactions
 
 ### Add Reaction (Emoji)
+
+**⚠️ IMPORTANT**: Each user can have **only ONE reaction per message**. When you select a new emoji, your previous reaction is automatically replaced.
+
 ```javascript
 // POST /api/staff_chat/{hotel_slug}/messages/{message_id}/react/
 async function addReaction(messageId, emoji) {
@@ -1043,8 +997,10 @@ async function addReaction(messageId, emoji) {
   return await response.json();
 }
 
-// Example
+// Example: Add reaction
 await addReaction(234, '👍');
+
+// Example: Change reaction (removes 👍, adds ❤️)
 await addReaction(234, '❤️');
 ```
 
@@ -1092,6 +1048,9 @@ await removeReaction(234, '👍');
 ```
 
 ### Display Reactions in UI
+
+**Note**: Since each user can only have one reaction per message, you won't see duplicate reactions from the same user.
+
 ```javascript
 // Group reactions by emoji
 function groupReactions(reactions) {
@@ -1101,7 +1060,8 @@ function groupReactions(reactions) {
       grouped[reaction.emoji] = {
         emoji: reaction.emoji,
         count: 0,
-        staff: []
+        staff: [],
+        userReacted: false
       };
     }
     grouped[reaction.emoji].count++;
@@ -1110,7 +1070,32 @@ function groupReactions(reactions) {
   return Object.values(grouped);
 }
 
-// Example UI
+// Check if current user reacted with specific emoji
+function hasUserReacted(reactions, currentUserId) {
+  return reactions.find(r => r.staff.id === currentUserId);
+}
+
+// Example: Reaction picker UI
+function ReactionPicker({ messageId, currentReaction }) {
+  const emojis = ['👍', '❤️', '😊', '😂', '😮', '😢', '🎉', '🔥', '✅', '👏'];
+  
+  return (
+    <div className="reaction-picker">
+      {emojis.map(emoji => (
+        <button
+          key={emoji}
+          onClick={() => addReaction(messageId, emoji)}
+          className={currentReaction === emoji ? 'active' : ''}
+          title={currentReaction === emoji ? 'Your reaction' : 'React'}
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Example: Display grouped reactions
 const grouped = groupReactions(message.reactions);
 grouped.forEach(group => {
   console.log(`${group.emoji} ${group.count} - ${group.staff.map(s => s.first_name).join(', ')}`);
