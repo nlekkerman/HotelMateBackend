@@ -162,7 +162,7 @@ class StocktakeSerializer(serializers.ModelSerializer):
             'approved_by', 'approved_by_name', 'notes',
             'lines', 'total_lines'
         ]
-        read_only_fields = ['status', 'approved_at', 'approved_by']
+        read_only_fields = ['hotel', 'status', 'approved_at', 'approved_by']
 
     def get_approved_by_name(self, obj):
         if obj.approved_by:

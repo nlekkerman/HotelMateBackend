@@ -176,6 +176,15 @@ class StocktakeViewSet(viewsets.ModelViewSet):
             return StocktakeListSerializer
         return StocktakeSerializer
 
+    def perform_create(self, serializer):
+        """Auto-set hotel from URL parameter"""
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        serializer.save(hotel=hotel)
+
     @action(detail=True, methods=['post'])
     def populate(self, request, pk=None):
         """
