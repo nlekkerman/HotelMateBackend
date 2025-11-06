@@ -86,79 +86,119 @@ stocktake_line_detail = StocktakeLineViewSet.as_view({
 
 urlpatterns = [
     # Ingredients
-    path('ingredients/', ingredient_list, name='ingredient-list'),
     path(
-        'ingredients/<int:pk>/',
+        '<str:hotel_identifier>/ingredients/',
+        ingredient_list,
+        name='ingredient-list'
+    ),
+    path(
+        '<str:hotel_identifier>/ingredients/<int:pk>/',
         ingredient_detail,
         name='ingredient-detail'
     ),
 
     # Cocktails
-    path('cocktails/', cocktail_list, name='cocktail-list'),
-    path('cocktails/<int:pk>/', cocktail_detail, name='cocktail-detail'),
+    path(
+        '<str:hotel_identifier>/cocktails/',
+        cocktail_list,
+        name='cocktail-list'
+    ),
+    path(
+        '<str:hotel_identifier>/cocktails/<int:pk>/',
+        cocktail_detail,
+        name='cocktail-detail'
+    ),
 
     # Cocktail Consumption Logs
-    path('consumptions/', consumption_list, name='consumption-list'),
     path(
-        'consumptions/<int:pk>/',
+        '<str:hotel_identifier>/consumptions/',
+        consumption_list,
+        name='consumption-list'
+    ),
+    path(
+        '<str:hotel_identifier>/consumptions/<int:pk>/',
         consumption_detail,
         name='consumption-detail'
     ),
 
     # Analytics
     path(
-        'analytics/ingredient-usage/',
+        '<str:hotel_identifier>/analytics/ingredient-usage/',
         IngredientUsageView.as_view(),
         name='ingredient-usage'
     ),
 
     # Stock Categories
-    path('categories/', stock_category_list, name='category-list'),
     path(
-        'categories/<int:pk>/',
+        '<str:hotel_identifier>/categories/',
+        stock_category_list,
+        name='category-list'
+    ),
+    path(
+        '<str:hotel_identifier>/categories/<int:pk>/',
         stock_category_detail,
         name='category-detail'
     ),
 
     # Stock Items
-    path('items/', stock_item_list, name='stock-item-list'),
-    path('items/<int:pk>/', stock_item_detail, name='stock-item-detail'),
+    path(
+        '<str:hotel_identifier>/items/',
+        stock_item_list,
+        name='stock-item-list'
+    ),
+    path(
+        '<str:hotel_identifier>/items/<int:pk>/',
+        stock_item_detail,
+        name='stock-item-detail'
+    ),
 
     # Stock Movements
-    path('movements/', stock_movement_list, name='movement-list'),
     path(
-        'movements/<int:pk>/',
+        '<str:hotel_identifier>/movements/',
+        stock_movement_list,
+        name='movement-list'
+    ),
+    path(
+        '<str:hotel_identifier>/movements/<int:pk>/',
         stock_movement_detail,
         name='movement-detail'
     ),
 
     # Stocktakes
-    path('stocktakes/', stocktake_list, name='stocktake-list'),
     path(
-        'stocktakes/<int:pk>/',
+        '<str:hotel_identifier>/stocktakes/',
+        stocktake_list,
+        name='stocktake-list'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktakes/<int:pk>/',
         stocktake_detail,
         name='stocktake-detail'
     ),
     path(
-        'stocktakes/<int:pk>/populate/',
+        '<str:hotel_identifier>/stocktakes/<int:pk>/populate/',
         stocktake_populate,
         name='stocktake-populate'
     ),
     path(
-        'stocktakes/<int:pk>/approve/',
+        '<str:hotel_identifier>/stocktakes/<int:pk>/approve/',
         stocktake_approve,
         name='stocktake-approve'
     ),
     path(
-        'stocktakes/<int:pk>/category-totals/',
+        '<str:hotel_identifier>/stocktakes/<int:pk>/category-totals/',
         stocktake_category_totals,
         name='stocktake-category-totals'
     ),
 
     # Stocktake Lines
-    path('stocktake-lines/', stocktake_line_list, name='line-list'),
     path(
-        'stocktake-lines/<int:pk>/',
+        '<str:hotel_identifier>/stocktake-lines/',
+        stocktake_line_list,
+        name='line-list'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktake-lines/<int:pk>/',
         stocktake_line_detail,
         name='line-detail'
     ),

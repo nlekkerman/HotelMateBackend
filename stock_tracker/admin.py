@@ -5,6 +5,7 @@ from .models import (
     RecipeIngredient,
     CocktailConsumption,
     StockCategory,
+    Location,
     StockItem,
     StockMovement,
     Stocktake,
@@ -54,16 +55,24 @@ class StockCategoryAdmin(admin.ModelAdmin):
     ordering = ('hotel', 'sort_order', 'name')
 
 
+@admin.register(Location)
+class LocationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'hotel', 'name', 'active')
+    list_filter = ('hotel', 'active')
+    search_fields = ('name',)
+    ordering = ('hotel', 'name')
+
+
 @admin.register(StockItem)
 class StockItemAdmin(admin.ModelAdmin):
     list_display = (
-        'code', 'description', 'category', 'hotel',
+        'sku', 'name', 'category', 'hotel',
         'current_qty', 'unit_cost', 'gp_percentage'
     )
-    list_filter = ('hotel', 'category')
-    search_fields = ('code', 'description')
-    ordering = ('hotel', 'category', 'code')
-    readonly_fields = ('gp_percentage',)
+    list_filter = ('hotel', 'category', 'product_type')
+    search_fields = ('sku', 'name', 'description')
+    ordering = ('hotel', 'category', 'sku')
+    readonly_fields = ('cost_per_base', 'gp_percentage')
 
 
 @admin.register(StockMovement)
@@ -73,7 +82,7 @@ class StockMovementAdmin(admin.ModelAdmin):
         'quantity', 'staff'
     )
     list_filter = ('hotel', 'movement_type', 'timestamp')
-    search_fields = ('item__code', 'item__description', 'reference')
+    search_fields = ('item__sku', 'item__name', 'reference')
     ordering = ('-timestamp',)
     readonly_fields = ('timestamp',)
 
@@ -119,7 +128,7 @@ class StocktakeLineAdmin(admin.ModelAdmin):
         'counted_partial_units', 'variance_qty'
     )
     list_filter = ('stocktake__hotel', 'stocktake')
-    search_fields = ('item__code', 'item__description')
+    search_fields = ('item__sku', 'item__name')
     readonly_fields = (
         'opening_qty', 'purchases', 'sales', 'waste',
         'transfers_in', 'transfers_out', 'adjustments',

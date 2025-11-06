@@ -2,7 +2,10 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
 
+from hotel.models import Hotel
 from .analytics import ingredient_usage
 from .models import (
     Ingredient,
@@ -35,29 +38,50 @@ from .stocktake_service import (
 
 
 class IngredientViewSet(viewsets.ModelViewSet):
-    queryset = Ingredient.objects.all()
     serializer_class = IngredientSerializer
     pagination_class = None
     search_fields = ['name']
     ordering_fields = ['name']
 
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        return Ingredient.objects.filter(hotel=hotel)
+
 
 class CocktailRecipeViewSet(viewsets.ModelViewSet):
-    queryset = CocktailRecipe.objects.prefetch_related(
-        'ingredients__ingredient'
-    ).all()
     serializer_class = CocktailRecipeSerializer
     search_fields = ['name']
     ordering_fields = ['name']
 
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        return CocktailRecipe.objects.filter(hotel=hotel).prefetch_related(
+            'ingredients__ingredient'
+        )
+
 
 class CocktailConsumptionViewSet(viewsets.ModelViewSet):
-    queryset = CocktailConsumption.objects.select_related('cocktail').all()
     serializer_class = CocktailConsumptionSerializer
     ordering = ['-timestamp']
 
     def get_queryset(self):
-        qs = super().get_queryset()
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        qs = CocktailConsumption.objects.filter(
+            hotel=hotel
+        ).select_related('cocktail')
+        
         cocktail_id = self.request.query_params.get('cocktail_id')
         if cocktail_id:
             qs = qs.filter(cocktail_id=cocktail_id)
@@ -70,11 +94,14 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
 
 
 class IngredientUsageView(APIView):
-    def get(self, request):
-        hotel_id = request.query_params.get('hotel_id')
+    def get(self, request, hotel_identifier):
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
 
         try:
-            data = ingredient_usage(hotel_id=hotel_id)
+            data = ingredient_usage(hotel_id=hotel.id)
         except Exception as e:
             return Response(
                 {"error": str(e)},
@@ -87,29 +114,56 @@ class IngredientUsageView(APIView):
 # Stock Management ViewSets
 
 class StockCategoryViewSet(viewsets.ModelViewSet):
-    queryset = StockCategory.objects.all()
     serializer_class = StockCategorySerializer
-    filterset_fields = ['hotel']
+
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        return StockCategory.objects.filter(hotel=hotel)
 
 
 class StockItemViewSet(viewsets.ModelViewSet):
-    queryset = StockItem.objects.all()
     serializer_class = StockItemSerializer
-    filterset_fields = ['hotel', 'category', 'code']
-    search_fields = ['code', 'description']
+    filterset_fields = ['category']
+    search_fields = ['sku', 'name', 'description']
+
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        return StockItem.objects.filter(hotel=hotel)
 
 
 class StockMovementViewSet(viewsets.ModelViewSet):
-    queryset = StockMovement.objects.all()
     serializer_class = StockMovementSerializer
-    filterset_fields = ['hotel', 'item', 'movement_type']
+    filterset_fields = ['item', 'movement_type']
     ordering = ['-timestamp']
+
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        return StockMovement.objects.filter(hotel=hotel)
 
 
 class StocktakeViewSet(viewsets.ModelViewSet):
-    queryset = Stocktake.objects.all()
-    filterset_fields = ['hotel', 'status']
+    filterset_fields = ['status']
     ordering = ['-period_end']
+
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        return Stocktake.objects.filter(hotel=hotel)
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -182,9 +236,16 @@ class StocktakeViewSet(viewsets.ModelViewSet):
 
 
 class StocktakeLineViewSet(viewsets.ModelViewSet):
-    queryset = StocktakeLine.objects.all()
     serializer_class = StocktakeLineSerializer
     filterset_fields = ['stocktake', 'item']
+
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        return StocktakeLine.objects.filter(stocktake__hotel=hotel)
 
     def update(self, request, *args, **kwargs):
         """Override to prevent updates on locked stocktakes"""
