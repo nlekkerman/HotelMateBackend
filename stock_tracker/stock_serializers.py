@@ -65,7 +65,8 @@ class StockItemSerializer(serializers.ModelSerializer):
         max_digits=10, decimal_places=4, read_only=True
     )
     gp_percentage = serializers.DecimalField(
-        max_digits=5, decimal_places=2, read_only=True
+        max_digits=5, decimal_places=2, read_only=True,
+        source='gross_profit_percentage'
     )
     markup_percentage = serializers.DecimalField(
         max_digits=8, decimal_places=2, read_only=True
