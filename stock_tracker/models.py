@@ -144,6 +144,7 @@ class StockItem(models.Model):
     category = models.ForeignKey(
         StockCategory,
         on_delete=models.PROTECT,
+        related_name='stock_items',
         help_text="Auto-set from SKU prefix"
     )
 

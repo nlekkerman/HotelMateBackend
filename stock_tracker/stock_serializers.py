@@ -22,7 +22,7 @@ class StockCategorySerializer(serializers.ModelSerializer):
     
     def get_item_count(self, obj):
         """Get count of items in this category"""
-        return obj.items.count()
+        return obj.stock_items.count()
 
 
 class LocationSerializer(serializers.ModelSerializer):
