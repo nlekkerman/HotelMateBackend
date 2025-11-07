@@ -169,9 +169,15 @@ class LocationViewSet(viewsets.ModelViewSet):
 
 class StockPeriodViewSet(viewsets.ModelViewSet):
     """ViewSet for stock periods (Weekly, Monthly, Quarterly, Yearly)"""
-    serializer_class = StockPeriodSerializer
     pagination_class = None
     ordering = ['-start_date']
+
+    def get_serializer_class(self):
+        """Use detailed serializer for retrieve, simple for list"""
+        if self.action == 'retrieve':
+            from .stock_serializers import StockPeriodDetailSerializer
+            return StockPeriodDetailSerializer
+        return StockPeriodSerializer
 
     def get_queryset(self):
         hotel_identifier = self.kwargs.get('hotel_identifier')
@@ -234,11 +240,11 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         
         # Get snapshots for both periods
         snapshots1 = {
-            s.item_id: s for s in 
+            s.item_id: s for s in
             StockSnapshot.objects.filter(hotel=hotel, period=period1)
         }
         snapshots2 = {
-            s.item_id: s for s in 
+            s.item_id: s for s in
             StockSnapshot.objects.filter(hotel=hotel, period=period2)
         }
         
@@ -251,6 +257,18 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             s2 = snapshots2.get(item_id)
             
             if s1 and s2:
+                value_change = float(
+                    s2.closing_stock_value - s1.closing_stock_value
+                )
+                servings_change = float(
+                    s2.total_servings - s1.total_servings
+                )
+                percentage_change = float(
+                    ((s2.closing_stock_value - s1.closing_stock_value) /
+                     s1.closing_stock_value * 100)
+                    if s1.closing_stock_value > 0 else 0
+                )
+                
                 comparison.append({
                     'item_id': item_id,
                     'sku': s1.item.sku,
@@ -259,21 +277,17 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                     'period1': {
                         'period_name': period1.period_name,
                         'closing_stock': float(s1.closing_stock_value),
-                        'units': float(s1.total_units)
+                        'servings': float(s1.total_servings)
                     },
                     'period2': {
                         'period_name': period2.period_name,
                         'closing_stock': float(s2.closing_stock_value),
-                        'units': float(s2.total_units)
+                        'servings': float(s2.total_servings)
                     },
                     'change': {
-                        'value': float(s2.closing_stock_value - s1.closing_stock_value),
-                        'units': float(s2.total_units - s1.total_units),
-                        'percentage': float(
-                            ((s2.closing_stock_value - s1.closing_stock_value) / 
-                             s1.closing_stock_value * 100) 
-                            if s1.closing_stock_value > 0 else 0
-                        )
+                        'value': value_change,
+                        'servings': servings_change,
+                        'percentage': percentage_change
                     }
                 })
         
@@ -349,14 +363,18 @@ class StockItemViewSet(viewsets.ModelViewSet):
                     'menu_price': float(item.menu_price),
                     'cost_per_serving': float(item.cost_per_serving),
                     'gross_profit': float(item.gross_profit_per_serving),
-                    'gp_percentage': float(item.gp_percentage),
+                    'gross_profit_percentage': float(
+                        item.gross_profit_percentage
+                    ),
                     'markup_percentage': float(item.markup_percentage),
                     'pour_cost_percentage': float(item.pour_cost_percentage),
                     'current_stock_value': float(item.total_stock_value)
                 })
         
         # Sort by GP% descending
-        analysis.sort(key=lambda x: x['gp_percentage'], reverse=True)
+        analysis.sort(
+            key=lambda x: x['gross_profit_percentage'], reverse=True
+        )
         
         return Response(analysis)
     

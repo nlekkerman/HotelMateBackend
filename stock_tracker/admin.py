@@ -72,15 +72,16 @@ class StockItemAdmin(admin.ModelAdmin):
         'sku', 'name', 'category', 'hotel',
         'size', 'uom', 'unit_cost',
         'current_full_units', 'current_partial_units',
-        'menu_price', 'get_gp_percentage', 'available_on_menu'
+        'menu_price', 'display_gp_percentage', 'available_on_menu'
     )
     list_filter = ('hotel', 'category', 'available_on_menu', 'available_by_bottle', 'active')
     search_fields = ('sku', 'name')
     ordering = ('hotel', 'category', 'sku')
     readonly_fields = (
         'cost_per_serving', 'total_stock_in_servings', 'total_stock_value',
-        'gross_profit_per_serving', 'get_gp_percentage', 'get_markup_percentage',
-        'get_pour_cost_percentage', 'created_at', 'updated_at'
+        'gross_profit_per_serving', 'gross_profit_percentage',
+        'markup_percentage', 'pour_cost_percentage',
+        'created_at', 'updated_at'
     )
     fieldsets = (
         ('Identification', {
@@ -105,8 +106,8 @@ class StockItemAdmin(admin.ModelAdmin):
         }),
         ('Profitability Metrics', {
             'fields': (
-                'gross_profit_per_serving', 'get_gp_percentage',
-                'get_markup_percentage', 'get_pour_cost_percentage'
+                'gross_profit_per_serving', 'gross_profit_percentage',
+                'markup_percentage', 'pour_cost_percentage'
             ),
             'classes': ('collapse',)
         }),
@@ -119,25 +120,14 @@ class StockItemAdmin(admin.ModelAdmin):
         }),
     )
 
-    def get_gp_percentage(self, obj):
-        """Display gross profit percentage"""
+    def display_gp_percentage(self, obj):
+        """Display gross profit percentage in list view"""
         gp = obj.gross_profit_percentage
-        return f"{gp}%" if gp is not None else "-"
-    get_gp_percentage.short_description = 'GP%'
-    get_gp_percentage.admin_order_field = 'menu_price'
-
-    def get_markup_percentage(self, obj):
-        """Display markup percentage"""
-        markup = obj.markup_percentage
-        return f"{markup}%" if markup is not None else "-"
-    get_markup_percentage.short_description = 'Markup%'
-
-    def get_pour_cost_percentage(self, obj):
-        """Display pour cost percentage"""
-        pour_cost = obj.pour_cost_percentage
-        return f"{pour_cost}%" if pour_cost is not None else "-"
-    get_pour_cost_percentage.short_description = 'Pour Cost%'
-    get_pour_cost_percentage.short_description = 'Pour Cost%'
+        if gp is not None:
+            return f"{gp:.2f}%"
+        return "-"
+    display_gp_percentage.short_description = 'GP%'
+    display_gp_percentage.admin_order_field = 'menu_price'
 
 
 @admin.register(StockPeriod)

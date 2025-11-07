@@ -277,25 +277,22 @@ class StockItem(models.Model):
         """
         Convert all stock to servings for consistent calculations:
 
-        Draught (D): (full_kegs × pints_per_keg) + partial_pints
-        Bottled (B): (full_cases × 12) + loose_bottles
-        Spirits (S): (full_bottles × shots_per_bottle) + (partial_bottle × shots_per_bottle)
-        Wine (W): similar to spirits
-        Minerals (M): varies
+        ALL CATEGORIES use the same logic:
+        - current_full_units: whole units (kegs, cases, bottles)
+        - current_partial_units: fractional units (0.70 = 0.70 of a unit)
+        
+        Formula: (full_units × servings_per_unit) + (partial_units × servings_per_unit)
+        
+        Examples:
+        - Draught: (2 kegs × 52.82 pints) + (0.5 kegs × 52.82 pints) = 132.05 pints
+        - Bottled: (10 cases × 12 bottles) + (0.5 cases × 12 bottles) = 126 bottles
+        - Spirits: (7 bottles × 20 shots) + (0.70 bottles × 20 shots) = 154 shots
+        - Wine: (3 bottles × 5 glasses) + (0.25 bottles × 5 glasses) = 16.25 glasses
         """
-        category_code = self.category_id
-
-        if category_code in ['D', 'B', 'M']:
-            # Full units converted + partial units
-            return (self.current_full_units * self.uom) + self.current_partial_units
-
-        elif category_code in ['S', 'W']:
-            # For spirits/wine: partial is a percentage (0.05 = 5% of bottle)
-            full_servings = self.current_full_units * self.uom
-            partial_servings = self.current_partial_units * self.uom
-            return full_servings + partial_servings
-
-        return Decimal('0.0000')
+        # Unified calculation for all categories
+        full_servings = self.current_full_units * self.uom
+        partial_servings = self.current_partial_units * self.uom
+        return full_servings + partial_servings
 
     @property
     def total_stock_value(self):
@@ -312,18 +309,12 @@ class StockItem(models.Model):
 
     @property
     def partial_units_value(self):
-        """Value of partial units (pints, loose bottles, partial bottles)"""
-        category_code = self.category_id
-
-        if category_code in ['D', 'B', 'M']:
-            # Partial units are individual servings
-            return self.current_partial_units * self.cost_per_serving
-
-        elif category_code in ['S', 'W']:
-            # Partial is percentage of a bottle
-            return self.current_partial_units * self.unit_cost
-
-        return Decimal('0.0000')
+        """
+        Value of partial units (fractional kegs, cases, bottles)
+        Partial units represent fractional amounts of the base unit.
+        Example: 0.70 bottles × unit_cost = value of 0.70 bottles
+        """
+        return self.current_partial_units * self.unit_cost
 
     # === PROFITABILITY METRICS ===
 
@@ -383,18 +374,32 @@ class StockItem(models.Model):
     # === DISPLAY HELPERS ===
 
     def get_stock_display(self):
-        """Human-readable stock display"""
+        """
+        Human-readable stock display
+        Shows full + partial units in their original form
+        """
         category_code = self.category_id
 
         if category_code == 'D':
-            return f"{self.current_full_units} kegs + {self.current_partial_units} pints"
+            return (
+                f"{self.current_full_units} kegs + "
+                f"{self.current_partial_units} kegs"
+            )
         elif category_code == 'B':
-            return f"{self.current_full_units} cases + {self.current_partial_units} bottles"
+            return (
+                f"{self.current_full_units} cases + "
+                f"{self.current_partial_units} cases"
+            )
         elif category_code in ['S', 'W']:
-            percentage = int(self.current_partial_units * 100)
-            return f"{self.current_full_units} bottles + {percentage}%"
+            return (
+                f"{self.current_full_units} bottles + "
+                f"{self.current_partial_units} bottles"
+            )
         else:
-            return f"{self.current_full_units} + {self.current_partial_units}"
+            return (
+                f"{self.current_full_units} + "
+                f"{self.current_partial_units}"
+            )
 
 
 class StockPeriod(models.Model):
@@ -646,17 +651,13 @@ class StockSnapshot(models.Model):
 
     @property
     def total_servings(self):
-        """Calculate total servings from full + partial units"""
-        category_code = self.item.category_id
-
-        if category_code in ['D', 'B', 'M']:
-            return (self.closing_full_units * self.item.uom) + self.closing_partial_units
-        elif category_code in ['S', 'W']:
-            full_servings = self.closing_full_units * self.item.uom
-            partial_servings = self.closing_partial_units * self.item.uom
-            return full_servings + partial_servings
-
-        return Decimal('0.0000')
+        """
+        Calculate total servings from full + partial units
+        Unified calculation: (full × uom) + (partial × uom)
+        """
+        full_servings = self.closing_full_units * self.item.uom
+        partial_servings = self.closing_partial_units * self.item.uom
+        return full_servings + partial_servings
 
 
 class StockMovement(models.Model):
