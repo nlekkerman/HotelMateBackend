@@ -277,22 +277,33 @@ class StockItem(models.Model):
         """
         Convert all stock to servings for consistent calculations:
 
-        ALL CATEGORIES use the same logic:
-        - current_full_units: whole units (kegs, cases, bottles)
-        - current_partial_units: fractional units (0.70 = 0.70 of a unit)
+        SIZE-SPECIFIC HANDLING:
         
-        Formula: (full_units × servings_per_unit) + (partial_units × servings_per_unit)
+        Items sold by DOZEN ("Doz" in size field):
+        - Full units = cases/dozens
+        - Partial units = individual bottles (NOT fractional cases)
+        - Formula: (full_cases × bottles_per_case) + partial_bottles
+        - Example Beer: (0 cases × 12) + 145 bottles = 145 bottles
+        - Example Minerals: (0 cases × 12) + 169 bottles = 169 bottles
         
-        Examples:
-        - Draught: (2 kegs × 52.82 pints) + (0.5 kegs × 52.82 pints) = 132.05 pints
-        - Bottled: (10 cases × 12 bottles) + (0.5 cases × 12 bottles) = 126 bottles
-        - Spirits: (7 bottles × 20 shots) + (0.70 bottles × 20 shots) = 154 shots
-        - Wine: (3 bottles × 5 glasses) + (0.25 bottles × 5 glasses) = 16.25 glasses
+        All other items (Draught, Spirits, Wine, Individual Minerals):
+        - Full units = base units (kegs, bottles, etc.)
+        - Partial units = fractional base units (0.70 = 0.70 of a unit)
+        - Formula: (full_units × servings) + (partial_units × servings)
+        - Example Spirits: (2 bottles × 20) + (0.70 bottles × 20) = 54 shots
+        - Example Draught: (2 kegs × 52.82) + (26.50 kegs × 52.82) = 1505.73 pints
         """
-        # Unified calculation for all categories
-        full_servings = self.current_full_units * self.uom
-        partial_servings = self.current_partial_units * self.uom
-        return full_servings + partial_servings
+        # Check if item is sold by dozen (applies to Beer and some Minerals)
+        if self.size and 'Doz' in self.size:
+            # Items sold by dozen: partial = individual bottles, not fractional
+            full_servings = self.current_full_units * self.uom
+            # Partial bottles are already in serving units (bottles)
+            return full_servings + self.current_partial_units
+        else:
+            # All other items: partial = fractional units
+            full_servings = self.current_full_units * self.uom
+            partial_servings = self.current_partial_units * self.uom
+            return full_servings + partial_servings
 
     @property
     def total_stock_value(self):
@@ -310,11 +321,18 @@ class StockItem(models.Model):
     @property
     def partial_units_value(self):
         """
-        Value of partial units (fractional kegs, cases, bottles)
-        Partial units represent fractional amounts of the base unit.
-        Example: 0.70 bottles × unit_cost = value of 0.70 bottles
+        Value of partial units - size-specific handling
+        
+        Items sold by DOZEN ("Doz"): partial = individual bottles
+        Others: partial = fractional units of the base unit
         """
-        return self.current_partial_units * self.unit_cost
+        # Check if item is sold by dozen
+        if self.size and 'Doz' in self.size:
+            # Partial bottles valued at cost per bottle (cost per serving)
+            return self.current_partial_units * self.cost_per_serving
+        else:
+            # Partial fractional units valued at unit cost
+            return self.current_partial_units * self.unit_cost
 
     # === PROFITABILITY METRICS ===
 
@@ -359,6 +377,36 @@ class StockItem(models.Model):
             pour_cost = (self.cost_per_serving / self.menu_price) * 100
             return round(pour_cost, 2)
         return None
+
+    # === DISPLAY HELPERS (for frontend) ===
+
+    @property
+    def display_full_units(self):
+        """
+        Display-friendly full units for frontend
+        For "Doz" items: converts bottles to cases
+        Others: returns as-is
+        """
+        if self.size and 'Doz' in self.size and self.uom > 0:
+            # Convert total bottles to cases
+            total_bottles = self.current_partial_units
+            cases = int(total_bottles / self.uom)
+            return cases
+        return self.current_full_units
+
+    @property
+    def display_partial_units(self):
+        """
+        Display-friendly partial units for frontend
+        For "Doz" items: shows remaining bottles after cases
+        Others: returns as-is
+        """
+        if self.size and 'Doz' in self.size and self.uom > 0:
+            # Show remaining bottles after full cases
+            total_bottles = self.current_partial_units
+            remaining = total_bottles % self.uom
+            return remaining
+        return self.current_partial_units
 
     def suggest_menu_price(self, target_gp_percentage=75):
         """
@@ -653,11 +701,18 @@ class StockSnapshot(models.Model):
     def total_servings(self):
         """
         Calculate total servings from full + partial units
-        Unified calculation: (full × uom) + (partial × uom)
+        Size-specific handling matches StockItem logic
         """
-        full_servings = self.closing_full_units * self.item.uom
-        partial_servings = self.closing_partial_units * self.item.uom
-        return full_servings + partial_servings
+        # Check if item is sold by dozen (Beer and some Minerals)
+        if self.item.size and 'Doz' in self.item.size:
+            # Items sold by dozen: partial = individual bottles
+            full_servings = self.closing_full_units * self.item.uom
+            return full_servings + self.closing_partial_units
+        else:
+            # Others: partial = fractional units
+            full_servings = self.closing_full_units * self.item.uom
+            partial_servings = self.closing_partial_units * self.item.uom
+            return full_servings + partial_servings
 
 
 class StockMovement(models.Model):

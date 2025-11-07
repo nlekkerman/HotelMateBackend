@@ -175,6 +175,14 @@ class StockItemSerializer(serializers.ModelSerializer):
     pour_cost_percentage = serializers.DecimalField(
         max_digits=5, decimal_places=2, read_only=True
     )
+    
+    # Display helpers for frontend (convert bottles to cases for Doz items)
+    display_full_units = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+    display_partial_units = serializers.DecimalField(
+        max_digits=10, decimal_places=4, read_only=True
+    )
 
     class Meta:
         model = StockItem
@@ -190,7 +198,9 @@ class StockItemSerializer(serializers.ModelSerializer):
             'total_stock_in_servings', 'total_stock_value',
             'cost_per_serving', 'gross_profit_per_serving',
             'gross_profit_percentage', 'markup_percentage',
-            'pour_cost_percentage'
+            'pour_cost_percentage',
+            # Display helpers
+            'display_full_units', 'display_partial_units'
         ]
         read_only_fields = ['hotel', 'created_at', 'updated_at']
 

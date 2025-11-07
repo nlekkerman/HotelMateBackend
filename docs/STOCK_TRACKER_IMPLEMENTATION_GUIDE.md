@@ -106,18 +106,23 @@ def cost_per_serving(self):
 @property
 def total_stock_in_servings(self):
     """
-    Convert all stock to servings - UNIFIED FOR ALL CATEGORIES
+    Convert all stock to servings - CATEGORY-SPECIFIC HANDLING
     
-    Formula: (full_units × uom) + (partial_units × uom)
+    B (Bottled Beer):
+    - Full units = cases (Doz)
+    - Partial units = individual bottles (NOT fractional cases)
+    - Formula: (full_cases × 12) + partial_bottles
+    - Example: (0 cases × 12) + 145 bottles = 145 bottles
     
-    Examples:
-    - Draught: (2 kegs × 52.82) + (0.5 kegs × 52.82) = 132.05 pints
-    - Bottled: (10 cases × 12) + (0.75 cases × 12) = 129 bottles
-    - Spirits: (7 bottles × 20) + (0.70 bottles × 20) = 154 shots
-    - Wine: (3 bottles × 5) + (0.25 bottles × 5) = 16.25 glasses
+    D/S/W/M (All Others):
+    - Full units = base units
+    - Partial units = fractional base units (0.70 = 0.70 of a unit)
+    - Formula: (full_units × uom) + (partial_units × uom)
+    - Example Spirits: (2 bottles × 20) + (0.70 × 20) = 54 shots
+    - Example Draught: (2 kegs × 52.82) + (26.50 × 52.82) = 1505.73 pints
     
-    Note: partial_units is ALWAYS a fractional amount (0.70 = 0.70 of a unit)
-    NOT a percentage! 0.70 means "0.70 bottles", not "70% full"
+    Note: Bottled Beer is SPECIAL - partial units are already individual 
+    bottles, not fractional cases!
     """
     
 @property
@@ -394,32 +399,47 @@ GET /api/hotels/{hotel_identifier}/stock/items/{id}/history/
 ```json
 {
   "id": 1,
-  "sku": "S0045",
-  "name": "Bacardi 1ltr",
-  "category": "S",
-  "category_code": "S",
-  "category_name": "Spirits",
-  "size": "1 Lt",
-  "size_value": "1.0",
-  "size_unit": "L",
-  "uom": "28.2",
-  "unit_cost": "24.82",
-  "current_full_units": "7.00",
-  "current_partial_units": "0.05",
+  "sku": "B0070",
+  "name": "Budweiser 33cl",
+  "category": "B",
+  "category_code": "B",
+  "category_name": "Bottled Beer",
+  "size": "Doz",
+  "size_value": "12.0",
+  "size_unit": "Doz",
+  "uom": "12.0",
+  "unit_cost": "11.75",
+  "current_full_units": "0.00",
+  "current_partial_units": "113.00",
+  "display_full_units": "9.00",
+  "display_partial_units": "5.00",
   "menu_price": "5.50",
-  "menu_price_large": "9.00",
-  "bottle_price": "120.00",
   "available_on_menu": true,
-  "available_by_bottle": true,
-  "total_stock_in_servings": "197.45",
-  "total_stock_value": "174.02",
-  "cost_per_serving": "0.88",
-  "gross_profit_per_serving": "4.62",
-  "gross_profit_percentage": "84.00",
-  "markup_percentage": "525.00",
-  "pour_cost_percentage": "16.00"
+  "total_stock_in_servings": "113.00",
+  "total_stock_value": "110.65",
+  "cost_per_serving": "0.98",
+  "gross_profit_per_serving": "4.52",
+  "gross_profit_percentage": "82.18",
+  "markup_percentage": "461.22",
+  "pour_cost_percentage": "17.82"
 }
 ```
+
+**Important - Display vs Calculation**:
+
+The backend stores **all "Doz" items as individual bottles** in `current_partial_units`. For display purposes:
+
+- **Backend Storage** (for calculation):
+  - `current_full_units`: 0.00 (not used for Doz items)
+  - `current_partial_units`: 113.00 (total bottles)
+
+- **Frontend Display** (helper fields):
+  - `display_full_units`: 9.00 (cases = 113 ÷ 12)
+  - `display_partial_units`: 5.00 (loose bottles = 113 % 12)
+  - Display as: "9 cases + 5 bottles"
+
+**Calculation is always correct** using `total_stock_in_servings` (113 bottles).
+The `display_*` fields are **only for UI presentation**.
 
 ---
 
@@ -1054,6 +1074,104 @@ GET /api/hotels/{hotel}/stock/stocktakes/{id}/category_totals/
 Display: Variance summary by category
 Highlight: Large variances
 ```
+
+### Displaying "Doz" Items (Cases + Bottles)
+
+**Frontend JavaScript Example**:
+```javascript
+// For items with size="Doz", use display helpers
+function formatStockDisplay(item) {
+  if (item.size && item.size.includes('Doz')) {
+    // Use display helpers provided by backend
+    const cases = item.display_full_units;
+    const bottles = item.display_partial_units;
+    
+    if (cases > 0 && bottles > 0) {
+      return `${cases} cases + ${bottles} bottles`;
+    } else if (cases > 0) {
+      return `${cases} cases`;
+    } else {
+      return `${bottles} bottles`;
+    }
+  } else {
+    // For other items, display normally
+    if (item.current_full_units > 0 && item.current_partial_units > 0) {
+      return `${item.current_full_units} + ${item.current_partial_units}`;
+    } else if (item.current_full_units > 0) {
+      return `${item.current_full_units}`;
+    } else {
+      return `${item.current_partial_units}`;
+    }
+  }
+}
+
+// Example usage
+const item = {
+  sku: "B0070",
+  name: "Budweiser 33cl",
+  size: "Doz",
+  current_full_units: 0.00,
+  current_partial_units: 113.00,
+  display_full_units: 9.00,
+  display_partial_units: 5.00,
+  total_stock_in_servings: 113.00,
+  total_stock_value: 110.65
+};
+
+console.log(formatStockDisplay(item));
+// Output: "9 cases + 5 bottles"
+
+// But calculations use the correct total:
+console.log(`Stock Value: €${item.total_stock_value}`);
+// Output: "Stock Value: €110.65" (113 bottles × €0.98)
+```
+
+**React Component Example**:
+```jsx
+function StockItemRow({ item }) {
+  const getStockDisplay = () => {
+    if (item.size?.includes('Doz')) {
+      const cases = parseFloat(item.display_full_units);
+      const bottles = parseFloat(item.display_partial_units);
+      
+      return (
+        <>
+          {cases > 0 && <span>{cases} cases</span>}
+          {cases > 0 && bottles > 0 && <span> + </span>}
+          {bottles > 0 && <span>{bottles} bottles</span>}
+        </>
+      );
+    }
+    
+    return (
+      <>
+        {parseFloat(item.current_full_units) > 0 && 
+          <span>{item.current_full_units}</span>
+        }
+        {parseFloat(item.current_partial_units) > 0 && 
+          <span>{item.current_partial_units}</span>
+        }
+      </>
+    );
+  };
+
+  return (
+    <tr>
+      <td>{item.sku}</td>
+      <td>{item.name}</td>
+      <td>{getStockDisplay()}</td>
+      <td>€{item.total_stock_value}</td>
+    </tr>
+  );
+}
+```
+
+**Key Points**:
+- ✅ Backend stores "Doz" items as **total bottles** in `current_partial_units`
+- ✅ Backend provides `display_full_units` and `display_partial_units` for UI
+- ✅ Frontend uses display helpers for **presentation only**
+- ✅ All **calculations** (stock value, servings) are always correct
+- ✅ No frontend math needed - just use the display fields!
 
 ### Period Comparison UI
 
