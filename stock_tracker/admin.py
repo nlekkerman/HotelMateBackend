@@ -5,9 +5,11 @@ from .models import (
     RecipeIngredient,
     CocktailConsumption,
     StockCategory,
-    Location,
     StockItem,
+    StockPeriod,
+    StockSnapshot,
     StockMovement,
+    Location,
     Stocktake,
     StocktakeLine
 )
@@ -45,14 +47,15 @@ class CocktailConsumptionAdmin(admin.ModelAdmin):
     ordering = ('-timestamp',)
 
 
-# Stock Management Admin
+# ============================================================================
+# STOCK MANAGEMENT ADMIN
+# ============================================================================
 
 @admin.register(StockCategory)
 class StockCategoryAdmin(admin.ModelAdmin):
-    list_display = ('id', 'hotel', 'name', 'sort_order')
-    list_filter = ('hotel',)
+    list_display = ('code', 'name')
     search_fields = ('name',)
-    ordering = ('hotel', 'sort_order', 'name')
+    ordering = ('code',)
 
 
 @admin.register(Location)
@@ -67,12 +70,117 @@ class LocationAdmin(admin.ModelAdmin):
 class StockItemAdmin(admin.ModelAdmin):
     list_display = (
         'sku', 'name', 'category', 'hotel',
-        'current_qty', 'unit_cost', 'gp_percentage'
+        'size', 'uom', 'unit_cost',
+        'current_full_units', 'current_partial_units',
+        'menu_price', 'get_gp_percentage', 'available_on_menu'
     )
-    list_filter = ('hotel', 'category', 'product_type')
-    search_fields = ('sku', 'name', 'description')
+    list_filter = ('hotel', 'category', 'available_on_menu', 'available_by_bottle', 'active')
+    search_fields = ('sku', 'name')
     ordering = ('hotel', 'category', 'sku')
-    readonly_fields = ('cost_per_base', 'gp_percentage')
+    readonly_fields = (
+        'cost_per_serving', 'total_stock_in_servings', 'total_stock_value',
+        'gross_profit_per_serving', 'get_gp_percentage', 'get_markup_percentage',
+        'get_pour_cost_percentage', 'created_at', 'updated_at'
+    )
+    fieldsets = (
+        ('Identification', {
+            'fields': ('hotel', 'sku', 'name', 'category')
+        }),
+        ('Size & Packaging', {
+            'fields': ('size', 'size_value', 'size_unit', 'uom')
+        }),
+        ('Costing', {
+            'fields': ('unit_cost', 'cost_per_serving')
+        }),
+        ('Current Stock', {
+            'fields': (
+                'current_full_units', 'current_partial_units',
+                'total_stock_in_servings', 'total_stock_value'
+            )
+        }),
+        ('Selling Prices', {
+            'fields': (
+                'menu_price', 'menu_price_large', 'bottle_price', 'promo_price'
+            )
+        }),
+        ('Profitability Metrics', {
+            'fields': (
+                'gross_profit_per_serving', 'get_gp_percentage',
+                'get_markup_percentage', 'get_pour_cost_percentage'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Availability', {
+            'fields': ('available_on_menu', 'available_by_bottle', 'active')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+
+    def get_gp_percentage(self, obj):
+        """Display gross profit percentage"""
+        gp = obj.gross_profit_percentage
+        return f"{gp}%" if gp is not None else "-"
+    get_gp_percentage.short_description = 'GP%'
+    get_gp_percentage.admin_order_field = 'menu_price'
+
+    def get_markup_percentage(self, obj):
+        """Display markup percentage"""
+        markup = obj.markup_percentage
+        return f"{markup}%" if markup is not None else "-"
+    get_markup_percentage.short_description = 'Markup%'
+
+    def get_pour_cost_percentage(self, obj):
+        """Display pour cost percentage"""
+        pour_cost = obj.pour_cost_percentage
+        return f"{pour_cost}%" if pour_cost is not None else "-"
+    get_pour_cost_percentage.short_description = 'Pour Cost%'
+    get_pour_cost_percentage.short_description = 'Pour Cost%'
+
+
+@admin.register(StockPeriod)
+class StockPeriodAdmin(admin.ModelAdmin):
+    list_display = (
+        'period_name', 'hotel', 'period_type',
+        'start_date', 'end_date', 'is_closed'
+    )
+    list_filter = ('hotel', 'period_type', 'is_closed', 'year')
+    search_fields = ('period_name',)
+    ordering = ('-end_date', '-start_date')
+    readonly_fields = ('created_at', 'closed_at', 'closed_by')
+    fieldsets = (
+        ('Period Details', {
+            'fields': (
+                'hotel', 'period_type', 'period_name',
+                'start_date', 'end_date'
+            )
+        }),
+        ('Period Identifiers', {
+            'fields': ('year', 'quarter', 'month', 'week'),
+            'classes': ('collapse',)
+        }),
+        ('Status', {
+            'fields': ('is_closed', 'closed_at', 'closed_by', 'notes')
+        }),
+        ('Metadata', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+
+@admin.register(StockSnapshot)
+class StockSnapshotAdmin(admin.ModelAdmin):
+    list_display = (
+        'item', 'period', 'closing_full_units',
+        'closing_partial_units', 'closing_stock_value'
+    )
+    list_filter = ('hotel', 'period__period_type', 'period')
+    search_fields = ('item__sku', 'item__name', 'period__period_name')
+    ordering = ('-period__end_date', 'item__sku')
+    readonly_fields = ('created_at',)
 
 
 @admin.register(StockMovement)

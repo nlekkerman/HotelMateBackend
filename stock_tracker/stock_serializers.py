@@ -2,94 +2,122 @@ from rest_framework import serializers
 from .models import (
     StockCategory,
     StockItem,
+    StockPeriod,
+    StockSnapshot,
     StockMovement,
+    Location,
     Stocktake,
     StocktakeLine
 )
 
 
 class StockCategorySerializer(serializers.ModelSerializer):
+    """Serializer for stock categories (D, B, S, W, M)"""
+    item_count = serializers.SerializerMethodField()
+    
     class Meta:
         model = StockCategory
-        fields = ['id', 'hotel', 'name', 'sort_order']
+        fields = ['code', 'name', 'item_count']
+        read_only_fields = ['code', 'name']
+    
+    def get_item_count(self, obj):
+        """Get count of items in this category"""
+        return obj.items.count()
+
+
+class LocationSerializer(serializers.ModelSerializer):
+    """Serializer for stock locations (Bar, Cellar, Storage, etc.)"""
+    class Meta:
+        model = Location
+        fields = ['id', 'hotel', 'name', 'location_type', 'description', 'is_active']
+        read_only_fields = ['hotel']
+
+
+class StockPeriodSerializer(serializers.ModelSerializer):
+    """Serializer for stock periods (Weekly, Monthly, Quarterly, Yearly)"""
+    period_name = serializers.CharField(read_only=True)
+    
+    class Meta:
+        model = StockPeriod
+        fields = [
+            'id', 'hotel', 'period_type', 'start_date', 'end_date',
+            'year', 'month', 'quarter', 'week', 'period_name'
+        ]
+        read_only_fields = ['hotel', 'period_name']
 
 
 class StockItemSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(
-        source='category.name',
-        read_only=True
+    """Serializer for stock items with profitability calculations"""
+    category_code = serializers.CharField(source='category.code', read_only=True)
+    category_name = serializers.CharField(source='category.name', read_only=True)
+    
+    # Calculated fields from model properties
+    total_units = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
     )
-    bin_name = serializers.CharField(
-        source='bin.name',
-        read_only=True
+    total_stock_value = serializers.DecimalField(
+        max_digits=12, decimal_places=2, read_only=True
+    )
+    cost_per_serving = serializers.DecimalField(
+        max_digits=10, decimal_places=4, read_only=True
+    )
+    gross_profit_per_serving = serializers.DecimalField(
+        max_digits=10, decimal_places=4, read_only=True
     )
     gp_percentage = serializers.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        read_only=True
+        max_digits=5, decimal_places=2, read_only=True
     )
-    is_below_par = serializers.BooleanField(read_only=True)
-    pour_cost = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=4,
-        read_only=True
+    markup_percentage = serializers.DecimalField(
+        max_digits=8, decimal_places=2, read_only=True
     )
     pour_cost_percentage = serializers.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        read_only=True
-    )
-    profit_per_serving = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=4,
-        read_only=True
-    )
-    profit_margin_percentage = serializers.DecimalField(
-        max_digits=5,
-        decimal_places=2,
-        read_only=True
-    )
-    servings_per_unit = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=2,
-        read_only=True
-    )
-    pints_per_keg = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=1,
-        read_only=True
-    )
-    half_pints_per_keg = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=1,
-        read_only=True
-    )
-    shots_per_bottle = serializers.DecimalField(
-        max_digits=10,
-        decimal_places=1,
-        read_only=True
+        max_digits=5, decimal_places=2, read_only=True
     )
 
     class Meta:
         model = StockItem
         fields = [
-            'id', 'hotel', 'category', 'category_name', 'sku', 'name',
-            'description', 'product_type', 'subtype', 'tag',
-            'size', 'size_value', 'size_unit', 'uom', 'base_unit',
-            'unit_cost', 'cost_per_base', 'case_cost', 'selling_price',
-            'current_qty', 'par_level', 'bin', 'bin_name',
-            'vendor', 'country', 'region', 'subregion', 'producer', 'vineyard',
-            'abv_percent', 'vintage', 'unit_upc', 'case_upc',
-            'serving_size', 'serving_unit', 'menu_price',
-            'active', 'hide_on_menu',
-            'gp_percentage', 'is_below_par', 'pour_cost',
-            'pour_cost_percentage', 'profit_per_serving',
-            'profit_margin_percentage', 'servings_per_unit',
-            'pints_per_keg', 'half_pints_per_keg', 'shots_per_bottle'
+            'id', 'hotel', 'sku', 'name', 
+            'category', 'category_code', 'category_name',
+            'size', 'size_value', 'size_unit', 'uom', 
+            'unit_cost', 'current_full_units', 'current_partial_units',
+            'menu_price', 'created_at', 'updated_at',
+            # Calculated fields
+            'total_units', 'total_stock_value', 'cost_per_serving',
+            'gross_profit_per_serving', 'gp_percentage', 
+            'markup_percentage', 'pour_cost_percentage'
         ]
+        read_only_fields = ['hotel', 'created_at', 'updated_at']
+
+
+class StockSnapshotSerializer(serializers.ModelSerializer):
+    """Serializer for stock snapshots at period end"""
+    item_sku = serializers.CharField(source='item.sku', read_only=True)
+    item_name = serializers.CharField(source='item.name', read_only=True)
+    category_code = serializers.CharField(
+        source='item.category.code', read_only=True
+    )
+    period_name = serializers.CharField(
+        source='period.period_name', read_only=True
+    )
+    total_units = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+    
+    class Meta:
+        model = StockSnapshot
+        fields = [
+            'id', 'hotel', 'item', 'item_sku', 'item_name', 
+            'category_code', 'period', 'period_name',
+            'closing_full_units', 'closing_partial_units', 'total_units',
+            'unit_cost', 'cost_per_serving', 'closing_stock_value',
+            'created_at'
+        ]
+        read_only_fields = ['hotel', 'created_at']
 
 
 class StockMovementSerializer(serializers.ModelSerializer):
+    """Serializer for stock movements (purchases, sales, waste, transfers, adjustments)"""
     item_sku = serializers.CharField(source='item.sku', read_only=True)
     item_name = serializers.CharField(source='item.name', read_only=True)
     staff_name = serializers.SerializerMethodField()
@@ -97,13 +125,12 @@ class StockMovementSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockMovement
         fields = [
-            'id', 'hotel', 'item', 'item_sku', 'item_name', 'movement_type',
-            'quantity', 'unit_cost', 'reference', 'notes',
+            'id', 'hotel', 'item', 'item_sku', 'item_name', 
+            'movement_type', 'full_units', 'partial_units', 'total_units',
+            'unit_cost', 'total_value', 'reference', 'notes',
             'staff', 'staff_name', 'timestamp'
         ]
-        # Make 'staff' read-only so the API sets it from the authenticated user
-        # and clients don't need to include an arbitrary staff PK.
-        read_only_fields = ['timestamp', 'staff']
+        read_only_fields = ['hotel', 'timestamp', 'staff', 'total_value']
 
     def get_staff_name(self, obj):
         """Get staff full name from Staff model"""
@@ -111,68 +138,59 @@ class StockMovementSerializer(serializers.ModelSerializer):
             full_name = (
                 f"{obj.staff.first_name} {obj.staff.last_name}".strip()
             )
-            # Fallback to email or ID if names not set
             return full_name or obj.staff.email or f"Staff #{obj.staff.id}"
         return None
 
 
 class StocktakeLineSerializer(serializers.ModelSerializer):
+    """Serializer for stocktake lines"""
     item_sku = serializers.CharField(source='item.sku', read_only=True)
     item_name = serializers.CharField(source='item.name', read_only=True)
-    item_description = serializers.CharField(
-        source='item.description',
-        read_only=True
+    category_code = serializers.CharField(
+        source='item.category.code', read_only=True
     )
     category_name = serializers.CharField(
-        source='item.category.name',
-        read_only=True
+        source='item.category.name', read_only=True
     )
-    counted_qty = serializers.DecimalField(
-        max_digits=15,
-        decimal_places=4,
-        read_only=True
+    
+    # Calculated fields
+    counted_total = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
     )
-    expected_qty = serializers.DecimalField(
-        max_digits=15,
-        decimal_places=4,
-        read_only=True
+    expected_total = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
     )
-    variance_qty = serializers.DecimalField(
-        max_digits=15,
-        decimal_places=4,
-        read_only=True
-    )
-    expected_value = serializers.DecimalField(
-        max_digits=15,
-        decimal_places=4,
-        read_only=True
+    variance_units = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
     )
     counted_value = serializers.DecimalField(
-        max_digits=15,
-        decimal_places=4,
-        read_only=True
+        max_digits=15, decimal_places=2, read_only=True
+    )
+    expected_value = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
     )
     variance_value = serializers.DecimalField(
-        max_digits=15,
-        decimal_places=4,
-        read_only=True
+        max_digits=15, decimal_places=2, read_only=True
     )
 
     class Meta:
         model = StocktakeLine
         fields = [
             'id', 'stocktake', 'item', 'item_sku', 'item_name',
-            'item_description', 'category_name', 'opening_qty',
-            'purchases', 'sales', 'waste', 'transfers_in', 'transfers_out',
-            'adjustments', 'counted_full_units', 'counted_partial_units',
-            'counted_qty', 'expected_qty', 'variance_qty',
-            'valuation_cost', 'expected_value', 'counted_value',
-            'variance_value'
+            'category_code', 'category_name',
+            'opening_full_units', 'opening_partial_units',
+            'purchases_full', 'purchases_partial',
+            'sales_full', 'sales_partial',
+            'waste_full', 'waste_partial',
+            'counted_full_units', 'counted_partial_units',
+            'counted_total', 'expected_total', 'variance_units',
+            'unit_cost', 'counted_value', 'expected_value', 'variance_value'
         ]
         read_only_fields = [
-            'opening_qty', 'purchases', 'sales', 'waste',
-            'transfers_in', 'transfers_out', 'adjustments',
-            'valuation_cost'
+            'opening_full_units', 'opening_partial_units',
+            'purchases_full', 'purchases_partial',
+            'sales_full', 'sales_partial',
+            'waste_full', 'waste_partial', 'unit_cost'
         ]
 
 

@@ -5,6 +5,9 @@ from .views import (
     CocktailConsumptionViewSet,
     IngredientUsageView,
     StockCategoryViewSet,
+    LocationViewSet,
+    StockPeriodViewSet,
+    StockSnapshotViewSet,
     StockItemViewSet,
     StockMovementViewSet,
     StocktakeViewSet,
@@ -46,6 +49,38 @@ stock_category_detail = StockCategoryViewSet.as_view({
     'get': 'retrieve', 'put': 'update',
     'patch': 'partial_update', 'delete': 'destroy'
 })
+stock_category_items = StockCategoryViewSet.as_view({
+    'get': 'items'
+})
+
+location_list = LocationViewSet.as_view({
+    'get': 'list', 'post': 'create'
+})
+location_detail = LocationViewSet.as_view({
+    'get': 'retrieve', 'put': 'update',
+    'patch': 'partial_update', 'delete': 'destroy'
+})
+
+period_list = StockPeriodViewSet.as_view({
+    'get': 'list', 'post': 'create'
+})
+period_detail = StockPeriodViewSet.as_view({
+    'get': 'retrieve', 'put': 'update',
+    'patch': 'partial_update', 'delete': 'destroy'
+})
+period_snapshots = StockPeriodViewSet.as_view({
+    'get': 'snapshots'
+})
+period_compare = StockPeriodViewSet.as_view({
+    'get': 'compare'
+})
+
+snapshot_list = StockSnapshotViewSet.as_view({
+    'get': 'list'
+})
+snapshot_detail = StockSnapshotViewSet.as_view({
+    'get': 'retrieve'
+})
 
 stock_item_list = StockItemViewSet.as_view({
     'get': 'list', 'post': 'create'
@@ -53,6 +88,15 @@ stock_item_list = StockItemViewSet.as_view({
 stock_item_detail = StockItemViewSet.as_view({
     'get': 'retrieve', 'put': 'update',
     'patch': 'partial_update', 'delete': 'destroy'
+})
+stock_item_profitability = StockItemViewSet.as_view({
+    'get': 'profitability'
+})
+stock_item_low_stock = StockItemViewSet.as_view({
+    'get': 'low_stock'
+})
+stock_item_history = StockItemViewSet.as_view({
+    'get': 'history'
 })
 
 stock_movement_list = StockMovementViewSet.as_view({
@@ -135,9 +179,60 @@ urlpatterns = [
         name='category-list'
     ),
     path(
-        '<str:hotel_identifier>/categories/<int:pk>/',
+        '<str:hotel_identifier>/categories/<str:pk>/',
         stock_category_detail,
         name='category-detail'
+    ),
+    path(
+        '<str:hotel_identifier>/categories/<str:pk>/items/',
+        stock_category_items,
+        name='category-items'
+    ),
+
+    # Locations
+    path(
+        '<str:hotel_identifier>/locations/',
+        location_list,
+        name='location-list'
+    ),
+    path(
+        '<str:hotel_identifier>/locations/<int:pk>/',
+        location_detail,
+        name='location-detail'
+    ),
+
+    # Stock Periods
+    path(
+        '<str:hotel_identifier>/periods/',
+        period_list,
+        name='period-list'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/<int:pk>/',
+        period_detail,
+        name='period-detail'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/<int:pk>/snapshots/',
+        period_snapshots,
+        name='period-snapshots'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/compare/',
+        period_compare,
+        name='period-compare'
+    ),
+
+    # Stock Snapshots
+    path(
+        '<str:hotel_identifier>/snapshots/',
+        snapshot_list,
+        name='snapshot-list'
+    ),
+    path(
+        '<str:hotel_identifier>/snapshots/<int:pk>/',
+        snapshot_detail,
+        name='snapshot-detail'
     ),
 
     # Stock Items
@@ -150,6 +245,21 @@ urlpatterns = [
         '<str:hotel_identifier>/items/<int:pk>/',
         stock_item_detail,
         name='stock-item-detail'
+    ),
+    path(
+        '<str:hotel_identifier>/items/profitability/',
+        stock_item_profitability,
+        name='item-profitability'
+    ),
+    path(
+        '<str:hotel_identifier>/items/low-stock/',
+        stock_item_low_stock,
+        name='item-low-stock'
+    ),
+    path(
+        '<str:hotel_identifier>/items/<int:pk>/history/',
+        stock_item_history,
+        name='item-history'
     ),
 
     # Stock Movements
