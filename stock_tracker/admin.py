@@ -70,17 +70,20 @@ class LocationAdmin(admin.ModelAdmin):
 class StockItemAdmin(admin.ModelAdmin):
     list_display = (
         'sku', 'name', 'category', 'hotel',
-        'size', 'uom', 'unit_cost',
-        'current_full_units', 'current_partial_units',
+        'size', 'uom', 'unit_cost', 'display_stock',
         'menu_price', 'display_gp_percentage', 'available_on_menu'
     )
-    list_filter = ('hotel', 'category', 'available_on_menu', 'available_by_bottle', 'active')
+    list_filter = (
+        'hotel', 'category', 'available_on_menu',
+        'available_by_bottle', 'active'
+    )
     search_fields = ('sku', 'name')
     ordering = ('hotel', 'category', 'sku')
     readonly_fields = (
         'cost_per_serving', 'total_stock_in_servings', 'total_stock_value',
         'gross_profit_per_serving', 'gross_profit_percentage',
         'markup_percentage', 'pour_cost_percentage',
+        'display_full_units', 'display_partial_units',
         'created_at', 'updated_at'
     )
     fieldsets = (
@@ -96,12 +99,14 @@ class StockItemAdmin(admin.ModelAdmin):
         ('Current Stock', {
             'fields': (
                 'current_full_units', 'current_partial_units',
+                'display_full_units', 'display_partial_units',
                 'total_stock_in_servings', 'total_stock_value'
             )
         }),
         ('Selling Prices', {
             'fields': (
-                'menu_price', 'menu_price_large', 'bottle_price', 'promo_price'
+                'menu_price', 'menu_price_large', 'bottle_price',
+                'promo_price'
             )
         }),
         ('Profitability Metrics', {
@@ -120,6 +125,31 @@ class StockItemAdmin(admin.ModelAdmin):
         }),
     )
 
+    def display_stock(self, obj):
+        """Display stock with cases + bottles for Doz items"""
+        if obj.size and 'Doz' in obj.size:
+            cases = obj.display_full_units
+            bottles = obj.display_partial_units
+            
+            if cases > 0 and bottles > 0:
+                return f"{int(cases)} cases + {int(bottles)} bottles"
+            elif cases > 0:
+                return f"{int(cases)} cases"
+            else:
+                return f"{int(bottles)} bottles"
+        else:
+            # For other items, show normal format
+            full = obj.current_full_units
+            partial = obj.current_partial_units
+            
+            if full > 0 and partial > 0:
+                return f"{full} + {partial:.2f}"
+            elif full > 0:
+                return f"{full}"
+            else:
+                return f"{partial:.2f}"
+    display_stock.short_description = 'Stock'
+    
     def display_gp_percentage(self, obj):
         """Display gross profit percentage in list view"""
         gp = obj.gross_profit_percentage
@@ -205,12 +235,19 @@ class StocktakeLineInline(admin.TabularInline):
     readonly_fields = (
         'opening_qty', 'purchases', 'sales', 'waste',
         'transfers_in', 'transfers_out', 'adjustments',
-        'valuation_cost'
+        'valuation_cost', 'display_item_info'
     )
     fields = (
-        'item', 'counted_full_units', 'counted_partial_units',
+        'display_item_info', 'counted_full_units', 'counted_partial_units',
         'opening_qty', 'purchases', 'sales'
     )
+    
+    def display_item_info(self, obj):
+        """Display item SKU and name"""
+        if obj.item:
+            return f"{obj.item.sku} - {obj.item.name}"
+        return "-"
+    display_item_info.short_description = 'Item'
 
 
 @admin.register(Stocktake)
@@ -236,8 +273,7 @@ class StocktakeAdmin(admin.ModelAdmin):
 @admin.register(StocktakeLine)
 class StocktakeLineAdmin(admin.ModelAdmin):
     list_display = (
-        'stocktake', 'item', 'counted_full_units',
-        'counted_partial_units', 'variance_qty'
+        'stocktake', 'item', 'display_counted_stock', 'variance_qty'
     )
     list_filter = ('stocktake__hotel', 'stocktake')
     search_fields = ('item__sku', 'item__name')
@@ -248,3 +284,33 @@ class StocktakeLineAdmin(admin.ModelAdmin):
         'variance_qty', 'expected_value', 'counted_value',
         'variance_value'
     )
+
+    def display_counted_stock(self, obj):
+        """Display counted stock with cases + bottles for Doz items"""
+        if obj.item.size and 'Doz' in obj.item.size:
+            full = obj.counted_full_units or 0
+            partial = obj.counted_partial_units or 0
+            
+            if full > 0 and partial > 0:
+                return f"{int(full)} cases + {int(partial)} bottles"
+            elif full > 0:
+                return f"{int(full)} cases"
+            elif partial > 0:
+                return f"{int(partial)} bottles"
+            else:
+                return "Not counted"
+        else:
+            # For other items, show normal format
+            full = obj.counted_full_units or 0
+            partial = obj.counted_partial_units or 0
+            
+            if full > 0 or partial > 0:
+                if full > 0 and partial > 0:
+                    return f"{full} + {partial:.2f}"
+                elif full > 0:
+                    return f"{full}"
+                else:
+                    return f"{partial:.2f}"
+            else:
+                return "Not counted"
+    display_counted_stock.short_description = 'Counted'

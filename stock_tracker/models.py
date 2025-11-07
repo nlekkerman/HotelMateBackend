@@ -279,28 +279,29 @@ class StockItem(models.Model):
 
         SIZE-SPECIFIC HANDLING:
         
-        Items sold by DOZEN ("Doz" in size field):
-        - Full units = cases/dozens
-        - Partial units = individual bottles (NOT fractional cases)
-        - Formula: (full_cases × bottles_per_case) + partial_bottles
-        - Example Beer: (0 cases × 12) + 145 bottles = 145 bottles
-        - Example Minerals: (0 cases × 12) + 169 bottles = 169 bottles
+        Draught Beer (D) + Bag-in-Box (size contains "LT") + Dozen ("Doz"):
+        - Full units = kegs/BIBs/cases
+        - Partial units = individual servings (pints/serves/bottles)
+        - Formula: (full_units × servings_per_unit) + partial_servings
+        - Example Draught: (6 kegs × 88) + 39.75 pints = 567.75 pints
+        - Example BIB: (1 BIB × 500) + 1 serve = 501 serves
+        - Example Bottled: (0 cases × 12) + 145 bottles = 145 bottles
         
-        All other items (Draught, Spirits, Wine, Individual Minerals):
-        - Full units = base units (kegs, bottles, etc.)
-        - Partial units = fractional base units (0.70 = 0.70 of a unit)
+        All other items (Spirits, Wine, Individual items):
+        - Full units = base units (bottles, units)
+        - Partial units = fractional base units (0.70 = 0.70 of a bottle)
         - Formula: (full_units × servings) + (partial_units × servings)
         - Example Spirits: (2 bottles × 20) + (0.70 bottles × 20) = 54 shots
-        - Example Draught: (2 kegs × 52.82) + (26.50 kegs × 52.82) = 1505.73 pints
         """
-        # Check if item is sold by dozen (applies to Beer and some Minerals)
-        if self.size and 'Doz' in self.size:
-            # Items sold by dozen: partial = individual bottles, not fractional
+        category = self.category_id
+        
+        # Draught, BIB (LT in size), and Dozen: partial = servings
+        if (category == 'D') or (self.size and ('Doz' in self.size or 'LT' in self.size.upper())):
             full_servings = self.current_full_units * self.uom
-            # Partial bottles are already in serving units (bottles)
+            # Partial units are already in serving units
             return full_servings + self.current_partial_units
         else:
-            # All other items: partial = fractional units
+            # Spirits, Wine, Individual items: partial = fractional
             full_servings = self.current_full_units * self.uom
             partial_servings = self.current_partial_units * self.uom
             return full_servings + partial_servings
@@ -701,15 +702,16 @@ class StockSnapshot(models.Model):
     def total_servings(self):
         """
         Calculate total servings from full + partial units
-        Size-specific handling matches StockItem logic
+        Matches StockItem.total_stock_in_servings logic
         """
-        # Check if item is sold by dozen (Beer and some Minerals)
-        if self.item.size and 'Doz' in self.item.size:
-            # Items sold by dozen: partial = individual bottles
+        category = self.item.category_id
+        
+        # Draught, BIB (LT), Dozen: partial = servings
+        if (category == 'D') or (self.item.size and ('Doz' in self.item.size or 'LT' in self.item.size.upper())):
             full_servings = self.closing_full_units * self.item.uom
             return full_servings + self.closing_partial_units
         else:
-            # Others: partial = fractional units
+            # Spirits, Wine, Individual: partial = fractional
             full_servings = self.closing_full_units * self.item.uom
             partial_servings = self.closing_partial_units * self.item.uom
             return full_servings + partial_servings
@@ -977,11 +979,30 @@ class StocktakeLine(models.Model):
     @property
     def counted_qty(self):
         """
-        Convert mixed units to base units:
-        counted_qty = (full_units * UOM + partial_units)
+        Convert mixed units to servings (base units):
+        Matches StockItem.total_stock_in_servings logic
+        
+        Draught (D) + BIB (LT) + Dozen (Doz):
+        - Full units = kegs/BIBs/cases
+        - Partial units = pints/serves/bottles (ALREADY servings)
+        - Formula: (full × servings_per_unit) + partial
+        
+        All other items (Spirits, Wine, Individual):
+        - Full units = bottles/units
+        - Partial units = fractional units
+        - Formula: (full × servings) + (partial × servings)
         """
-        full_in_base = self.counted_full_units * self.item.uom
-        return full_in_base + self.counted_partial_units
+        category = self.item.category_id
+        
+        # Draught + BIB + Dozen: partial = servings
+        if (category == 'D') or (self.item.size and ('Doz' in self.item.size or 'LT' in self.item.size.upper())):
+            full_servings = self.counted_full_units * self.item.uom
+            return full_servings + self.counted_partial_units
+        else:
+            # Spirits, Wine, Individual: partial = fractional
+            full_servings = self.counted_full_units * self.item.uom
+            partial_servings = self.counted_partial_units * self.item.uom
+            return full_servings + partial_servings
 
     @property
     def expected_qty(self):

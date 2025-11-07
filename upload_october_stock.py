@@ -407,14 +407,19 @@ def process_wines(file_path, hotel, period):
         size = item_data.get('size', 'Ind')
         size_value, size_unit = parse_size(size)
         
-        # Calculate glasses per bottle
-        uom = calculate_uom_for_wine(size_value, size_unit)
+        # Wine: UOM = 1.0 (sold by bottle, not by glass)
+        uom = Decimal('1.0')
         
         # Cost price per bottle
         unit_cost = parse_decimal(item_data.get('cost_price'))
         
-        # Stock quantities (wines only track bottles, no partial)
-        closing_bottles = parse_decimal(item_data.get('closing_stock_bottles'), Decimal('0'))
+        # Stock quantities - wines track bottles (can have decimals)
+        # Example: 3.80 bottles = 3 full + 0.80 partial
+        closing_bottles_total = parse_decimal(item_data.get('closing_stock_bottles'), Decimal('0'))
+        
+        # Split into full and partial bottles
+        closing_full = int(closing_bottles_total)  # Whole bottles
+        closing_partial = closing_bottles_total - Decimal(closing_full)  # Fractional part
         
         # Create/Update StockItem
         stock_item, created = StockItem.objects.update_or_create(
@@ -428,8 +433,8 @@ def process_wines(file_path, hotel, period):
                 'size_unit': size_unit,
                 'uom': uom,
                 'unit_cost': unit_cost,
-                'current_full_units': closing_bottles,
-                'current_partial_units': Decimal('0'),
+                'current_full_units': Decimal(closing_full),
+                'current_partial_units': closing_partial,
             }
         )
         
@@ -441,10 +446,10 @@ def process_wines(file_path, hotel, period):
             item=stock_item,
             period=period,
             defaults={
-                'closing_full_units': closing_bottles,
-                'closing_partial_units': Decimal('0'),
+                'closing_full_units': Decimal(closing_full),
+                'closing_partial_units': closing_partial,
                 'unit_cost': unit_cost,
-                'cost_per_serving': unit_cost / uom if uom > 0 else unit_cost,
+                'cost_per_serving': unit_cost,  # Cost per bottle
                 'closing_stock_value': closing_value,
             }
         )
