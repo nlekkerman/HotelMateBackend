@@ -78,12 +78,16 @@ period_snapshots = StockPeriodViewSet.as_view({
 period_compare = StockPeriodViewSet.as_view({
     'get': 'compare'
 })
+period_populate_opening_stock = StockPeriodViewSet.as_view({
+    'post': 'populate_opening_stock'
+})
 
 snapshot_list = StockSnapshotViewSet.as_view({
-    'get': 'list'
+    'get': 'list', 'post': 'create'
 })
 snapshot_detail = StockSnapshotViewSet.as_view({
-    'get': 'retrieve'
+    'get': 'retrieve', 'put': 'update',
+    'patch': 'partial_update', 'delete': 'destroy'
 })
 
 stock_item_list = StockItemViewSet.as_view({
@@ -220,6 +224,11 @@ urlpatterns = [
         '<str:hotel_identifier>/periods/<int:pk>/snapshots/',
         period_snapshots,
         name='period-snapshots'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/<int:pk>/populate-opening-stock/',
+        period_populate_opening_stock,
+        name='period-populate-opening-stock'
     ),
     path(
         '<str:hotel_identifier>/periods/compare/',

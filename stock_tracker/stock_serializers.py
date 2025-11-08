@@ -100,7 +100,9 @@ class StockPeriodSerializer(serializers.ModelSerializer):
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed'
         ]
-        read_only_fields = ['hotel', 'period_name']
+        read_only_fields = [
+            'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
+        ]
 
 
 class StockPeriodDetailSerializer(serializers.ModelSerializer):
@@ -120,7 +122,9 @@ class StockPeriodDetailSerializer(serializers.ModelSerializer):
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
             'snapshots', 'total_items', 'total_value'
         ]
-        read_only_fields = ['hotel', 'period_name']
+        read_only_fields = [
+            'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
+        ]
     
     def get_snapshots(self, obj):
         """Get all snapshots for this period"""

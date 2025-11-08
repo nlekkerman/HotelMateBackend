@@ -532,6 +532,36 @@ class StockPeriod(models.Model):
 
     def __str__(self):
         return f"{self.hotel.name} - {self.period_name}"
+    
+    def save(self, *args, **kwargs):
+        """Auto-generate period_name if not provided"""
+        if not self.period_name:
+            month_names = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November',
+                'December'
+            ]
+            
+            if self.period_type == self.MONTHLY and self.month and self.year:
+                self.period_name = f"{month_names[self.month-1]} {self.year}"
+            elif self.period_type == self.QUARTERLY and self.quarter and self.year:
+                self.period_name = f"Q{self.quarter} {self.year}"
+            elif self.period_type == self.WEEKLY and self.week and self.year:
+                self.period_name = f"Week {self.week} {self.year}"
+            elif self.period_type == self.YEARLY and self.year:
+                self.period_name = f"Year {self.year}"
+            else:
+                # For CUSTOM or if no specific identifiers
+                self.period_name = f"{self.start_date} to {self.end_date}"
+        
+        # Auto-populate year, month, quarter from start_date if not provided
+        if not self.year and self.start_date:
+            self.year = self.start_date.year
+        
+        if self.period_type == self.MONTHLY and not self.month and self.start_date:
+            self.month = self.start_date.month
+        
+        super().save(*args, **kwargs)
 
     @classmethod
     def create_monthly_period(cls, hotel, year, month):

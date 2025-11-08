@@ -39,7 +39,8 @@ from .stock_serializers import (
 from .stocktake_service import (
     populate_stocktake,
     approve_stocktake,
-    calculate_category_totals
+    calculate_category_totals,
+    populate_period_opening_stock
 )
 
 
@@ -296,10 +297,63 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             'period2': StockPeriodSerializer(period2).data,
             'comparison': comparison
         })
+    
+    @action(detail=True, methods=['post'])
+    def populate_opening_stock(self, request, pk=None, hotel_identifier=None):
+        """
+        Populate a new period with opening stock from previous closed period.
+        
+        Opening stock = Last closed period's closing + movements between.
+        Creates snapshots for all items with opening balances.
+        """
+        period = self.get_object()
+        
+        try:
+            result = populate_period_opening_stock(period)
+            
+            prev_period_info = None
+            if result['previous_period']:
+                prev_period_info = {
+                    'id': result['previous_period'].id,
+                    'period_name': result['previous_period'].period_name,
+                    'end_date': result['previous_period'].end_date
+                }
+            
+            return Response({
+                'success': True,
+                'message': (
+                    f"Created {result['snapshots_created']} snapshots "
+                    f"with opening stock"
+                ),
+                'snapshots_created': result['snapshots_created'],
+                'total_opening_value': float(result['total_value']),
+                'previous_period': prev_period_info,
+                'period': {
+                    'id': period.id,
+                    'period_name': period.period_name,
+                    'start_date': period.start_date
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except ValueError as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f"Unexpected error: {str(e)}"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class StockSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
-    """ViewSet for stock snapshots (read-only)"""
+class StockSnapshotViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for stock snapshots.
+    
+    Allows creating and updating snapshots during stocktake entry.
+    Staff can POST new counts or PATCH existing snapshots.
+    """
     serializer_class = StockSnapshotSerializer
     pagination_class = None
     filterset_fields = ['item', 'period']
@@ -313,6 +367,15 @@ class StockSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
         return StockSnapshot.objects.filter(
             hotel=hotel
         ).select_related('item', 'period', 'item__category')
+    
+    def perform_create(self, serializer):
+        """Set hotel when creating snapshot"""
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        serializer.save(hotel=hotel)
 
 
 class StockItemViewSet(viewsets.ModelViewSet):
