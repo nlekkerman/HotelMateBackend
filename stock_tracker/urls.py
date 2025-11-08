@@ -13,6 +13,10 @@ from .views import (
     StocktakeViewSet,
     StocktakeLineViewSet
 )
+from .report_views import (
+    StockValueReportView,
+    SalesReportView
+)
 
 # Ingredient endpoints
 ingredient_list = IngredientViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -311,5 +315,17 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktake-lines/<int:pk>/',
         stocktake_line_detail,
         name='line-detail'
+    ),
+
+    # Reports
+    path(
+        '<str:hotel_identifier>/reports/stock-value/',
+        StockValueReportView.as_view(),
+        name='stock-value-report'
+    ),
+    path(
+        '<str:hotel_identifier>/reports/sales/',
+        SalesReportView.as_view(),
+        name='sales-report'
     ),
 ]
