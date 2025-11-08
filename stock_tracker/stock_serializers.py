@@ -42,6 +42,25 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
         max_digits=10, decimal_places=2, read_only=True
     )
     
+    # Display helpers for frontend (convert bottles to dozens for Doz items)
+    display_full_units = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+    display_partial_units = serializers.DecimalField(
+        max_digits=10, decimal_places=4, read_only=True
+    )
+    
+    # Opening stock (calculated from previous period)
+    opening_full_units = serializers.SerializerMethodField()
+    opening_partial_units = serializers.SerializerMethodField()
+    opening_stock_value = serializers.SerializerMethodField()
+    opening_display_full_units = serializers.SerializerMethodField()
+    opening_display_partial_units = serializers.SerializerMethodField()
+    
+    # Closing stock display (calculated from closing raw values)
+    closing_display_full_units = serializers.SerializerMethodField()
+    closing_display_partial_units = serializers.SerializerMethodField()
+    
     # Profitability metrics from item
     gp_percentage = serializers.SerializerMethodField()
     markup_percentage = serializers.SerializerMethodField()
@@ -50,8 +69,20 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
     class Meta:
         model = StockSnapshot
         fields = [
-            'id', 'item', 'closing_full_units', 'closing_partial_units',
-            'total_servings', 'closing_stock_value',
+            'id', 'item',
+            # Opening stock (from previous period's closing)
+            'opening_full_units', 'opening_partial_units',
+            'opening_stock_value',
+            'opening_display_full_units', 'opening_display_partial_units',
+            # Closing stock (counted at period end)
+            'closing_full_units', 'closing_partial_units',
+            'closing_stock_value',
+            'closing_display_full_units', 'closing_display_partial_units',
+            # Total servings and display (DEPRECATED)
+            'total_servings', 'display_full_units', 'display_partial_units',
+            # Cost information (for stocktake calculations)
+            'unit_cost', 'cost_per_serving',
+            # Profitability metrics
             'gp_percentage', 'markup_percentage', 'pour_cost_percentage'
         ]
     
@@ -70,6 +101,136 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
                 if obj.item.menu_price else None
             )
         }
+    
+    def get_opening_full_units(self, obj):
+        """
+        Get opening stock from previous period's closing stock.
+        This is what was counted at END of previous period.
+        """
+        # Get previous period (by end_date)
+        prev_snapshot = StockSnapshot.objects.filter(
+            hotel=obj.hotel,
+            item=obj.item,
+            period__end_date__lt=obj.period.start_date
+        ).order_by('-period__end_date').first()
+        
+        if prev_snapshot:
+            return str(prev_snapshot.closing_full_units)
+        return "0.00"
+    
+    def get_opening_partial_units(self, obj):
+        """Get opening partial units from previous period"""
+        prev_snapshot = StockSnapshot.objects.filter(
+            hotel=obj.hotel,
+            item=obj.item,
+            period__end_date__lt=obj.period.start_date
+        ).order_by('-period__end_date').first()
+        
+        if prev_snapshot:
+            return str(prev_snapshot.closing_partial_units)
+        return "0.0000"
+    
+    def get_opening_stock_value(self, obj):
+        """Get opening stock value from previous period"""
+        prev_snapshot = StockSnapshot.objects.filter(
+            hotel=obj.hotel,
+            item=obj.item,
+            period__end_date__lt=obj.period.start_date
+        ).order_by('-period__end_date').first()
+        
+        if prev_snapshot:
+            return str(prev_snapshot.closing_stock_value)
+        return "0.00"
+    
+    def get_opening_display_full_units(self, obj):
+        """
+        Get opening display full units (kegs/cases)
+        Calculated from previous period's closing stock
+        """
+        prev_snapshot = StockSnapshot.objects.filter(
+            hotel=obj.hotel,
+            item=obj.item,
+            period__end_date__lt=obj.period.start_date
+        ).order_by('-period__end_date').first()
+        
+        if prev_snapshot:
+            opening_servings = prev_snapshot.closing_partial_units
+            display_full = obj.calculate_opening_display_full(
+                opening_servings
+            )
+            return str(int(display_full))
+        return "0"
+    
+    def get_opening_display_partial_units(self, obj):
+        """
+        Get opening display partial units (pints/bottles)
+        Calculated from previous period's closing stock
+        - Bottles (Doz): whole numbers (0, 1, 2, ... 11)
+        - Pints (Draught): 2 decimals (0.00, 1.50, etc)
+        - Others: 2 decimals
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+        
+        prev_snapshot = StockSnapshot.objects.filter(
+            hotel=obj.hotel,
+            item=obj.item,
+            period__end_date__lt=obj.period.start_date
+        ).order_by('-period__end_date').first()
+        
+        if prev_snapshot:
+            opening_servings = prev_snapshot.closing_partial_units
+            display_partial = obj.calculate_opening_display_partial(
+                opening_servings
+            )
+            
+            # Bottles (Doz) = whole numbers
+            if obj.item.size and 'Doz' in obj.item.size:
+                return str(int(round(float(display_partial))))
+            
+            # Pints/Others = 2 decimals
+            decimal_val = Decimal(str(display_partial))
+            rounded = decimal_val.quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            return str(rounded)
+        return "0.00"
+    
+    def get_closing_display_full_units(self, obj):
+        """
+        Get closing display full units (kegs/cases)
+        Calculated from closing stock
+        """
+        closing_servings = obj.closing_partial_units
+        display_full = obj.calculate_opening_display_full(
+            closing_servings
+        )
+        return str(int(display_full))
+    
+    def get_closing_display_partial_units(self, obj):
+        """
+        Get closing display partial units (pints/bottles)
+        Calculated from closing stock
+        - Bottles (Doz): whole numbers (0, 1, 2, ... 11)
+        - Pints (Draught): 2 decimals (0.00, 1.50, etc)
+        - Others: 2 decimals
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+        
+        closing_servings = obj.closing_partial_units
+        display_partial = obj.calculate_opening_display_partial(
+            closing_servings
+        )
+        
+        # Bottles (Doz) = whole numbers
+        if obj.item.size and 'Doz' in obj.item.size:
+            return str(int(round(float(display_partial))))
+        
+        # Pints/Others = 2 decimals
+        decimal_val = Decimal(str(display_partial))
+        rounded = decimal_val.quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
+        return str(rounded)
     
     def get_gp_percentage(self, obj):
         """Get gross profit percentage from item"""
@@ -107,11 +268,14 @@ class StockPeriodSerializer(serializers.ModelSerializer):
 
 class StockPeriodDetailSerializer(serializers.ModelSerializer):
     """
-    Detailed serializer for single period with all snapshots
-    (like Stocktake)
+    Detailed serializer for single period with all related data.
+    Returns period + snapshots + stocktake info in one response.
     """
     period_name = serializers.CharField(read_only=True)
     snapshots = serializers.SerializerMethodField()
+    snapshot_ids = serializers.SerializerMethodField()
+    stocktake_id = serializers.SerializerMethodField()
+    stocktake_status = serializers.SerializerMethodField()
     total_items = serializers.SerializerMethodField()
     total_value = serializers.SerializerMethodField()
     
@@ -120,7 +284,8 @@ class StockPeriodDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
-            'snapshots', 'total_items', 'total_value'
+            'snapshots', 'snapshot_ids', 'stocktake_id', 'stocktake_status',
+            'total_items', 'total_value'
         ]
         read_only_fields = [
             'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
@@ -134,6 +299,36 @@ class StockPeriodDetailSerializer(serializers.ModelSerializer):
             'item__category__code', 'item__name'
         )
         return StockSnapshotNestedSerializer(snapshots, many=True).data
+    
+    def get_snapshot_ids(self, obj):
+        """Get list of all snapshot IDs for this period"""
+        return list(
+            StockSnapshot.objects.filter(period=obj)
+            .values_list('id', flat=True)
+        )
+    
+    def get_stocktake_id(self, obj):
+        """
+        Get related stocktake ID (if exists).
+        Matches via dates, not FK.
+        """
+        from .models import Stocktake
+        stocktake = Stocktake.objects.filter(
+            hotel=obj.hotel,
+            period_start=obj.start_date,
+            period_end=obj.end_date
+        ).first()
+        return stocktake.id if stocktake else None
+    
+    def get_stocktake_status(self, obj):
+        """Get stocktake status (if exists)"""
+        from .models import Stocktake
+        stocktake = Stocktake.objects.filter(
+            hotel=obj.hotel,
+            period_start=obj.start_date,
+            period_end=obj.end_date
+        ).first()
+        return stocktake.status if stocktake else None
     
     def get_total_items(self, obj):
         """Count of items in this period"""
@@ -224,6 +419,14 @@ class StockSnapshotSerializer(serializers.ModelSerializer):
         max_digits=10, decimal_places=4, read_only=True
     )
     
+    # Display-friendly units (converts dozens for bottles)
+    display_full_units = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+    display_partial_units = serializers.DecimalField(
+        max_digits=10, decimal_places=4, read_only=True
+    )
+    
     # Profitability metrics from item
     gp_percentage = serializers.SerializerMethodField()
     markup_percentage = serializers.SerializerMethodField()
@@ -235,6 +438,7 @@ class StockSnapshotSerializer(serializers.ModelSerializer):
             'id', 'hotel', 'item', 'item_sku', 'item_name',
             'category_code', 'period', 'period_name',
             'closing_full_units', 'closing_partial_units', 'total_servings',
+            'display_full_units', 'display_partial_units',
             'unit_cost', 'cost_per_serving', 'closing_stock_value',
             'gp_percentage', 'markup_percentage', 'pour_cost_percentage',
             'created_at'
@@ -289,7 +493,7 @@ class StockMovementSerializer(serializers.ModelSerializer):
 
 
 class StocktakeLineSerializer(serializers.ModelSerializer):
-    """Serializer for stocktake lines"""
+    """Serializer for stocktake lines with display fields"""
     item_sku = serializers.CharField(source='item.sku', read_only=True)
     item_name = serializers.CharField(source='item.name', read_only=True)
     category_code = serializers.CharField(
@@ -299,7 +503,13 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         source='item.category.name', read_only=True
     )
     
-    # Calculated fields from model properties
+    # Item details for display calculations
+    item_size = serializers.CharField(source='item.size', read_only=True)
+    item_uom = serializers.DecimalField(
+        source='item.uom', max_digits=10, decimal_places=2, read_only=True
+    )
+    
+    # Calculated fields from model properties (raw servings)
     counted_qty = serializers.DecimalField(
         max_digits=15, decimal_places=4, read_only=True
     )
@@ -318,16 +528,33 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
     variance_value = serializers.DecimalField(
         max_digits=15, decimal_places=2, read_only=True
     )
+    
+    # Display fields (kegs+pints, cases+bottles, bottles+fractional)
+    opening_display_full_units = serializers.SerializerMethodField()
+    opening_display_partial_units = serializers.SerializerMethodField()
+    expected_display_full_units = serializers.SerializerMethodField()
+    expected_display_partial_units = serializers.SerializerMethodField()
+    counted_display_full_units = serializers.SerializerMethodField()
+    counted_display_partial_units = serializers.SerializerMethodField()
+    variance_display_full_units = serializers.SerializerMethodField()
+    variance_display_partial_units = serializers.SerializerMethodField()
 
     class Meta:
         model = StocktakeLine
         fields = [
             'id', 'stocktake', 'item', 'item_sku', 'item_name',
-            'category_code', 'category_name',
+            'category_code', 'category_name', 'item_size', 'item_uom',
+            # Raw quantities (servings)
             'opening_qty', 'purchases', 'sales', 'waste',
             'transfers_in', 'transfers_out', 'adjustments',
             'counted_full_units', 'counted_partial_units',
             'counted_qty', 'expected_qty', 'variance_qty',
+            # Display quantities (kegs+pints, cases+bottles, etc)
+            'opening_display_full_units', 'opening_display_partial_units',
+            'expected_display_full_units', 'expected_display_partial_units',
+            'counted_display_full_units', 'counted_display_partial_units',
+            'variance_display_full_units', 'variance_display_partial_units',
+            # Values
             'valuation_cost', 'expected_value', 'counted_value',
             'variance_value'
         ]
@@ -335,13 +562,116 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'opening_qty', 'purchases', 'sales', 'waste',
             'transfers_in', 'transfers_out', 'adjustments', 'valuation_cost'
         ]
+    
+    def _calculate_display_units(self, servings, item):
+        """
+        Calculate display full and partial units from servings.
+        Returns (full_units, partial_units) as strings.
+        
+        - Bottles (Doz): cases + bottles (int)
+        - Draught: kegs + pints (2 decimals)
+        - Spirits/Wine: bottles + fractional (2 decimals)
+        """
+        from decimal import Decimal, ROUND_HALF_UP
+        
+        if servings is None or servings == 0:
+            return "0", "0"
+        
+        servings_decimal = Decimal(str(servings))
+        uom = Decimal(str(item.uom))
+        
+        # Full units (kegs/cases/bottles)
+        full = int(servings_decimal / uom)
+        
+        # Partial units (pints/bottles/fractional)
+        partial = servings_decimal % uom
+        
+        # Category-specific rounding
+        category = item.category.code
+        
+        if category == 'B' or (category == 'M' and 'Doz' in item.size):
+            # Bottles - whole numbers only
+            partial_display = str(int(round(float(partial))))
+        elif category == 'D':
+            # Draught - pints with 2 decimals
+            partial_rounded = partial.quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            partial_display = str(partial_rounded)
+        else:
+            # Spirits/Wine/Others - 2 decimals
+            partial_rounded = partial.quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            partial_display = str(partial_rounded)
+        
+        return str(full), partial_display
+    
+    def get_opening_display_full_units(self, obj):
+        """Opening stock display full units (kegs/cases/bottles)"""
+        full, _ = self._calculate_display_units(obj.opening_qty, obj.item)
+        return full
+    
+    def get_opening_display_partial_units(self, obj):
+        """Opening stock display partial units (pints/bottles/fractional)"""
+        _, partial = self._calculate_display_units(obj.opening_qty, obj.item)
+        return partial
+    
+    def get_expected_display_full_units(self, obj):
+        """Expected stock display full units"""
+        full, _ = self._calculate_display_units(obj.expected_qty, obj.item)
+        return full
+    
+    def get_expected_display_partial_units(self, obj):
+        """Expected stock display partial units"""
+        _, partial = self._calculate_display_units(obj.expected_qty, obj.item)
+        return partial
+    
+    def get_counted_display_full_units(self, obj):
+        """Counted stock display full units"""
+        full, _ = self._calculate_display_units(obj.counted_qty, obj.item)
+        return full
+    
+    def get_counted_display_partial_units(self, obj):
+        """Counted stock display partial units"""
+        _, partial = self._calculate_display_units(obj.counted_qty, obj.item)
+        return partial
+    
+    def get_variance_display_full_units(self, obj):
+        """Variance display full units"""
+        full, _ = self._calculate_display_units(obj.variance_qty, obj.item)
+        return full
+    
+    def get_variance_display_partial_units(self, obj):
+        """Variance display partial units"""
+        _, partial = self._calculate_display_units(obj.variance_qty, obj.item)
+        return partial
 
 
 class StocktakeSerializer(serializers.ModelSerializer):
+    """
+    Complete stocktake serializer with all period data.
+    Stocktake is an editable view of a Period - includes snapshots,
+    period info, and stocktake lines for counting.
+    """
     lines = StocktakeLineSerializer(many=True, read_only=True)
     approved_by_name = serializers.SerializerMethodField()
     is_locked = serializers.BooleanField(read_only=True)
     total_lines = serializers.SerializerMethodField()
+    
+    # Period information (Stocktake belongs to a Period)
+    period_id = serializers.SerializerMethodField()
+    period_name = serializers.SerializerMethodField()
+    period_is_closed = serializers.SerializerMethodField()
+    
+    # Snapshot data (same as Period - opening/closing stock for all items)
+    snapshots = serializers.SerializerMethodField()
+    snapshot_ids = serializers.SerializerMethodField()
+    
+    # Summary fields
+    total_items = serializers.SerializerMethodField()
+    total_value = serializers.SerializerMethodField()
+    total_variance_value = serializers.SerializerMethodField()
 
     class Meta:
         model = Stocktake
@@ -349,7 +679,14 @@ class StocktakeSerializer(serializers.ModelSerializer):
             'id', 'hotel', 'period_start', 'period_end',
             'status', 'is_locked', 'created_at', 'approved_at',
             'approved_by', 'approved_by_name', 'notes',
-            'lines', 'total_lines'
+            # Period connection
+            'period_id', 'period_name', 'period_is_closed',
+            # Snapshot data (same as period)
+            'snapshots', 'snapshot_ids',
+            # Stocktake lines (counted data)
+            'lines', 'total_lines',
+            # Summary
+            'total_items', 'total_value', 'total_variance_value'
         ]
         read_only_fields = ['hotel', 'status', 'approved_at', 'approved_by']
 
@@ -363,6 +700,84 @@ class StocktakeSerializer(serializers.ModelSerializer):
 
     def get_total_lines(self, obj):
         return obj.lines.count()
+    
+    def get_period_id(self, obj):
+        """Get the Period ID this stocktake belongs to"""
+        period = StockPeriod.objects.filter(
+            hotel=obj.hotel,
+            start_date=obj.period_start,
+            end_date=obj.period_end
+        ).first()
+        return period.id if period else None
+    
+    def get_period_name(self, obj):
+        """Get the Period name (e.g., 'November 2025')"""
+        period = StockPeriod.objects.filter(
+            hotel=obj.hotel,
+            start_date=obj.period_start,
+            end_date=obj.period_end
+        ).first()
+        return period.period_name if period else None
+    
+    def get_period_is_closed(self, obj):
+        """Check if the period is closed"""
+        period = StockPeriod.objects.filter(
+            hotel=obj.hotel,
+            start_date=obj.period_start,
+            end_date=obj.period_end
+        ).first()
+        return period.is_closed if period else False
+    
+    def get_snapshots(self, obj):
+        """
+        Get all snapshots for this stocktake's period.
+        Same data as Period - shows opening/closing stock for all items.
+        """
+        period = StockPeriod.objects.filter(
+            hotel=obj.hotel,
+            start_date=obj.period_start,
+            end_date=obj.period_end
+        ).first()
+        
+        if not period:
+            return []
+        
+        snapshots = StockSnapshot.objects.filter(
+            period=period
+        ).select_related('item', 'item__category').order_by(
+            'item__category__code', 'item__name'
+        )
+        return StockSnapshotNestedSerializer(snapshots, many=True).data
+    
+    def get_snapshot_ids(self, obj):
+        """Get list of all snapshot IDs for this stocktake's period"""
+        period = StockPeriod.objects.filter(
+            hotel=obj.hotel,
+            start_date=obj.period_start,
+            end_date=obj.period_end
+        ).first()
+        
+        if not period:
+            return []
+        
+        return list(
+            StockSnapshot.objects.filter(period=period)
+            .values_list('id', flat=True)
+        )
+    
+    def get_total_items(self, obj):
+        """Count of items in this stocktake"""
+        return obj.lines.count()
+    
+    def get_total_value(self, obj):
+        """Total expected stock value (calculated from lines)"""
+        total = sum(line.expected_value for line in obj.lines.all())
+        return str(total)
+    
+    def get_total_variance_value(self, obj):
+        """Total variance value (calculated from lines)"""
+        total = sum(line.variance_value for line in obj.lines.all())
+        return str(total)
 
 
 class StocktakeListSerializer(serializers.ModelSerializer):

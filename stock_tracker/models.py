@@ -745,6 +745,108 @@ class StockSnapshot(models.Model):
             full_servings = self.closing_full_units * self.item.uom
             partial_servings = self.closing_partial_units * self.item.uom
             return full_servings + partial_servings
+    
+    @property
+    def display_full_units(self):
+        """
+        Display-friendly full units for frontend UI
+        - Draught (D): kegs
+        - Dozen: cases
+        - Others: closing_full_units as-is
+        """
+        category = self.item.category_id
+        total_servings = self.total_servings
+        
+        # Draught: convert pints to kegs
+        if category == 'D' and self.item.uom > 0:
+            kegs = int(total_servings / self.item.uom)
+            return kegs
+        
+        # Dozen: convert bottles to cases
+        if self.item.size and 'Doz' in self.item.size and self.item.uom > 0:
+            dozens = int(total_servings / self.item.uom)
+            return dozens
+        
+        return self.closing_full_units
+    
+    @property
+    def display_partial_units(self):
+        """
+        Display-friendly partial units for frontend UI
+        - Draught (D): remaining pints after full kegs
+        - Dozen: remaining bottles after full cases
+        - Others: closing_partial_units as-is
+        """
+        category = self.item.category_id
+        total_servings = self.total_servings
+        
+        # Draught: show remaining pints
+        if category == 'D' and self.item.uom > 0:
+            remaining_pints = total_servings % self.item.uom
+            return remaining_pints
+        
+        # Dozen: show remaining bottles
+        if self.item.size and 'Doz' in self.item.size and self.item.uom > 0:
+            remaining_bottles = total_servings % self.item.uom
+            return remaining_bottles
+        
+        return self.closing_partial_units
+    
+    def calculate_opening_display_full(self, opening_servings):
+        """
+        Calculate display full units for opening stock
+        - Draught (D): kegs
+        - Dozen: cases
+        - Others: 0
+        """
+        from decimal import Decimal
+        
+        if not opening_servings:
+            return 0
+        
+        category = self.item.category_id
+        servings = Decimal(str(opening_servings))
+        uom = Decimal(str(self.item.uom))
+        
+        # Draught: convert pints to kegs
+        if category == 'D' and uom > 0:
+            kegs = int(servings / uom)
+            return kegs
+        
+        # Dozen: convert bottles to cases
+        if self.item.size and 'Doz' in self.item.size and uom > 0:
+            dozens = int(servings / uom)
+            return dozens
+        
+        return 0
+    
+    def calculate_opening_display_partial(self, opening_servings):
+        """
+        Calculate display partial units for opening stock
+        - Draught (D): remaining pints
+        - Dozen: remaining bottles
+        - Others: opening_servings as-is
+        """
+        from decimal import Decimal
+        
+        if not opening_servings:
+            return 0
+        
+        category = self.item.category_id
+        servings = Decimal(str(opening_servings))
+        uom = Decimal(str(self.item.uom))
+        
+        # Draught: remaining pints
+        if category == 'D' and uom > 0:
+            remaining = servings % uom
+            return remaining
+        
+        # Dozen: remaining bottles
+        if self.item.size and 'Doz' in self.item.size and uom > 0:
+            remaining = servings % uom
+            return remaining
+        
+        return opening_servings
 
 
 class StockMovement(models.Model):
