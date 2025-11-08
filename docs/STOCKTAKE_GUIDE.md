@@ -12,16 +12,67 @@ The Stocktake system provides an **editable view of a Period**, allowing staff t
 - **Connection**: Via dates, not foreign key (IDs are independent)
 - **Data**: Stocktake includes ALL Period data + editable counting lines
 
-### Opening Stock
-Opening stock for any period comes from the **previous period's closing stock** (what was counted at the end of the previous period).
+### Opening Stock vs Expected Stock
 
+#### **Opening Stock** (START of Period)
+What you **started with** at the beginning of the period:
+- Comes from **previous period's closing stock** (what was last counted)
+- Fixed - doesn't change during the period
+- The baseline for all calculations
+
+**Formula**: `Opening Stock = Previous Period Closing Stock`
+
+#### **Expected Stock** (END of Period)
+What you **should have now** based on all activity:
+- **Starts with Opening Stock**
+- **Adds all purchases** (stock coming in)
+- **Subtracts all sales** (stock going out)
+- **Subtracts waste, transfers out, etc.**
+
+**Formula**: `Expected Stock = Opening Stock + Purchases - Sales - Waste ± Transfers ± Adjustments`
+
+**In simple terms:**
+- **Opening** = Previous closing (starting point)
+- **Expected** = Opening adjusted for everything that happened during the period
+- **Expected** is the "theoretical" closing stock before you physically count
+
+**Example Flow**:
 ```
-Period 1 (Oct 1-31):
-  Closing: 5 cases + 3 bottles
+October 31 (Period 1 ends):
+  Physical Count: 5 cases + 3 bottles
+  ↓ This becomes...
   
-Period 2 (Nov 1-30):
-  Opening: 5 cases + 3 bottles ← Same as Period 1 closing
+November 1 (Period 2 starts):
+  Opening Stock: 5 cases + 3 bottles ← Copied from Oct 31 closing
+  
+During November (Period 2):
+  Starting with: 5 cases + 3 bottles (67 bottles)
+  + Purchases:   2 cases (24 bottles)      ← New stock delivered
+  - Sales:       45 bottles sold           ← Stock sold to customers
+  - Waste:       1 bottle wasted           ← Broken/spillage
+  ────────────────────────────────────────
+  = Expected:    6 cases + 5 bottles (79 bottles)
+  
+November 30 (Period 2 ends):
+  Expected Stock: 6 cases + 5 bottles ← What you SHOULD have
+  Counted Stock:  6 cases + 3 bottles ← What you ACTUALLY counted
+  ────────────────────────────────────
+  Variance:       0 cases - 2 bottles ← 2 bottles missing!
 ```
+
+**Key Relationships**:
+```
+Opening (Nov 1)    = Previous Closing (Oct 31)
+Expected (Nov 30)  = Opening + All Movements During November
+Variance           = Counted - Expected (shrinkage/theft/errors)
+Next Opening (Dec 1) = Counted (Nov 30)  ← This becomes opening for next period!
+```
+
+**Why Expected Stock Matters**:
+- Shows what you theoretically should have
+- Helps identify shrinkage, theft, or errors
+- If Counted < Expected = Missing stock (loss)
+- If Counted > Expected = Extra stock (found/error in sales tracking)
 
 ## Category-Specific Display Formats
 
@@ -294,9 +345,400 @@ Returns complete Period data + editable stocktake lines:
 - Display: 0 bottles + 0.14 partial
 - Extra 4 shots found!
 
+## Understanding Snapshots vs Lines
+
+### What are Snapshots?
+
+**Snapshots** are read-only records showing the **opening and closing stock** for all items in the period. They come from the Period model and show:
+- Opening stock (from previous period's closing)
+- Closing stock (what was counted at period end)
+- Stock values at both points
+
+**Use snapshots when you need:**
+- Display opening stock values
+- Show historical closing stock
+- Read-only reference data
+- Stock values for reporting
+
+### What are Lines?
+
+**Lines** are editable stocktake records showing:
+- Opening quantities (same as snapshot opening)
+- All movements during period (purchases, sales, waste, etc.)
+- Expected closing (calculated from movements)
+- **Counted closing (what staff physically counted)**
+- Variance (difference between expected and counted)
+
+**Use lines when you need:**
+- Editable counting interface
+- Movement tracking (purchases, sales, waste)
+- Expected vs counted comparison
+- Variance calculations
+
+### When to Use Each
+
+```javascript
+// SCENARIO 1: Display opening stock with values
+// Use SNAPSHOTS - they have opening_stock_value
+stocktakeData.snapshots.forEach(snapshot => {
+  console.log(`${snapshot.item.name}:`);
+  console.log(`  Opening: ${snapshot.opening_display_full_units} + ${snapshot.opening_display_partial_units}`);
+  console.log(`  Opening Value: £${snapshot.opening_stock_value}`);
+  console.log(`  Closing: ${snapshot.closing_display_full_units} + ${snapshot.closing_display_partial_units}`);
+  console.log(`  Closing Value: £${snapshot.closing_stock_value}`);
+});
+
+// SCENARIO 2: Count stock and record variances
+// Use LINES - they have counted fields and variance
+stocktakeData.lines.forEach(line => {
+  console.log(`${line.item_name}:`);
+  console.log(`  Expected: ${line.expected_display_full_units} + ${line.expected_display_partial_units}`);
+  console.log(`  Counted: ${line.counted_display_full_units} + ${line.counted_display_partial_units}`);
+  console.log(`  Variance: ${line.variance_display_full_units} + ${line.variance_display_partial_units}`);
+  console.log(`  Variance Value: £${line.variance_value}`);
+});
+
+// SCENARIO 3: Opening stock table with values
+// Use SNAPSHOTS - they have the values
+const OpeningStockTable = ({ snapshots }) => {
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Opening Stock</th>
+          <th>Opening Value</th>
+          <th>Closing Stock</th>
+          <th>Closing Value</th>
+        </tr>
+      </thead>
+      <tbody>
+        {snapshots.map(snapshot => (
+          <tr key={snapshot.id}>
+            <td>{snapshot.item.name}</td>
+            <td>
+              {snapshot.opening_display_full_units} + {snapshot.opening_display_partial_units}
+            </td>
+            <td>£{snapshot.opening_stock_value}</td>
+            <td>
+              {snapshot.closing_display_full_units} + {snapshot.closing_display_partial_units}
+            </td>
+            <td>£{snapshot.closing_stock_value}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+};
+
+// SCENARIO 4: Stocktake counting interface
+// Use LINES - they have editable counted fields
+const StocktakeCountingTable = ({ lines, onUpdate }) => {
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Expected</th>
+          <th>Counted (Input)</th>
+          <th>Variance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map(line => (
+          <tr key={line.id}>
+            <td>{line.item_name}</td>
+            <td>
+              {line.expected_display_full_units} + {line.expected_display_partial_units}
+            </td>
+            <td>
+              <input 
+                type="number" 
+                value={line.counted_full_units}
+                onChange={(e) => onUpdate(line.id, 'full', e.target.value)}
+              />
+              <input 
+                type="number" 
+                value={line.counted_partial_units}
+                onChange={(e) => onUpdate(line.id, 'partial', e.target.value)}
+              />
+            </td>
+            <td className={parseFloat(line.variance_value) < 0 ? 'negative' : 'positive'}>
+              {line.variance_display_full_units} + {line.variance_display_partial_units}
+              <br/>
+              £{line.variance_value}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+};
+```
+
+### Key Differences
+
+| Feature | Snapshots | Lines |
+|---------|-----------|-------|
+| **Opening Stock** | ✅ Yes (with value) | ✅ Yes (no separate value field) |
+| **Opening Value** | ✅ `opening_stock_value` | ❌ Use snapshot for this |
+| **Closing Stock** | ✅ Yes (with value) | ❌ Not in lines |
+| **Closing Value** | ✅ `closing_stock_value` | ❌ Use snapshot for this |
+| **Expected Stock** | ❌ No | ✅ Yes (calculated) |
+| **Expected Value** | ❌ No | ✅ `expected_value` |
+| **Counted Stock** | ❌ No | ✅ Yes (editable) |
+| **Counted Value** | ❌ No | ✅ `counted_value` |
+| **Variance** | ❌ No | ✅ Yes (calculated) |
+| **Movements** | ❌ No | ✅ purchases, sales, waste, etc. |
+| **Editable** | ❌ Read-only | ✅ Can update counted fields |
+
+### Complete Example: Opening Stock Report
+
+```javascript
+// Get stocktake data
+const response = await fetch('/api/stocktakes/4/');
+const stocktakeData = await response.json();
+
+// Generate opening stock report with values
+const generateOpeningStockReport = (data) => {
+  console.log(`Opening Stock Report - ${data.period_name}`);
+  console.log('=' .repeat(80));
+  
+  // Use SNAPSHOTS for opening stock with values
+  let totalOpeningValue = 0;
+  
+  data.snapshots.forEach(snapshot => {
+    const openingStock = `${snapshot.opening_display_full_units} + ${snapshot.opening_display_partial_units}`;
+    const openingValue = parseFloat(snapshot.opening_stock_value);
+    totalOpeningValue += openingValue;
+    
+    console.log(`${snapshot.item.name.padEnd(30)} | ${openingStock.padEnd(15)} | £${snapshot.opening_stock_value}`);
+  });
+  
+  console.log('=' .repeat(80));
+  console.log(`Total Opening Stock Value: £${totalOpeningValue.toFixed(2)}`);
+};
+
+// Generate variance report
+const generateVarianceReport = (data) => {
+  console.log(`Variance Report - ${data.period_name}`);
+  console.log('=' .repeat(80));
+  
+  // Use LINES for variance analysis
+  let totalVarianceValue = 0;
+  const significantVariances = [];
+  
+  data.lines.forEach(line => {
+    const varianceValue = parseFloat(line.variance_value);
+    totalVarianceValue += varianceValue;
+    
+    if (Math.abs(varianceValue) > 10.00) {
+      significantVariances.push({
+        name: line.item_name,
+        variance: `${line.variance_display_full_units} + ${line.variance_display_partial_units}`,
+        value: varianceValue
+      });
+    }
+  });
+  
+  console.log('Significant Variances (>£10):');
+  significantVariances.forEach(item => {
+    console.log(`${item.name.padEnd(30)} | ${item.variance.padEnd(15)} | £${item.value.toFixed(2)}`);
+  });
+  
+  console.log('=' .repeat(80));
+  console.log(`Total Variance Value: £${totalVarianceValue.toFixed(2)}`);
+};
+
+generateOpeningStockReport(stocktakeData);
+generateVarianceReport(stocktakeData);
+```
+
+### Quick Reference
+
+**Need opening/closing stock values?** → Use `snapshots`
+```javascript
+snapshot.opening_stock_value
+snapshot.closing_stock_value
+```
+
+**Need to count stock?** → Use `lines`
+```javascript
+line.counted_full_units = "5"
+line.counted_partial_units = "7"
+```
+
+**Need variance?** → Use `lines`
+```javascript
+line.variance_value
+line.variance_display_full_units
+line.variance_display_partial_units
+```
+
+**Need movements?** → Use `lines`
+```javascript
+line.purchases
+line.sales
+line.waste
+```
+
 ## Frontend Display Logic
 
-The frontend receives **display-ready numbers** and doesn't need to perform calculations:
+### IMPORTANT: Opening vs Expected Display
+
+**The API provides TWO different values - use the RIGHT one:**
+
+```javascript
+// From API line data:
+{
+  // OPENING STOCK (what you started with from previous period)
+  opening_qty: "0.0000",                    // No previous stock
+  opening_display_full_units: "0",
+  opening_display_partial_units: "0",
+  
+  // EXPECTED STOCK (opening + movements = what you should have now)
+  expected_qty: "348.0000",                 // 29 cases purchased
+  expected_display_full_units: "29",
+  expected_display_partial_units: "0"
+}
+```
+
+**Frontend Display Rules:**
+
+| Column | Display | Field to Use | Explanation |
+|--------|---------|--------------|-------------|
+| **Opening Stock** | Start of period | `opening_display_full_units` + `opening_display_partial_units` | What you had at beginning (from previous closing) |
+| **Expected Stock** | End of period | `expected_display_full_units` + `expected_display_partial_units` | What you should have now (opening + purchases - sales) |
+| **Counted Stock** | Physical count | `counted_display_full_units` + `counted_display_partial_units` | What you actually counted |
+
+**Your Current Display is CORRECT:**
+
+```
+Opening Stock: 0 cases + 0 bottles    ← Correct! No previous period
+Expected Stock: 29 cases + 0 bottles  ← Correct! 0 opening + 29 purchased = 29 expected
+```
+
+**What's happening in your data:**
+- **November is the FIRST period** (no October closing stock)
+- Opening Stock = 0 (no previous period)
+- Purchases = 29 cases
+- Expected Stock = 0 + 29 = 29 cases ✅
+
+**Example with Previous Period:**
+
+```javascript
+// Item that HAD stock in October
+{
+  // October 31 closing: 5 cases + 3 bottles
+  opening_display_full_units: "5",      // Started November with 5 cases
+  opening_display_partial_units: "3",   // + 3 bottles
+  
+  // During November: +24 bottles, -45 bottles sold, -1 waste
+  purchases: "24.0000",
+  sales: "45.0000",
+  waste: "1.0000",
+  
+  // Expected at end of November
+  expected_display_full_units: "6",     // Should have 6 cases
+  expected_display_partial_units: "5"   // + 5 bottles
+}
+
+// Display:
+// Opening:  5 cases + 3 bottles (67 total) ← From Oct 31
+// Expected: 6 cases + 5 bottles (79 total) ← After movements
+```
+
+### Frontend Table Display Example
+
+```jsx
+const StocktakeTable = ({ lines }) => {
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Opening Stock<br/>(Previous Period)</th>
+          <th>Expected Stock<br/>(After Movements)</th>
+          <th>Counted Stock</th>
+          <th>Variance</th>
+        </tr>
+      </thead>
+      <tbody>
+        {lines.map(line => {
+          const labels = getUnitLabels(line.category_code, line.item_size);
+          
+          return (
+            <tr key={line.id}>
+              <td>{line.item_name}</td>
+              
+              {/* OPENING - what you started with */}
+              <td>
+                {line.opening_display_full_units} {labels.full} + 
+                {line.opening_display_partial_units} {labels.partial}
+                <br/>
+                <small>{line.opening_qty} servings</small>
+              </td>
+              
+              {/* EXPECTED - what you should have now */}
+              <td>
+                {line.expected_display_full_units} {labels.full} + 
+                {line.expected_display_partial_units} {labels.partial}
+                <br/>
+                <small>€{line.expected_value}</small>
+              </td>
+              
+              {/* COUNTED - what you physically counted */}
+              <td>
+                <input 
+                  type="number" 
+                  value={line.counted_full_units}
+                  placeholder={labels.full}
+                />
+                <input 
+                  type="number" 
+                  value={line.counted_partial_units}
+                  placeholder={labels.partial}
+                />
+              </td>
+              
+              {/* VARIANCE - difference */}
+              <td className={parseFloat(line.variance_value) < 0 ? 'loss' : 'gain'}>
+                {line.variance_display_full_units} {labels.full} + 
+                {line.variance_display_partial_units} {labels.partial}
+                <br/>
+                <small>€{line.variance_value}</small>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+};
+```
+
+### Why Opening is 0 for November
+
+Your November stocktake shows **Opening = 0** because:
+
+1. **October period doesn't exist** (or wasn't closed with counted stock)
+2. **November is the first period** in the system
+3. This is **normal and correct** for the first period
+
+**What happens next:**
+```
+November (First Period):
+  Opening: 0 cases + 0 bottles (no previous period)
+  Purchases: 29 cases
+  Expected: 29 cases
+  Counted: 29 cases (you count this)
+  ↓
+December (Second Period):
+  Opening: 29 cases (from November counted stock)
+  Purchases: +X
+  Sales: -Y
+  Expected: 29 + X - Y
+```
 
 ### Bottles Display
 ```javascript
