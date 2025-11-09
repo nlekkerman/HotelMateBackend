@@ -39,7 +39,6 @@ from .stock_serializers import (
 from .stocktake_service import (
     populate_stocktake,
     approve_stocktake,
-    calculate_category_totals,
     populate_period_opening_stock
 )
 
@@ -589,10 +588,37 @@ class StocktakeViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def category_totals(self, request, pk=None, hotel_identifier=None):
         """
-        Get totals grouped by category.
+        Get expected_qty totals grouped by category.
+        
+        Returns category-level calculations including:
+        - opening_qty, purchases, sales, waste, transfers, adjustments
+        - expected_qty (calculated using the formula)
+        - counted_qty, variance_qty
+        - expected_value, counted_value, variance_value
+        
+        Optional query parameter:
+        - category: Filter by category code (D, B, S, W, M)
+        
+        Examples:
+        - GET /api/stock_tracker/1/stocktakes/4/category_totals/
+        - GET /api/stock_tracker/1/stocktakes/4/category_totals/?category=D
         """
         stocktake = self.get_object()
-        totals = calculate_category_totals(stocktake)
+        
+        # Check for category filter
+        category_code = request.query_params.get('category', None)
+        if category_code:
+            category_code = category_code.upper()
+        
+        # Use the new model method
+        totals = stocktake.get_category_totals(category_code=category_code)
+        
+        if category_code and not totals:
+            return Response(
+                {"error": f"No data found for category {category_code}"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
         return Response(totals)
 
 

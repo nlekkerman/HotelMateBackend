@@ -547,6 +547,8 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             # Raw quantities (servings)
             'opening_qty', 'purchases', 'sales', 'waste',
             'transfers_in', 'transfers_out', 'adjustments',
+            # Manual override fields
+            'manual_purchases_value', 'manual_sales_profit',
             'counted_full_units', 'counted_partial_units',
             'counted_qty', 'expected_qty', 'variance_qty',
             # Display quantities (kegs+pints, cases+bottles, etc)

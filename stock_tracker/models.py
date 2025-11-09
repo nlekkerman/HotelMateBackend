@@ -1023,6 +1023,106 @@ class Stocktake(models.Model):
         """Once approved, stocktake cannot be edited"""
         return self.status == self.APPROVED
 
+    def get_category_totals(self, category_code=None):
+        """
+        Calculate expected_qty totals for entire categories.
+        
+        Args:
+            category_code: Optional category code (D, B, S, W, M).
+                          If None, returns totals for all categories.
+        
+        Returns:
+            dict: Category totals with opening, movements, expected, etc.
+        
+        Example:
+            {
+                'D': {
+                    'category_name': 'Draught Beer',
+                    'opening_qty': Decimal('1250.0000'),
+                    'purchases': Decimal('500.0000'),
+                    'sales': Decimal('800.0000'),
+                    'waste': Decimal('25.0000'),
+                    'transfers_in': Decimal('0.0000'),
+                    'transfers_out': Decimal('0.0000'),
+                    'adjustments': Decimal('0.0000'),
+                    'expected_qty': Decimal('925.0000'),
+                    'counted_qty': Decimal('920.0000'),
+                    'variance_qty': Decimal('-5.0000'),
+                    'expected_value': Decimal('2312.50'),
+                    'counted_value': Decimal('2300.00'),
+                    'variance_value': Decimal('-12.50'),
+                    'item_count': 15
+                }
+            }
+        """
+        lines = self.lines.select_related('item', 'item__category')
+        
+        if category_code:
+            lines = lines.filter(item__category__code=category_code)
+        
+        # Group by category
+        categories = {}
+        
+        for line in lines:
+            cat_code = line.item.category.code
+            
+            if cat_code not in categories:
+                categories[cat_code] = {
+                    'category_code': cat_code,
+                    'category_name': line.item.category.name,
+                    'opening_qty': Decimal('0.0000'),
+                    'purchases': Decimal('0.0000'),
+                    'sales': Decimal('0.0000'),
+                    'waste': Decimal('0.0000'),
+                    'transfers_in': Decimal('0.0000'),
+                    'transfers_out': Decimal('0.0000'),
+                    'adjustments': Decimal('0.0000'),
+                    'expected_qty': Decimal('0.0000'),
+                    'counted_qty': Decimal('0.0000'),
+                    'variance_qty': Decimal('0.0000'),
+                    'expected_value': Decimal('0.00'),
+                    'counted_value': Decimal('0.00'),
+                    'variance_value': Decimal('0.00'),
+                    'manual_purchases_value': Decimal('0.00'),
+                    'manual_sales_profit': Decimal('0.00'),
+                    'item_count': 0
+                }
+            
+            cat = categories[cat_code]
+            
+            # Sum all movements
+            cat['opening_qty'] += line.opening_qty
+            cat['purchases'] += line.purchases
+            cat['sales'] += line.sales
+            cat['waste'] += line.waste
+            cat['transfers_in'] += line.transfers_in
+            cat['transfers_out'] += line.transfers_out
+            cat['adjustments'] += line.adjustments
+            
+            # Sum calculated values
+            cat['expected_qty'] += line.expected_qty
+            cat['counted_qty'] += line.counted_qty
+            cat['variance_qty'] += line.variance_qty
+            
+            # Sum monetary values
+            cat['expected_value'] += line.expected_value
+            cat['counted_value'] += line.counted_value
+            cat['variance_value'] += line.variance_value
+            
+            # Sum manual overrides
+            if line.manual_purchases_value:
+                cat['manual_purchases_value'] += line.manual_purchases_value
+            if line.manual_sales_profit:
+                cat['manual_sales_profit'] += line.manual_sales_profit
+            
+            cat['item_count'] += 1
+        
+        # Return single category if specified
+        if category_code:
+            return categories.get(category_code, None)
+        
+        return categories
+
 
 class StocktakeLine(models.Model):
     """
@@ -1078,6 +1178,22 @@ class StocktakeLine(models.Model):
         decimal_places=4,
         default=Decimal('0.0000'),
         help_text="Prior adjustments in period"
+    )
+
+    # Manual override fields for direct entry (optional)
+    manual_purchases_value = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Manual override: Total purchase value in period (€)"
+    )
+    manual_sales_profit = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Manual override: Sales profit in period (€)"
     )
 
     # Counted quantities (user input)
