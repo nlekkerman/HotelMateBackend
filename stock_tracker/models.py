@@ -500,6 +500,13 @@ class StockPeriod(models.Model):
         blank=True,
         help_text="Manually entered sales amount for the period"
     )
+    manual_purchases_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Manually entered purchase costs for the period (COGS)"
+    )
     month = models.IntegerField(
         null=True,
         blank=True,
@@ -997,12 +1004,27 @@ class Stocktake(models.Model):
         """
         Calculate total cost of goods sold.
         Priority:
-        1. Sum of manual_purchases_value + manual_waste_value from lines
-        2. Sum of total_cost from Sale records
+        1. StockPeriod.manual_purchases_amount (single total value)
+        2. Sum of manual_purchases_value + manual_waste_value from lines
+        3. Sum of total_cost from Sale records
         """
         from django.db.models import Sum
         
-        # Check if any lines have manual values
+        # Priority 1: Check period manual_purchases_amount
+        period = None
+        try:
+            period = StockPeriod.objects.get(
+                hotel=self.hotel,
+                start_date=self.period_start,
+                end_date=self.period_end
+            )
+        except StockPeriod.DoesNotExist:
+            pass
+        
+        if period and period.manual_purchases_amount is not None:
+            return period.manual_purchases_amount
+        
+        # Priority 2: Check if any lines have manual values
         manual_totals = self.lines.aggregate(
             purchases=Sum('manual_purchases_value'),
             waste=Sum('manual_waste_value')
@@ -1015,7 +1037,7 @@ class Stocktake(models.Model):
         if manual_total > 0:
             return manual_total
         
-        # Fallback to Sale records
+        # Priority 3: Fallback to Sale records
         total = self.sales.aggregate(total=Sum('total_cost'))['total']
         return total or 0
 
