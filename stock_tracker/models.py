@@ -982,7 +982,9 @@ class Location(models.Model):
         return f"{self.hotel.name} - {self.name}"
 
 class Stocktake(models.Model):
-    @property
+    from django.utils.functional import cached_property
+
+    @cached_property
     def total_cogs(self):
         # Sum total_cost from all Sale records for this stocktake
         from django.db.models import Sum
