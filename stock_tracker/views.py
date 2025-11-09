@@ -429,11 +429,17 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 stocktake_updated = True
                 
                 # Broadcast stocktake status change
+                from .stock_serializers import StocktakeSerializer
+                serializer = StocktakeSerializer(stocktake, context={'request': request})
                 broadcast_stocktake_status_changed(
-                    hotel=period.hotel,
-                    stocktake_id=stocktake.id,
-                    new_status='DRAFT',
-                    user=request.user
+                    hotel_identifier,
+                    stocktake.id,
+                    {
+                        "stocktake_id": stocktake.id,
+                        "status": "DRAFT",
+                        "message": "Stocktake reopened",
+                        "stocktake": serializer.data
+                    }
                 )
         except Stocktake.DoesNotExist:
             pass
@@ -651,11 +657,17 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             stocktake.save()
             
             # Broadcast stocktake status change
+            from .stock_serializers import StocktakeSerializer
+            serializer = StocktakeSerializer(stocktake, context={'request': request})
             broadcast_stocktake_status_changed(
-                hotel=period.hotel,
-                stocktake_id=stocktake.id,
-                new_status='APPROVED',
-                user=request.user
+                hotel_identifier,
+                stocktake.id,
+                {
+                    "stocktake_id": stocktake.id,
+                    "status": "APPROVED",
+                    "message": "Stocktake approved",
+                    "stocktake": serializer.data
+                }
             )
         
         # STEP 2: Close the period
