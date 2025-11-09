@@ -1440,15 +1440,14 @@ class StocktakeLine(models.Model):
     @property
     def expected_qty(self):
         """
-        Formula: expected = opening + purchases - waste - sales
-        Now includes sales from the Sale model.
+        Formula: expected = opening + purchases - waste
+        Sales are NOT included - calculated separately outside stocktake.
         All values in base units.
         """
         return (
             self.opening_qty +
             self.purchases -
-            self.waste -
-            self.sales_qty
+            self.waste
         )
 
     @property

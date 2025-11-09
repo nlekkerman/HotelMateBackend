@@ -4,8 +4,18 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+import logging
 
 from hotel.models import Hotel
+from .pusher_utils import (
+    broadcast_stocktake_created,
+    broadcast_stocktake_status_changed,
+    broadcast_stocktake_populated,
+    broadcast_line_counted_updated,
+    broadcast_line_movement_added,
+)
+
+logger = logging.getLogger(__name__)
 from .analytics import ingredient_usage
 from .models import (
     Ingredient,
@@ -518,13 +528,27 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         return StocktakeSerializer
 
     def perform_create(self, serializer):
-        """Auto-set hotel from URL parameter"""
+        """Auto-set hotel from URL parameter and broadcast creation"""
         hotel_identifier = self.kwargs.get('hotel_identifier')
         hotel = get_object_or_404(
             Hotel,
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
-        serializer.save(hotel=hotel)
+        instance = serializer.save(hotel=hotel)
+        
+        # Broadcast stocktake creation to all users viewing stocktakes list
+        try:
+            broadcast_stocktake_created(
+                hotel_identifier,
+                serializer.data
+            )
+            logger.info(
+                f"Broadcasted stocktake creation: {instance.id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to broadcast stocktake creation: {e}"
+            )
 
     @action(detail=True, methods=['post'])
     def populate(self, request, pk=None, hotel_identifier=None):
@@ -542,6 +566,26 @@ class StocktakeViewSet(viewsets.ModelViewSet):
 
         try:
             lines_created = populate_stocktake(stocktake)
+            
+            # Broadcast populate event to all viewing this stocktake
+            try:
+                broadcast_stocktake_populated(
+                    hotel_identifier,
+                    stocktake.id,
+                    {
+                        "stocktake_id": stocktake.id,
+                        "lines_created": lines_created,
+                        "message": f"Created {lines_created} stocktake lines"
+                    }
+                )
+                logger.info(
+                    f"Broadcasted stocktake populate: {stocktake.id}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to broadcast stocktake populate: {e}"
+                )
+            
             return Response({
                 "message": f"Created {lines_created} stocktake lines",
                 "lines_created": lines_created
@@ -576,6 +620,28 @@ class StocktakeViewSet(viewsets.ModelViewSet):
                 stocktake,
                 staff
             )
+            
+            # Broadcast status change to both list and detail views
+            try:
+                serializer = self.get_serializer(stocktake)
+                broadcast_stocktake_status_changed(
+                    hotel_identifier,
+                    stocktake.id,
+                    {
+                        "stocktake_id": stocktake.id,
+                        "status": "APPROVED",
+                        "adjustments_created": adjustments_created,
+                        "stocktake": serializer.data
+                    }
+                )
+                logger.info(
+                    f"Broadcasted stocktake approval: {stocktake.id}"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to broadcast stocktake approval: {e}"
+                )
+            
             return Response({
                 "message": "Stocktake approved",
                 "adjustments_created": adjustments_created
@@ -647,6 +713,8 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
         and returned in the response.
         """
         instance = self.get_object()
+        hotel_identifier = kwargs.get('hotel_identifier')
+        
         if instance.stocktake.is_locked:
             return Response(
                 {"error": "Cannot edit approved stocktake"},
@@ -668,6 +736,25 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
         
         # Re-serialize with ALL fields including calculated properties
         response_serializer = self.get_serializer(instance)
+        
+        # Broadcast line update to all viewing this stocktake
+        try:
+            broadcast_line_counted_updated(
+                hotel_identifier,
+                instance.stocktake.id,
+                {
+                    "line_id": instance.id,
+                    "item_sku": instance.item.sku,
+                    "line": response_serializer.data
+                }
+            )
+            logger.info(
+                f"Broadcasted line update: {instance.id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to broadcast line update: {e}"
+            )
         
         return Response(response_serializer.data)
 
@@ -762,7 +849,7 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
         
         # Return updated line data
         serializer = self.get_serializer(line)
-        return Response({
+        response_data = {
             'message': 'Movement created successfully',
             'movement': {
                 'id': movement.id,
@@ -771,7 +858,30 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
                 'timestamp': movement.timestamp
             },
             'line': serializer.data
-        }, status=status.HTTP_201_CREATED)
+        }
+        
+        # Broadcast movement added to all viewing this stocktake
+        try:
+            broadcast_line_movement_added(
+                hotel_identifier,
+                line.stocktake.id,
+                {
+                    "line_id": line.id,
+                    "item_sku": line.item.sku,
+                    "movement": response_data['movement'],
+                    "line": serializer.data
+                }
+            )
+            logger.info(
+                f"Broadcasted movement added: {movement.id} "
+                f"to line {line.id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to broadcast movement added: {e}"
+            )
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=['get'])
     def movements(self, request, pk=None, hotel_identifier=None):
