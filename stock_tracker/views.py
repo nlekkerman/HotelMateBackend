@@ -725,11 +725,18 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
         if hasattr(request.user, 'staff'):
             staff_user = request.user.staff
         
+        # Find the matching StockPeriod for this stocktake
+        period = StockPeriod.objects.filter(
+            hotel=line.stocktake.hotel,
+            start_date=line.stocktake.period_start,
+            end_date=line.stocktake.period_end
+        ).first()
+        
         # Create the movement
         movement = StockMovement.objects.create(
             hotel=line.stocktake.hotel,
             item=line.item,
-            period=line.stocktake.period,
+            period=period,
             movement_type=movement_type,
             quantity=quantity,
             unit_cost=request.data.get('unit_cost'),
