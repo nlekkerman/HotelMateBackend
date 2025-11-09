@@ -678,6 +678,11 @@ class StocktakeSerializer(serializers.ModelSerializer):
     total_items = serializers.SerializerMethodField()
     total_value = serializers.SerializerMethodField()
     total_variance_value = serializers.SerializerMethodField()
+    # Profitability fields
+    total_cogs = serializers.SerializerMethodField()
+    total_revenue = serializers.SerializerMethodField()
+    gross_profit_percentage = serializers.SerializerMethodField()
+    pour_cost_percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = Stocktake
@@ -692,9 +697,26 @@ class StocktakeSerializer(serializers.ModelSerializer):
             # Stocktake lines (counted data)
             'lines', 'total_lines',
             # Summary
-            'total_items', 'total_value', 'total_variance_value'
+            'total_items', 'total_value', 'total_variance_value',
+            # Profitability
+            'total_cogs',
+            'total_revenue',
+            'gross_profit_percentage',
+            'pour_cost_percentage'
         ]
         read_only_fields = ['hotel', 'status', 'approved_at', 'approved_by']
+    
+    def get_total_cogs(self, obj):
+        return obj.total_cogs
+
+    def get_total_revenue(self, obj):
+        return obj.total_revenue
+
+    def get_gross_profit_percentage(self, obj):
+        return obj.gross_profit_percentage
+
+    def get_pour_cost_percentage(self, obj):
+        return obj.pour_cost_percentage
 
     def get_approved_by_name(self, obj):
         if obj.approved_by:
@@ -825,6 +847,9 @@ class SaleSerializer(serializers.ModelSerializer):
     gross_profit_percentage = serializers.DecimalField(
         max_digits=5, decimal_places=2, read_only=True
     )
+    pour_cost_percentage = serializers.DecimalField(
+        max_digits=5, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = Sale
@@ -833,7 +858,7 @@ class SaleSerializer(serializers.ModelSerializer):
             'item_sku', 'item_name', 'category_code', 'category_name',
             'quantity', 'unit_cost', 'unit_price',
             'total_cost', 'total_revenue',
-            'gross_profit', 'gross_profit_percentage',
+            'gross_profit', 'gross_profit_percentage', 'pour_cost_percentage',
             'sale_date', 'notes',
             'created_by', 'created_by_name',
             'created_at', 'updated_at'
