@@ -525,6 +525,14 @@ class StockPeriod(models.Model):
 
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Manual entry for total sales amount (when itemized sales are missing)
+    manual_sales_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Manual total sales amount for the period (if itemized sales are missing)"
+    )
 
     class Meta:
         ordering = ['-end_date', '-start_date']
@@ -974,6 +982,45 @@ class Location(models.Model):
         return f"{self.hotel.name} - {self.name}"
 
 class Stocktake(models.Model):
+    @property
+    def total_cogs(self):
+        # Sum total_cost from all Sale records for this stocktake
+        from django.db.models import Sum
+        total = self.sales.aggregate(total=Sum('total_cost'))['total']
+        return total or 0
+
+    @property
+    def total_revenue(self):
+        # Use manual_sales_amount from StockPeriod if available
+        period = None
+        try:
+            period = StockPeriod.objects.get(hotel=self.hotel, start_date=self.period_start, end_date=self.period_end)
+        except StockPeriod.DoesNotExist:
+            pass
+        if period and period.manual_sales_amount is not None:
+            return period.manual_sales_amount
+        # Otherwise, sum total_revenue from all Sale records
+        from django.db.models import Sum
+        total = self.sales.aggregate(total=Sum('total_revenue'))['total']
+        return total or 0
+
+    @property
+    def gross_profit_percentage(self):
+        revenue = self.total_revenue
+        cogs = self.total_cogs
+        if revenue and revenue > 0:
+            gp = ((revenue - cogs) / revenue) * 100
+            return round(gp, 2)
+        return None
+
+    @property
+    def pour_cost_percentage(self):
+        revenue = self.total_revenue
+        cogs = self.total_cogs
+        if revenue and revenue > 0:
+            pour_cost = (cogs / revenue) * 100
+            return round(pour_cost, 2)
+        return None
     """
     Represents a stocktaking period for a hotel.
     """

@@ -256,11 +256,16 @@ class StockPeriodSerializer(serializers.ModelSerializer):
     """Serializer for stock periods list view"""
     period_name = serializers.CharField(read_only=True)
     
+    manual_sales_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True
+    )
+
     class Meta:
         model = StockPeriod
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
-            'year', 'month', 'quarter', 'week', 'period_name', 'is_closed'
+            'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
+            'manual_sales_amount'
         ]
         read_only_fields = [
             'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
@@ -280,11 +285,16 @@ class StockPeriodDetailSerializer(serializers.ModelSerializer):
     total_items = serializers.SerializerMethodField()
     total_value = serializers.SerializerMethodField()
     
+    manual_sales_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True
+    )
+
     class Meta:
         model = StockPeriod
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
+            'manual_sales_amount',
             'snapshots', 'snapshot_ids', 'stocktake_id', 'stocktake_status',
             'total_items', 'total_value'
         ]
