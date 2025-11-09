@@ -4,8 +4,9 @@
 
 Backend now supports:
 1. **Reopening closed periods** (with permission check)
-2. **Managing who can reopen periods** (superuser only)
-3. **Automatic stocktake status change** (APPROVED → DRAFT when reopening)
+2. **Reopening approved stocktakes** (with permission check)
+3. **Managing who can reopen periods** (superuser only)
+4. **Automatic stocktake status change** (APPROVED → DRAFT when reopening period)
 
 ---
 
@@ -88,7 +89,76 @@ const response = await fetch(
 
 ---
 
-## 👥 Permission Management APIs
+## � Reopen Stocktake API
+
+### Endpoint
+```
+POST /api/stock_tracker/{hotel_identifier}/stocktakes/{stocktake_id}/reopen/
+```
+
+### Who Can Access?
+- ✅ **Superusers** - Always can reopen
+- ✅ **Staff with PeriodReopenPermission** - Can reopen stocktakes
+
+### Request
+```javascript
+// No body required
+const response = await fetch(
+  `/api/stock_tracker/hotel-killarney/stocktakes/8/reopen/`,
+  {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    }
+  }
+);
+```
+
+### Response (Success)
+```json
+{
+  "success": true,
+  "message": "Stocktake for 2025-09-01 to 2025-09-30 has been reopened",
+  "stocktake": {
+    "id": 8,
+    "status": "DRAFT",
+    "approved_at": null,
+    "approved_by": null,
+    "period_start": "2025-09-01",
+    "period_end": "2025-09-30",
+    "total_lines": 254
+  }
+}
+```
+
+### Response (Error - No Permission)
+```json
+{
+  "success": false,
+  "error": "You do not have permission to reopen stocktakes"
+}
+```
+**HTTP Status:** `403 Forbidden`
+
+### Response (Error - Already DRAFT)
+```json
+{
+  "success": false,
+  "error": "Stocktake is already in DRAFT status"
+}
+```
+**HTTP Status:** `400 Bad Request`
+
+### What Happens When Reopening Stocktake?
+1. ✅ Stocktake `status` changed from `APPROVED` → `DRAFT`
+2. ✅ Stocktake `approved_at` cleared
+3. ✅ Stocktake `approved_by` cleared
+4. ✅ Stocktake becomes editable again
+
+---
+
+## �👥 Permission Management APIs
 
 ### 1. Check User Permissions (in Period Response)
 
@@ -503,6 +573,7 @@ await fetch('/api/stock_tracker/hotel-killarney/periods/8/reopen/', {
 |--------|----------|--------|--------|
 | Check permissions | Period detail | GET | All authenticated |
 | Reopen period | `/periods/{id}/reopen/` | POST | Superuser or permitted staff |
+| Reopen stocktake | `/stocktakes/{id}/reopen/` | POST | Superuser or permitted staff |
 | List permissions | `/periods/reopen_permissions/` | GET | Superuser only |
 | Grant permission | `/periods/grant_reopen_permission/` | POST | Superuser only |
 | Revoke permission | `/periods/revoke_reopen_permission/` | POST | Superuser only |

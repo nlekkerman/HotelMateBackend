@@ -82,6 +82,18 @@ period_compare = StockPeriodViewSet.as_view({
 period_populate_opening_stock = StockPeriodViewSet.as_view({
     'post': 'populate_opening_stock'
 })
+period_reopen = StockPeriodViewSet.as_view({
+    'post': 'reopen'
+})
+period_reopen_permissions = StockPeriodViewSet.as_view({
+    'get': 'reopen_permissions'
+})
+period_grant_reopen_permission = StockPeriodViewSet.as_view({
+    'post': 'grant_reopen_permission'
+})
+period_revoke_reopen_permission = StockPeriodViewSet.as_view({
+    'post': 'revoke_reopen_permission'
+})
 
 snapshot_list = StockSnapshotViewSet.as_view({
     'get': 'list', 'post': 'create'
@@ -125,6 +137,7 @@ stocktake_detail = StocktakeViewSet.as_view({
 })
 stocktake_populate = StocktakeViewSet.as_view({'post': 'populate'})
 stocktake_approve = StocktakeViewSet.as_view({'post': 'approve'})
+stocktake_reopen = StocktakeViewSet.as_view({'post': 'reopen'})
 stocktake_category_totals = StocktakeViewSet.as_view({
     'get': 'category_totals'
 })
@@ -263,6 +276,26 @@ urlpatterns = [
         period_compare,
         name='period-compare'
     ),
+    path(
+        '<str:hotel_identifier>/periods/<int:pk>/reopen/',
+        period_reopen,
+        name='period-reopen'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/reopen_permissions/',
+        period_reopen_permissions,
+        name='period-reopen-permissions'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/grant_reopen_permission/',
+        period_grant_reopen_permission,
+        name='period-grant-reopen-permission'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/revoke_reopen_permission/',
+        period_revoke_reopen_permission,
+        name='period-revoke-reopen-permission'
+    ),
 
     # Stock Snapshots
     path(
@@ -335,6 +368,11 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktakes/<int:pk>/approve/',
         stocktake_approve,
         name='stocktake-approve'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktakes/<int:pk>/reopen/',
+        stocktake_reopen,
+        name='stocktake-reopen'
     ),
     path(
         '<str:hotel_identifier>/stocktakes/<int:pk>/category_totals/',

@@ -885,6 +885,79 @@ class StocktakeViewSet(viewsets.ModelViewSet):
                 {"error": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+    
+    @action(detail=True, methods=['post'])
+    def reopen(self, request, pk=None, hotel_identifier=None):
+        """
+        Reopen an approved stocktake (change from APPROVED to DRAFT).
+        Only accessible by:
+        - Superusers
+        - Staff with PeriodReopenPermission for this hotel
+        """
+        from .models import PeriodReopenPermission
+        
+        stocktake = self.get_object()
+        
+        # Check if stocktake is already in DRAFT
+        if stocktake.status == Stocktake.DRAFT:
+            return Response({
+                'success': False,
+                'error': 'Stocktake is already in DRAFT status'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check permissions (same as period reopen)
+        user = request.user
+        can_reopen = False
+        
+        if user.is_superuser:
+            can_reopen = True
+        else:
+            try:
+                staff = user.staff_profile
+                can_reopen = PeriodReopenPermission.objects.filter(
+                    hotel=stocktake.hotel,
+                    staff=staff,
+                    is_active=True
+                ).exists()
+            except AttributeError:
+                pass
+        
+        if not can_reopen:
+            return Response({
+                'success': False,
+                'error': 'You do not have permission to reopen stocktakes'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Reopen the stocktake
+        stocktake.status = Stocktake.DRAFT
+        stocktake.approved_at = None
+        stocktake.approved_by = None
+        stocktake.save()
+        
+        # Broadcast status change
+        try:
+            serializer = self.get_serializer(stocktake)
+            broadcast_stocktake_status_changed(
+                hotel_identifier,
+                stocktake.id,
+                {
+                    "stocktake_id": stocktake.id,
+                    "status": "DRAFT",
+                    "message": "Stocktake reopened",
+                    "stocktake": serializer.data
+                }
+            )
+            logger.info(f"Broadcasted stocktake reopen: {stocktake.id}")
+        except Exception as e:
+            logger.error(f"Failed to broadcast stocktake reopen: {e}")
+        
+        return Response({
+            'success': True,
+            'message': f'Stocktake for {stocktake.period_start} to {stocktake.period_end} has been reopened',
+            'stocktake': StocktakeSerializer(
+                stocktake, context={'request': request}
+            ).data
+        }, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=['get'])
     def category_totals(self, request, pk=None, hotel_identifier=None):
