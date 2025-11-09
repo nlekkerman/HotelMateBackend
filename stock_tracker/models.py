@@ -994,23 +994,65 @@ class Stocktake(models.Model):
 
     @cached_property
     def total_cogs(self):
-        # Sum total_cost from all Sale records for this stocktake
+        """
+        Calculate total cost of goods sold.
+        Priority:
+        1. Sum of manual_purchases_value + manual_waste_value from lines
+        2. Sum of total_cost from Sale records
+        """
         from django.db.models import Sum
+        
+        # Check if any lines have manual values
+        manual_totals = self.lines.aggregate(
+            purchases=Sum('manual_purchases_value'),
+            waste=Sum('manual_waste_value')
+        )
+        
+        manual_purchases = manual_totals['purchases'] or 0
+        manual_waste = manual_totals['waste'] or 0
+        manual_total = manual_purchases + manual_waste
+        
+        if manual_total > 0:
+            return manual_total
+        
+        # Fallback to Sale records
         total = self.sales.aggregate(total=Sum('total_cost'))['total']
         return total or 0
 
     @property
     def total_revenue(self):
-        # Use manual_sales_amount from StockPeriod if available
+        """
+        Calculate total sales revenue.
+        Priority:
+        1. Sum of manual_sales_value from lines
+        2. StockPeriod.manual_sales_amount
+        3. Sum of total_revenue from Sale records
+        """
+        from django.db.models import Sum
+        
+        # Check if any lines have manual sales values
+        manual_sales = self.lines.aggregate(
+            total=Sum('manual_sales_value')
+        )['total']
+        
+        if manual_sales and manual_sales > 0:
+            return manual_sales
+        
+        # Check period manual_sales_amount
         period = None
         try:
-            period = StockPeriod.objects.get(hotel=self.hotel, start_date=self.period_start, end_date=self.period_end)
+            period = StockPeriod.objects.get(
+                hotel=self.hotel,
+                start_date=self.period_start,
+                end_date=self.period_end
+            )
         except StockPeriod.DoesNotExist:
             pass
+        
         if period and period.manual_sales_amount is not None:
             return period.manual_sales_amount
-        # Otherwise, sum total_revenue from all Sale records
-        from django.db.models import Sum
+        
+        # Fallback to Sale records
         total = self.sales.aggregate(total=Sum('total_revenue'))['total']
         return total or 0
 
@@ -1358,6 +1400,20 @@ class StocktakeLine(models.Model):
         null=True,
         blank=True,
         help_text="Manual override: Total purchase value in period (€)"
+    )
+    manual_waste_value = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Manual override: Total waste value in period (€)"
+    )
+    manual_sales_value = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Manual override: Total sales revenue in period (€)"
     )
 
     # Counted quantities (user input)
