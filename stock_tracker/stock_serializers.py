@@ -256,6 +256,7 @@ class StockPeriodSerializer(serializers.ModelSerializer):
     """Serializer for stock periods list view"""
     period_name = serializers.CharField(read_only=True)
     stocktake_id = serializers.SerializerMethodField()
+    stocktake = serializers.SerializerMethodField()
     
     manual_sales_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
@@ -269,7 +270,8 @@ class StockPeriodSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
-            'manual_sales_amount', 'manual_purchases_amount', 'stocktake_id'
+            'manual_sales_amount', 'manual_purchases_amount',
+            'stocktake_id', 'stocktake'
         ]
         read_only_fields = [
             'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
@@ -289,6 +291,52 @@ class StockPeriodSerializer(serializers.ModelSerializer):
                 period_end=obj.end_date
             )
             return stocktake.id
+        except Stocktake.DoesNotExist:
+            return None
+    
+    def get_stocktake(self, obj):
+        """
+        Get basic stocktake information for this period.
+        Returns None if no stocktake exists.
+        
+        Includes:
+        - id: Stocktake ID
+        - status: DRAFT or APPROVED
+        - total_lines: Number of items in stocktake
+        - lines_counted: Number of items with counted values
+        - total_cogs: Cost of goods sold
+        - total_revenue: Sales revenue
+        - gross_profit_percentage: GP%
+        - pour_cost_percentage: Pour cost%
+        """
+        from .models import Stocktake
+        try:
+            stocktake = Stocktake.objects.get(
+                hotel=obj.hotel,
+                period_start=obj.start_date,
+                period_end=obj.end_date
+            )
+            
+            # Count lines
+            total_lines = stocktake.lines.count()
+            lines_counted = stocktake.lines.exclude(
+                counted_full_units=0,
+                counted_partial_units=0
+            ).count()
+            
+            return {
+                'id': stocktake.id,
+                'status': stocktake.status,
+                'total_lines': total_lines,
+                'lines_counted': lines_counted,
+                'lines_at_zero': total_lines - lines_counted,
+                'total_cogs': float(stocktake.total_cogs) if stocktake.total_cogs else None,
+                'total_revenue': float(stocktake.total_revenue) if stocktake.total_revenue else None,
+                'gross_profit_percentage': float(stocktake.gross_profit_percentage) if stocktake.gross_profit_percentage else None,
+                'pour_cost_percentage': float(stocktake.pour_cost_percentage) if stocktake.pour_cost_percentage else None,
+                'approved_at': stocktake.approved_at,
+                'notes': stocktake.notes
+            }
         except Stocktake.DoesNotExist:
             return None
 
