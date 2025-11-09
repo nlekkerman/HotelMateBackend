@@ -135,6 +135,12 @@ stocktake_line_detail = StocktakeLineViewSet.as_view({
     'get': 'retrieve', 'put': 'update',
     'patch': 'partial_update', 'delete': 'destroy'
 })
+stocktake_line_add_movement = StocktakeLineViewSet.as_view({
+    'post': 'add_movement'
+})
+stocktake_line_movements = StocktakeLineViewSet.as_view({
+    'get': 'movements'
+})
 
 urlpatterns = [
     # Ingredients
@@ -324,6 +330,16 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktake-lines/<int:pk>/',
         stocktake_line_detail,
         name='line-detail'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktake-lines/<int:pk>/add-movement/',
+        stocktake_line_add_movement,
+        name='line-add-movement'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktake-lines/<int:pk>/movements/',
+        stocktake_line_movements,
+        name='line-movements'
     ),
 
     # Reports

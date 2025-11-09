@@ -1054,7 +1054,13 @@ class Stocktake(models.Model):
                     'item_count': 15
                 }
             }
+        
+        Note: This method uses @property calculations from StocktakeLine
+        (expected_qty, counted_qty, variance_qty, expected_value,
+        counted_value, variance_value) which are computed dynamically
+        from the current database values. No caching is involved.
         """
+        # Fetch fresh data from database
         lines = self.lines.select_related('item', 'item__category')
         
         if category_code:
@@ -1243,7 +1249,12 @@ class StocktakeLine(models.Model):
         category = self.item.category_id
         
         # Draught + BIB + Dozen: partial = servings
-        if (category == 'D') or (self.item.size and ('Doz' in self.item.size or 'LT' in self.item.size.upper())):
+        is_draught = category == 'D'
+        is_special_size = (
+            self.item.size and
+            ('Doz' in self.item.size or 'LT' in self.item.size.upper())
+        )
+        if is_draught or is_special_size:
             full_servings = self.counted_full_units * self.item.uom
             return full_servings + self.counted_partial_units
         else:

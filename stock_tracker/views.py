@@ -636,11 +636,165 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
         return StocktakeLine.objects.filter(stocktake__hotel=hotel)
 
     def update(self, request, *args, **kwargs):
-        """Override to prevent updates on locked stocktakes"""
+        """
+        Override to prevent updates on locked stocktakes and ensure
+        proper recalculation of counted_value and variance_value.
+
+        This method ensures that when counted_full_units or
+        counted_partial_units are updated, all calculated properties
+        (counted_qty, counted_value, variance_value) are recalculated
+        and returned in the response.
+        """
         instance = self.get_object()
         if instance.stocktake.is_locked:
             return Response(
                 {"error": "Cannot edit approved stocktake"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        return super().update(request, *args, **kwargs)
+
+        # Perform the update using parent class method
+        partial = kwargs.get('partial', False)
+        serializer = self.get_serializer(
+            instance,
+            data=request.data,
+            partial=partial
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        # CRITICAL: Refresh from database to get fresh calculated values
+        instance.refresh_from_db()
+        
+        # Re-serialize with ALL fields including calculated properties
+        response_serializer = self.get_serializer(instance)
+        
+        return Response(response_serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def add_movement(self, request, pk=None, hotel_identifier=None):
+        """
+        Create a StockMovement directly from a stocktake line.
+        Hotel-wide system: Only PURCHASE, SALE, and WASTE.
+        (No transfers/adjustments - those are for multi-outlet systems)
+        
+        POST data expected:
+        {
+            "movement_type": "PURCHASE|SALE|WASTE",
+            "quantity": 10.5,
+            "unit_cost": 2.50,  // optional
+            "reference": "INV-12345",  // optional
+            "notes": "Manual entry from stocktake"  // optional
+        }
+        
+        This creates a real StockMovement record that will be reflected
+        in the line's totals immediately.
+        """
+        line = self.get_object()
+        
+        if line.stocktake.is_locked:
+            return Response(
+                {"error": "Cannot add movements to approved stocktake"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        movement_type = request.data.get('movement_type')
+        quantity = request.data.get('quantity')
+        
+        if not movement_type or quantity is None:
+            return Response(
+                {"error": "movement_type and quantity are required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Hotel-wide system: Only allow PURCHASE, SALE, WASTE
+        valid_types = ['PURCHASE', 'SALE', 'WASTE']
+        if movement_type not in valid_types:
+            error_msg = (
+                f"Invalid movement_type. "
+                f"Must be one of: {', '.join(valid_types)}"
+            )
+            return Response(
+                {"error": error_msg},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Default reference if not provided
+        default_ref = f'Stocktake-{line.stocktake.id}'
+        
+        # Get staff if available
+        staff_user = None
+        if hasattr(request.user, 'staff'):
+            staff_user = request.user.staff
+        
+        # Create the movement
+        movement = StockMovement.objects.create(
+            hotel=line.stocktake.hotel,
+            item=line.item,
+            period=line.stocktake.period,
+            movement_type=movement_type,
+            quantity=quantity,
+            unit_cost=request.data.get('unit_cost'),
+            reference=request.data.get('reference', default_ref),
+            notes=request.data.get('notes', ''),
+            staff=staff_user
+        )
+        
+        # Recalculate the line by re-populating from movements
+        from .stocktake_service import _calculate_period_movements
+        
+        movements = _calculate_period_movements(
+            line.item,
+            line.stocktake.period_start,
+            line.stocktake.period_end
+        )
+        
+        # Update only hotel-wide movement types
+        line.purchases = movements['purchases']
+        line.sales = movements['sales']
+        line.waste = movements['waste']
+        line.save()
+        
+        # Return updated line data
+        serializer = self.get_serializer(line)
+        return Response({
+            'message': 'Movement created successfully',
+            'movement': {
+                'id': movement.id,
+                'movement_type': movement.movement_type,
+                'quantity': str(movement.quantity),
+                'timestamp': movement.timestamp
+            },
+            'line': serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=['get'])
+    def movements(self, request, pk=None, hotel_identifier=None):
+        """
+        Get all movements for this line item within the stocktake period.
+        
+        Returns a list of all StockMovement records that affect this
+        line's calculations, allowing the UI to display both auto-calculated
+        and manually entered movements together.
+        """
+        line = self.get_object()
+        
+        movements = StockMovement.objects.filter(
+            item=line.item,
+            timestamp__gte=line.stocktake.period_start,
+            timestamp__lte=line.stocktake.period_end
+        ).order_by('-timestamp')
+        
+        serializer = StockMovementSerializer(movements, many=True)
+        
+        # Summary for hotel-wide system (only relevant movement types)
+        summary = {
+            'total_purchases': line.purchases,
+            'total_sales': line.sales,
+            'total_waste': line.waste,
+            'movement_count': movements.count()
+        }
+        
+        return Response({
+            'movements': serializer.data,
+            'summary': summary
+        })
