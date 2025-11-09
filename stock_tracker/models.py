@@ -1266,17 +1266,14 @@ class StocktakeLine(models.Model):
     @property
     def expected_qty(self):
         """
-        Formula: expected = open + P + Tin - S - W - Tout + A
+        Formula: expected = opening + purchases - waste
+        Sales are NOT subtracted (determined by difference/variance).
         All values in base units.
         """
         return (
             self.opening_qty +
-            self.purchases +
-            self.transfers_in -
-            self.sales -
-            self.waste -
-            self.transfers_out +
-            self.adjustments
+            self.purchases -
+            self.waste
         )
 
     @property

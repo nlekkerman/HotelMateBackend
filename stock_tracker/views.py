@@ -674,12 +674,12 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
     def add_movement(self, request, pk=None, hotel_identifier=None):
         """
         Create a StockMovement directly from a stocktake line.
-        Hotel-wide system: Only PURCHASE, SALE, and WASTE.
-        (No transfers/adjustments - those are for multi-outlet systems)
+        Hotel-wide system: Only PURCHASE and WASTE.
+        Sales are not tracked - they're determined by variance.
         
         POST data expected:
         {
-            "movement_type": "PURCHASE|SALE|WASTE",
+            "movement_type": "PURCHASE|WASTE",
             "quantity": 10.5,
             "unit_cost": 2.50,  // optional
             "reference": "INV-12345",  // optional
@@ -706,8 +706,8 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Hotel-wide system: Only allow PURCHASE, SALE, WASTE
-        valid_types = ['PURCHASE', 'SALE', 'WASTE']
+        # Hotel-wide system: Only allow PURCHASE and WASTE
+        valid_types = ['PURCHASE', 'WASTE']
         if movement_type not in valid_types:
             error_msg = (
                 f"Invalid movement_type. "
@@ -748,10 +748,10 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             line.stocktake.period_end
         )
         
-        # Update only hotel-wide movement types
+        # Update only hotel-wide movement types (purchases and waste)
         line.purchases = movements['purchases']
-        line.sales = movements['sales']
         line.waste = movements['waste']
+        # Sales are not tracked - determined by variance
         line.save()
         
         # Return updated line data
