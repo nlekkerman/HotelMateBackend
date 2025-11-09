@@ -492,6 +492,14 @@ class StockPeriod(models.Model):
         blank=True,
         help_text="1-4 for quarterly periods"
     )
+
+    manual_sales_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Manually entered sales amount for the period"
+    )
     month = models.IntegerField(
         null=True,
         blank=True,
