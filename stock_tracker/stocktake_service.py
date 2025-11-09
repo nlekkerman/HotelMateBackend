@@ -60,7 +60,6 @@ def populate_stocktake(stocktake):
             item=item,
             opening_qty=opening_qty,
             purchases=movements['purchases'],
-            sales=movements['sales'],
             waste=movements['waste'],
             transfers_in=movements['transfers_in'],
             transfers_out=movements['transfers_out'],
@@ -90,7 +89,6 @@ def _get_opening_balance(item, period_start):
         outflows=Sum(
             'quantity',
             filter=Q(movement_type__in=[
-                StockMovement.SALE,
                 StockMovement.WASTE,
                 StockMovement.TRANSFER_OUT
             ])
@@ -112,7 +110,7 @@ def _calculate_period_movements(item, period_start, period_end):
     """
     Calculate movements within the stocktake period.
 
-    Returns dict with keys: purchases, sales, waste,
+    Returns dict with keys: purchases, waste,
     transfers_in, transfers_out, adjustments
     """
     movements = item.movements.filter(
@@ -122,10 +120,6 @@ def _calculate_period_movements(item, period_start, period_end):
         purchases=Sum(
             'quantity',
             filter=Q(movement_type=StockMovement.PURCHASE)
-        ),
-        sales=Sum(
-            'quantity',
-            filter=Q(movement_type=StockMovement.SALE)
         ),
         waste=Sum(
             'quantity',
@@ -147,7 +141,6 @@ def _calculate_period_movements(item, period_start, period_end):
 
     return {
         'purchases': movements['purchases'] or Decimal('0'),
-        'sales': movements['sales'] or Decimal('0'),
         'waste': movements['waste'] or Decimal('0'),
         'transfers_in': movements['transfers_in'] or Decimal('0'),
         'transfers_out': movements['transfers_out'] or Decimal('0'),
@@ -417,7 +410,6 @@ def _calculate_movements_between_periods(item, previous_end_date, current_start_
         outflows=Sum(
             'quantity',
             filter=Q(movement_type__in=[
-                StockMovement.SALE,
                 StockMovement.WASTE,
                 StockMovement.TRANSFER_OUT
             ])

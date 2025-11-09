@@ -1040,16 +1040,15 @@ class Stocktake(models.Model):
                     'category_name': 'Draught Beer',
                     'opening_qty': Decimal('1250.0000'),
                     'purchases': Decimal('500.0000'),
-                    'sales': Decimal('800.0000'),
                     'waste': Decimal('25.0000'),
                     'transfers_in': Decimal('0.0000'),
                     'transfers_out': Decimal('0.0000'),
                     'adjustments': Decimal('0.0000'),
-                    'expected_qty': Decimal('925.0000'),
-                    'counted_qty': Decimal('920.0000'),
+                    'expected_qty': Decimal('1725.0000'),
+                    'counted_qty': Decimal('1720.0000'),
                     'variance_qty': Decimal('-5.0000'),
-                    'expected_value': Decimal('2312.50'),
-                    'counted_value': Decimal('2300.00'),
+                    'expected_value': Decimal('4300.00'),
+                    'counted_value': Decimal('4287.50'),
                     'variance_value': Decimal('-12.50'),
                     'item_count': 15
                 }
@@ -1078,7 +1077,6 @@ class Stocktake(models.Model):
                     'category_name': line.item.category.name,
                     'opening_qty': Decimal('0.0000'),
                     'purchases': Decimal('0.0000'),
-                    'sales': Decimal('0.0000'),
                     'waste': Decimal('0.0000'),
                     'transfers_in': Decimal('0.0000'),
                     'transfers_out': Decimal('0.0000'),
@@ -1090,7 +1088,6 @@ class Stocktake(models.Model):
                     'counted_value': Decimal('0.00'),
                     'variance_value': Decimal('0.00'),
                     'manual_purchases_value': Decimal('0.00'),
-                    'manual_sales_profit': Decimal('0.00'),
                     'item_count': 0
                 }
             
@@ -1099,7 +1096,6 @@ class Stocktake(models.Model):
             # Sum all movements
             cat['opening_qty'] += line.opening_qty
             cat['purchases'] += line.purchases
-            cat['sales'] += line.sales
             cat['waste'] += line.waste
             cat['transfers_in'] += line.transfers_in
             cat['transfers_out'] += line.transfers_out
@@ -1118,8 +1114,6 @@ class Stocktake(models.Model):
             # Sum manual overrides
             if line.manual_purchases_value:
                 cat['manual_purchases_value'] += line.manual_purchases_value
-            if line.manual_sales_profit:
-                cat['manual_sales_profit'] += line.manual_sales_profit
             
             cat['item_count'] += 1
         
@@ -1159,11 +1153,6 @@ class StocktakeLine(models.Model):
         decimal_places=4,
         default=Decimal('0.0000')
     )
-    sales = models.DecimalField(
-        max_digits=15,
-        decimal_places=4,
-        default=Decimal('0.0000')
-    )
     waste = models.DecimalField(
         max_digits=15,
         decimal_places=4,
@@ -1193,13 +1182,6 @@ class StocktakeLine(models.Model):
         null=True,
         blank=True,
         help_text="Manual override: Total purchase value in period (€)"
-    )
-    manual_sales_profit = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        null=True,
-        blank=True,
-        help_text="Manual override: Sales profit in period (€)"
     )
 
     # Counted quantities (user input)

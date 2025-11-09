@@ -467,7 +467,7 @@ class StockSnapshotSerializer(serializers.ModelSerializer):
 class StockMovementSerializer(serializers.ModelSerializer):
     """
     Serializer for stock movements
-    (purchases, sales, waste, transfers, adjustments)
+    (purchases, waste, transfers, adjustments)
     """
     item_sku = serializers.CharField(source='item.sku', read_only=True)
     item_name = serializers.CharField(source='item.name', read_only=True)
@@ -545,10 +545,10 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'id', 'stocktake', 'item', 'item_sku', 'item_name',
             'category_code', 'category_name', 'item_size', 'item_uom',
             # Raw quantities (servings)
-            'opening_qty', 'purchases', 'sales', 'waste',
+            'opening_qty', 'purchases', 'waste',
             'transfers_in', 'transfers_out', 'adjustments',
             # Manual override fields
-            'manual_purchases_value', 'manual_sales_profit',
+            'manual_purchases_value',
             'counted_full_units', 'counted_partial_units',
             'counted_qty', 'expected_qty', 'variance_qty',
             # Display quantities (kegs+pints, cases+bottles, etc)
@@ -561,7 +561,7 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'variance_value'
         ]
         read_only_fields = [
-            'opening_qty', 'purchases', 'sales', 'waste',
+            'opening_qty', 'purchases', 'waste',
             'transfers_in', 'transfers_out', 'adjustments', 'valuation_cost'
         ]
     

@@ -233,13 +233,13 @@ class StocktakeLineInline(admin.TabularInline):
     model = StocktakeLine
     extra = 0
     readonly_fields = (
-        'opening_qty', 'purchases', 'sales', 'waste',
+        'opening_qty', 'purchases', 'waste',
         'transfers_in', 'transfers_out', 'adjustments',
         'valuation_cost', 'display_item_info'
     )
     fields = (
         'display_item_info', 'counted_full_units', 'counted_partial_units',
-        'opening_qty', 'purchases', 'sales'
+        'opening_qty', 'purchases', 'waste'
     )
     
     def display_item_info(self, obj):
@@ -278,7 +278,7 @@ class StocktakeLineAdmin(admin.ModelAdmin):
     list_filter = ('stocktake__hotel', 'stocktake')
     search_fields = ('item__sku', 'item__name')
     readonly_fields = (
-        'opening_qty', 'purchases', 'sales', 'waste',
+        'opening_qty', 'purchases', 'waste',
         'transfers_in', 'transfers_out', 'adjustments',
         'valuation_cost', 'counted_qty', 'expected_qty',
         'variance_qty', 'expected_value', 'counted_value',
