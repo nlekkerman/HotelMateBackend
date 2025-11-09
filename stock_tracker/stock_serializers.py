@@ -8,7 +8,8 @@ from .models import (
     Location,
     Stocktake,
     StocktakeLine,
-    Sale
+    Sale,
+    PeriodReopenPermission
 )
 
 
@@ -257,6 +258,8 @@ class StockPeriodSerializer(serializers.ModelSerializer):
     period_name = serializers.CharField(read_only=True)
     stocktake_id = serializers.SerializerMethodField()
     stocktake = serializers.SerializerMethodField()
+    can_reopen = serializers.SerializerMethodField()
+    can_manage_permissions = serializers.SerializerMethodField()
     
     manual_sales_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
@@ -270,11 +273,14 @@ class StockPeriodSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
+            'closed_at', 'closed_by', 'reopened_at', 'reopened_by',
             'manual_sales_amount', 'manual_purchases_amount',
-            'stocktake_id', 'stocktake'
+            'stocktake_id', 'stocktake', 'can_reopen', 'can_manage_permissions'
         ]
         read_only_fields = [
-            'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
+            'hotel', 'period_name', 'year', 'month', 'quarter', 'week',
+            'closed_at', 'closed_by', 'reopened_at', 'reopened_by',
+            'can_reopen', 'can_manage_permissions'
         ]
     
     def get_stocktake_id(self, obj):
@@ -339,6 +345,43 @@ class StockPeriodSerializer(serializers.ModelSerializer):
             }
         except Stocktake.DoesNotExist:
             return None
+    
+    def get_can_reopen(self, obj):
+        """
+        Check if current user can reopen this period.
+        Returns True if:
+        - User is a superuser, OR
+        - User has PeriodReopenPermission for this hotel
+        """
+        request = self.context.get('request')
+        if not request or not request.user or not request.user.is_authenticated:
+            return False
+        
+        # Superusers can always reopen
+        if request.user.is_superuser:
+            return True
+        
+        # Check if staff has permission
+        from .models import PeriodReopenPermission
+        try:
+            staff = request.user.staff_profile
+            return PeriodReopenPermission.objects.filter(
+                hotel=obj.hotel,
+                staff=staff,
+                is_active=True
+            ).exists()
+        except:
+            return False
+    
+    def get_can_manage_permissions(self, obj):
+        """
+        Check if current user can manage reopen permissions.
+        Only superusers can manage permissions.
+        """
+        request = self.context.get('request')
+        if not request or not request.user:
+            return False
+        return request.user.is_superuser
 
 
 class StockPeriodDetailSerializer(serializers.ModelSerializer):
@@ -967,4 +1010,46 @@ class SaleSerializer(serializers.ModelSerializer):
                 full_name or obj.created_by.email
                 or f"Staff #{obj.created_by.id}"
             )
+        return None
+
+
+class PeriodReopenPermissionSerializer(serializers.ModelSerializer):
+    """
+    Serializer for PeriodReopenPermission model.
+    Manages which staff can reopen closed periods.
+    """
+    staff_id = serializers.IntegerField(source='staff.id', read_only=True)
+    staff_name = serializers.SerializerMethodField()
+    staff_email = serializers.CharField(
+        source='staff.user.email', read_only=True
+    )
+    granted_by_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PeriodReopenPermission
+        fields = [
+            'id', 'hotel', 'staff', 'staff_id', 'staff_name', 'staff_email',
+            'granted_by', 'granted_by_name', 'granted_at',
+            'is_active', 'notes'
+        ]
+        read_only_fields = ['granted_by', 'granted_at']
+    
+    def get_staff_name(self, obj):
+        """Get staff member's full name"""
+        if obj.staff:
+            full_name = (
+                f"{obj.staff.first_name} "
+                f"{obj.staff.last_name}"
+            ).strip()
+            return full_name or obj.staff.user.email
+        return None
+    
+    def get_granted_by_name(self, obj):
+        """Get name of superuser who granted permission"""
+        if obj.granted_by:
+            full_name = (
+                f"{obj.granted_by.first_name} "
+                f"{obj.granted_by.last_name}"
+            ).strip()
+            return full_name or obj.granted_by.user.email
         return None

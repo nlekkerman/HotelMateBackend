@@ -356,6 +356,239 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 'success': False,
                 'error': f"Unexpected error: {str(e)}"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    @action(detail=True, methods=['post'])
+    def reopen(self, request, pk=None, hotel_identifier=None):
+        """
+        Reopen a closed period.
+        Only accessible by:
+        - Superusers
+        - Staff with PeriodReopenPermission for this hotel
+        """
+        from .models import PeriodReopenPermission
+        
+        period = self.get_object()
+        
+        # Check if period is already open
+        if not period.is_closed:
+            return Response({
+                'success': False,
+                'error': 'Period is already open'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check permissions
+        user = request.user
+        can_reopen = False
+        
+        if user.is_superuser:
+            can_reopen = True
+        else:
+            try:
+                staff = user.staff_profile
+                can_reopen = PeriodReopenPermission.objects.filter(
+                    hotel=period.hotel,
+                    staff=staff,
+                    is_active=True
+                ).exists()
+            except AttributeError:
+                pass
+        
+        if not can_reopen:
+            return Response({
+                'success': False,
+                'error': 'You do not have permission to reopen periods'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Reopen the period
+        from django.utils import timezone
+        period.is_closed = False
+        period.closed_at = None
+        period.closed_by = None
+        period.reopened_at = timezone.now()
+        # Track who reopened it
+        try:
+            period.reopened_by = request.user.staff_profile
+        except AttributeError:
+            period.reopened_by = None
+        period.save()
+        
+        # Also change related stocktake from APPROVED to DRAFT
+        from .models import Stocktake
+        stocktake_updated = False
+        try:
+            stocktake = Stocktake.objects.get(
+                hotel=period.hotel,
+                period_start=period.start_date,
+                period_end=period.end_date
+            )
+            if stocktake.status == Stocktake.APPROVED:
+                stocktake.status = Stocktake.DRAFT
+                stocktake.approved_at = None
+                stocktake.approved_by = None
+                stocktake.save()
+                stocktake_updated = True
+        except Stocktake.DoesNotExist:
+            pass
+        
+        message = f'Period "{period.period_name}" has been reopened'
+        if stocktake_updated:
+            message += ' and stocktake changed to DRAFT'
+        
+        return Response({
+            'success': True,
+            'message': message,
+            'stocktake_updated': stocktake_updated,
+            'period': StockPeriodSerializer(
+                period, context={'request': request}
+            ).data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['get'])
+    def reopen_permissions(self, request, hotel_identifier=None):
+        """
+        List all staff with reopen permissions for this hotel.
+        Only accessible by superusers.
+        """
+        from .models import PeriodReopenPermission
+        from .stock_serializers import PeriodReopenPermissionSerializer
+        
+        if not request.user.is_superuser:
+            return Response({
+                'error': 'Only superusers can view reopen permissions'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        permissions = PeriodReopenPermission.objects.filter(
+            hotel=hotel
+        ).select_related('staff', 'staff__user', 'granted_by')
+        
+        serializer = PeriodReopenPermissionSerializer(
+            permissions, many=True
+        )
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def grant_reopen_permission(self, request, hotel_identifier=None):
+        """
+        Grant reopen permission to a staff member.
+        Only accessible by superusers.
+        
+        Request body:
+        {
+            "staff_id": 123,
+            "notes": "Optional notes"
+        }
+        """
+        from .models import PeriodReopenPermission
+        from .stock_serializers import PeriodReopenPermissionSerializer
+        from staff.models import Staff
+        
+        if not request.user.is_superuser:
+            return Response({
+                'error': 'Only superusers can grant reopen permissions'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        staff_id = request.data.get('staff_id')
+        notes = request.data.get('notes', '')
+        
+        if not staff_id:
+            return Response({
+                'error': 'staff_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            staff = Staff.objects.get(id=staff_id)
+        except Staff.DoesNotExist:
+            return Response({
+                'error': f'Staff member with ID {staff_id} not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Get or create permission
+        permission, created = PeriodReopenPermission.objects.get_or_create(
+            hotel=hotel,
+            staff=staff,
+            defaults={
+                'granted_by': request.user.staff_profile,
+                'is_active': True,
+                'notes': notes
+            }
+        )
+        
+        if not created:
+            # Reactivate if it was revoked
+            if not permission.is_active:
+                permission.is_active = True
+                permission.granted_by = request.user.staff_profile
+                permission.notes = notes
+                permission.save()
+                message = 'Permission reactivated'
+            else:
+                message = 'Permission already exists'
+        else:
+            message = 'Permission granted successfully'
+        
+        serializer = PeriodReopenPermissionSerializer(permission)
+        return Response({
+            'success': True,
+            'message': message,
+            'permission': serializer.data
+        }, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+    
+    @action(detail=False, methods=['post'])
+    def revoke_reopen_permission(self, request, hotel_identifier=None):
+        """
+        Revoke reopen permission from a staff member.
+        Only accessible by superusers.
+        
+        Request body:
+        {
+            "staff_id": 123
+        }
+        """
+        from .models import PeriodReopenPermission
+        
+        if not request.user.is_superuser:
+            return Response({
+                'error': 'Only superusers can revoke reopen permissions'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        staff_id = request.data.get('staff_id')
+        
+        if not staff_id:
+            return Response({
+                'error': 'staff_id is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            permission = PeriodReopenPermission.objects.get(
+                hotel=hotel,
+                staff_id=staff_id
+            )
+            permission.is_active = False
+            permission.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Permission revoked successfully'
+            }, status=status.HTTP_200_OK)
+        except PeriodReopenPermission.DoesNotExist:
+            return Response({
+                'error': 'Permission not found for this staff member'
+            }, status=status.HTTP_404_NOT_FOUND)
 
 
 class StockSnapshotViewSet(viewsets.ModelViewSet):

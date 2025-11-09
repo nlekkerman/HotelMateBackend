@@ -90,6 +90,9 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# Increase field limit for admin forms with many inline items (e.g., stocktakes)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = 10000
+
 ROOT_URLCONF = 'HotelMateBackend.urls'
 
 TEMPLATES = [

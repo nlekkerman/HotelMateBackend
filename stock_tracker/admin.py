@@ -165,12 +165,15 @@ class StockItemAdmin(admin.ModelAdmin):
 class StockPeriodAdmin(admin.ModelAdmin):
     list_display = (
         'period_name', 'hotel', 'period_type',
-        'start_date', 'end_date', 'is_closed'
+        'start_date', 'end_date', 'is_closed', 'reopened_by'
     )
     list_filter = ('hotel', 'period_type', 'is_closed', 'year')
     search_fields = ('period_name',)
     ordering = ('-end_date', '-start_date')
-    readonly_fields = ('created_at', 'closed_at', 'closed_by')
+    readonly_fields = (
+        'created_at', 'closed_at', 'closed_by',
+        'reopened_at', 'reopened_by'
+    )
     fieldsets = (
         ('Period Details', {
             'fields': (
@@ -183,7 +186,10 @@ class StockPeriodAdmin(admin.ModelAdmin):
             'classes': ('collapse',)
         }),
         ('Status', {
-            'fields': ('is_closed', 'closed_at', 'closed_by', 'notes')
+            'fields': (
+                'is_closed', 'closed_at', 'closed_by',
+                'reopened_at', 'reopened_by', 'notes'
+            )
         }),
         ('Metadata', {
             'fields': ('created_at',),
@@ -255,13 +261,54 @@ class StocktakeLineInline(admin.TabularInline):
 class StocktakeAdmin(admin.ModelAdmin):
     list_display = (
         'hotel', 'period_start', 'period_end',
-        'status', 'approved_at', 'approved_by'
+        'status', 'approved_at', 'approved_by', 'total_lines'
     )
     list_filter = ('hotel', 'status', 'period_end')
     search_fields = ('hotel__name',)
     ordering = ('-period_end',)
-    readonly_fields = ('created_at', 'approved_at', 'approved_by', 'status')
-    inlines = [StocktakeLineInline]
+    readonly_fields = ('created_at', 'approved_at', 'approved_by')
+    actions = ['approve_stocktakes', 'unapprove_stocktakes']
+    # Removed inlines to allow quick status changes without loading 254 items
+    
+    def total_lines(self, obj):
+        """Show count of stocktake lines"""
+        return obj.lines.count()
+    total_lines.short_description = 'Total Items'
+    
+    @admin.action(description='✅ Approve selected stocktakes')
+    def approve_stocktakes(self, request, queryset):
+        """Approve selected stocktakes"""
+        from django.utils import timezone
+        updated = 0
+        for stocktake in queryset:
+            if stocktake.status != 'APPROVED':
+                stocktake.status = 'APPROVED'
+                stocktake.approved_at = timezone.now()
+                try:
+                    stocktake.approved_by = request.user.staff_profile
+                except AttributeError:
+                    stocktake.approved_by = None
+                stocktake.save()
+                updated += 1
+        
+        self.message_user(
+            request,
+            f'{updated} stocktake(s) approved successfully.'
+        )
+    
+    @admin.action(description='📝 Change selected stocktakes to DRAFT')
+    def unapprove_stocktakes(self, request, queryset):
+        """Change selected stocktakes back to DRAFT"""
+        updated = queryset.filter(status='APPROVED').update(
+            status='DRAFT',
+            approved_at=None,
+            approved_by=None
+        )
+        
+        self.message_user(
+            request,
+            f'{updated} stocktake(s) changed to DRAFT.'
+        )
 
     def save_model(self, request, obj, form, change):
         if not change:  # New object

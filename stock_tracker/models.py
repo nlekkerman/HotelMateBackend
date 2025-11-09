@@ -537,6 +537,21 @@ class StockPeriod(models.Model):
         blank=True,
         related_name='closed_periods'
     )
+    
+    # Reopen tracking
+    reopened_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Last time this period was reopened"
+    )
+    reopened_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='reopened_periods',
+        help_text="Staff member who last reopened this period"
+    )
 
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -680,6 +695,45 @@ class StockPeriod(models.Model):
             hotel=self.hotel,
             end_date__lt=self.start_date
         ).order_by('-end_date').first()
+
+
+class PeriodReopenPermission(models.Model):
+    """
+    Tracks which staff members have permission to reopen closed periods.
+    Only superusers can assign/revoke this permission.
+    """
+    hotel = models.ForeignKey(
+        'hotel.Hotel',
+        on_delete=models.CASCADE,
+        related_name='period_reopen_permissions'
+    )
+    staff = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.CASCADE,
+        related_name='period_reopen_permissions'
+    )
+    granted_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='granted_reopen_permissions',
+        help_text="Superuser who granted this permission"
+    )
+    granted_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Permission can be revoked by setting to False"
+    )
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ('hotel', 'staff')
+        ordering = ['-granted_at']
+
+    def __str__(self):
+        status = "Active" if self.is_active else "Revoked"
+        return f"{self.staff.user.username} - {self.hotel.name} ({status})"
 
 
 class StockSnapshot(models.Model):
