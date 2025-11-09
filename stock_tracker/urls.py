@@ -309,7 +309,7 @@ urlpatterns = [
         name='stocktake-approve'
     ),
     path(
-        '<str:hotel_identifier>/stocktakes/<int:pk>/category-totals/',
+        '<str:hotel_identifier>/stocktakes/<int:pk>/category_totals/',
         stocktake_category_totals,
         name='stocktake-category-totals'
     ),
