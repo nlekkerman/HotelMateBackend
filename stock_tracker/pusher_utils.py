@@ -150,6 +150,21 @@ def broadcast_line_movement_deleted(
     )
 
 
+def broadcast_line_movement_updated(
+    hotel_identifier, stocktake_id, update_data
+):
+    """
+    Broadcast when a movement is edited/updated
+    Updates expected quantities and variance for all viewers
+    """
+    return trigger_stocktake_event(
+        hotel_identifier,
+        stocktake_id,
+        "line-movement-updated",
+        update_data
+    )
+
+
 def broadcast_stocktake_populated(
     hotel_identifier, stocktake_id, populate_data
 ):

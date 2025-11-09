@@ -392,6 +392,189 @@ async function addMovementWithSync(line, movementType, quantity) {
 }
 ```
 
+### Step 4: Viewing Movement History
+
+Get all movements for a line to display history:
+
+```javascript
+async function getMovementHistory(lineId, hotelIdentifier) {
+  const url = `/api/stock_tracker/${hotelIdentifier}/stocktake-lines/${lineId}/movements/`;
+  
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 
+      'Authorization': `Bearer ${token}`
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to get movements: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  
+  // Response contains:
+  // - movements: Array of all movements with timestamps
+  // - summary: totals and count
+  return data;
+}
+
+// Example usage:
+getMovementHistory(1709, 'hotel-killarney')
+  .then(data => {
+    console.log('Movements:', data.movements);
+    console.log('Summary:', data.summary);
+    
+    // Display in UI
+    data.movements.forEach(mov => {
+      console.log(`${mov.movement_type}: ${mov.quantity} @ ${mov.timestamp}`);
+      console.log(`  Reference: ${mov.reference || 'N/A'}`);
+      console.log(`  Notes: ${mov.notes || 'No notes'}`);
+      console.log(`  Staff: ${mov.staff_name || 'System'}`);
+    });
+  });
+```
+
+**Movement Data Structure:**
+```javascript
+{
+  "movements": [
+    {
+      "id": 5678,
+      "movement_type": "PURCHASE",  // or "WASTE"
+      "quantity": "88.0000",
+      "unit_cost": "2.5000",
+      "reference": "INV-12345",
+      "notes": "Keg delivery",
+      "timestamp": "2025-11-09T10:30:00Z",
+      "staff_name": "John Doe",  // or null
+      "item_sku": "BEER_DRAUGHT_GUIN",
+      "item_name": "Guinness Keg (11gal)"
+    },
+    ...
+  ],
+  "summary": {
+    "total_purchases": "264.0000",
+    "total_waste": "10.0000",
+    "movement_count": 5
+  }
+}
+```
+
+### Step 5: Editing Movements (Correcting Mistakes)
+
+#### Option 1: Update Existing Movement
+
+If you made a mistake and need to correct a movement:
+
+```javascript
+async function updateMovement(lineId, movementId, updates, hotelIdentifier) {
+  // ✅ CORRECT URL structure
+  const url = `/api/stock_tracker/${hotelIdentifier}/stocktake-lines/${lineId}/update-movement/${movementId}/`;
+  
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { 
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}` // Include auth token
+    },
+    body: JSON.stringify(updates)
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to update movement: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  
+  // Backend returns updated movement and line with recalculated purchases/waste
+  console.log('Movement updated:', data.movement);
+  console.log('Old values:', data.old_values);
+  console.log('Updated line:', data.line);
+  
+  return data;
+}
+
+// Example usage - correct quantity:
+updateMovement(1709, 5678, {
+  quantity: 176.0,  // Correct quantity
+  notes: 'Corrected quantity'
+}, 'hotel-killarney')
+  .then(data => {
+    console.log('Movement updated successfully');
+    updateLine(data.line);
+  })
+  .catch(error => console.error('Error:', error));
+
+// Example usage - change type:
+updateMovement(1709, 5678, {
+  movement_type: 'WASTE',  // Was PURCHASE, now WASTE
+  notes: 'Changed to waste'
+}, 'hotel-killarney');
+
+// Example usage - update all fields:
+updateMovement(1709, 5678, {
+  movement_type: 'PURCHASE',
+  quantity: 88.0,
+  unit_cost: 2.50,
+  reference: 'INV-67890',
+  notes: 'Updated delivery info'
+}, 'hotel-killarney');
+```
+
+**What happens when you update a movement:**
+1. Movement record is updated in database
+2. Backend recalculates purchases/waste from ALL movements
+3. Line's expected_qty and variance are updated
+4. Updated movement and line data are returned
+5. **Pusher broadcasts** the update to all other users
+
+#### Option 2: Delete Movement
+
+If you need to completely remove a movement:
+
+```javascript
+async function deleteMovement(lineId, movementId, hotelIdentifier) {
+  // ✅ CORRECT URL structure
+  const url = `/api/stock_tracker/${hotelIdentifier}/stocktake-lines/${lineId}/delete-movement/${movementId}/`;
+  
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: { 
+      'Authorization': `Bearer ${token}` // Include auth token
+    }
+  });
+  
+  if (!response.ok) {
+    throw new Error(`Failed to delete movement: ${response.status}`);
+  }
+  
+  const data = await response.json();
+  
+  // Backend returns updated line with recalculated purchases/waste
+  console.log('Movement deleted:', data.deleted_movement);
+  console.log('Updated line:', data.line);
+  
+  return data;
+}
+
+// Example usage:
+deleteMovement(1709, 5678, 'hotel-killarney')
+  .then(data => {
+    console.log('Movement deleted successfully');
+    // Update UI with new line data
+    updateLine(data.line);
+  })
+  .catch(error => console.error('Error:', error));
+```
+
+**What happens when you delete a movement:**
+1. Movement record is deleted from database
+2. Backend recalculates purchases/waste from remaining movements
+3. Line's expected_qty and variance are updated
+4. Updated line data is returned
+5. **Pusher broadcasts** the update to all other users
+
 ---
 
 ## Common Pitfalls
@@ -685,6 +868,8 @@ PATCH  /api/stock_tracker/{hotel_identifier}/stocktake-lines/{id}/
 
 POST   /api/stock_tracker/{hotel_identifier}/stocktake-lines/{id}/add-movement/
 GET    /api/stock_tracker/{hotel_identifier}/stocktake-lines/{id}/movements/
+PATCH  /api/stock_tracker/{hotel_identifier}/stocktake-lines/{id}/update-movement/{movement_id}/
+DELETE /api/stock_tracker/{hotel_identifier}/stocktake-lines/{id}/delete-movement/{movement_id}/
 
 // ❌ WRONG - these DON'T exist:
 // /api/hotels/{hotel}/stocktakes/...

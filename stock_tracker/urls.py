@@ -142,6 +142,12 @@ stocktake_line_add_movement = StocktakeLineViewSet.as_view({
 stocktake_line_movements = StocktakeLineViewSet.as_view({
     'get': 'movements'
 })
+stocktake_line_delete_movement = StocktakeLineViewSet.as_view({
+    'delete': 'delete_movement'
+})
+stocktake_line_update_movement = StocktakeLineViewSet.as_view({
+    'patch': 'update_movement'
+})
 
 # Sales endpoints
 sale_list = SaleViewSet.as_view({
@@ -356,6 +362,16 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktake-lines/<int:pk>/movements/',
         stocktake_line_movements,
         name='line-movements'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktake-lines/<int:pk>/delete-movement/<int:movement_id>/',
+        stocktake_line_delete_movement,
+        name='line-delete-movement'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktake-lines/<int:pk>/update-movement/<int:movement_id>/',
+        stocktake_line_update_movement,
+        name='line-update-movement'
     ),
 
     # Sales

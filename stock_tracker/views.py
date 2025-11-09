@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from decimal import Decimal, InvalidOperation
 import logging
 
 from hotel.models import Hotel
@@ -913,6 +914,255 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             'movements': serializer.data,
             'summary': summary
         })
+
+    @action(detail=True, methods=['delete'], url_path='delete-movement/(?P<movement_id>[^/.]+)')
+    def delete_movement(self, request, pk=None, movement_id=None, hotel_identifier=None):
+        """
+        Delete a specific movement and recalculate the line.
+        
+        Use this to correct mistakes when wrong purchase/waste was entered.
+        
+        DELETE /api/stock_tracker/{hotel}/stocktake-lines/{line_id}/delete-movement/{movement_id}/
+        
+        This will:
+        1. Delete the StockMovement record
+        2. Recalculate purchases/waste from remaining movements
+        3. Update the line's expected_qty and variance
+        4. Broadcast update via Pusher
+        """
+        line = self.get_object()
+        
+        if line.stocktake.is_locked:
+            return Response(
+                {"error": "Cannot delete movements from approved stocktake"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get the movement
+        try:
+            movement = StockMovement.objects.get(
+                id=movement_id,
+                item=line.item,
+                timestamp__gte=line.stocktake.period_start,
+                timestamp__lte=line.stocktake.period_end
+            )
+        except StockMovement.DoesNotExist:
+            return Response(
+                {"error": f"Movement {movement_id} not found for this line"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Store info before deletion
+        deleted_movement_type = movement.movement_type
+        deleted_quantity = movement.quantity
+        
+        # Delete the movement
+        movement.delete()
+        
+        # Recalculate the line
+        from .stocktake_service import _calculate_period_movements
+        
+        movements = _calculate_period_movements(
+            line.item,
+            line.stocktake.period_start,
+            line.stocktake.period_end
+        )
+        
+        # Update line
+        line.purchases = movements['purchases']
+        line.waste = movements['waste']
+        line.save()
+        
+        # Return updated line data
+        serializer = self.get_serializer(line)
+        response_data = {
+            'message': 'Movement deleted successfully',
+            'deleted_movement': {
+                'id': movement_id,
+                'movement_type': deleted_movement_type,
+                'quantity': str(deleted_quantity)
+            },
+            'line': serializer.data
+        }
+        
+        # Broadcast movement deleted to all viewing this stocktake
+        try:
+            from .pusher_utils import broadcast_line_movement_deleted
+            broadcast_line_movement_deleted(
+                hotel_identifier,
+                line.stocktake.id,
+                {
+                    "line_id": line.id,
+                    "item_sku": line.item.sku,
+                    "deleted_movement_id": movement_id,
+                    "line": serializer.data
+                }
+            )
+            logger.info(
+                f"Broadcasted movement deletion: {movement_id} "
+                f"from line {line.id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to broadcast movement deletion: {e}"
+            )
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['patch'], url_path='update-movement/(?P<movement_id>[^/.]+)')
+    def update_movement(self, request, pk=None, movement_id=None, hotel_identifier=None):
+        """
+        Update an existing movement and recalculate the line.
+        
+        PATCH /api/stock_tracker/{hotel}/stocktake-lines/{line_id}/update-movement/{movement_id}/
+        
+        Body:
+        {
+          "movement_type": "PURCHASE",  // or "WASTE"
+          "quantity": 75.0,
+          "unit_cost": 2.50,  // optional
+          "reference": "Updated ref",  // optional
+          "notes": "Corrected quantity"  // optional
+        }
+        
+        This will:
+        1. Update the StockMovement record
+        2. Recalculate purchases/waste from all movements
+        3. Update the line's expected_qty and variance
+        4. Broadcast update via Pusher
+        """
+        line = self.get_object()
+        
+        if line.stocktake.is_locked:
+            return Response(
+                {"error": "Cannot edit movements on approved stocktake"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get the movement
+        try:
+            movement = StockMovement.objects.get(
+                id=movement_id,
+                item=line.item,
+                timestamp__gte=line.stocktake.period_start,
+                timestamp__lte=line.stocktake.period_end
+            )
+        except StockMovement.DoesNotExist:
+            return Response(
+                {"error": f"Movement {movement_id} not found for this line"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Store old values for audit
+        old_values = {
+            'movement_type': movement.movement_type,
+            'quantity': str(movement.quantity),
+            'unit_cost': str(movement.unit_cost) if movement.unit_cost else None,
+            'reference': movement.reference,
+            'notes': movement.notes
+        }
+        
+        # Get new values from request
+        movement_type = request.data.get('movement_type', movement.movement_type)
+        quantity = request.data.get('quantity')
+        unit_cost = request.data.get('unit_cost')
+        reference = request.data.get('reference', movement.reference)
+        notes = request.data.get('notes', movement.notes)
+        
+        # Validate movement type
+        if movement_type not in ['PURCHASE', 'WASTE']:
+            return Response(
+                {"error": "movement_type must be 'PURCHASE' or 'WASTE'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate and update quantity
+        if quantity is not None:
+            try:
+                quantity = Decimal(str(quantity))
+                if quantity <= 0:
+                    return Response(
+                        {"error": "Quantity must be greater than 0"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                movement.quantity = quantity
+            except (ValueError, InvalidOperation):
+                return Response(
+                    {"error": "Invalid quantity format"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Validate and update unit_cost if provided
+        if unit_cost is not None:
+            try:
+                movement.unit_cost = Decimal(str(unit_cost))
+            except (ValueError, InvalidOperation):
+                return Response(
+                    {"error": "Invalid unit_cost format"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Update other fields
+        movement.movement_type = movement_type
+        movement.reference = reference
+        movement.notes = notes
+        movement.save()
+        
+        # Recalculate the line from all movements
+        from .stocktake_service import _calculate_period_movements
+        
+        movements = _calculate_period_movements(
+            line.item,
+            line.stocktake.period_start,
+            line.stocktake.period_end
+        )
+        
+        # Update line
+        line.purchases = movements['purchases']
+        line.waste = movements['waste']
+        line.save()
+        
+        # Return updated data
+        serializer = self.get_serializer(line)
+        response_data = {
+            'message': 'Movement updated successfully',
+            'movement': {
+                'id': movement.id,
+                'movement_type': movement.movement_type,
+                'quantity': str(movement.quantity),
+                'unit_cost': str(movement.unit_cost) if movement.unit_cost else None,
+                'reference': movement.reference,
+                'notes': movement.notes,
+                'timestamp': movement.timestamp.isoformat()
+            },
+            'old_values': old_values,
+            'line': serializer.data
+        }
+        
+        # Broadcast movement updated to all viewing this stocktake
+        try:
+            from .pusher_utils import broadcast_line_movement_updated
+            broadcast_line_movement_updated(
+                hotel_identifier,
+                line.stocktake.id,
+                {
+                    "line_id": line.id,
+                    "item_sku": line.item.sku,
+                    "movement": response_data['movement'],
+                    "old_values": old_values,
+                    "line": serializer.data
+                }
+            )
+            logger.info(
+                f"Broadcasted movement update: {movement_id} "
+                f"for line {line.id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Failed to broadcast movement update: {e}"
+            )
+        
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class SaleViewSet(viewsets.ModelViewSet):
