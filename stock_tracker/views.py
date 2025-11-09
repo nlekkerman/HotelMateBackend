@@ -399,20 +399,20 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 'error': 'You do not have permission to reopen periods'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        # Reopen the period
+        # Combined reopen: Period first, then Stocktake
+        # STEP 1: Reopen the period
         from django.utils import timezone
         period.is_closed = False
-        period.closed_at = None
-        period.closed_by = None
         period.reopened_at = timezone.now()
         # Track who reopened it
         try:
             period.reopened_by = request.user.staff_profile
         except AttributeError:
             period.reopened_by = None
+        # Keep closed_at and closed_by for audit trail
         period.save()
         
-        # Also change related stocktake from APPROVED to DRAFT
+        # STEP 2: Change related stocktake from APPROVED to DRAFT
         from .models import Stocktake
         stocktake_updated = False
         try:
@@ -427,6 +427,14 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 stocktake.approved_by = None
                 stocktake.save()
                 stocktake_updated = True
+                
+                # Broadcast stocktake status change
+                broadcast_stocktake_status_changed(
+                    hotel=period.hotel,
+                    stocktake_id=stocktake.id,
+                    new_status='DRAFT',
+                    user=request.user
+                )
         except Stocktake.DoesNotExist:
             pass
         
@@ -589,6 +597,86 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             return Response({
                 'error': 'Permission not found for this staff member'
             }, status=status.HTTP_404_NOT_FOUND)
+    
+    @action(detail=True, methods=['post'])
+    def approve_and_close(self, request, pk=None, hotel_identifier=None):
+        """
+        Combined action: Approve stocktake AND close period in one operation.
+        
+        Order of operations:
+        1. First: Approve the stocktake (DRAFT → APPROVED)
+        2. Then: Close the period (OPEN → CLOSED)
+        
+        This ensures the stocktake is finalized before period is locked.
+        """
+        from django.utils import timezone
+        from .models import Stocktake
+        
+        period = self.get_object()
+        
+        # Check if period is already closed
+        if period.is_closed:
+            return Response({
+                'success': False,
+                'error': 'Period is already closed'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get staff member
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response({
+                'success': False,
+                'error': 'User must be associated with a staff profile'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Find the stocktake
+        try:
+            stocktake = Stocktake.objects.get(
+                hotel=period.hotel,
+                period_start=period.start_date,
+                period_end=period.end_date
+            )
+        except Stocktake.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'No stocktake found for this period'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # STEP 1: Approve the stocktake
+        if stocktake.status != Stocktake.APPROVED:
+            stocktake.status = Stocktake.APPROVED
+            stocktake.approved_at = timezone.now()
+            stocktake.approved_by = staff
+            stocktake.save()
+            
+            # Broadcast stocktake status change
+            broadcast_stocktake_status_changed(
+                hotel=period.hotel,
+                stocktake_id=stocktake.id,
+                new_status='APPROVED',
+                user=request.user
+            )
+        
+        # STEP 2: Close the period
+        period.is_closed = True
+        period.closed_at = timezone.now()
+        period.closed_by = staff
+        period.save()
+        
+        return Response({
+            'success': True,
+            'message': f'Stocktake approved and period "{period.period_name}" closed successfully',
+            'period': StockPeriodSerializer(
+                period, context={'request': request}
+            ).data,
+            'stocktake': {
+                'id': stocktake.id,
+                'status': stocktake.status,
+                'approved_at': stocktake.approved_at,
+                'approved_by': stocktake.approved_by.user.username if stocktake.approved_by else None
+            }
+        }, status=status.HTTP_200_OK)
 
 
 class StockSnapshotViewSet(viewsets.ModelViewSet):

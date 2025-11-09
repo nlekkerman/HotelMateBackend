@@ -94,6 +94,9 @@ period_grant_reopen_permission = StockPeriodViewSet.as_view({
 period_revoke_reopen_permission = StockPeriodViewSet.as_view({
     'post': 'revoke_reopen_permission'
 })
+period_approve_and_close = StockPeriodViewSet.as_view({
+    'post': 'approve_and_close'
+})
 
 snapshot_list = StockSnapshotViewSet.as_view({
     'get': 'list', 'post': 'create'
@@ -295,6 +298,11 @@ urlpatterns = [
         '<str:hotel_identifier>/periods/revoke_reopen_permission/',
         period_revoke_reopen_permission,
         name='period-revoke-reopen-permission'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/<int:pk>/approve-and-close/',
+        period_approve_and_close,
+        name='period-approve-and-close'
     ),
 
     # Stock Snapshots
