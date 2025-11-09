@@ -255,6 +255,7 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
 class StockPeriodSerializer(serializers.ModelSerializer):
     """Serializer for stock periods list view"""
     period_name = serializers.CharField(read_only=True)
+    stocktake_id = serializers.SerializerMethodField()
     
     manual_sales_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
@@ -268,11 +269,28 @@ class StockPeriodSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
-            'manual_sales_amount', 'manual_purchases_amount'
+            'manual_sales_amount', 'manual_purchases_amount', 'stocktake_id'
         ]
         read_only_fields = [
             'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
         ]
+    
+    def get_stocktake_id(self, obj):
+        """
+        Get related stocktake ID (if exists).
+        Matches by dates, not by ID.
+        Returns None if no stocktake exists for this period.
+        """
+        from .models import Stocktake
+        try:
+            stocktake = Stocktake.objects.get(
+                hotel=obj.hotel,
+                period_start=obj.start_date,
+                period_end=obj.end_date
+            )
+            return stocktake.id
+        except Stocktake.DoesNotExist:
+            return None
 
 
 class StockPeriodDetailSerializer(serializers.ModelSerializer):
