@@ -259,13 +259,16 @@ class StockPeriodSerializer(serializers.ModelSerializer):
     manual_sales_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
     )
+    manual_purchases_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True
+    )
 
     class Meta:
         model = StockPeriod
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
-            'manual_sales_amount'
+            'manual_sales_amount', 'manual_purchases_amount'
         ]
         read_only_fields = [
             'hotel', 'period_name', 'year', 'month', 'quarter', 'week'
@@ -288,13 +291,16 @@ class StockPeriodDetailSerializer(serializers.ModelSerializer):
     manual_sales_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
     )
+    manual_purchases_amount = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True
+    )
 
     class Meta:
         model = StockPeriod
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
-            'manual_sales_amount',
+            'manual_sales_amount', 'manual_purchases_amount',
             'snapshots', 'snapshot_ids', 'stocktake_id', 'stocktake_status',
             'total_items', 'total_value'
         ]
