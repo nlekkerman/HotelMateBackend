@@ -260,6 +260,8 @@ class StockPeriodSerializer(serializers.ModelSerializer):
     stocktake = serializers.SerializerMethodField()
     can_reopen = serializers.SerializerMethodField()
     can_manage_permissions = serializers.SerializerMethodField()
+    closed_by_name = serializers.SerializerMethodField()
+    reopened_by_name = serializers.SerializerMethodField()
     
     manual_sales_amount = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True
@@ -273,13 +275,15 @@ class StockPeriodSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hotel', 'period_type', 'start_date', 'end_date',
             'year', 'month', 'quarter', 'week', 'period_name', 'is_closed',
-            'closed_at', 'closed_by', 'reopened_at', 'reopened_by',
+            'closed_at', 'closed_by', 'closed_by_name',
+            'reopened_at', 'reopened_by', 'reopened_by_name',
             'manual_sales_amount', 'manual_purchases_amount',
             'stocktake_id', 'stocktake', 'can_reopen', 'can_manage_permissions'
         ]
         read_only_fields = [
             'hotel', 'period_name', 'year', 'month', 'quarter', 'week',
-            'closed_at', 'closed_by', 'reopened_at', 'reopened_by',
+            'closed_at', 'closed_by', 'closed_by_name',
+            'reopened_at', 'reopened_by', 'reopened_by_name',
             'can_reopen', 'can_manage_permissions'
         ]
     
@@ -382,6 +386,18 @@ class StockPeriodSerializer(serializers.ModelSerializer):
         if not request or not request.user:
             return False
         return request.user.is_superuser
+    
+    def get_closed_by_name(self, obj):
+        """Get the full name of staff who closed the period"""
+        if obj.closed_by:
+            return str(obj.closed_by)  # Returns "Nikola Simic - Front Office - Porter"
+        return None
+    
+    def get_reopened_by_name(self, obj):
+        """Get the full name of staff who reopened the period"""
+        if obj.reopened_by:
+            return str(obj.reopened_by)  # Returns "Nikola Simic - Front Office - Porter"
+        return None
 
 
 class StockPeriodDetailSerializer(serializers.ModelSerializer):
