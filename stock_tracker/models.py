@@ -1229,6 +1229,19 @@ class Sale(models.Model):
             return round(gp, 2)
         return None
 
+    @property
+    def pour_cost_percentage(self):
+        """
+        Calculate Pour Cost % (inverse of GP%)
+        Pour Cost % = (COGS / Revenue) × 100
+        Shows what percentage of revenue goes to product costs
+        Target pour cost for bars: 15-30%
+        """
+        if self.total_revenue and self.total_revenue > 0:
+            pour_cost = (self.total_cost / self.total_revenue) * 100
+            return round(pour_cost, 2)
+        return None
+
 
 class StocktakeLine(models.Model):
     """
