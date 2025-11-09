@@ -7,7 +7,8 @@ from .models import (
     StockMovement,
     Location,
     Stocktake,
-    StocktakeLine
+    StocktakeLine,
+    Sale
 )
 
 
@@ -510,6 +511,9 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
     )
     
     # Calculated fields from model properties (raw servings)
+    sales_qty = serializers.DecimalField(
+        max_digits=15, decimal_places=4, read_only=True
+    )
     counted_qty = serializers.DecimalField(
         max_digits=15, decimal_places=4, read_only=True
     )
@@ -545,7 +549,7 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'id', 'stocktake', 'item', 'item_sku', 'item_name',
             'category_code', 'category_name', 'item_size', 'item_uom',
             # Raw quantities (servings)
-            'opening_qty', 'purchases', 'waste',
+            'opening_qty', 'purchases', 'sales_qty', 'waste',
             'transfers_in', 'transfers_out', 'adjustments',
             # Manual override fields
             'manual_purchases_value',
@@ -796,3 +800,63 @@ class StocktakeListSerializer(serializers.ModelSerializer):
 
     def get_total_lines(self, obj):
         return obj.lines.count()
+
+
+class SaleSerializer(serializers.ModelSerializer):
+    """
+    Serializer for Sales model.
+    Handles sales/consumption tracking independently.
+    """
+    item_sku = serializers.CharField(source='item.sku', read_only=True)
+    item_name = serializers.CharField(source='item.name', read_only=True)
+    category_code = serializers.CharField(
+        source='item.category.code', read_only=True
+    )
+    category_name = serializers.CharField(
+        source='item.category.name', read_only=True
+    )
+    stocktake_period = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
+    
+    # Calculated fields from model properties
+    gross_profit = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
+    )
+    gross_profit_percentage = serializers.DecimalField(
+        max_digits=5, decimal_places=2, read_only=True
+    )
+
+    class Meta:
+        model = Sale
+        fields = [
+            'id', 'stocktake', 'stocktake_period', 'item',
+            'item_sku', 'item_name', 'category_code', 'category_name',
+            'quantity', 'unit_cost', 'unit_price',
+            'total_cost', 'total_revenue',
+            'gross_profit', 'gross_profit_percentage',
+            'sale_date', 'notes',
+            'created_by', 'created_by_name',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = [
+            'total_cost', 'total_revenue', 'created_at', 'updated_at'
+        ]
+
+    def get_stocktake_period(self, obj):
+        """Get stocktake period name for display"""
+        return (
+            f"{obj.stocktake.period_start} to {obj.stocktake.period_end}"
+        )
+
+    def get_created_by_name(self, obj):
+        """Get staff full name"""
+        if obj.created_by:
+            full_name = (
+                f"{obj.created_by.first_name} "
+                f"{obj.created_by.last_name}"
+            ).strip()
+            return (
+                full_name or obj.created_by.email
+                or f"Staff #{obj.created_by.id}"
+            )
+        return None

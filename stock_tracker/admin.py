@@ -11,7 +11,8 @@ from .models import (
     StockMovement,
     Location,
     Stocktake,
-    StocktakeLine
+    StocktakeLine,
+    Sale
 )
 
 
@@ -314,3 +315,47 @@ class StocktakeLineAdmin(admin.ModelAdmin):
             else:
                 return "Not counted"
     display_counted_stock.short_description = 'Counted'
+
+
+@admin.register(Sale)
+class SaleAdmin(admin.ModelAdmin):
+    list_display = (
+        'sale_date', 'item', 'quantity', 'total_cost',
+        'total_revenue', 'gross_profit', 'stocktake', 'created_by'
+    )
+    list_filter = ('stocktake__hotel', 'sale_date', 'item__category')
+    search_fields = (
+        'item__sku', 'item__name', 'stocktake__period_start',
+        'notes'
+    )
+    ordering = ('-sale_date', '-created_at')
+    readonly_fields = (
+        'total_cost', 'total_revenue', 'gross_profit',
+        'gross_profit_percentage', 'created_at', 'updated_at'
+    )
+    fieldsets = (
+        ('Sale Details', {
+            'fields': (
+                'stocktake', 'item', 'sale_date',
+                'quantity', 'unit_cost', 'unit_price'
+            )
+        }),
+        ('Calculated Totals', {
+            'fields': (
+                'total_cost', 'total_revenue',
+                'gross_profit', 'gross_profit_percentage'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Additional Info', {
+            'fields': ('notes', 'created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def get_queryset(self, request):
+        """Optimize queries with select_related"""
+        qs = super().get_queryset(request)
+        return qs.select_related(
+            'stocktake', 'item', 'item__category', 'created_by'
+        )

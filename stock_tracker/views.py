@@ -18,7 +18,8 @@ from .models import (
     StockMovement,
     Location,
     Stocktake,
-    StocktakeLine
+    StocktakeLine,
+    Sale
 )
 from .cocktail_serializers import (
     IngredientSerializer,
@@ -802,3 +803,180 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             'movements': serializer.data,
             'summary': summary
         })
+
+
+class SaleViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Sales - independent sales tracking.
+    Allows CRUD operations on sales records for stocktakes.
+    """
+    pagination_class = None
+    ordering = ['-sale_date', '-created_at']
+
+    def get_serializer_class(self):
+        from .stock_serializers import SaleSerializer
+        return SaleSerializer
+
+    def get_queryset(self):
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+
+        # Base queryset
+        queryset = Sale.objects.filter(
+            stocktake__hotel=hotel
+        ).select_related('stocktake', 'item', 'created_by')
+
+        # Filter by stocktake if provided
+        stocktake_id = self.request.query_params.get('stocktake')
+        if stocktake_id:
+            queryset = queryset.filter(stocktake_id=stocktake_id)
+
+        # Filter by item if provided
+        item_id = self.request.query_params.get('item')
+        if item_id:
+            queryset = queryset.filter(item_id=item_id)
+
+        # Filter by category if provided
+        category_code = self.request.query_params.get('category')
+        if category_code:
+            queryset = queryset.filter(item__category__code=category_code)
+
+        # Filter by date range if provided
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        if start_date:
+            queryset = queryset.filter(sale_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(sale_date__lte=end_date)
+
+        return queryset
+
+    def perform_create(self, serializer):
+        """Auto-set created_by from request user"""
+        staff_user = None
+        if hasattr(self.request.user, 'staff'):
+            staff_user = self.request.user.staff
+
+        serializer.save(created_by=staff_user)
+
+    @action(detail=False, methods=['get'])
+    def summary(self, request, hotel_identifier=None):
+        """
+        Get sales summary for a stocktake.
+        Returns total sales by category.
+        """
+        from django.db.models import Sum, Count
+
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+
+        stocktake_id = request.query_params.get('stocktake')
+        if not stocktake_id:
+            return Response(
+                {"error": "stocktake parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get sales grouped by category
+        sales_by_category = Sale.objects.filter(
+            stocktake_id=stocktake_id,
+            stocktake__hotel=hotel
+        ).values(
+            'item__category__code',
+            'item__category__name'
+        ).annotate(
+            total_quantity=Sum('quantity'),
+            total_cost=Sum('total_cost'),
+            total_revenue=Sum('total_revenue'),
+            sale_count=Count('id')
+        ).order_by('item__category__code')
+
+        # Calculate overall totals
+        overall = Sale.objects.filter(
+            stocktake_id=stocktake_id,
+            stocktake__hotel=hotel
+        ).aggregate(
+            total_quantity=Sum('quantity'),
+            total_cost=Sum('total_cost'),
+            total_revenue=Sum('total_revenue'),
+            sale_count=Count('id')
+        )
+
+        # Calculate overall gross profit
+        if overall['total_revenue'] and overall['total_cost']:
+            overall['gross_profit'] = (
+                overall['total_revenue'] - overall['total_cost']
+            )
+            overall['gross_profit_percentage'] = (
+                (overall['gross_profit'] / overall['total_revenue']) * 100
+            )
+        else:
+            overall['gross_profit'] = None
+            overall['gross_profit_percentage'] = None
+
+        return Response({
+            'stocktake_id': stocktake_id,
+            'by_category': list(sales_by_category),
+            'overall': overall
+        })
+
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request, hotel_identifier=None):
+        """
+        Create multiple sales at once.
+        Accepts a list of sale objects in request body.
+        """
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+
+        sales_data = request.data.get('sales', [])
+        if not sales_data:
+            return Response(
+                {"error": "sales array is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get staff if available
+        staff_user = None
+        if hasattr(request.user, 'staff'):
+            staff_user = request.user.staff
+
+        created_sales = []
+        errors = []
+
+        for idx, sale_data in enumerate(sales_data):
+            serializer = self.get_serializer(data=sale_data)
+            if serializer.is_valid():
+                sale = serializer.save(created_by=staff_user)
+                created_sales.append(sale)
+            else:
+                errors.append({
+                    'index': idx,
+                    'errors': serializer.errors
+                })
+
+        if errors:
+            return Response(
+                {
+                    "message": "Some sales failed to create",
+                    "created_count": len(created_sales),
+                    "errors": errors
+                },
+                status=status.HTTP_207_MULTI_STATUS
+            )
+
+        return Response(
+            {
+                "message": "All sales created successfully",
+                "created_count": len(created_sales),
+                "sales": self.get_serializer(created_sales, many=True).data
+            },
+            status=status.HTTP_201_CREATED
+        )

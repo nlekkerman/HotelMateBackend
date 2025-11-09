@@ -1124,6 +1124,112 @@ class Stocktake(models.Model):
         return categories
 
 
+class Sale(models.Model):
+    """
+    Independent Sales model to track all sales/consumption.
+    Replaces the old sales field in StocktakeLine.
+    Allows flexible sales tracking and calculations.
+    """
+    stocktake = models.ForeignKey(
+        Stocktake,
+        on_delete=models.CASCADE,
+        related_name='sales',
+        help_text="Stocktake period this sale belongs to"
+    )
+    item = models.ForeignKey(
+        StockItem,
+        on_delete=models.CASCADE,
+        related_name='sales',
+        help_text="Item that was sold"
+    )
+    
+    # Sales quantity (in servings/base units)
+    quantity = models.DecimalField(
+        max_digits=15,
+        decimal_places=4,
+        help_text="Quantity sold in servings (pints, bottles, shots, glasses)"
+    )
+    
+    # Cost and revenue
+    unit_cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        help_text="Cost per serving at time of sale"
+    )
+    unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Selling price per serving (for revenue calculation)"
+    )
+    
+    # Calculated totals (for easier querying)
+    total_cost = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        help_text="Total cost of goods sold (quantity × unit_cost)"
+    )
+    total_revenue = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total revenue (quantity × unit_price)"
+    )
+    
+    # Metadata
+    sale_date = models.DateField(
+        help_text="Date of sale"
+    )
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='created_sales'
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-sale_date', '-created_at']
+        indexes = [
+            models.Index(fields=['stocktake', 'item']),
+            models.Index(fields=['sale_date']),
+        ]
+
+    def __str__(self):
+        return (
+            f"Sale: {self.quantity} × {self.item.sku} "
+            f"on {self.sale_date}"
+        )
+
+    def save(self, *args, **kwargs):
+        """Auto-calculate totals before saving"""
+        self.total_cost = self.quantity * self.unit_cost
+        if self.unit_price:
+            self.total_revenue = self.quantity * self.unit_price
+        super().save(*args, **kwargs)
+
+    @property
+    def gross_profit(self):
+        """Calculate gross profit if revenue is available"""
+        if self.total_revenue:
+            return self.total_revenue - self.total_cost
+        return None
+
+    @property
+    def gross_profit_percentage(self):
+        """Calculate GP% if revenue is available"""
+        if self.total_revenue and self.total_revenue > 0:
+            profit = self.total_revenue - self.total_cost
+            gp = (profit / self.total_revenue) * 100
+            return round(gp, 2)
+        return None
+
+
 class StocktakeLine(models.Model):
     """
     Individual line item in a stocktake with counted quantities
@@ -1213,6 +1319,22 @@ class StocktakeLine(models.Model):
         return f"{self.stocktake} - {self.item.sku}"
 
     @property
+    def sales_qty(self):
+        """
+        Calculate total sales from related Sale records.
+        This replaces the old sales field calculation.
+        """
+        from django.db.models import Sum
+        
+        total = self.stocktake.sales.filter(
+            item=self.item
+        ).aggregate(
+            total=Sum('quantity')
+        )['total']
+        
+        return total or Decimal('0.0000')
+
+    @property
     def counted_qty(self):
         """
         Convert mixed units to servings (base units):
@@ -1248,14 +1370,15 @@ class StocktakeLine(models.Model):
     @property
     def expected_qty(self):
         """
-        Formula: expected = opening + purchases - waste
-        Sales are NOT subtracted (determined by difference/variance).
+        Formula: expected = opening + purchases - waste - sales
+        Now includes sales from the Sale model.
         All values in base units.
         """
         return (
             self.opening_qty +
             self.purchases -
-            self.waste
+            self.waste -
+            self.sales_qty
         )
 
     @property

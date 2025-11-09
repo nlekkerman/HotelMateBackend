@@ -11,7 +11,8 @@ from .views import (
     StockItemViewSet,
     StockMovementViewSet,
     StocktakeViewSet,
-    StocktakeLineViewSet
+    StocktakeLineViewSet,
+    SaleViewSet
 )
 from .report_views import (
     StockValueReportView,
@@ -140,6 +141,21 @@ stocktake_line_add_movement = StocktakeLineViewSet.as_view({
 })
 stocktake_line_movements = StocktakeLineViewSet.as_view({
     'get': 'movements'
+})
+
+# Sales endpoints
+sale_list = SaleViewSet.as_view({
+    'get': 'list', 'post': 'create'
+})
+sale_detail = SaleViewSet.as_view({
+    'get': 'retrieve', 'put': 'update',
+    'patch': 'partial_update', 'delete': 'destroy'
+})
+sale_summary = SaleViewSet.as_view({
+    'get': 'summary'
+})
+sale_bulk_create = SaleViewSet.as_view({
+    'post': 'bulk_create'
 })
 
 urlpatterns = [
@@ -340,6 +356,28 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktake-lines/<int:pk>/movements/',
         stocktake_line_movements,
         name='line-movements'
+    ),
+
+    # Sales
+    path(
+        '<str:hotel_identifier>/sales/',
+        sale_list,
+        name='sale-list'
+    ),
+    path(
+        '<str:hotel_identifier>/sales/<int:pk>/',
+        sale_detail,
+        name='sale-detail'
+    ),
+    path(
+        '<str:hotel_identifier>/sales/summary/',
+        sale_summary,
+        name='sale-summary'
+    ),
+    path(
+        '<str:hotel_identifier>/sales/bulk-create/',
+        sale_bulk_create,
+        name='sale-bulk-create'
     ),
 
     # Reports
