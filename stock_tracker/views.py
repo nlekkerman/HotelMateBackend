@@ -825,24 +825,37 @@ class StockItemViewSet(viewsets.ModelViewSet):
             items = items.filter(category__code=category_code)
         
         # Calculate profitability metrics
+        # Return null for unavailable metrics (better than fake zeros)
+        def _safe_float(val):
+            """Convert to float, or return None if not available."""
+            try:
+                return float(val) if val is not None else None
+            except (TypeError, ValueError):
+                return None
+
         analysis = []
         for item in items:
+            # Only consider items with a positive menu price
             if item.menu_price and item.menu_price > 0:
                 analysis.append({
                     'id': item.id,
                     'sku': item.sku,
                     'name': item.name,
-                    'category': item.category.code,
-                    'unit_cost': float(item.unit_cost),
-                    'menu_price': float(item.menu_price),
-                    'cost_per_serving': float(item.cost_per_serving),
-                    'gross_profit': float(item.gross_profit_per_serving),
-                    'gross_profit_percentage': float(
+                    'category': item.category.code if item.category else None,
+                    'unit_cost': _safe_float(item.unit_cost),
+                    'menu_price': _safe_float(item.menu_price),
+                    'cost_per_serving': _safe_float(item.cost_per_serving),
+                    'gross_profit': _safe_float(
+                        item.gross_profit_per_serving
+                    ),
+                    'gross_profit_percentage': _safe_float(
                         item.gross_profit_percentage
                     ),
-                    'markup_percentage': float(item.markup_percentage),
-                    'pour_cost_percentage': float(item.pour_cost_percentage),
-                    'current_stock_value': float(item.total_stock_value)
+                    'markup_percentage': _safe_float(item.markup_percentage),
+                    'pour_cost_percentage': _safe_float(
+                        item.pour_cost_percentage
+                    ),
+                    'current_stock_value': _safe_float(item.total_stock_value)
                 })
         
         # Sort by GP% descending
