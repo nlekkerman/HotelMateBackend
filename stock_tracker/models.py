@@ -725,6 +725,10 @@ class PeriodReopenPermission(models.Model):
         default=True,
         help_text="Permission can be revoked by setting to False"
     )
+    can_grant_to_others = models.BooleanField(
+        default=False,
+        help_text="If True, this staff can grant permissions to other staff (like a manager). Only superusers can set this."
+    )
     notes = models.TextField(blank=True)
 
     class Meta:
@@ -733,7 +737,8 @@ class PeriodReopenPermission(models.Model):
 
     def __str__(self):
         status = "Active" if self.is_active else "Revoked"
-        return f"{self.staff.user.username} - {self.hotel.name} ({status})"
+        manager_badge = " [Manager]" if self.can_grant_to_others else ""
+        return f"{self.staff.user.username} - {self.hotel.name} ({status}){manager_badge}"
 
 
 class StockSnapshot(models.Model):

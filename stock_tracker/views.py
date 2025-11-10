@@ -489,11 +489,14 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
     def grant_reopen_permission(self, request, hotel_identifier=None):
         """
         Grant reopen permission to a staff member.
-        Only accessible by superusers.
+        Accessible by:
+        - Superusers (always)
+        - Staff with can_grant_to_others=True (managers)
         
         Request body:
         {
             "staff_id": 123,
+            "can_grant_to_others": false,  // Optional, only superusers can set to true
             "notes": "Optional notes"
         }
         """
@@ -501,9 +504,33 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         from .stock_serializers import PeriodReopenPermissionSerializer
         from staff.models import Staff
         
-        if not request.user.is_superuser:
+        # Check if user can grant permissions
+        can_grant = False
+        is_superuser = request.user.is_superuser
+        
+        if is_superuser:
+            can_grant = True
+        else:
+            # Check if user has permission with can_grant_to_others
+            try:
+                staff = request.user.staff_profile
+                hotel = get_object_or_404(
+                    Hotel,
+                    Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+                )
+                manager_permission = PeriodReopenPermission.objects.filter(
+                    hotel=hotel,
+                    staff=staff,
+                    is_active=True,
+                    can_grant_to_others=True
+                ).exists()
+                can_grant = manager_permission
+            except AttributeError:
+                pass
+        
+        if not can_grant:
             return Response({
-                'error': 'Only superusers can grant reopen permissions'
+                'error': 'You do not have permission to grant reopen access. Only superusers or managers can grant permissions.'
             }, status=status.HTTP_403_FORBIDDEN)
         
         hotel = get_object_or_404(
@@ -513,6 +540,13 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         
         staff_id = request.data.get('staff_id')
         notes = request.data.get('notes', '')
+        can_grant_to_others = request.data.get('can_grant_to_others', False)
+        
+        # Only superusers can set can_grant_to_others to True
+        if can_grant_to_others and not is_superuser:
+            return Response({
+                'error': 'Only superusers can grant manager-level permissions'
+            }, status=status.HTTP_403_FORBIDDEN)
         
         if not staff_id:
             return Response({
@@ -533,20 +567,27 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             defaults={
                 'granted_by': request.user.staff_profile,
                 'is_active': True,
+                'can_grant_to_others': can_grant_to_others,
                 'notes': notes
             }
         )
         
         if not created:
-            # Reactivate if it was revoked
+            # Update existing permission
             if not permission.is_active:
                 permission.is_active = True
-                permission.granted_by = request.user.staff_profile
-                permission.notes = notes
-                permission.save()
                 message = 'Permission reactivated'
             else:
-                message = 'Permission already exists'
+                message = 'Permission updated'
+            
+            permission.granted_by = request.user.staff_profile
+            permission.notes = notes
+            
+            # Only superusers can change can_grant_to_others
+            if is_superuser:
+                permission.can_grant_to_others = can_grant_to_others
+            
+            permission.save()
         else:
             message = 'Permission granted successfully'
         
@@ -561,7 +602,9 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
     def revoke_reopen_permission(self, request, hotel_identifier=None):
         """
         Revoke reopen permission from a staff member.
-        Only accessible by superusers.
+        Accessible by:
+        - Superusers (always)
+        - Staff with can_grant_to_others=True (managers)
         
         Request body:
         {
@@ -570,9 +613,33 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         """
         from .models import PeriodReopenPermission
         
-        if not request.user.is_superuser:
+        # Check if user can revoke permissions
+        can_revoke = False
+        is_superuser = request.user.is_superuser
+        
+        if is_superuser:
+            can_revoke = True
+        else:
+            # Check if user has manager permission
+            try:
+                staff = request.user.staff_profile
+                hotel = get_object_or_404(
+                    Hotel,
+                    Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+                )
+                manager_permission = PeriodReopenPermission.objects.filter(
+                    hotel=hotel,
+                    staff=staff,
+                    is_active=True,
+                    can_grant_to_others=True
+                ).exists()
+                can_revoke = manager_permission
+            except AttributeError:
+                pass
+        
+        if not can_revoke:
             return Response({
-                'error': 'Only superusers can revoke reopen permissions'
+                'error': 'You do not have permission to revoke reopen access'
             }, status=status.HTTP_403_FORBIDDEN)
         
         hotel = get_object_or_404(

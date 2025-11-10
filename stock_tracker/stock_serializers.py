@@ -379,13 +379,31 @@ class StockPeriodSerializer(serializers.ModelSerializer):
     
     def get_can_manage_permissions(self, obj):
         """
-        Check if current user can manage reopen permissions.
-        Only superusers can manage permissions.
+        Check if current user can manage reopen permissions (grant/revoke).
+        Returns True if:
+        - User is a superuser, OR
+        - User has PeriodReopenPermission with can_grant_to_others=True (manager)
         """
         request = self.context.get('request')
         if not request or not request.user:
             return False
-        return request.user.is_superuser
+        
+        # Superusers can always manage
+        if request.user.is_superuser:
+            return True
+        
+        # Check if user is a manager (has can_grant_to_others permission)
+        from .models import PeriodReopenPermission
+        try:
+            staff = request.user.staff_profile
+            return PeriodReopenPermission.objects.filter(
+                hotel=obj.hotel,
+                staff=staff,
+                is_active=True,
+                can_grant_to_others=True
+            ).exists()
+        except:
+            return False
     
     def get_closed_by_name(self, obj):
         """Get the full name of staff who closed the period"""
@@ -1046,7 +1064,7 @@ class PeriodReopenPermissionSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hotel', 'staff', 'staff_id', 'staff_name', 'staff_email',
             'granted_by', 'granted_by_name', 'granted_at',
-            'is_active', 'notes'
+            'is_active', 'can_grant_to_others', 'notes'
         ]
         read_only_fields = ['granted_by', 'granted_at']
     
