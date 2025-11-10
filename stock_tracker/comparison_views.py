@@ -179,15 +179,24 @@ class CompareCategoriesView(APIView):
     
     def _calculate_summary(self, category_data, periods):
         """Calculate summary statistics"""
+        if not category_data:
+            return {
+                'total_value_change': 0,
+                'total_value_percentage': 0,
+                'best_performing_category': None,
+                'worst_performing_category': None,
+                'periods_compared': len(periods)
+            }
+        
         total_value_first = sum(
             cat['periods_data'][0]['total_value']
             for cat in category_data
-            if cat['periods_data']
+            if cat.get('periods_data')
         )
         total_value_last = sum(
             cat['periods_data'][-1]['total_value']
             for cat in category_data
-            if cat['periods_data']
+            if cat.get('periods_data')
         )
         
         # Find best/worst performers
