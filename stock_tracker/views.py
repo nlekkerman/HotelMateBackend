@@ -206,7 +206,6 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
         Query params:
         - start_date: YYYY-MM-DD (optional)
         - end_date: YYYY-MM-DD (optional)
-        - not_in_stocktake: true/false (default: false)
         """
         from datetime import datetime
         from django.db.models import Sum, Count
@@ -237,11 +236,6 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
                 qs = qs.filter(timestamp__lte=end)
             except ValueError:
                 pass
-        
-        # Filter by stocktake status
-        not_in_stocktake = request.query_params.get('not_in_stocktake', 'false').lower() == 'true'
-        if not_in_stocktake:
-            qs = qs.filter(stocktake__isnull=True)
         
         # Aggregate totals
         totals = qs.aggregate(
@@ -280,7 +274,6 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
             'filters': {
                 'start_date': start_date,
                 'end_date': end_date,
-                'not_in_stocktake': not_in_stocktake,
             }
         })
 

@@ -87,14 +87,6 @@ class CocktailConsumption(models.Model):
         on_delete=models.CASCADE,
         related_name="consumptions"
     )
-    stocktake = models.ForeignKey(
-        'StockPeriod',
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='cocktail_consumptions',
-        help_text="Stock period this consumption belongs to"
-    )
     # Revenue tracking
     unit_price = models.DecimalField(
         max_digits=10,

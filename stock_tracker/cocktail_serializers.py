@@ -72,7 +72,6 @@ class CocktailConsumptionSerializer(serializers.ModelSerializer):
             'cocktail_id',
             'quantity_made',
             'timestamp',
-            'stocktake',
             'unit_price',
             'total_revenue',
             'total_cost',

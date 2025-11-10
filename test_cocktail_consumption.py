@@ -55,7 +55,6 @@ def test_cocktail_consumption_calculations():
         print(f"  Unit Price: €{consumption.unit_price}")
         print(f"  Total Revenue: €{consumption.total_revenue}")
         print(f"  Expected Revenue: €{expected_revenue}")
-        print(f"  Stocktake: {consumption.stocktake} (should be None)")
         
         # Validation
         is_correct = True
@@ -72,10 +71,6 @@ def test_cocktail_consumption_calculations():
             errors.append(
                 f"Revenue mismatch: {consumption.total_revenue} != {expected_revenue}"
             )
-        
-        if consumption.stocktake is not None:
-            is_correct = False
-            errors.append("Stocktake should be None")
         
         if is_correct:
             print(f"\n✅ PASS: All calculations correct!")
@@ -113,14 +108,13 @@ def test_cocktail_consumption_calculations():
     print(f"{'='*60}")
     
     all_consumptions = CocktailConsumption.objects.filter(
-        hotel=hotel,
-        stocktake__isnull=True  # Only non-stocktake consumptions
+        hotel=hotel
     )
     
     total_revenue = sum(c.total_revenue for c in all_consumptions if c.total_revenue)
     total_quantity = sum(c.quantity_made for c in all_consumptions)
     
-    print(f"\nTotal Consumptions (not in stocktake): {all_consumptions.count()}")
+    print(f"\nTotal Consumptions: {all_consumptions.count()}")
     print(f"Total Quantity Made: {total_quantity}")
     print(f"Total Revenue: €{total_revenue}")
     
