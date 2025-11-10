@@ -18,6 +18,14 @@ from .report_views import (
     StockValueReportView,
     SalesReportView
 )
+from .comparison_views import (
+    CompareCategoriesView,
+    TopMoversView,
+    CostAnalysisView,
+    TrendAnalysisView,
+    VarianceHeatmapView,
+    PerformanceScorecardView
+)
 
 # Ingredient endpoints
 ingredient_list = IngredientViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -452,5 +460,37 @@ urlpatterns = [
         '<str:hotel_identifier>/reports/sales/',
         SalesReportView.as_view(),
         name='sales-report'
+    ),
+
+    # Period Comparison & Analytics Endpoints
+    path(
+        '<str:hotel_identifier>/compare/categories/',
+        CompareCategoriesView.as_view(),
+        name='compare-categories'
+    ),
+    path(
+        '<str:hotel_identifier>/compare/top-movers/',
+        TopMoversView.as_view(),
+        name='top-movers'
+    ),
+    path(
+        '<str:hotel_identifier>/compare/cost-analysis/',
+        CostAnalysisView.as_view(),
+        name='cost-analysis'
+    ),
+    path(
+        '<str:hotel_identifier>/compare/trend-analysis/',
+        TrendAnalysisView.as_view(),
+        name='trend-analysis'
+    ),
+    path(
+        '<str:hotel_identifier>/compare/variance-heatmap/',
+        VarianceHeatmapView.as_view(),
+        name='variance-heatmap'
+    ),
+    path(
+        '<str:hotel_identifier>/compare/performance-scorecard/',
+        PerformanceScorecardView.as_view(),
+        name='performance-scorecard'
     ),
 ]
