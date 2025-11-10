@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from django.shortcuts import get_object_or_404
-from django.db.models import Sum, Q
+from django.db.models import Sum, Q, F, DecimalField
 from decimal import Decimal
 from collections import defaultdict
 
@@ -112,13 +112,13 @@ class CompareCategoriesView(APIView):
                 purchases = movements.filter(
                     movement_type=StockMovement.PURCHASE
                 ).aggregate(
-                    total=Sum('total_cost')
+                    total=Sum(F('quantity') * F('unit_cost'), output_field=DecimalField())
                 )['total'] or Decimal('0')
                 
                 waste = movements.filter(
                     movement_type=StockMovement.WASTE
                 ).aggregate(
-                    total=Sum('total_cost')
+                    total=Sum(F('quantity') * F('unit_cost'), output_field=DecimalField())
                 )['total'] or Decimal('0')
                 
                 waste_percentage = float(
@@ -496,31 +496,46 @@ class CostAnalysisView(APIView):
         purchases = movements.filter(
             movement_type=StockMovement.PURCHASE
         ).aggregate(
-            total=Sum('total_cost')
+            total=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=DecimalField()
+            )
         )['total'] or Decimal('0')
         
         waste = movements.filter(
             movement_type=StockMovement.WASTE
         ).aggregate(
-            total=Sum('total_cost')
+            total=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=DecimalField()
+            )
         )['total'] or Decimal('0')
         
         transfers_in = movements.filter(
             movement_type=StockMovement.TRANSFER_IN
         ).aggregate(
-            total=Sum('total_cost')
+            total=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=DecimalField()
+            )
         )['total'] or Decimal('0')
         
         transfers_out = movements.filter(
             movement_type=StockMovement.TRANSFER_OUT
         ).aggregate(
-            total=Sum('total_cost')
+            total=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=DecimalField()
+            )
         )['total'] or Decimal('0')
         
         adjustments = movements.filter(
             movement_type=StockMovement.ADJUSTMENT
         ).aggregate(
-            total=Sum('total_cost')
+            total=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=DecimalField()
+            )
         )['total'] or Decimal('0')
         
         transfer_net = transfers_in - transfers_out
@@ -686,7 +701,10 @@ class TrendAnalysisView(APIView):
                 timestamp__gte=snapshot.period.start_date,
                 timestamp__lte=snapshot.period.end_date
             ).aggregate(
-                total=Sum('total_cost')
+                total=Sum(
+                    F('quantity') * F('unit_cost'),
+                    output_field=DecimalField()
+                )
             )['total'] or Decimal('0')
             
             items_data[item_id]['trend_data'].append({
@@ -1034,11 +1052,21 @@ class PerformanceScorecardView(APIView):
         
         purchases = movements.filter(
             movement_type=StockMovement.PURCHASE
-        ).aggregate(total=Sum('total_cost'))['total'] or Decimal('0')
+        ).aggregate(
+            total=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=DecimalField()
+            )
+        )['total'] or Decimal('0')
         
         waste = movements.filter(
             movement_type=StockMovement.WASTE
-        ).aggregate(total=Sum('total_cost'))['total'] or Decimal('0')
+        ).aggregate(
+            total=Sum(
+                F('quantity') * F('unit_cost'),
+                output_field=DecimalField()
+            )
+        )['total'] or Decimal('0')
         
         # Value Management Score (stock value relative to purchases)
         if purchases > 0:
