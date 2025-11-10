@@ -867,11 +867,24 @@ class StockItemViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['get'])
     def low_stock(self, request, hotel_identifier=None):
-        """Get items with low stock levels"""
-        items = self.get_queryset().filter(
-            current_full_units__lte=2
-        )
-        serializer = self.get_serializer(items, many=True)
+        """
+        Get items with low stock levels based on total servings.
+        Uses total_stock_in_servings property which accounts for both
+        full units and partial units.
+        
+        Query params:
+        - threshold: minimum servings (default: 50)
+        """
+        threshold = int(request.query_params.get('threshold', 50))
+        
+        # Get all items and filter by total servings
+        all_items = self.get_queryset()
+        low_stock_items = [
+            item for item in all_items
+            if item.total_stock_in_servings < threshold
+        ]
+        
+        serializer = self.get_serializer(low_stock_items, many=True)
         return Response(serializer.data)
     
     @action(detail=True, methods=['get'])

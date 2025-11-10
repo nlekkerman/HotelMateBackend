@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+python check_low_stock.py#!/usr/bin/env python
 """
 Populate real stocktake line items with purchases, waste, and sales data
 for September, October, and November periods.

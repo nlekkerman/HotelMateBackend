@@ -197,6 +197,15 @@ class StockItem(models.Model):
         default=Decimal('0.0000'),
         help_text="Partial units: pints, loose bottles, % of bottle"
     )
+    
+    # === INVENTORY MANAGEMENT ===
+    par_level = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Minimum servings to keep in stock (reorder point)"
+    )
 
     # === SELLING PRICES ===
     menu_price = models.DecimalField(
