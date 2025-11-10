@@ -12,14 +12,17 @@ Frontend just displays the numbers - **NO calculations needed**.
 GET /api/stock-tracker/<hotel_identifier>/kpi-summary/
 ```
 
+**`hotel_identifier`** = Hotel slug OR subdomain (e.g., `carlton-hotel` or `carlton`)
+
 ### Query Parameters
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `period_ids` | string | ✅ Yes | Comma-separated period IDs: `"1,2,3"` |
 
-### Example Request
+### Example Requests
 ```
 GET /api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3
+GET /api/stock-tracker/carlton/kpi-summary/?period_ids=1,2,3
 ```
 
 ---
@@ -408,13 +411,18 @@ const KPIDashboard = () => {
 
 ### Test with cURL
 ```bash
+# Use hotel slug or subdomain
 curl -X GET "http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# Or with subdomain
+curl -X GET "http://localhost:8000/api/stock-tracker/carlton/kpi-summary/?period_ids=1,2,3" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### Test with Postman
 1. **Method**: GET
-2. **URL**: `http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/`
+2. **URL**: `http://localhost:8000/api/stock-tracker/<hotel_slug_or_subdomain>/kpi-summary/`
 3. **Params**: `period_ids` = `1,2,3`
 4. **Headers**: `Authorization: Bearer YOUR_TOKEN`
 
@@ -457,9 +465,9 @@ curl -X GET "http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/?
 
 ## 🔗 Related Endpoints
 
-- **Get Periods**: `GET /api/stock-tracker/<hotel>/periods/`
-- **Period Detail**: `GET /api/stock-tracker/<hotel>/periods/<id>/`
-- **Stocktakes**: `GET /api/stock-tracker/<hotel>/stocktakes/`
+- **Get Periods**: `GET /api/stock-tracker/<hotel_identifier>/periods/`
+- **Period Detail**: `GET /api/stock-tracker/<hotel_identifier>/periods/<id>/`
+- **Stocktakes**: `GET /api/stock-tracker/<hotel_identifier>/stocktakes/`
 
 ---
 

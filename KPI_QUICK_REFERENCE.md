@@ -2,8 +2,9 @@
 
 ## THE ENDPOINT
 ```
-GET /api/stock-tracker/{hotel}/kpi-summary/?period_ids=1,2,3
+GET /api/stock-tracker/{hotel_identifier}/kpi-summary/?period_ids=1,2,3
 ```
+**`hotel_identifier`** = Hotel slug or subdomain (e.g., `carlton-hotel` or `carlton`)
 
 ## RESPONSE KEYS (Just Copy These!)
 
@@ -176,8 +177,9 @@ export const KPIDashboard = ({ hotelId, periodIds }: Props) => {
 
 ### JavaScript
 ```javascript
+// Use hotel slug or subdomain
 const response = await fetch(
-  `/api/stock-tracker/my-hotel/kpi-summary/?period_ids=1,2,3`
+  `/api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3`
 );
 const { data } = await response.json();
 console.log('Stock Value:', data.stock_value_metrics.total_current_value);
@@ -186,7 +188,7 @@ console.log('Stock Value:', data.stock_value_metrics.total_current_value);
 ### Axios
 ```javascript
 const { data } = await axios.get(
-  `/api/stock-tracker/my-hotel/kpi-summary/`,
+  `/api/stock-tracker/${hotelSlug}/kpi-summary/`,
   { params: { period_ids: '1,2,3' } }
 );
 ```
@@ -194,7 +196,7 @@ const { data } = await axios.get(
 ### React Query
 ```javascript
 const { data, isLoading } = useQuery(['kpi', periodIds], () =>
-  fetch(`/api/stock-tracker/${hotelId}/kpi-summary/?period_ids=${periodIds}`)
+  fetch(`/api/stock-tracker/${hotelSlug}/kpi-summary/?period_ids=${periodIds}`)
     .then(res => res.json())
 );
 ```

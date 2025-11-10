@@ -9,8 +9,10 @@
 ## 📍 THE ENDPOINT
 
 ```
-GET /api/stock-tracker/<hotel>/kpi-summary/?period_ids=1,2,3
+GET /api/stock-tracker/<hotel_identifier>/kpi-summary/?period_ids=1,2,3
 ```
+
+**`hotel_identifier`** = Hotel slug OR subdomain (e.g., `carlton-hotel` or `carlton`)
 
 **One call. All KPIs. Ready to display.**
 
@@ -133,12 +135,14 @@ python manage.py shell < test_kpi_endpoint.py
 
 ### Option 2: cURL
 ```bash
-curl "http://localhost:8000/api/stock-tracker/your-hotel/kpi-summary/?period_ids=1,2,3"
+# Use hotel slug or subdomain
+curl "http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3"
 ```
 
 ### Option 3: Browser
 ```
-http://localhost:8000/api/stock-tracker/your-hotel/kpi-summary/?period_ids=1,2,3
+# Use hotel slug or subdomain
+http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3
 ```
 
 ---
