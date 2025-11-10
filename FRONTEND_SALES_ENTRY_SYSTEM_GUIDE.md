@@ -208,47 +208,124 @@ POST /api/stock/<hotel_identifier>/sales/bulk-create/
 
 ---
 
-### **3. Get Sales for a Stocktake**
+### **3. Get Sales (Multiple Options)**
+
+#### **Option A: Get Sales for a Stocktake**
 
 ```
-GET /api/stock/<hotel_identifier>/stocktakes/<stocktake_id>/sales/
+GET /api/stock/<hotel_identifier>/sales/?stocktake=<stocktake_id>
 ```
 
-**Purpose:** Retrieve all sales records for a stocktake period
+**Purpose:** Retrieve all sales records for a specific stocktake period
+
+**Query Parameters:**
+- `stocktake=<id>` - Filter by stocktake ID
+- `category=<code>` - Filter by category (D, B, S, W, M)
+- `item=<id>` - Filter by specific item
+- `start_date=YYYY-MM-DD` - Filter by date range (start)
+- `end_date=YYYY-MM-DD` - Filter by date range (end)
+
+**Example:**
+```
+GET /api/stock/my-hotel/sales/?stocktake=10&category=D
+```
+
+**Response:**
+```json
+[
+  {
+    "id": 101,
+    "stocktake": 10,
+    "stocktake_period": "2025-11-01 to 2025-11-30",
+    "item": 1,
+    "item_sku": "D001",
+    "item_name": "Guinness Keg",
+    "category_code": "D",
+    "category_name": "Draught Beer",
+    "quantity": 250.5,
+    "unit_cost": 0.0645,
+    "unit_price": 5.50,
+    "total_cost": 16.16,
+    "total_revenue": 1377.75,
+    "gross_profit": 1361.59,
+    "gross_profit_percentage": 98.83,
+    "pour_cost_percentage": 1.17,
+    "sale_date": "2025-11-09",
+    "notes": null,
+    "created_by": 5,
+    "created_by_name": "John Smith",
+    "created_at": "2025-11-10T10:30:00Z",
+    "updated_at": "2025-11-10T10:30:00Z"
+  },
+  {
+    "id": 102,
+    "stocktake": 10,
+    "stocktake_period": "2025-11-01 to 2025-11-30",
+    "item": 2,
+    "item_sku": "D002",
+    "item_name": "Carlsberg Keg",
+    "category_code": "D",
+    "category_name": "Draught Beer",
+    "quantity": 180.0,
+    "unit_cost": 0.0650,
+    "unit_price": 5.50,
+    "total_cost": 11.70,
+    "total_revenue": 990.00,
+    "gross_profit": 978.30,
+    "gross_profit_percentage": 98.82,
+    "pour_cost_percentage": 1.18,
+    "sale_date": "2025-11-09",
+    "notes": null,
+    "created_by": 5,
+    "created_by_name": "John Smith",
+    "created_at": "2025-11-10T10:30:00Z",
+    "updated_at": "2025-11-10T10:30:00Z"
+  }
+]
+```
+
+#### **Option B: Get Sales by Date (Standalone Sales)**
+
+```
+GET /api/stock/<hotel_identifier>/sales/?start_date=2025-11-01&end_date=2025-11-30
+```
+
+**Purpose:** Get sales within a date range (includes both linked and standalone sales)
+
+#### **Option C: Get Sales Summary by Category**
+
+```
+GET /api/stock/<hotel_identifier>/sales/summary/?stocktake=<id>
+```
+
+**Purpose:** Get aggregated totals grouped by category
 
 **Response:**
 ```json
 {
-  "count": 3,
-  "results": [
+  "by_category": [
     {
-      "id": 101,
-      "item": {
-        "id": 1,
-        "sku": "D001",
-        "name": "Guinness Keg",
-        "category": "D"
-      },
-      "quantity": 250.5,
-      "unit_cost": 0.0645,
-      "unit_price": 5.50,
-      "total_cost": 16.16,
-      "total_revenue": 1377.75,
-      "gross_profit": 1361.59,
-      "gross_profit_percentage": 98.83,
-      "pour_cost_percentage": 1.17,
-      "sale_date": "2025-11-09",
-      "created_at": "2025-11-10T10:30:00Z"
+      "item__category__code": "D",
+      "item__category__name": "Draught Beer",
+      "total_quantity": 430.5,
+      "total_cost": 27.86,
+      "total_revenue": 2367.75,
+      "sale_count": 2
+    },
+    {
+      "item__category__code": "B",
+      "item__category__name": "Bottled Beer",
+      "total_quantity": 144,
+      "total_cost": 115.20,
+      "total_revenue": 648.00,
+      "sale_count": 3
     }
   ],
-  "summary": {
-    "total_items": 3,
-    "total_quantity": 311.25,
-    "total_revenue": 5432.50,
-    "total_cogs": 387.25,
-    "gross_profit": 5045.25,
-    "gp_percentage": 92.87,
-    "pour_cost_percentage": 7.13
+  "overall": {
+    "total_quantity": 574.5,
+    "total_cost": 143.06,
+    "total_revenue": 3015.75,
+    "sale_count": 5
   }
 }
 ```
@@ -321,6 +398,85 @@ const fetchStockItems = async (hotelIdentifier) => {
   } catch (error) {
     console.error('Error fetching stock items:', error);
     return [];
+  }
+};
+```
+
+---
+
+### **Step 1B: Fetch Saved Sales (with Categories)**
+
+```javascript
+// Fetch sales for a stocktake
+const fetchSales = async (hotelIdentifier, stocktakeId) => {
+  try {
+    const response = await fetch(
+      `/api/stock/${hotelIdentifier}/sales/?stocktake=${stocktakeId}`,
+      {
+        headers: {
+          'Authorization': `Token ${authToken}`,
+        }
+      }
+    );
+    
+    const sales = await response.json();
+    
+    // Sales include category_code and category_name for each item
+    console.log('Sales by category:');
+    sales.forEach(sale => {
+      console.log(`${sale.category_code} - ${sale.category_name}: ${sale.quantity} units`);
+    });
+    
+    return sales;
+  } catch (error) {
+    console.error('Error fetching sales:', error);
+    return [];
+  }
+};
+
+// Filter sales by category
+const fetchSalesByCategory = async (hotelIdentifier, stocktakeId, categoryCode) => {
+  try {
+    const response = await fetch(
+      `/api/stock/${hotelIdentifier}/sales/?stocktake=${stocktakeId}&category=${categoryCode}`,
+      {
+        headers: {
+          'Authorization': `Token ${authToken}`,
+        }
+      }
+    );
+    
+    const sales = await response.json();
+    return sales; // Only sales from specified category
+  } catch (error) {
+    console.error('Error fetching sales by category:', error);
+    return [];
+  }
+};
+
+// Get sales summary grouped by category
+const fetchSalesSummary = async (hotelIdentifier, stocktakeId) => {
+  try {
+    const response = await fetch(
+      `/api/stock/${hotelIdentifier}/sales/summary/?stocktake=${stocktakeId}`,
+      {
+        headers: {
+          'Authorization': `Token ${authToken}`,
+        }
+      }
+    );
+    
+    const summary = await response.json();
+    
+    // Summary includes totals per category
+    summary.by_category.forEach(cat => {
+      console.log(`${cat.item__category__name}: €${cat.total_revenue}`);
+    });
+    
+    return summary;
+  } catch (error) {
+    console.error('Error fetching sales summary:', error);
+    return null;
   }
 };
 ```
@@ -558,7 +714,168 @@ const saveSales = async (linkToStocktake = false) => {
 
 ---
 
-## 🔗 LINKING TO STOCKTAKE (OPTIONAL)
+## � FILTERING SALES BY CATEGORY
+
+### **Frontend Implementation: Category Filter**
+
+```javascript
+// Component for viewing/filtering sales
+const SalesViewer = ({ hotelIdentifier, stocktakeId }) => {
+  const [sales, setSales] = useState([]);
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [loading, setLoading] = useState(false);
+  
+  // Categories
+  const categories = [
+    { code: '', name: 'All Categories' },
+    { code: 'D', name: 'Draught Beer' },
+    { code: 'B', name: 'Bottled Beer' },
+    { code: 'S', name: 'Spirits' },
+    { code: 'W', name: 'Wine' },
+    { code: 'M', name: 'Minerals' }
+  ];
+  
+  // Fetch sales based on selected category
+  useEffect(() => {
+    const loadSales = async () => {
+      setLoading(true);
+      
+      let url = `/api/stock/${hotelIdentifier}/sales/?stocktake=${stocktakeId}`;
+      
+      // Add category filter if selected
+      if (selectedCategory) {
+        url += `&category=${selectedCategory}`;
+      }
+      
+      try {
+        const response = await fetch(url, {
+          headers: { 'Authorization': `Token ${authToken}` }
+        });
+        
+        const data = await response.json();
+        setSales(data);
+        
+        // Log category breakdown
+        const categoryTotals = {};
+        data.forEach(sale => {
+          const cat = sale.category_code;
+          if (!categoryTotals[cat]) {
+            categoryTotals[cat] = {
+              name: sale.category_name,
+              revenue: 0,
+              count: 0
+            };
+          }
+          categoryTotals[cat].revenue += parseFloat(sale.total_revenue);
+          categoryTotals[cat].count += 1;
+        });
+        
+        console.log('Category breakdown:', categoryTotals);
+      } catch (error) {
+        console.error('Error loading sales:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadSales();
+  }, [selectedCategory, stocktakeId]);
+  
+  return (
+    <div className="sales-viewer">
+      <h2>Sales Records</h2>
+      
+      {/* Category filter dropdown */}
+      <div className="filter-controls">
+        <label>Filter by Category:</label>
+        <select 
+          value={selectedCategory} 
+          onChange={(e) => setSelectedCategory(e.target.value)}
+        >
+          {categories.map(cat => (
+            <option key={cat.code} value={cat.code}>
+              {cat.name}
+            </option>
+          ))}
+        </select>
+        
+        <span className="count-badge">
+          {sales.length} sales
+        </span>
+      </div>
+      
+      {/* Sales table */}
+      {loading ? (
+        <p>Loading...</p>
+      ) : (
+        <table className="sales-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>SKU</th>
+              <th>Item</th>
+              <th>Category</th>
+              <th>Qty</th>
+              <th>Revenue</th>
+              <th>COGS</th>
+              <th>GP%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sales.map(sale => (
+              <tr key={sale.id}>
+                <td>{sale.sale_date}</td>
+                <td>{sale.item_sku}</td>
+                <td>{sale.item_name}</td>
+                <td>
+                  <span className={`badge badge-${sale.category_code}`}>
+                    {sale.category_code} - {sale.category_name}
+                  </span>
+                </td>
+                <td>{sale.quantity}</td>
+                <td>€{parseFloat(sale.total_revenue).toFixed(2)}</td>
+                <td>€{parseFloat(sale.total_cost).toFixed(2)}</td>
+                <td>{parseFloat(sale.gross_profit_percentage).toFixed(2)}%</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td colSpan="5"><strong>Totals</strong></td>
+              <td><strong>€{sales.reduce((sum, s) => sum + parseFloat(s.total_revenue), 0).toFixed(2)}</strong></td>
+              <td><strong>€{sales.reduce((sum, s) => sum + parseFloat(s.total_cost), 0).toFixed(2)}</strong></td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+      )}
+    </div>
+  );
+};
+```
+
+### **Category Badges Styling (Optional)**
+
+```css
+/* Category-specific badge colors */
+.badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+.badge-D { background-color: #FFD700; color: #000; } /* Draught - Gold */
+.badge-B { background-color: #8B4513; color: #fff; } /* Bottled - Brown */
+.badge-S { background-color: #4169E1; color: #fff; } /* Spirits - Blue */
+.badge-W { background-color: #8B0000; color: #fff; } /* Wine - Dark Red */
+.badge-M { background-color: #32CD32; color: #fff; } /* Minerals - Green */
+```
+
+---
+
+## �🔗 LINKING TO STOCKTAKE (OPTIONAL)
 
 ### **Option A: Save Sales Independently (Default)**
 

@@ -1458,12 +1458,18 @@ class Sale(models.Model):
     Independent Sales model to track all sales/consumption.
     Replaces the old sales field in StocktakeLine.
     Allows flexible sales tracking and calculations.
+    
+    Sales can be created:
+    1. Standalone (stocktake=None) - Independent sales tracking
+    2. Linked to stocktake - For period reporting and merging with inventory
     """
     stocktake = models.ForeignKey(
         Stocktake,
         on_delete=models.CASCADE,
         related_name='sales',
-        help_text="Stocktake period this sale belongs to"
+        null=True,
+        blank=True,
+        help_text="Optional: Stocktake period this sale belongs to. If None, sale is standalone."
     )
     item = models.ForeignKey(
         StockItem,
