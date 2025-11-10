@@ -12,7 +12,8 @@ from .views import (
     StockMovementViewSet,
     StocktakeViewSet,
     StocktakeLineViewSet,
-    SaleViewSet
+    SaleViewSet,
+    KPISummaryView
 )
 from .report_views import (
     StockValueReportView,
@@ -492,5 +493,12 @@ urlpatterns = [
         '<str:hotel_identifier>/compare/performance-scorecard/',
         PerformanceScorecardView.as_view(),
         name='performance-scorecard'
+    ),
+    
+    # KPI Summary Endpoint - ALL METRICS IN ONE CALL
+    path(
+        '<str:hotel_identifier>/kpi-summary/',
+        KPISummaryView.as_view(),
+        name='kpi-summary'
     ),
 ]

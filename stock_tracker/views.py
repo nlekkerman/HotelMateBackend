@@ -1839,3 +1839,697 @@ class SaleViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED
         )
+
+
+class KPISummaryView(APIView):
+    """
+    Comprehensive KPI metrics endpoint that calculates ALL metrics on the backend.
+    Frontend just displays the ready-to-use numbers.
+    
+    GET /api/stock-tracker/<hotel>/kpi-summary/?period_ids=1,2,3
+    """
+    
+    def get(self, request, hotel_identifier):
+        # Get hotel
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        # Get period IDs from query params
+        period_ids_str = request.GET.get('period_ids', '')
+        if not period_ids_str:
+            return Response(
+                {"error": "period_ids parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            period_ids = [int(pid.strip()) for pid in period_ids_str.split(',')]
+        except ValueError:
+            return Response(
+                {"error": "Invalid period_ids format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get periods
+        periods = StockPeriod.objects.filter(
+            id__in=period_ids,
+            hotel=hotel
+        ).order_by('end_date')
+        
+        if not periods.exists():
+            return Response(
+                {"error": "No valid periods found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Calculate all KPIs
+        data = {
+            "stock_value_metrics": self._calculate_stock_value_metrics(periods),
+            "profitability_metrics": self._calculate_profitability_metrics(periods),
+            "category_performance": self._calculate_category_performance(periods),
+            "inventory_health": self._calculate_inventory_health(periods),
+            "period_comparison": self._calculate_period_comparison(periods) if len(periods) >= 2 else None,
+            "performance_score": self._calculate_performance_score(periods),
+            "additional_metrics": self._calculate_additional_metrics(periods),
+        }
+        
+        return Response({
+            "success": True,
+            "data": data,
+            "meta": {
+                "periods_analyzed": len(periods),
+                "period_names": [p.period_name for p in periods],
+                "date_range": {
+                    "from": periods.first().start_date.isoformat(),
+                    "to": periods.last().end_date.isoformat()
+                }
+            }
+        })
+    
+    def _calculate_stock_value_metrics(self, periods):
+        """Calculate stock value KPIs"""
+        latest_period = periods.last()
+        
+        # Get snapshots for all periods
+        all_snapshots = StockSnapshot.objects.filter(period__in=periods)
+        
+        # Current/latest period value
+        latest_snapshots = all_snapshots.filter(period=latest_period)
+        total_current_value = sum(
+            snapshot.closing_stock_value for snapshot in latest_snapshots
+        )
+        
+        # Calculate value per period
+        period_values = []
+        for period in periods:
+            period_snapshots = all_snapshots.filter(period=period)
+            period_value = sum(s.closing_stock_value for s in period_snapshots)
+            period_values.append({
+                "period_id": period.id,
+                "period_name": period.period_name,
+                "value": float(period_value),
+                "date": period.end_date.isoformat()
+            })
+        
+        # Calculate average
+        avg_value = sum(pv["value"] for pv in period_values) / len(period_values) if period_values else 0
+        
+        # Highest and lowest
+        highest = max(period_values, key=lambda x: x["value"]) if period_values else None
+        lowest = min(period_values, key=lambda x: x["value"]) if period_values else None
+        
+        # Trend calculation
+        if len(period_values) >= 2:
+            first_value = period_values[0]["value"]
+            last_value = period_values[-1]["value"]
+            if first_value > 0:
+                trend_percentage = ((last_value - first_value) / first_value) * 100
+                if trend_percentage > 2:
+                    trend_direction = "increasing"
+                elif trend_percentage < -2:
+                    trend_direction = "decreasing"
+                else:
+                    trend_direction = "stable"
+            else:
+                trend_percentage = 0
+                trend_direction = "stable"
+        else:
+            trend_percentage = 0
+            trend_direction = "stable"
+        
+        return {
+            "total_current_value": float(total_current_value),
+            "average_value": float(avg_value),
+            "highest_period": highest,
+            "lowest_period": lowest,
+            "trend": {
+                "direction": trend_direction,
+                "percentage": round(trend_percentage, 2)
+            },
+            "period_values": period_values
+        }
+    
+    def _calculate_profitability_metrics(self, periods):
+        """Calculate profitability KPIs"""
+        # Get stocktakes for periods
+        stocktakes = Stocktake.objects.filter(
+            hotel=periods.first().hotel,
+            period_start__in=[p.start_date for p in periods],
+            period_end__in=[p.end_date for p in periods]
+        )
+        
+        gp_percentages = []
+        for period in periods:
+            stocktake = stocktakes.filter(
+                period_start=period.start_date,
+                period_end=period.end_date
+            ).first()
+            
+            if stocktake and stocktake.gross_profit_percentage:
+                gp_percentages.append({
+                    "period_name": period.period_name,
+                    "gp_percentage": float(stocktake.gross_profit_percentage),
+                    "pour_cost": float(stocktake.pour_cost_percentage) if stocktake.pour_cost_percentage else None,
+                    "date": period.end_date.isoformat()
+                })
+        
+        if gp_percentages:
+            avg_gp = sum(gp["gp_percentage"] for gp in gp_percentages) / len(gp_percentages)
+            highest_gp = max(gp_percentages, key=lambda x: x["gp_percentage"])
+            lowest_gp = min(gp_percentages, key=lambda x: x["gp_percentage"])
+            
+            # Average pour cost
+            pour_costs = [gp["pour_cost"] for gp in gp_percentages if gp["pour_cost"]]
+            avg_pour_cost = sum(pour_costs) / len(pour_costs) if pour_costs else None
+            
+            # Trend
+            if len(gp_percentages) >= 2:
+                first_gp = gp_percentages[0]["gp_percentage"]
+                last_gp = gp_percentages[-1]["gp_percentage"]
+                gp_change = last_gp - first_gp
+                if gp_change > 2:
+                    trend_direction = "improving"
+                elif gp_change < -2:
+                    trend_direction = "declining"
+                else:
+                    trend_direction = "stable"
+            else:
+                gp_change = 0
+                trend_direction = "stable"
+        else:
+            avg_gp = None
+            highest_gp = None
+            lowest_gp = None
+            avg_pour_cost = None
+            gp_change = 0
+            trend_direction = "unknown"
+        
+        return {
+            "average_gp_percentage": round(avg_gp, 2) if avg_gp else None,
+            "highest_gp_period": highest_gp,
+            "lowest_gp_period": lowest_gp,
+            "average_pour_cost_percentage": round(avg_pour_cost, 2) if avg_pour_cost else None,
+            "trend": {
+                "direction": trend_direction,
+                "change": round(gp_change, 2)
+            },
+            "all_periods": gp_percentages
+        }
+    
+    def _calculate_category_performance(self, periods):
+        """Calculate category performance KPIs"""
+        latest_period = periods.last()
+        
+        # Get snapshots for latest period grouped by category
+        snapshots = StockSnapshot.objects.filter(
+            period=latest_period
+        ).select_related('item__category')
+        
+        category_data = {}
+        for snapshot in snapshots:
+            cat_code = snapshot.item.category.code
+            cat_name = snapshot.item.category.name
+            
+            if cat_code not in category_data:
+                category_data[cat_code] = {
+                    "category_name": cat_name,
+                    "total_value": Decimal('0'),
+                    "item_count": 0,
+                    "total_gp": Decimal('0'),
+                    "gp_count": 0
+                }
+            
+            category_data[cat_code]["total_value"] += snapshot.closing_stock_value
+            category_data[cat_code]["item_count"] += 1
+            
+            # Calculate GP if menu price available
+            if snapshot.menu_price and snapshot.menu_price > 0:
+                gp = ((snapshot.menu_price - snapshot.cost_per_serving) / snapshot.menu_price) * 100
+                category_data[cat_code]["total_gp"] += Decimal(str(gp))
+                category_data[cat_code]["gp_count"] += 1
+        
+        # Calculate averages and find top performers
+        category_list = []
+        for cat_code, data in category_data.items():
+            avg_gp = (data["total_gp"] / data["gp_count"]) if data["gp_count"] > 0 else None
+            total_value = float(data["total_value"])
+            
+            category_list.append({
+                "category_code": cat_code,
+                "category_name": data["category_name"],
+                "total_value": total_value,
+                "item_count": data["item_count"],
+                "average_gp_percentage": float(round(avg_gp, 2)) if avg_gp else None
+            })
+        
+        # Sort and find top performers
+        category_list_by_value = sorted(category_list, key=lambda x: x["total_value"], reverse=True)
+        top_by_value = category_list_by_value[0] if category_list_by_value else None
+        
+        categories_with_gp = [c for c in category_list if c["average_gp_percentage"] is not None]
+        top_by_gp = max(categories_with_gp, key=lambda x: x["average_gp_percentage"]) if categories_with_gp else None
+        
+        # Calculate total for percentages
+        total_value = sum(c["total_value"] for c in category_list)
+        for cat in category_list:
+            cat["percentage_of_total"] = round((cat["total_value"] / total_value * 100), 2) if total_value > 0 else 0
+        
+        # Category growth (if multiple periods)
+        most_growth = None
+        if len(periods) >= 2:
+            first_period = periods.first()
+            last_period = periods.last()
+            
+            growth_data = {}
+            for cat_code in category_data.keys():
+                first_value = sum(
+                    s.closing_stock_value for s in StockSnapshot.objects.filter(
+                        period=first_period,
+                        item__category__code=cat_code
+                    )
+                )
+                last_value = sum(
+                    s.closing_stock_value for s in StockSnapshot.objects.filter(
+                        period=last_period,
+                        item__category__code=cat_code
+                    )
+                )
+                
+                if first_value > 0:
+                    growth_pct = ((last_value - first_value) / first_value) * 100
+                    growth_data[cat_code] = {
+                        "category_name": category_data[cat_code]["category_name"],
+                        "growth_percentage": float(round(growth_pct, 2)),
+                        "value_increase": float(last_value - first_value)
+                    }
+            
+            if growth_data:
+                most_growth_cat = max(growth_data.items(), key=lambda x: x[1]["growth_percentage"])
+                most_growth = {
+                    "category_code": most_growth_cat[0],
+                    **most_growth_cat[1]
+                }
+        
+        return {
+            "top_by_value": top_by_value,
+            "top_by_gp": top_by_gp,
+            "most_growth": most_growth,
+            "distribution": category_list
+        }
+    
+    def _calculate_inventory_health(self, periods):
+        """Calculate inventory health KPIs"""
+        hotel = periods.first().hotel
+        latest_period = periods.last()
+        
+        # Get current stock items
+        stock_items = StockItem.objects.filter(hotel=hotel, active=True)
+        
+        low_stock_items = []
+        out_of_stock_items = []
+        overstocked_items = []
+        dead_stock_items = []
+        
+        for item in stock_items:
+            total_servings = item.total_stock_in_servings
+            
+            # Low stock check
+            if item.par_level and total_servings < item.par_level:
+                low_stock_items.append({
+                    "item_name": item.name,
+                    "sku": item.sku,
+                    "current_quantity": float(total_servings),
+                    "par_level": float(item.par_level),
+                    "percentage_of_par": float(round((total_servings / item.par_level * 100), 2)) if item.par_level > 0 else 0
+                })
+            
+            # Out of stock
+            if total_servings == 0:
+                out_of_stock_items.append({
+                    "item_name": item.name,
+                    "sku": item.sku
+                })
+            
+            # Overstocked (>150% of par)
+            if item.par_level and total_servings > (item.par_level * Decimal('1.5')):
+                overstocked_items.append({
+                    "item_name": item.name,
+                    "sku": item.sku,
+                    "current_quantity": float(total_servings),
+                    "par_level": float(item.par_level),
+                    "percentage_of_par": float(round((total_servings / item.par_level * 100), 2))
+                })
+        
+        # Dead stock (no movement in latest period)
+        movements_in_period = StockMovement.objects.filter(
+            hotel=hotel,
+            period=latest_period
+        ).values_list('item_id', flat=True).distinct()
+        
+        for item in stock_items:
+            if item.id not in movements_in_period and item.total_stock_in_servings > 0:
+                dead_stock_items.append({
+                    "item_name": item.name,
+                    "sku": item.sku,
+                    "stock_value": float(item.total_stock_value)
+                })
+        
+        # Calculate health score (0-100)
+        total_items = stock_items.count()
+        if total_items > 0:
+            low_stock_penalty = (len(low_stock_items) / total_items) * 20
+            out_of_stock_penalty = (len(out_of_stock_items) / total_items) * 30
+            overstock_penalty = (len(overstocked_items) / total_items) * 15
+            dead_stock_penalty = (len(dead_stock_items) / total_items) * 15
+            
+            health_score = 100 - (low_stock_penalty + out_of_stock_penalty + overstock_penalty + dead_stock_penalty)
+            health_score = max(0, min(100, health_score))  # Clamp between 0-100
+        else:
+            health_score = 100
+        
+        # Determine rating
+        if health_score >= 90:
+            health_rating = "Excellent"
+        elif health_score >= 75:
+            health_rating = "Good"
+        elif health_score >= 60:
+            health_rating = "Fair"
+        else:
+            health_rating = "Poor"
+        
+        return {
+            "low_stock_count": len(low_stock_items),
+            "low_stock_items": low_stock_items[:10],  # Top 10
+            "out_of_stock_count": len(out_of_stock_items),
+            "out_of_stock_items": [item["item_name"] for item in out_of_stock_items[:10]],
+            "overstocked_count": len(overstocked_items),
+            "overstocked_items": overstocked_items[:5],
+            "dead_stock_count": len(dead_stock_items),
+            "dead_stock_items": [item["item_name"] for item in dead_stock_items[:5]],
+            "overall_health_score": int(round(health_score)),
+            "health_rating": health_rating,
+            "total_items_analyzed": total_items
+        }
+    
+    def _calculate_period_comparison(self, periods):
+        """Calculate period comparison KPIs (requires 2+ periods)"""
+        if len(periods) < 2:
+            return None
+        
+        first_period = periods.first()
+        last_period = periods.last()
+        
+        # Get snapshots
+        first_snapshots = {s.item_id: s for s in StockSnapshot.objects.filter(period=first_period)}
+        last_snapshots = {s.item_id: s for s in StockSnapshot.objects.filter(period=last_period)}
+        
+        increases = []
+        decreases = []
+        total_movers = 0
+        
+        # Compare common items
+        common_item_ids = set(first_snapshots.keys()) & set(last_snapshots.keys())
+        
+        for item_id in common_item_ids:
+            first_snap = first_snapshots[item_id]
+            last_snap = last_snapshots[item_id]
+            
+            first_value = first_snap.closing_stock_value
+            last_value = last_snap.closing_stock_value
+            
+            if first_value > 0:
+                change = last_value - first_value
+                percentage_change = (change / first_value) * 100
+                
+                # Significant change threshold (>10%)
+                if abs(percentage_change) > 10:
+                    total_movers += 1
+                    
+                    change_data = {
+                        "item_name": last_snap.item.name,
+                        "sku": last_snap.item.sku,
+                        "category": last_snap.item.category.name,
+                        "previous_value": float(first_value),
+                        "current_value": float(last_value),
+                        "change": float(change),
+                        "percentage_change": round(float(percentage_change), 2)
+                    }
+                    
+                    if change > 0:
+                        increases.append(change_data)
+                    else:
+                        decreases.append(change_data)
+        
+        # Sort and get top movers
+        increases.sort(key=lambda x: x["percentage_change"], reverse=True)
+        decreases.sort(key=lambda x: x["percentage_change"])
+        
+        # Category changes
+        category_changes = {}
+        for cat in StockCategory.objects.all():
+            first_cat_value = sum(
+                s.closing_stock_value for s in first_snapshots.values()
+                if s.item.category.code == cat.code
+            )
+            last_cat_value = sum(
+                s.closing_stock_value for s in last_snapshots.values()
+                if s.item.category.code == cat.code
+            )
+            
+            if first_cat_value > 0:
+                change = last_cat_value - first_cat_value
+                percentage_change = (change / first_cat_value) * 100
+                
+                category_changes[cat.code] = {
+                    "category_name": cat.name,
+                    "change": float(change),
+                    "percentage_change": round(float(percentage_change), 2),
+                    "direction": "increase" if change > 0 else "decrease"
+                }
+        
+        # Overall variance
+        total_first_value = sum(s.closing_stock_value for s in first_snapshots.values())
+        total_last_value = sum(s.closing_stock_value for s in last_snapshots.values())
+        
+        if total_first_value > 0:
+            overall_variance = ((total_last_value - total_first_value) / total_first_value) * 100
+            variance_direction = "increase" if overall_variance > 0 else "decrease"
+        else:
+            overall_variance = 0
+            variance_direction = "stable"
+        
+        return {
+            "periods_compared": [p.period_name for p in [first_period, last_period]],
+            "total_movers_count": total_movers,
+            "threshold_percentage": 10,
+            "biggest_increases": increases[:5],
+            "biggest_decreases": decreases[:5],
+            "categories_with_most_change": sorted(
+                category_changes.values(),
+                key=lambda x: abs(x["percentage_change"]),
+                reverse=True
+            )[:5],
+            "overall_variance": {
+                "percentage": round(float(overall_variance), 2),
+                "direction": variance_direction,
+                "value_change": float(total_last_value - total_first_value)
+            }
+        }
+    
+    def _calculate_performance_score(self, periods):
+        """Calculate overall performance score"""
+        # Get component scores
+        profitability = self._calculate_profitability_metrics(periods)
+        health = self._calculate_inventory_health(periods)
+        
+        # Profitability score (based on avg GP%)
+        avg_gp = profitability.get("average_gp_percentage")
+        if avg_gp:
+            if avg_gp >= 70:
+                profitability_score = 100
+            elif avg_gp >= 60:
+                profitability_score = 85
+            elif avg_gp >= 50:
+                profitability_score = 70
+            else:
+                profitability_score = 50
+        else:
+            profitability_score = None
+        
+        # Stock health score
+        stock_health_score = health.get("overall_health_score", 0)
+        
+        # Turnover score (placeholder - would need sales data)
+        turnover_score = 75  # Default
+        
+        # Category balance score (how evenly distributed)
+        category_perf = self._calculate_category_performance(periods)
+        category_dist = category_perf.get("distribution", [])
+        if category_dist:
+            percentages = [c["percentage_of_total"] for c in category_dist]
+            # Better balance = higher score (none should dominate too much)
+            max_percentage = max(percentages) if percentages else 100
+            if max_percentage < 40:
+                category_balance_score = 100
+            elif max_percentage < 50:
+                category_balance_score = 85
+            elif max_percentage < 60:
+                category_balance_score = 70
+            else:
+                category_balance_score = 60
+        else:
+            category_balance_score = 70
+        
+        # Variance control score
+        comparison = self._calculate_period_comparison(periods)
+        if comparison:
+            movers_count = comparison.get("total_movers_count", 0)
+            total_items = health.get("total_items_analyzed", 1)
+            mover_percentage = (movers_count / total_items * 100) if total_items > 0 else 0
+            
+            # Lower variance = better control
+            if mover_percentage < 20:
+                variance_control_score = 100
+            elif mover_percentage < 40:
+                variance_control_score = 80
+            elif mover_percentage < 60:
+                variance_control_score = 60
+            else:
+                variance_control_score = 40
+        else:
+            variance_control_score = 75
+        
+        # Calculate overall score (weighted average)
+        scores = []
+        if profitability_score:
+            scores.append(profitability_score * 0.30)  # 30% weight
+        scores.append(stock_health_score * 0.25)  # 25% weight
+        scores.append(turnover_score * 0.20)  # 20% weight
+        scores.append(category_balance_score * 0.15)  # 15% weight
+        scores.append(variance_control_score * 0.10)  # 10% weight
+        
+        overall_score = int(round(sum(scores)))
+        
+        # Determine rating
+        if overall_score >= 90:
+            rating = "Excellent"
+        elif overall_score >= 75:
+            rating = "Good"
+        elif overall_score >= 60:
+            rating = "Fair"
+        else:
+            rating = "Poor"
+        
+        # Improvement areas
+        improvement_areas = []
+        if profitability_score and profitability_score < 80:
+            improvement_areas.append({
+                "area": "Profitability",
+                "current_score": profitability_score,
+                "priority": "high" if profitability_score < 60 else "medium",
+                "recommendation": "Review pricing strategy and reduce pour costs"
+            })
+        
+        if stock_health_score < 75:
+            improvement_areas.append({
+                "area": "Stock Health",
+                "current_score": stock_health_score,
+                "priority": "high" if stock_health_score < 60 else "medium",
+                "recommendation": f"Address {health['low_stock_count']} low stock items and {health['out_of_stock_count']} out of stock items"
+            })
+        
+        if variance_control_score < 75:
+            improvement_areas.append({
+                "area": "Variance Control",
+                "current_score": variance_control_score,
+                "priority": "medium",
+                "recommendation": "Reduce stock level fluctuations through better ordering"
+            })
+        
+        return {
+            "overall_score": overall_score,
+            "rating": rating,
+            "breakdown": {
+                "profitability_score": profitability_score,
+                "stock_health_score": stock_health_score,
+                "turnover_score": turnover_score,
+                "category_balance_score": category_balance_score,
+                "variance_control_score": variance_control_score
+            },
+            "improvement_areas": improvement_areas,
+            "strengths": self._identify_strengths(profitability_score, stock_health_score, category_balance_score)
+        }
+    
+    def _identify_strengths(self, prof_score, health_score, balance_score):
+        """Identify strengths based on scores"""
+        strengths = []
+        if prof_score and prof_score >= 85:
+            strengths.append("Excellent profitability margins")
+        if health_score >= 85:
+            strengths.append("Strong inventory health")
+        if balance_score >= 85:
+            strengths.append("Well-balanced category distribution")
+        
+        if not strengths:
+            strengths.append("Good operational consistency")
+        
+        return strengths
+    
+    def _calculate_additional_metrics(self, periods):
+        """Calculate additional useful metrics"""
+        hotel = periods.first().hotel
+        
+        # Total items
+        stock_items = StockItem.objects.filter(hotel=hotel, active=True)
+        total_items = stock_items.count()
+        
+        # Active items (with recent movement)
+        latest_period = periods.last()
+        active_item_ids = StockMovement.objects.filter(
+            hotel=hotel,
+            period=latest_period
+        ).values_list('item_id', flat=True).distinct()
+        active_items_count = len(set(active_item_ids))
+        
+        # Total categories
+        total_categories = StockCategory.objects.count()
+        
+        # Average item value
+        latest_snapshots = StockSnapshot.objects.filter(period=latest_period)
+        if latest_snapshots.exists():
+            total_value = sum(s.closing_stock_value for s in latest_snapshots)
+            avg_item_value = total_value / latest_snapshots.count() if latest_snapshots.count() > 0 else 0
+        else:
+            avg_item_value = 0
+        
+        # Purchase activity
+        purchases = StockMovement.objects.filter(
+            hotel=hotel,
+            period__in=periods,
+            movement_type=StockMovement.PURCHASE
+        )
+        purchase_count = purchases.count()
+        avg_purchases_per_period = purchase_count / len(periods) if len(periods) > 0 else 0
+        
+        # Most purchased category
+        if purchases.exists():
+            from collections import Counter
+            purchase_categories = purchases.select_related('item__category').values_list('item__category__name', flat=True)
+            most_purchased_cat = Counter(purchase_categories).most_common(1)[0][0] if purchase_categories else None
+        else:
+            most_purchased_cat = None
+        
+        return {
+            "total_items_count": total_items,
+            "active_items_count": active_items_count,
+            "inactive_items_count": total_items - active_items_count,
+            "total_categories": total_categories,
+            "average_item_value": float(round(avg_item_value, 2)),
+            "purchase_activity": {
+                "total_purchases": purchase_count,
+                "average_per_period": round(avg_purchases_per_period, 1),
+                "most_purchased_category": most_purchased_cat
+            }
+        }
