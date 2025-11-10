@@ -32,6 +32,13 @@ class CocktailRecipe(models.Model):
         on_delete=models.CASCADE,
         related_name="cocktails"
     )
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Selling price per cocktail"
+    )
 
     class Meta:
         unique_together = ("name", "hotel")
@@ -80,6 +87,36 @@ class CocktailConsumption(models.Model):
         on_delete=models.CASCADE,
         related_name="consumptions"
     )
+    stocktake = models.ForeignKey(
+        'StockPeriod',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='cocktail_consumptions',
+        help_text="Stock period this consumption belongs to"
+    )
+    # Revenue tracking
+    unit_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Price per cocktail at time of consumption"
+    )
+    total_revenue = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total revenue (quantity_made × unit_price)"
+    )
+    total_cost = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total ingredient cost for all cocktails made"
+    )
 
     def __str__(self):
         date_str = self.timestamp.strftime('%Y-%m-%d')
@@ -94,6 +131,47 @@ class CocktailConsumption(models.Model):
             total_qty = ri.quantity_per_cocktail * self.quantity_made
             usage[ri.ingredient.name] = (total_qty, ri.ingredient.unit)
         return usage
+
+    def calculate_revenue(self):
+        """Calculate total revenue based on quantity and cocktail price"""
+        if self.cocktail.price:
+            return Decimal(self.quantity_made) * self.cocktail.price
+        return Decimal('0.00')
+
+    def calculate_cost(self):
+        """
+        Calculate total ingredient cost for all cocktails made
+        Returns the total cost based on ingredient usage
+        """
+        total = Decimal('0.00')
+        for ri in self.cocktail.ingredients.all():
+            # Get ingredient cost from stock items (if linked)
+            # This is simplified - you may need to link ingredients to stock
+            # For now, return 0 as placeholder
+            pass
+        return total
+
+    @property
+    def profit(self):
+        """Calculate profit (revenue - cost)"""
+        if self.total_revenue and self.total_cost:
+            return self.total_revenue - self.total_cost
+        return None
+
+    def save(self, *args, **kwargs):
+        """Auto-calculate revenue and cost on save"""
+        # Set unit price from cocktail if not already set
+        if not self.unit_price and self.cocktail.price:
+            self.unit_price = self.cocktail.price
+        
+        # Calculate total revenue
+        if self.unit_price:
+            self.total_revenue = Decimal(self.quantity_made) * self.unit_price
+        
+        # Calculate total cost (simplified for now)
+        self.total_cost = self.calculate_cost()
+        
+        super().save(*args, **kwargs)
 
 
 # ============================================================================
@@ -704,6 +782,76 @@ class StockPeriod(models.Model):
             hotel=self.hotel,
             end_date__lt=self.start_date
         ).order_by('-end_date').first()
+
+    def get_cocktail_sales(self):
+        """
+        Get cocktail consumptions for this period
+        Returns queryset of CocktailConsumption
+        """
+        return CocktailConsumption.objects.filter(
+            hotel=self.hotel,
+            timestamp__gte=self.start_date,
+            timestamp__lte=self.end_date
+        )
+
+    @property
+    def cocktail_revenue(self):
+        """Total revenue from cocktail sales in this period"""
+        from django.db.models import Sum
+        result = self.get_cocktail_sales().aggregate(
+            total=Sum('total_revenue')
+        )
+        return result['total'] or Decimal('0.00')
+
+    @property
+    def cocktail_cost(self):
+        """Total cost of cocktails made in this period"""
+        from django.db.models import Sum
+        result = self.get_cocktail_sales().aggregate(
+            total=Sum('total_cost')
+        )
+        return result['total'] or Decimal('0.00')
+
+    @property
+    def cocktail_quantity(self):
+        """Total number of cocktails made in this period"""
+        from django.db.models import Sum
+        result = self.get_cocktail_sales().aggregate(
+            total=Sum('quantity_made')
+        )
+        return result['total'] or 0
+
+    @property
+    def total_sales_with_cocktails(self):
+        """
+        Total sales including both stock items and cocktails
+        This is the unified sales figure for the period
+        """
+        # Get stock sales from stocktakes
+        stock_sales = Decimal('0.00')
+        for stocktake in self.stocktakes.all():
+            if stocktake.total_revenue:
+                stock_sales += stocktake.total_revenue
+        
+        # Add cocktail revenue
+        return stock_sales + self.cocktail_revenue
+
+    @property
+    def total_cost_with_cocktails(self):
+        """Total COGS including both stock items and cocktails"""
+        # Get stock COGS
+        stock_cost = Decimal('0.00')
+        for stocktake in self.stocktakes.all():
+            if stocktake.total_cogs:
+                stock_cost += stocktake.total_cogs
+        
+        # Add cocktail cost
+        return stock_cost + self.cocktail_cost
+
+    @property
+    def profit_with_cocktails(self):
+        """Total profit including cocktails"""
+        return self.total_sales_with_cocktails - self.total_cost_with_cocktails
 
 
 class PeriodReopenPermission(models.Model):

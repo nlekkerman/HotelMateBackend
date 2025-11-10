@@ -199,6 +199,91 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
             qs = qs.filter(cocktail_id=cocktail_id)
         return qs
 
+    @action(detail=False, methods=['get'], url_path='sales-report')
+    def sales_report(self, request, hotel_identifier=None):
+        """
+        Get cocktail sales report by date range
+        Query params:
+        - start_date: YYYY-MM-DD (optional)
+        - end_date: YYYY-MM-DD (optional)
+        - not_in_stocktake: true/false (default: false)
+        """
+        from datetime import datetime
+        from django.db.models import Sum, Count
+        from decimal import Decimal
+        
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        # Base queryset
+        qs = CocktailConsumption.objects.filter(hotel=hotel)
+        
+        # Filter by date range
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        if start_date:
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d')
+                qs = qs.filter(timestamp__gte=start)
+            except ValueError:
+                pass
+        
+        if end_date:
+            try:
+                end = datetime.strptime(end_date, '%Y-%m-%d')
+                qs = qs.filter(timestamp__lte=end)
+            except ValueError:
+                pass
+        
+        # Filter by stocktake status
+        not_in_stocktake = request.query_params.get('not_in_stocktake', 'false').lower() == 'true'
+        if not_in_stocktake:
+            qs = qs.filter(stocktake__isnull=True)
+        
+        # Aggregate totals
+        totals = qs.aggregate(
+            total_quantity=Sum('quantity_made'),
+            total_revenue=Sum('total_revenue'),
+            total_cost=Sum('total_cost'),
+            total_consumptions=Count('id')
+        )
+        
+        # Breakdown by cocktail
+        cocktail_breakdown = qs.values(
+            'cocktail__id',
+            'cocktail__name',
+            'cocktail__price'
+        ).annotate(
+            quantity=Sum('quantity_made'),
+            revenue=Sum('total_revenue'),
+            cost=Sum('total_cost'),
+            count=Count('id')
+        ).order_by('-revenue')
+        
+        # Calculate profit
+        profit = Decimal('0.00')
+        if totals['total_revenue'] and totals['total_cost']:
+            profit = totals['total_revenue'] - totals['total_cost']
+        
+        return Response({
+            'summary': {
+                'total_consumptions': totals['total_consumptions'] or 0,
+                'total_quantity_made': totals['total_quantity'] or 0,
+                'total_revenue': str(totals['total_revenue'] or Decimal('0.00')),
+                'total_cost': str(totals['total_cost'] or Decimal('0.00')),
+                'total_profit': str(profit),
+            },
+            'by_cocktail': list(cocktail_breakdown),
+            'filters': {
+                'start_date': start_date,
+                'end_date': end_date,
+                'not_in_stocktake': not_in_stocktake,
+            }
+        })
+
     def get_serializer_context(self):
         context = super().get_serializer_context()
         context['request'] = self.request
@@ -1505,6 +1590,74 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             'movements': serializer.data,
             'summary': summary
         })
+    
+    @action(detail=True, methods=['get'])
+    def sales(self, request, pk=None, hotel_identifier=None):
+        """
+        Get all sales for this line item within the stocktake period.
+        
+        Convenience endpoint for frontend to fetch sales for a specific
+        stocktake line without needing to filter by item ID.
+        
+        Returns:
+        - List of Sale records
+        - Summary totals (quantity, revenue, cost, GP%)
+        
+        Example:
+        GET /api/stock-tracker/{hotel}/stocktake-lines/{line_id}/sales/
+        """
+        from django.db.models import Sum
+        from .stock_serializers import SaleSerializer
+        
+        line = self.get_object()
+        
+        # Get all sales for this item in this stocktake
+        sales = Sale.objects.filter(
+            stocktake=line.stocktake,
+            item=line.item
+        ).order_by('-sale_date', '-created_at')
+        
+        # Calculate totals
+        totals = sales.aggregate(
+            total_quantity=Sum('quantity'),
+            total_cost=Sum('total_cost'),
+            total_revenue=Sum('total_revenue')
+        )
+        
+        # Calculate GP% from totals
+        gp_percentage = None
+        if totals['total_revenue'] and totals['total_revenue'] > 0:
+            gross_profit = totals['total_revenue'] - totals['total_cost']
+            gp_percentage = (gross_profit / totals['total_revenue']) * 100
+        
+        serializer = SaleSerializer(sales, many=True)
+        
+        gross_profit = (
+            (totals['total_revenue'] or 0) - (totals['total_cost'] or 0)
+        )
+        gp_pct = round(gp_percentage, 2) if gp_percentage else None
+        
+        return Response({
+            'sales': serializer.data,
+            'summary': {
+                'total_quantity': str(totals['total_quantity'] or 0),
+                'total_cost': str(totals['total_cost'] or 0),
+                'total_revenue': str(totals['total_revenue'] or 0),
+                'gross_profit': str(gross_profit),
+                'gross_profit_percentage': gp_pct,
+                'sale_count': sales.count()
+            },
+            'item': {
+                'id': line.item.id,
+                'sku': line.item.sku,
+                'name': line.item.name,
+                'menu_price': (
+                    str(line.item.menu_price)
+                    if line.item.menu_price else None
+                ),
+                'cost_per_serving': str(line.item.cost_per_serving)
+            }
+        })
 
     @action(detail=True, methods=['delete'], url_path='delete-movement/(?P<movement_id>[^/.]+)')
     def delete_movement(self, request, pk=None, movement_id=None, hotel_identifier=None):
@@ -1957,6 +2110,7 @@ class KPISummaryView(APIView):
         data = {
             "stock_value_metrics": self._calculate_stock_value_metrics(periods),
             "profitability_metrics": self._calculate_profitability_metrics(periods),
+            "cocktail_sales_metrics": self._calculate_cocktail_sales_metrics(periods),
             "category_performance": self._calculate_category_performance(periods),
             "inventory_health": self._calculate_inventory_health(periods),
             "period_comparison": self._calculate_period_comparison(periods) if len(periods) >= 2 else None,
@@ -2105,6 +2259,61 @@ class KPISummaryView(APIView):
                 "change": round(gp_change, 2)
             },
             "all_periods": gp_percentages
+        }
+    
+    def _calculate_cocktail_sales_metrics(self, periods):
+        """Calculate cocktail sales metrics"""
+        cocktail_data = []
+        total_cocktail_revenue = Decimal('0.00')
+        total_cocktail_quantity = 0
+        
+        for period in periods:
+            period_revenue = period.cocktail_revenue
+            period_quantity = period.cocktail_quantity
+            
+            total_cocktail_revenue += period_revenue
+            total_cocktail_quantity += period_quantity
+            
+            cocktail_data.append({
+                "period_name": period.period_name,
+                "revenue": float(period_revenue),
+                "quantity": period_quantity,
+                "date": period.end_date.isoformat()
+            })
+        
+        # Calculate averages
+        avg_revenue = float(total_cocktail_revenue / len(periods)) if periods else 0
+        avg_quantity = int(total_cocktail_quantity / len(periods)) if periods else 0
+        
+        # Trend
+        if len(cocktail_data) >= 2:
+            first_revenue = cocktail_data[0]["revenue"]
+            last_revenue = cocktail_data[-1]["revenue"]
+            if first_revenue > 0:
+                revenue_change_pct = ((last_revenue - first_revenue) / first_revenue) * 100
+                if revenue_change_pct > 5:
+                    trend = "increasing"
+                elif revenue_change_pct < -5:
+                    trend = "decreasing"
+                else:
+                    trend = "stable"
+            else:
+                revenue_change_pct = 0
+                trend = "stable"
+        else:
+            revenue_change_pct = 0
+            trend = "stable"
+        
+        return {
+            "total_revenue": float(total_cocktail_revenue),
+            "total_quantity": total_cocktail_quantity,
+            "average_revenue_per_period": round(avg_revenue, 2),
+            "average_quantity_per_period": avg_quantity,
+            "trend": {
+                "direction": trend,
+                "change_percentage": round(revenue_change_pct, 2)
+            },
+            "by_period": cocktail_data
         }
     
     def _calculate_category_performance(self, periods):
@@ -2590,6 +2799,27 @@ class KPISummaryView(APIView):
         else:
             most_purchased_cat = None
         
+        # Combined sales (stock + cocktails) for latest period
+        stock_revenue = Decimal('0.00')
+        stock_cost = Decimal('0.00')
+        for stocktake in latest_period.stocktakes.all():
+            if stocktake.total_revenue:
+                stock_revenue += stocktake.total_revenue
+            if stocktake.total_cogs:
+                stock_cost += stocktake.total_cogs
+        
+        cocktail_revenue = latest_period.cocktail_revenue
+        cocktail_cost = latest_period.cocktail_cost
+        
+        combined_revenue = stock_revenue + cocktail_revenue
+        combined_cost = stock_cost + cocktail_cost
+        combined_profit = combined_revenue - combined_cost
+        
+        # Calculate percentages
+        cocktail_pct = 0
+        if combined_revenue > 0:
+            cocktail_pct = float((cocktail_revenue / combined_revenue) * 100)
+        
         return {
             "total_items_count": total_items,
             "active_items_count": active_items_count,
@@ -2600,5 +2830,13 @@ class KPISummaryView(APIView):
                 "total_purchases": purchase_count,
                 "average_per_period": round(avg_purchases_per_period, 1),
                 "most_purchased_category": most_purchased_cat
+            },
+            "combined_sales_breakdown": {
+                "total_revenue": float(combined_revenue),
+                "total_cost": float(combined_cost),
+                "total_profit": float(combined_profit),
+                "stock_revenue": float(stock_revenue),
+                "cocktail_revenue": float(cocktail_revenue),
+                "cocktail_percentage_of_total": round(cocktail_pct, 2)
             }
         }

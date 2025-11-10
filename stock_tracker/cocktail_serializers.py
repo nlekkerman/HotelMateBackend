@@ -29,7 +29,7 @@ class CocktailRecipeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CocktailRecipe
-        fields = ['id', 'name', 'ingredients', 'hotel_id']
+        fields = ['id', 'name', 'ingredients', 'hotel_id', 'price']
 
     def create(self, validated_data):
         ingredients_data = validated_data.pop('ingredients')
@@ -41,6 +41,7 @@ class CocktailRecipeSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         ingredients_data = validated_data.pop('ingredients', None)
         instance.name = validated_data.get('name', instance.name)
+        instance.price = validated_data.get('price', instance.price)
         instance.save()
 
         if ingredients_data is not None:
@@ -59,6 +60,9 @@ class CocktailConsumptionSerializer(serializers.ModelSerializer):
         queryset=CocktailRecipe.objects.all(), source='cocktail', write_only=True
     )
     total_ingredient_usage = serializers.SerializerMethodField()
+    profit = serializers.DecimalField(
+        max_digits=15, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = CocktailConsumption
@@ -68,8 +72,14 @@ class CocktailConsumptionSerializer(serializers.ModelSerializer):
             'cocktail_id',
             'quantity_made',
             'timestamp',
+            'stocktake',
+            'unit_price',
+            'total_revenue',
+            'total_cost',
+            'profit',
             'total_ingredient_usage',
         ]
+        read_only_fields = ['total_revenue', 'total_cost', 'timestamp']
 
     def get_total_ingredient_usage(self, obj):
         raw_usage = obj.total_ingredient_usage()  # {(qty, unit)}

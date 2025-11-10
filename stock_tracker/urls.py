@@ -225,6 +225,11 @@ urlpatterns = [
         consumption_detail,
         name='consumption-detail'
     ),
+    path(
+        '<str:hotel_identifier>/consumptions/sales-report/',
+        CocktailConsumptionViewSet.as_view({'get': 'sales_report'}),
+        name='consumption-sales-report'
+    ),
 
     # Analytics
     path(
