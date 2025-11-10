@@ -13,14 +13,15 @@
 2. ✅ Allow manual entry of quantities sold for each item
 3. ✅ Auto-calculate revenue and COGS based on item prices/costs
 4. ✅ Sum up totals for the entire sales session
-5. ✅ Save sales records to the database
-6. ✅ **Optional:** Link sales to a stocktake period for reporting
+5. ✅ Save sales records to the database **independently**
+6. ✅ **OPTIONAL:** Link/merge sales with a stocktake period **on demand** (user choice)
 7. ❌ **NOT included:** Cocktails (separate system)
 
 ### **Why Not Use Stocktake Snapshots?**
 - Stocktake snapshots are **frozen at a specific date** (end of period)
 - Sales entry needs **current, live item data** (current prices, current items)
-- Sales can be entered **independently** before/during/after a stocktake
+- Sales can be entered **independently** and saved separately
+- **Link to stocktake ONLY when you want to merge** for reporting
 - Flexibility to enter sales without completing a full stocktake
 
 ---
@@ -42,13 +43,15 @@ Step 2: Manual Entry (Frontend)
 └─ Displays: revenue, COGS, GP% per item
 
 Step 3: Save Sales Records
-├─ POST /api/stock/<hotel>/stocktakes/<id>/sales/bulk-create/
+├─ POST /api/stock/<hotel>/sales/bulk-create/
 ├─ Creates Sale records for each item
-└─ Links to stocktake (if provided)
+├─ Can save WITHOUT stocktake (standalone sales)
+└─ OR provide stocktake ID to link/merge
 
 Step 4: View/Edit Sales
-├─ GET /api/stock/<hotel>/stocktakes/<id>/sales/
-└─ Retrieve saved sales for a period
+├─ GET /api/stock/<hotel>/stocktakes/<id>/sales/ (if linked)
+├─ GET /api/stock/<hotel>/sales/?date=YYYY-MM-DD (standalone)
+└─ Retrieve saved sales
 ```
 
 ---
@@ -125,7 +128,25 @@ POST /api/stock/<hotel_identifier>/sales/bulk-create/
 
 **Purpose:** Save multiple sales entries at once
 
-**Request Body:**
+**Request Body (Option A - Standalone Sales):**
+```json
+{
+  "sales": [
+    {
+      "item": 1,
+      "quantity": 250.5,
+      "sale_date": "2025-11-09"
+    },
+    {
+      "item": 2,
+      "quantity": 48,
+      "sale_date": "2025-11-09"
+    }
+  ]
+}
+```
+
+**Request Body (Option B - Link to Stocktake):**
 ```json
 {
   "sales": [
@@ -140,22 +161,16 @@ POST /api/stock/<hotel_identifier>/sales/bulk-create/
       "stocktake": 10,
       "quantity": 48,
       "sale_date": "2025-11-09"
-    },
-    {
-      "item": 5,
-      "stocktake": 10,
-      "quantity": 12.75,
-      "sale_date": "2025-11-09"
     }
   ]
 }
 ```
 
 **Notes:**
-- `item` = StockItem ID
-- `stocktake` = Stocktake ID (links sale to a period)
+- `item` = StockItem ID (required)
+- `stocktake` = Stocktake ID (OPTIONAL - only if you want to merge)
 - `quantity` = servings sold (pints, bottles, shots, glasses)
-- `sale_date` = date of sale (usually period end date)
+- `sale_date` = date of sale
 - `unit_cost` and `unit_price` are auto-fetched from StockItem
 - `total_cost` and `total_revenue` are auto-calculated on save
 
@@ -462,12 +477,21 @@ const calculateTotals = () => {
   
   {/* Action buttons */}
   <div className="actions">
-    <button onClick={saveSales} className="btn-primary">
-      Save Sales
+    <button onClick={() => saveSales(false)} className="btn-primary">
+      Save Sales (Standalone)
+    </button>
+    <button onClick={() => saveSales(true)} className="btn-success">
+      Save & Link to Stocktake
     </button>
     <button onClick={resetForm} className="btn-secondary">
       Reset
     </button>
+  </div>
+  
+  {/* Info message */}
+  <div className="info">
+    <p>💡 <strong>Standalone:</strong> Save sales independently (can link later)</p>
+    <p>🔗 <strong>Link to Stocktake:</strong> Merge sales with stocktake immediately</p>
   </div>
 </div>
 ```
@@ -477,16 +501,24 @@ const calculateTotals = () => {
 ### **Step 4: Save Sales to Backend**
 
 ```javascript
-const saveSales = async () => {
+const saveSales = async (linkToStocktake = false) => {
   // Filter out items with zero quantity
   const salesArray = Object.entries(salesData)
     .filter(([itemId, data]) => data.quantity > 0)
-    .map(([itemId, data]) => ({
-      item: parseInt(itemId),
-      stocktake: stocktakeId, // Required: links to stocktake period
-      quantity: data.quantity,
-      sale_date: selectedDate // e.g., "2025-11-09"
-    }));
+    .map(([itemId, data]) => {
+      const saleData = {
+        item: parseInt(itemId),
+        quantity: data.quantity,
+        sale_date: selectedDate // e.g., "2025-11-09"
+      };
+      
+      // OPTIONAL: Only add stocktake if user wants to merge
+      if (linkToStocktake && stocktakeId) {
+        saleData.stocktake = stocktakeId;
+      }
+      
+      return saleData;
+    });
   
   if (salesArray.length === 0) {
     alert('No sales entered');
@@ -526,43 +558,85 @@ const saveSales = async () => {
 
 ---
 
-## 🔗 LINKING TO STOCKTAKE
+## 🔗 LINKING TO STOCKTAKE (OPTIONAL)
 
-### **Option A: Create Sales During Stocktake**
+### **Option A: Save Sales Independently (Default)**
 
-When creating/editing a stocktake, allow sales entry:
+Save sales without linking to any stocktake:
 
 ```javascript
-// 1. Create/open stocktake
-const stocktake = await createStocktake({
-  period_start: '2025-11-01',
-  period_end: '2025-11-30'
-});
+// Save standalone sales
+const response = await fetch(
+  `/api/stock/${hotelIdentifier}/sales/bulk-create/`,
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Token ${authToken}`,
+    },
+    body: JSON.stringify({
+      sales: [
+        { item: 1, quantity: 250, sale_date: "2025-11-09" },
+        { item: 2, quantity: 48, sale_date: "2025-11-09" }
+      ]
+    })
+  }
+);
 
-// 2. Enter sales for the stocktake
-await bulkCreateSales(stocktake.id, salesData);
-
-// 3. Complete stocktake (with sales already linked)
-await approveStocktake(stocktake.id);
+// Sales saved! Can be viewed/edited independently
+// No stocktake needed
 ```
 
 ---
 
-### **Option B: Add Sales to Existing Stocktake**
+### **Option B: Link Sales to Stocktake (On Demand)**
 
-Link sales to an already-created stocktake:
+Include `stocktake` field to merge with a stocktake:
 
 ```javascript
-// 1. Fetch existing stocktake
-const stocktake = await getStocktake(stocktakeId);
+// Save and link to stocktake
+const response = await fetch(
+  `/api/stock/${hotelIdentifier}/sales/bulk-create/`,
+  {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Token ${authToken}`,
+    },
+    body: JSON.stringify({
+      sales: [
+        { item: 1, stocktake: 10, quantity: 250, sale_date: "2025-11-09" },
+        { item: 2, stocktake: 10, quantity: 48, sale_date: "2025-11-09" }
+      ]
+    })
+  }
+);
 
-// 2. Add sales
-await bulkCreateSales(stocktake.id, salesData);
+// Sales saved AND linked to stocktake ID 10
+// Stocktake totals automatically include these sales
+```
 
-// 3. View updated totals
-const updated = await getStocktake(stocktakeId);
-console.log('Revenue:', updated.total_revenue);
-console.log('COGS:', updated.total_cogs);
+---
+
+### **Option C: Link Existing Sales Later**
+
+Update standalone sales to link them to a stocktake:
+
+```javascript
+// Update sale to add stocktake link
+await fetch(
+  `/api/stock/${hotelIdentifier}/stocktakes/${stocktakeId}/sales/${saleId}/`,
+  {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Token ${authToken}`,
+    },
+    body: JSON.stringify({ stocktake: stocktakeId })
+  }
+);
+
+// Sale now linked to stocktake
 ```
 
 ---
@@ -636,21 +710,33 @@ For now, focus on stock items only.
 
 ## 🎯 WORKFLOW EXAMPLE
 
-### **Daily Sales Entry Workflow**
+### **Workflow A: Independent Sales Entry**
 
 ```
 Day 1-30: Staff enter sales daily
 ├─ Fetch active items
 ├─ Enter quantities sold
-├─ Save to database (linked to monthly stocktake)
+├─ Save standalone (NO stocktake link)
 └─ Repeat daily
 
-End of Month: Complete Stocktake
-├─ Physical inventory count (creates snapshots)
-├─ Review sales entries (already saved)
-├─ Calculate variances
+End of Month: Decide to Merge
+├─ Review standalone sales
+├─ Create stocktake
+├─ OPTIONAL: Link sales to stocktake
 ├─ Approve stocktake
 └─ Generate reports
+```
+
+### **Workflow B: Direct Stocktake Integration**
+
+```
+End of Month: Create stocktake first
+├─ Create stocktake draft
+├─ Enter sales with stocktake ID
+├─ Sales automatically merge
+├─ Physical inventory count
+├─ Approve stocktake
+└─ Done
 ```
 
 ---
@@ -664,7 +750,7 @@ A: Sales are saved with the price **at the time of sale**. The `unit_price` is f
 A: Yes, use the PATCH endpoint to update individual sales.
 
 ### **Q: What if I don't have a stocktake yet?**
-A: You need to create a stocktake first (even if it's just a draft). Sales must be linked to a stocktake period.
+A: No problem! Save sales as **standalone** (without stocktake field). You can link them to a stocktake later, or keep them independent for reporting.
 
 ### **Q: How do I handle returns/refunds?**
 A: Enter negative quantities for returns. Example: `-5.0` for 5 returned items.
