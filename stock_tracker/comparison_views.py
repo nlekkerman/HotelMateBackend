@@ -34,20 +34,25 @@ class CompareCategoriesView(APIView):
         )
         
         # Get period IDs from query params
-        period_ids_str = request.query_params.get('periods')
+        period_ids_str = request.query_params.get('periods', '').strip()
         if not period_ids_str:
-            return Response(
-                {"error": "periods parameter required (comma-separated IDs)"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "periods parameter required (comma-separated IDs)",
+                "example": "?periods=1,2,3",
+                "hint": "Get available periods from /periods/?is_closed=true"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            period_ids = [int(pid) for pid in period_ids_str.split(',')]
+            period_ids = [
+                int(pid.strip()) for pid in period_ids_str.split(',')
+                if pid.strip()
+            ]
         except ValueError:
-            return Response(
-                {"error": "Invalid period IDs format"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "Invalid period IDs format",
+                "received": period_ids_str,
+                "example": "?periods=1,2,3"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         if len(period_ids) < 2:
             return Response(
@@ -230,28 +235,34 @@ class TopMoversView(APIView):
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
         
-        period1_id = request.query_params.get('period1')
-        period2_id = request.query_params.get('period2')
-        limit = int(request.query_params.get('limit', 10))
+        period1_id = request.query_params.get('period1', '').strip()
+        period2_id = request.query_params.get('period2', '').strip()
         
         if not period1_id or not period2_id:
-            return Response(
-                {"error": "Both period1 and period2 required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "Both period1 and period2 required",
+                "example": "?period1=1&period2=2&limit=10",
+                "hint": "Get available periods from /periods/?is_closed=true"
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            limit = int(request.query_params.get('limit', 10))
+        except ValueError:
+            limit = 10
         
         try:
             period1 = StockPeriod.objects.get(
-                id=period1_id, hotel=hotel, is_closed=True
+                id=int(period1_id), hotel=hotel, is_closed=True
             )
             period2 = StockPeriod.objects.get(
-                id=period2_id, hotel=hotel, is_closed=True
+                id=int(period2_id), hotel=hotel, is_closed=True
             )
-        except StockPeriod.DoesNotExist:
-            return Response(
-                {"error": "One or both periods not found or not closed"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        except (StockPeriod.DoesNotExist, ValueError):
+            return Response({
+                "error": "One or both periods not found or not closed",
+                "period1": period1_id,
+                "period2": period2_id
+            }, status=status.HTTP_404_NOT_FOUND)
         
         # Get snapshots
         snapshots1 = {
@@ -375,27 +386,29 @@ class CostAnalysisView(APIView):
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
         
-        period1_id = request.query_params.get('period1')
-        period2_id = request.query_params.get('period2')
+        period1_id = request.query_params.get('period1', '').strip()
+        period2_id = request.query_params.get('period2', '').strip()
         
         if not period1_id or not period2_id:
-            return Response(
-                {"error": "Both period1 and period2 required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "Both period1 and period2 required",
+                "example": "?period1=1&period2=2",
+                "hint": "Get available periods from /periods/?is_closed=true"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             period1 = StockPeriod.objects.get(
-                id=period1_id, hotel=hotel, is_closed=True
+                id=int(period1_id), hotel=hotel, is_closed=True
             )
             period2 = StockPeriod.objects.get(
-                id=period2_id, hotel=hotel, is_closed=True
+                id=int(period2_id), hotel=hotel, is_closed=True
             )
-        except StockPeriod.DoesNotExist:
-            return Response(
-                {"error": "One or both periods not found or not closed"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        except (StockPeriod.DoesNotExist, ValueError):
+            return Response({
+                "error": "One or both periods not found or not closed",
+                "period1": period1_id,
+                "period2": period2_id
+            }, status=status.HTTP_404_NOT_FOUND)
         
         # Calculate for both periods
         period1_data = self._calculate_period_costs(period1, hotel)
@@ -584,26 +597,31 @@ class TrendAnalysisView(APIView):
         )
         
         # Get period IDs
-        period_ids_str = request.query_params.get('periods')
+        period_ids_str = request.query_params.get('periods', '').strip()
         if not period_ids_str:
-            return Response(
-                {"error": "periods parameter required (comma-separated IDs)"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "periods parameter required (comma-separated IDs)",
+                "example": "?periods=1,2,3,4",
+                "hint": "Get available periods from /periods/?is_closed=true"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            period_ids = [int(pid) for pid in period_ids_str.split(',')]
+            period_ids = [
+                int(pid.strip()) for pid in period_ids_str.split(',')
+                if pid.strip()
+            ]
         except ValueError:
-            return Response(
-                {"error": "Invalid period IDs format"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "Invalid period IDs format",
+                "received": period_ids_str,
+                "example": "?periods=1,2,3,4"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         if len(period_ids) < 2:
-            return Response(
-                {"error": "At least 2 periods required for trend analysis"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "At least 2 periods required for trend analysis",
+                "received_count": len(period_ids)
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         # Fetch periods
         periods = StockPeriod.objects.filter(
@@ -759,26 +777,31 @@ class VarianceHeatmapView(APIView):
         )
         
         # Get period IDs
-        period_ids_str = request.query_params.get('periods')
+        period_ids_str = request.query_params.get('periods', '').strip()
         if not period_ids_str:
-            return Response(
-                {"error": "periods parameter required (comma-separated IDs)"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "periods parameter required (comma-separated IDs)",
+                "example": "?periods=1,2,3,4",
+                "hint": "Get available periods from /periods/?is_closed=true"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            period_ids = [int(pid) for pid in period_ids_str.split(',')]
+            period_ids = [
+                int(pid.strip()) for pid in period_ids_str.split(',')
+                if pid.strip()
+            ]
         except ValueError:
-            return Response(
-                {"error": "Invalid period IDs format"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "Invalid period IDs format",
+                "received": period_ids_str,
+                "example": "?periods=1,2,3,4"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         if len(period_ids) < 2:
-            return Response(
-                {"error": "At least 2 periods required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "At least 2 periods required",
+                "received_count": len(period_ids)
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         # Fetch periods
         periods = list(StockPeriod.objects.filter(
@@ -874,27 +897,29 @@ class PerformanceScorecardView(APIView):
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
         
-        period1_id = request.query_params.get('period1')
-        period2_id = request.query_params.get('period2')
+        period1_id = request.query_params.get('period1', '').strip()
+        period2_id = request.query_params.get('period2', '').strip()
         
         if not period1_id or not period2_id:
-            return Response(
-                {"error": "Both period1 and period2 required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+            return Response({
+                "error": "Both period1 and period2 required",
+                "example": "?period1=1&period2=2",
+                "hint": "Get available periods from /periods/?is_closed=true"
+            }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
             period1 = StockPeriod.objects.get(
-                id=period1_id, hotel=hotel, is_closed=True
+                id=int(period1_id), hotel=hotel, is_closed=True
             )
             period2 = StockPeriod.objects.get(
-                id=period2_id, hotel=hotel, is_closed=True
+                id=int(period2_id), hotel=hotel, is_closed=True
             )
-        except StockPeriod.DoesNotExist:
-            return Response(
-                {"error": "One or both periods not found or not closed"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        except (StockPeriod.DoesNotExist, ValueError):
+            return Response({
+                "error": "One or both periods not found or not closed",
+                "period1": period1_id,
+                "period2": period2_id
+            }, status=status.HTTP_404_NOT_FOUND)
         
         # Calculate scores for each period
         p1_scores = self._calculate_scores(period1, hotel)
