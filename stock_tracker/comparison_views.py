@@ -1068,6 +1068,9 @@ class PerformanceScorecardView(APIView):
             )
         )['total'] or Decimal('0')
         
+        # Calculate waste percentage first (needed by multiple scores)
+        waste_pct = float(waste / purchases * 100) if purchases > 0 else 0
+        
         # Value Management Score (stock value relative to purchases)
         if purchases > 0:
             value_ratio = float(total_stock_value / purchases)
@@ -1077,7 +1080,6 @@ class PerformanceScorecardView(APIView):
         
         # Waste Control Score (lower waste % = higher score)
         if purchases > 0:
-            waste_pct = float(waste / purchases * 100)
             waste_control = max(0, min(100, 100 - waste_pct * 10))
         else:
             waste_control = 50
