@@ -17,6 +17,7 @@ from .models import (
     StockMovement,
     StockCategory
 )
+from .views import get_periods_from_request
 
 
 class CompareCategoriesView(APIView):
@@ -33,44 +34,15 @@ class CompareCategoriesView(APIView):
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
         
-        # Get period IDs from query params
-        period_ids_str = request.query_params.get('periods', '').strip()
-        if not period_ids_str:
-            return Response({
-                "error": "periods parameter required (comma-separated IDs)",
-                "example": "?periods=1,2,3",
-                "hint": "Get available periods from /periods/?is_closed=true"
-            }, status=status.HTTP_400_BAD_REQUEST)
+        # Use helper to get periods (supports IDs, year/month, date range)
+        periods, error_response = get_periods_from_request(request, hotel)
+        if error_response:
+            return error_response
         
-        try:
-            period_ids = [
-                int(pid.strip()) for pid in period_ids_str.split(',')
-                if pid.strip()
-            ]
-        except ValueError:
-            return Response({
-                "error": "Invalid period IDs format",
-                "received": period_ids_str,
-                "example": "?periods=1,2,3"
-            }, status=status.HTTP_400_BAD_REQUEST)
-        
-        if len(period_ids) < 2:
+        if len(periods) < 2:
             return Response(
                 {"error": "At least 2 periods required for comparison"},
                 status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Fetch periods
-        periods = StockPeriod.objects.filter(
-            id__in=period_ids,
-            hotel=hotel,
-            is_closed=True
-        ).order_by('start_date')
-        
-        if periods.count() != len(period_ids):
-            return Response(
-                {"error": "One or more periods not found or not closed"},
-                status=status.HTTP_404_NOT_FOUND
             )
         
         # Get all categories

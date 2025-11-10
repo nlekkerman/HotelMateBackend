@@ -2,9 +2,16 @@
 
 ## THE ENDPOINT
 ```
-GET /api/stock-tracker/{hotel_identifier}/kpi-summary/?period_ids=1,2,3
+GET /api/stock-tracker/{hotel_identifier}/kpi-summary/
 ```
 **`hotel_identifier`** = Hotel slug or subdomain (e.g., `carlton-hotel` or `carlton`)
+
+### Query Options (Pick ONE)
+```
+?period_ids=1,2,3              # By IDs
+?year=2024&month=10            # By year/month (RECOMMENDED)
+?start_date=2024-09-01&end_date=2024-11-30  # By date range
+```
 
 ## RESPONSE KEYS (Just Copy These!)
 
@@ -175,28 +182,40 @@ export const KPIDashboard = ({ hotelId, periodIds }: Props) => {
 
 ## FETCH EXAMPLES
 
-### JavaScript
+### JavaScript (Recommended: Use year/month)
 ```javascript
-// Use hotel slug or subdomain
+// RECOMMENDED: By year/month (more reliable)
 const response = await fetch(
-  `/api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3`
+  `/api/stock-tracker/carlton-hotel/kpi-summary/?year=2024&month=10`
 );
 const { data } = await response.json();
 console.log('Stock Value:', data.stock_value_metrics.total_current_value);
+
+// Alternative: By IDs (if you have them)
+const response2 = await fetch(
+  `/api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3`
+);
 ```
 
 ### Axios
 ```javascript
+// By year/month
 const { data } = await axios.get(
   `/api/stock-tracker/${hotelSlug}/kpi-summary/`,
-  { params: { period_ids: '1,2,3' } }
+  { params: { year: 2024, month: 10 } }
+);
+
+// By date range
+const { data } = await axios.get(
+  `/api/stock-tracker/${hotelSlug}/kpi-summary/`,
+  { params: { start_date: '2024-09-01', end_date: '2024-11-30' } }
 );
 ```
 
 ### React Query
 ```javascript
-const { data, isLoading } = useQuery(['kpi', periodIds], () =>
-  fetch(`/api/stock-tracker/${hotelSlug}/kpi-summary/?period_ids=${periodIds}`)
+const { data, isLoading } = useQuery(['kpi', year, month], () =>
+  fetch(`/api/stock-tracker/${hotelSlug}/kpi-summary/?year=${year}&month=${month}`)
     .then(res => res.json())
 );
 ```

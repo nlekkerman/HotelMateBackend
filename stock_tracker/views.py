@@ -55,6 +55,98 @@ from .stocktake_service import (
 )
 
 
+# ============================================================================
+# HELPER FUNCTION: Get Periods by Multiple Methods
+# ============================================================================
+def get_periods_from_request(request, hotel):
+    """
+    Universal helper to get periods from request parameters.
+    Supports 3 methods: IDs, year/month, or date range.
+    
+    Returns: (periods_queryset, error_response)
+    If error_response is not None, return it to client.
+    """
+    from datetime import datetime
+    
+    period_ids_str = request.GET.get('period_ids', '')
+    periods_str = request.GET.get('periods', '')  # Alternative param name
+    year = request.GET.get('year', '')
+    month = request.GET.get('month', '')
+    start_date = request.GET.get('start_date', '')
+    end_date = request.GET.get('end_date', '')
+    
+    periods = None
+    
+    # Option 1: By period IDs
+    if period_ids_str or periods_str:
+        ids_str = period_ids_str or periods_str
+        try:
+            period_ids = [int(pid.strip()) for pid in ids_str.split(',')]
+            periods = StockPeriod.objects.filter(
+                id__in=period_ids,
+                hotel=hotel
+            ).order_by('end_date')
+        except ValueError:
+            return None, Response(
+                {"error": "Invalid period IDs format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    # Option 2: By year and optional month
+    elif year:
+        try:
+            year_int = int(year)
+            query = Q(hotel=hotel, year=year_int)
+            if month:
+                month_int = int(month)
+                query &= Q(month=month_int)
+            periods = StockPeriod.objects.filter(query).order_by('end_date')
+        except ValueError:
+            return None, Response(
+                {"error": "Invalid year/month format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    # Option 3: By date range
+    elif start_date and end_date:
+        try:
+            start = datetime.strptime(start_date, '%Y-%m-%d').date()
+            end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            periods = StockPeriod.objects.filter(
+                hotel=hotel,
+                end_date__gte=start,
+                start_date__lte=end
+            ).order_by('end_date')
+        except ValueError:
+            return None, Response(
+                {"error": "Invalid date format. Use YYYY-MM-DD"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+    
+    # No valid params
+    else:
+        return None, Response(
+            {
+                "error": "Period selection required",
+                "options": [
+                    "period_ids=1,2,3 or periods=1,2,3",
+                    "year=2024 (optionally with month=10)",
+                    "start_date=2024-09-01&end_date=2024-11-30"
+                ]
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Check if periods exist
+    if not periods or not periods.exists():
+        return None, Response(
+            {"error": "No valid periods found"},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    return periods, None
+
+
 class IngredientViewSet(viewsets.ModelViewSet):
     serializer_class = IngredientSerializer
     pagination_class = None
@@ -1856,33 +1948,10 @@ class KPISummaryView(APIView):
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
         
-        # Get period IDs from query params
-        period_ids_str = request.GET.get('period_ids', '')
-        if not period_ids_str:
-            return Response(
-                {"error": "period_ids parameter is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            period_ids = [int(pid.strip()) for pid in period_ids_str.split(',')]
-        except ValueError:
-            return Response(
-                {"error": "Invalid period_ids format"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get periods
-        periods = StockPeriod.objects.filter(
-            id__in=period_ids,
-            hotel=hotel
-        ).order_by('end_date')
-        
-        if not periods.exists():
-            return Response(
-                {"error": "No valid periods found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Use helper function to get periods
+        periods, error_response = get_periods_from_request(request, hotel)
+        if error_response:
+            return error_response
         
         # Calculate all KPIs
         data = {

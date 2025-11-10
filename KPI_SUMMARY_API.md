@@ -14,16 +14,43 @@ GET /api/stock-tracker/<hotel_identifier>/kpi-summary/
 
 **`hotel_identifier`** = Hotel slug OR subdomain (e.g., `carlton-hotel` or `carlton`)
 
-### Query Parameters
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `period_ids` | string | ✅ Yes | Comma-separated period IDs: `"1,2,3"` |
+### Query Parameters (Choose ONE method)
+
+#### Option 1: By Period IDs
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `period_ids` | string | Comma-separated period IDs: `"1,2,3"` |
+
+#### Option 2: By Year/Month
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `year` | integer | Year (e.g., `2024`) |
+| `month` | integer | Optional: Month 1-12 (e.g., `10` for October) |
+
+#### Option 3: By Date Range
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `start_date` | string | Start date in `YYYY-MM-DD` format |
+| `end_date` | string | End date in `YYYY-MM-DD` format |
 
 ### Example Requests
-```
+
+```bash
+# Option 1: By IDs (works but IDs vary by environment)
 GET /api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3
-GET /api/stock-tracker/carlton/kpi-summary/?period_ids=1,2,3
+
+# Option 2: By year (all periods in 2024)
+GET /api/stock-tracker/carlton-hotel/kpi-summary/?year=2024
+
+# Option 2b: By year and month (October 2024 only)
+GET /api/stock-tracker/carlton-hotel/kpi-summary/?year=2024&month=10
+
+# Option 3: By date range (periods between Sep-Nov 2024)
+GET /api/stock-tracker/carlton-hotel/kpi-summary/?start_date=2024-09-01&end_date=2024-11-30
 ```
+
+### Recommended Approach
+**Use Option 2 (Year/Month)** - More reliable across environments than IDs!
 
 ---
 
@@ -411,12 +438,16 @@ const KPIDashboard = () => {
 
 ### Test with cURL
 ```bash
-# Use hotel slug or subdomain
+# RECOMMENDED: By year/month (reliable across environments)
+curl -X GET "http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/?year=2024&month=10" \
+  -H "Authorization: Bearer YOUR_TOKEN"
+
+# By IDs (if you have them)
 curl -X GET "http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/?period_ids=1,2,3" \
   -H "Authorization: Bearer YOUR_TOKEN"
 
-# Or with subdomain
-curl -X GET "http://localhost:8000/api/stock-tracker/carlton/kpi-summary/?period_ids=1,2,3" \
+# By date range
+curl -X GET "http://localhost:8000/api/stock-tracker/carlton-hotel/kpi-summary/?start_date=2024-09-01&end_date=2024-11-30" \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
