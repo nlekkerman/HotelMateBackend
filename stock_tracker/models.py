@@ -1946,29 +1946,42 @@ class StocktakeLine(models.Model):
         Convert mixed units to servings (base units):
         Matches StockItem.total_stock_in_servings logic
         
-        Draught (D) + BIB (LT) + Dozen (Doz):
+        Draught (D) + Minerals BIB (LT) + Bottled Beer Dozen (Doz):
         - Full units = kegs/BIBs/cases
         - Partial units = pints/serves/bottles (ALREADY servings)
         - Formula: (full × servings_per_unit) + partial
         
-        All other items (Spirits, Wine, Individual):
-        - Full units = bottles/units
+        All other items (Spirits liters, Wine, Individual):
+        - Full units = bottles/units/liters
         - Partial units = fractional units
         - Formula: (full × servings) + (partial × servings)
         """
         category = self.item.category_id
+        size = self.item.size or ''
+        size_upper = size.upper()
         
-        # Draught + BIB + Dozen: partial = servings
-        is_draught = category == 'D'
-        is_special_size = (
-            self.item.size and
-            ('Doz' in self.item.size or 'LT' in self.item.size.upper())
+        # Check for liter variations in SIZE field only
+        # Match patterns: "1 Lt", "1Lt", "18LT", "1 Ltr", "1 Liter", "1 Litre"
+        # Must have LT/LITER/LITRE in the size, not just in product name
+        has_lt_pattern = (
+            'LT' in size_upper and 
+            not 'ML' in size_upper  # Exclude 330ML, 700ML, etc
         )
-        if is_draught or is_special_size:
+        has_liter_word = 'LITER' in size_upper or 'LITRE' in size_upper
+        is_liter_size = has_lt_pattern or has_liter_word
+        
+        # Only Draught + Minerals BIB/Dozen + Bottled Beer Dozen use special calc
+        # Spirits liters are treated as fractional (0.90 = 0.9 liters)
+        is_draught = category == 'D'
+        is_minerals_bib = category == 'M' and is_liter_size
+        is_dozen = 'DOZ' in size_upper  # Both Minerals and Bottled Beer
+        
+        if is_draught or is_minerals_bib or is_dozen:
+            # Partial already in servings
             full_servings = self.counted_full_units * self.item.uom
             return full_servings + self.counted_partial_units
         else:
-            # Spirits, Wine, Individual: partial = fractional
+            # Partial is fractional (including Spirits liters, Wine)
             full_servings = self.counted_full_units * self.item.uom
             partial_servings = self.counted_partial_units * self.item.uom
             return full_servings + partial_servings

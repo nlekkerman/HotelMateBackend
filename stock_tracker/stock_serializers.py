@@ -873,6 +873,7 @@ class StocktakeSerializer(serializers.ModelSerializer):
     # Summary fields
     total_items = serializers.SerializerMethodField()
     total_value = serializers.SerializerMethodField()
+    total_counted_value = serializers.SerializerMethodField()
     total_variance_value = serializers.SerializerMethodField()
     # Profitability fields
     total_cogs = serializers.SerializerMethodField()
@@ -893,7 +894,8 @@ class StocktakeSerializer(serializers.ModelSerializer):
             # Stocktake lines (counted data)
             'lines', 'total_lines',
             # Summary
-            'total_items', 'total_value', 'total_variance_value',
+            'total_items', 'total_value', 'total_counted_value',
+            'total_variance_value',
             # Profitability
             'total_cogs',
             'total_revenue',
@@ -996,6 +998,11 @@ class StocktakeSerializer(serializers.ModelSerializer):
     def get_total_value(self, obj):
         """Total expected stock value (calculated from lines)"""
         total = sum(line.expected_value for line in obj.lines.all())
+        return str(total)
+    
+    def get_total_counted_value(self, obj):
+        """Total counted stock value (Stock at Cost - matches Excel)"""
+        total = sum(line.counted_value for line in obj.lines.all())
         return str(total)
     
     def get_total_variance_value(self, obj):
