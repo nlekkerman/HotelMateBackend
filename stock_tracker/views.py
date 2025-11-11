@@ -2795,7 +2795,15 @@ class KPISummaryView(APIView):
         # Combined sales (stock + cocktails) for latest period
         stock_revenue = Decimal('0.00')
         stock_cost = Decimal('0.00')
-        for stocktake in latest_period.stocktakes.all():
+        
+        # Get stocktakes matching this period's dates
+        matching_stocktakes = Stocktake.objects.filter(
+            hotel=latest_period.hotel,
+            period_start=latest_period.start_date,
+            period_end=latest_period.end_date
+        )
+        
+        for stocktake in matching_stocktakes:
             if stocktake.total_revenue:
                 stock_revenue += stocktake.total_revenue
             if stocktake.total_cogs:
