@@ -166,13 +166,36 @@ POST /api/stock/<hotel_identifier>/sales/bulk-create/
 }
 ```
 
-**Notes:**
-- `item` = StockItem ID (required)
-- `stocktake` = Stocktake ID (OPTIONAL - only if you want to merge)
-- `quantity` = servings sold (pints, bottles, shots, glasses)
-- `sale_date` = date of sale
-- `unit_cost` and `unit_price` are auto-fetched from StockItem
-- `total_cost` and `total_revenue` are auto-calculated on save
+**Request Body (Option C - With Custom Prices):**
+```json
+{
+  "sales": [
+    {
+      "item": 1,
+      "quantity": 250.5,
+      "unit_cost": 0.065,
+      "unit_price": 5.50,
+      "sale_date": "2025-11-09"
+    }
+  ]
+}
+```
+
+**Field Descriptions:**
+- `item` = StockItem ID **(REQUIRED)**
+- `quantity` = servings sold (pints, bottles, shots, glasses) **(REQUIRED)**
+- `sale_date` = date of sale **(REQUIRED)**
+- `stocktake` = Stocktake ID **(OPTIONAL)** - only if you want to link/merge
+- `unit_cost` = cost per serving **(OPTIONAL)** - auto-fetched from StockItem if not provided
+- `unit_price` = selling price **(OPTIONAL)** - auto-fetched from StockItem if not provided
+- `total_cost` and `total_revenue` = **AUTO-CALCULATED** on save (quantity × unit_cost/price)
+- `notes` = additional information **(OPTIONAL)**
+
+**✨ Smart Auto-Population:**
+The API automatically fetches current prices from the StockItem:
+- If you **don't send** `unit_cost`, it uses `item.cost_per_serving`
+- If you **don't send** `unit_price`, it uses `item.menu_price`
+- If you **do send** custom prices, they override the defaults (useful for promotions/discounts)
 
 **Response:**
 ```json
@@ -666,6 +689,8 @@ const saveSales = async (linkToStocktake = false) => {
         item: parseInt(itemId),
         quantity: data.quantity,
         sale_date: selectedDate // e.g., "2025-11-09"
+        // unit_cost and unit_price are auto-fetched from StockItem
+        // No need to send them unless you want custom prices
       };
       
       // OPTIONAL: Only add stocktake if user wants to merge
@@ -696,14 +721,31 @@ const saveSales = async (linkToStocktake = false) => {
     
     const result = await response.json();
     
-    if (result.success) {
-      alert(`✅ ${result.created} sales saved successfully!`);
-      console.log('Totals:', result.totals);
+    if (response.ok) {
+      alert(`✅ ${result.created_count} sales saved successfully!`);
+      
+      // Show totals if available
+      if (result.sales && result.sales.length > 0) {
+        const totalRevenue = result.sales.reduce(
+          (sum, s) => sum + parseFloat(s.total_revenue), 0
+        );
+        const totalCost = result.sales.reduce(
+          (sum, s) => sum + parseFloat(s.total_cost), 0
+        );
+        console.log(`Revenue: €${totalRevenue.toFixed(2)}`);
+        console.log(`COGS: €${totalCost.toFixed(2)}`);
+      }
       
       // Optionally reset form or navigate away
       resetForm();
     } else {
-      alert('Error saving sales');
+      // Handle errors
+      if (result.errors) {
+        console.error('Errors:', result.errors);
+        alert(`⚠️ ${result.created_count} sales created, ${result.errors.length} failed`);
+      } else {
+        alert('Error saving sales');
+      }
     }
   } catch (error) {
     console.error('Error saving sales:', error);
@@ -1060,17 +1102,32 @@ End of Month: Create stocktake first
 
 ## 🔧 TROUBLESHOOTING
 
+### **Q: Error: "unit_cost field is required" or "unit_price field is required"**
+A: **Fixed!** The API now automatically fetches prices from the StockItem. You only need to send:
+```json
+{
+  "item": 1,
+  "quantity": 250.5,
+  "sale_date": "2025-11-09"
+}
+```
+
+The `unit_cost` and `unit_price` are **auto-populated** from `item.cost_per_serving` and `item.menu_price`. Only send them if you need custom prices (e.g., promotions, discounts).
+
 ### **Q: What if item prices change during the month?**
-A: Sales are saved with the price **at the time of sale**. The `unit_price` is frozen when the Sale record is created.
+A: Sales are saved with the price **at the time of sale**. The `unit_price` is frozen when the Sale record is created. If prices change later, existing sales keep their original prices.
 
 ### **Q: Can I edit sales after saving?**
-A: Yes, use the PATCH endpoint to update individual sales.
+A: Yes, use the PATCH endpoint to update individual sales. You can modify quantity, prices, dates, or notes.
 
 ### **Q: What if I don't have a stocktake yet?**
 A: No problem! Save sales as **standalone** (without stocktake field). You can link them to a stocktake later, or keep them independent for reporting.
 
 ### **Q: How do I handle returns/refunds?**
-A: Enter negative quantities for returns. Example: `-5.0` for 5 returned items.
+A: Enter negative quantities for returns. Example: `-5.0` for 5 returned items. The system will calculate negative revenue/cost automatically.
+
+### **Q: What if an item has no price set?**
+A: If `item.menu_price` is `None`, the `total_revenue` will be `None`. You can still track COGS (cost) without revenue. Useful for waste tracking.
 
 ---
 

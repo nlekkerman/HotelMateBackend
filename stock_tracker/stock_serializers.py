@@ -988,6 +988,8 @@ class SaleSerializer(serializers.ModelSerializer):
     """
     Serializer for Sales model.
     Handles sales/consumption tracking independently.
+    
+    Auto-populates unit_cost and unit_price from StockItem if not provided.
     """
     item_sku = serializers.CharField(source='item.sku', read_only=True)
     item_name = serializers.CharField(source='item.name', read_only=True)
@@ -999,6 +1001,14 @@ class SaleSerializer(serializers.ModelSerializer):
     )
     stocktake_period = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
+    
+    # Make these optional - will be auto-populated from StockItem
+    unit_cost = serializers.DecimalField(
+        max_digits=10, decimal_places=4, required=False, allow_null=True
+    )
+    unit_price = serializers.DecimalField(
+        max_digits=10, decimal_places=2, required=False, allow_null=True
+    )
     
     # Calculated fields from model properties
     gross_profit = serializers.DecimalField(
@@ -1027,11 +1037,43 @@ class SaleSerializer(serializers.ModelSerializer):
             'total_cost', 'total_revenue', 'created_at', 'updated_at'
         ]
 
+    def create(self, validated_data):
+        """
+        Auto-populate unit_cost and unit_price from StockItem.
+        Calculate total_cost and total_revenue automatically.
+        """
+        item = validated_data['item']
+        quantity = validated_data['quantity']
+        
+        # Auto-populate unit_cost if not provided
+        if 'unit_cost' not in validated_data:
+            validated_data['unit_cost'] = item.cost_per_serving
+        elif validated_data['unit_cost'] is None:
+            validated_data['unit_cost'] = item.cost_per_serving
+        
+        # Auto-populate unit_price if not provided
+        if 'unit_price' not in validated_data:
+            validated_data['unit_price'] = item.menu_price
+        elif validated_data['unit_price'] is None:
+            validated_data['unit_price'] = item.menu_price
+        
+        # Calculate totals
+        unit_cost = validated_data['unit_cost']
+        unit_price = validated_data['unit_price']
+        
+        validated_data['total_cost'] = unit_cost * quantity
+        if unit_price:
+            validated_data['total_revenue'] = unit_price * quantity
+        
+        return super().create(validated_data)
+
     def get_stocktake_period(self, obj):
         """Get stocktake period name for display"""
-        return (
-            f"{obj.stocktake.period_start} to {obj.stocktake.period_end}"
-        )
+        if obj.stocktake:
+            return (
+                f"{obj.stocktake.period_start} to {obj.stocktake.period_end}"
+            )
+        return None
 
     def get_created_by_name(self, obj):
         """Get staff full name"""
@@ -1087,3 +1129,180 @@ class PeriodReopenPermissionSerializer(serializers.ModelSerializer):
             ).strip()
             return full_name or obj.granted_by.user.email
         return None
+
+
+class SalesAnalysisSerializer(serializers.Serializer):
+    """
+    Serializer for combined sales analysis (Stock Items + Cocktails).
+    
+    FOR ANALYSIS/REPORTING ONLY - does not modify any data.
+    Combines stock item sales with cocktail sales for business intelligence.
+    
+    Structure:
+    {
+        'period': {...},
+        'general_sales': {...},
+        'cocktail_sales': {...},
+        'combined_sales': {...},
+        'breakdown_percentages': {...},
+        'category_breakdown': [...]
+    }
+    """
+    # Period information
+    period_id = serializers.IntegerField(read_only=True)
+    period_name = serializers.CharField(read_only=True)
+    period_start = serializers.DateField(read_only=True)
+    period_end = serializers.DateField(read_only=True)
+    period_is_closed = serializers.BooleanField(read_only=True)
+    
+    # Stock item sales (from Sale model)
+    general_sales = serializers.DictField(read_only=True)
+    
+    # Cocktail sales (from CocktailConsumption model)
+    cocktail_sales = serializers.DictField(read_only=True)
+    
+    # Combined totals (calculated)
+    combined_sales = serializers.DictField(read_only=True)
+    
+    # Percentage breakdown (stock vs cocktails)
+    breakdown_percentages = serializers.DictField(read_only=True)
+    
+    # Category breakdown (D, B, S, W, M + COCKTAILS)
+    category_breakdown = serializers.ListField(read_only=True)
+    
+    def to_representation(self, instance):
+        """
+        Convert StockPeriod instance to sales analysis data.
+        
+        Expected instance format:
+        {
+            'period': StockPeriod object,
+            'include_cocktails': bool (default True),
+            'include_category_breakdown': bool (default True)
+        }
+        """
+        from stock_tracker.utils.sales_analysis import (
+            combine_sales_data,
+            calculate_percentages,
+            get_category_breakdown
+        )
+        from stock_tracker.models import Sale
+        from entertainment.models import CocktailConsumption
+        from decimal import Decimal
+        
+        # Extract parameters
+        period = instance.get('period')
+        include_cocktails = instance.get('include_cocktails', True)
+        include_category_breakdown = instance.get(
+            'include_category_breakdown', True
+        )
+        
+        # Get matching stocktake
+        from stock_tracker.models import Stocktake
+        stocktake = Stocktake.objects.filter(
+            hotel=period.hotel,
+            period_start=period.start_date,
+            period_end=period.end_date
+        ).first()
+        
+        # Calculate stock item sales (from Sale model)
+        stock_sales = Sale.objects.filter(
+            stocktake=stocktake
+        ) if stocktake else Sale.objects.none()
+        
+        general_revenue = sum(
+            sale.total_revenue or Decimal('0') for sale in stock_sales
+        )
+        general_cost = sum(
+            sale.total_cost or Decimal('0') for sale in stock_sales
+        )
+        general_count = stock_sales.count()
+        
+        general_sales_data = {
+            'revenue': float(general_revenue),
+            'cost': float(general_cost),
+            'count': general_count,
+            'profit': float(general_revenue - general_cost),
+            'gp_percentage': (
+                round(
+                    float(
+                        (general_revenue - general_cost) /
+                        general_revenue * 100
+                    ), 2
+                ) if general_revenue > 0 else 0.0
+            )
+        }
+        
+        # Calculate cocktail sales (from CocktailConsumption model)
+        cocktail_sales_data = {
+            'revenue': 0.0,
+            'cost': 0.0,
+            'count': 0,
+            'profit': 0.0,
+            'gp_percentage': 0.0
+        }
+        
+        if include_cocktails:
+            cocktail_consumptions = CocktailConsumption.objects.filter(
+                stocktake=stocktake
+            ) if stocktake else CocktailConsumption.objects.none()
+            
+            cocktail_revenue = sum(
+                consumption.total_revenue or Decimal('0')
+                for consumption in cocktail_consumptions
+            )
+            cocktail_cost = sum(
+                consumption.total_cost or Decimal('0')
+                for consumption in cocktail_consumptions
+            )
+            cocktail_count = cocktail_consumptions.count()
+            
+            cocktail_sales_data = {
+                'revenue': float(cocktail_revenue),
+                'cost': float(cocktail_cost),
+                'count': cocktail_count,
+                'profit': float(cocktail_revenue - cocktail_cost),
+                'gp_percentage': (
+                    round(
+                        float(
+                            (cocktail_revenue - cocktail_cost) /
+                            cocktail_revenue * 100
+                        ), 2
+                    ) if cocktail_revenue > 0 else 0.0
+                )
+            }
+        
+        # Combine sales data
+        combined = combine_sales_data(
+            general_sales_data, cocktail_sales_data
+        )
+        
+        # Calculate percentages
+        percentages = calculate_percentages(
+            general_sales_data, cocktail_sales_data
+        )
+        
+        # Get category breakdown
+        category_data = []
+        if include_category_breakdown:
+            category_data = get_category_breakdown(period, include_cocktails)
+        
+        # Build response
+        return {
+            'period_id': period.id,
+            'period_name': period.period_name,
+            'period_start': period.start_date,
+            'period_end': period.end_date,
+            'period_is_closed': period.is_closed,
+            'general_sales': general_sales_data,
+            'cocktail_sales': cocktail_sales_data,
+            'combined_sales': {
+                'total_revenue': float(combined['total_revenue']),
+                'total_cost': float(combined['total_cost']),
+                'total_count': combined['total_count'],
+                'profit': float(combined['profit']),
+                'gp_percentage': combined['gp_percentage']
+            },
+            'breakdown_percentages': percentages,
+            'category_breakdown': category_data
+        }

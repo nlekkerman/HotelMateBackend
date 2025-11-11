@@ -926,6 +926,54 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 'approved_by': stocktake.approved_by.user.username if stocktake.approved_by else None
             }
         }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['get'], url_path='sales-analysis')
+    def sales_analysis(self, request, pk=None, hotel_identifier=None):
+        """
+        Get combined sales analysis for a period (Stock Items + Cocktails).
+        
+        FOR ANALYSIS/REPORTING ONLY - does not affect stocktake calculations.
+        
+        Query Parameters:
+        - include_cocktails: true/false (default: true)
+        - include_category_breakdown: true/false (default: true)
+        
+        Returns:
+        {
+            'period_id': int,
+            'period_name': str,
+            'period_start': date,
+            'period_end': date,
+            'period_is_closed': bool,
+            'general_sales': {...},
+            'cocktail_sales': {...},
+            'combined_sales': {...},
+            'breakdown_percentages': {...},
+            'category_breakdown': [...]
+        }
+        """
+        from .stock_serializers import SalesAnalysisSerializer
+        
+        period = self.get_object()
+        
+        # Parse query parameters
+        include_cocktails = request.query_params.get(
+            'include_cocktails', 'true'
+        ).lower() == 'true'
+        include_category_breakdown = request.query_params.get(
+            'include_category_breakdown', 'true'
+        ).lower() == 'true'
+        
+        # Prepare data for serializer
+        data = {
+            'period': period,
+            'include_cocktails': include_cocktails,
+            'include_category_breakdown': include_category_breakdown
+        }
+        
+        # Serialize and return
+        serializer = SalesAnalysisSerializer(data)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class StockSnapshotViewSet(viewsets.ModelViewSet):
@@ -2099,17 +2147,43 @@ class KPISummaryView(APIView):
         if error_response:
             return error_response
         
+        # Check if cocktails should be included
+        # (default: false for backward compatibility)
+        include_cocktails = request.query_params.get(
+            'include_cocktails', 'false'
+        ).lower() == 'true'
+        
         # Calculate all KPIs
         data = {
-            "stock_value_metrics": self._calculate_stock_value_metrics(periods),
-            "profitability_metrics": self._calculate_profitability_metrics(periods),
-            "cocktail_sales_metrics": self._calculate_cocktail_sales_metrics(periods),
-            "category_performance": self._calculate_category_performance(periods),
-            "inventory_health": self._calculate_inventory_health(periods),
-            "period_comparison": self._calculate_period_comparison(periods) if len(periods) >= 2 else None,
-            "performance_score": self._calculate_performance_score(periods),
-            "additional_metrics": self._calculate_additional_metrics(periods),
+            "stock_value_metrics": self._calculate_stock_value_metrics(
+                periods
+            ),
+            "profitability_metrics": self._calculate_profitability_metrics(
+                periods
+            ),
+            "category_performance": self._calculate_category_performance(
+                periods
+            ),
+            "inventory_health": self._calculate_inventory_health(
+                periods
+            ),
+            "period_comparison": (
+                self._calculate_period_comparison(periods)
+                if len(periods) >= 2 else None
+            ),
+            "performance_score": self._calculate_performance_score(
+                periods
+            ),
+            "additional_metrics": self._calculate_additional_metrics(
+                periods
+            ),
         }
+        
+        # Add cocktail metrics as separate section if requested
+        if include_cocktails:
+            data["cocktail_sales_metrics"] = (
+                self._calculate_cocktail_sales_metrics(periods)
+            )
         
         return Response({
             "success": True,

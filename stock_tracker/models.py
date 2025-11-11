@@ -814,36 +814,68 @@ class StockPeriod(models.Model):
         return result['total'] or 0
 
     @property
-    def total_sales_with_cocktails(self):
+    def analysis_total_sales_combined(self):
         """
-        Total sales including both stock items and cocktails
-        This is the unified sales figure for the period
+        FOR ANALYSIS/REPORTING ONLY - NOT USED IN STOCKTAKE CALCULATIONS.
+        
+        Combines stock item sales revenue + cocktail sales revenue for
+        business intelligence and reporting purposes.
+        
+        This does NOT affect:
+        - Inventory calculations
+        - Stocktake COGS
+        - Variance calculations
+        - Stock valuations
+        
+        Cocktails are tracked separately and only combined here for
+        display/reporting purposes.
         """
-        # Get stock sales from stocktakes
+        # Get stock sales from matching stocktakes
         stock_sales = Decimal('0.00')
-        for stocktake in self.stocktakes.all():
+        matching_stocktakes = Stocktake.objects.filter(
+            hotel=self.hotel,
+            period_start=self.start_date,
+            period_end=self.end_date
+        )
+        for stocktake in matching_stocktakes:
             if stocktake.total_revenue:
                 stock_sales += stocktake.total_revenue
         
-        # Add cocktail revenue
+        # Add cocktail revenue (separate tracking)
         return stock_sales + self.cocktail_revenue
 
     @property
-    def total_cost_with_cocktails(self):
-        """Total COGS including both stock items and cocktails"""
-        # Get stock COGS
+    def analysis_total_cost_combined(self):
+        """
+        FOR ANALYSIS/REPORTING ONLY - NOT USED IN STOCKTAKE CALCULATIONS.
+        
+        Combines stock item COGS + cocktail costs for reporting.
+        This does NOT affect stocktake calculations or inventory.
+        """
+        # Get stock COGS from matching stocktakes
         stock_cost = Decimal('0.00')
-        for stocktake in self.stocktakes.all():
+        matching_stocktakes = Stocktake.objects.filter(
+            hotel=self.hotel,
+            period_start=self.start_date,
+            period_end=self.end_date
+        )
+        for stocktake in matching_stocktakes:
             if stocktake.total_cogs:
                 stock_cost += stocktake.total_cogs
         
-        # Add cocktail cost
+        # Add cocktail cost (separate tracking)
         return stock_cost + self.cocktail_cost
 
     @property
-    def profit_with_cocktails(self):
-        """Total profit including cocktails"""
-        return self.total_sales_with_cocktails - self.total_cost_with_cocktails
+    def analysis_profit_combined(self):
+        """
+        FOR ANALYSIS/REPORTING ONLY - NOT USED IN STOCKTAKE CALCULATIONS.
+        
+        Combined profit from stock items + cocktails for reporting.
+        This is purely for business intelligence displays.
+        """
+        return (self.analysis_total_sales_combined -
+                self.analysis_total_cost_combined)
 
 
 class PeriodReopenPermission(models.Model):
