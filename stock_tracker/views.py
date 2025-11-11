@@ -2415,6 +2415,23 @@ class SaleViewSet(viewsets.ModelViewSet):
         if category_code:
             queryset = queryset.filter(item__category__code=category_code)
 
+        # Filter by month if provided (e.g., "2025-09" for September 2025)
+        month = self.request.query_params.get('month')
+        if month:
+            from datetime import datetime
+            from calendar import monthrange
+            try:
+                year, month_num = map(int, month.split('-'))
+                start_date = datetime(year, month_num, 1).date()
+                last_day = monthrange(year, month_num)[1]
+                end_date = datetime(year, month_num, last_day).date()
+                queryset = queryset.filter(
+                    sale_date__gte=start_date,
+                    sale_date__lte=end_date
+                )
+            except (ValueError, IndexError):
+                pass  # Invalid month format, ignore filter
+        
         # Filter by date range if provided
         start_date = self.request.query_params.get('start_date')
         end_date = self.request.query_params.get('end_date')
@@ -2424,6 +2441,14 @@ class SaleViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(sale_date__lte=end_date)
 
         return queryset
+
+    def get_serializer_context(self):
+        """Add month to serializer context if provided"""
+        context = super().get_serializer_context()
+        month = self.request.data.get('month') if self.request.data else None
+        if month:
+            context['month'] = month
+        return context
 
     def perform_create(self, serializer):
         """Auto-set created_by from request user"""

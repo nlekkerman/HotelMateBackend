@@ -1077,9 +1077,21 @@ class SaleSerializer(serializers.ModelSerializer):
         """
         Auto-populate unit_cost and unit_price from StockItem.
         Calculate total_cost and total_revenue automatically.
+        
+        NEW: Support month parameter - if 'month' is in context,
+        use it to set sale_date to first day of that month.
         """
+        from datetime import datetime
+        
         item = validated_data['item']
         quantity = validated_data['quantity']
+        
+        # NEW: Handle month parameter from context
+        month = self.context.get('month')
+        if month:
+            # Convert "2025-09" to date(2025, 9, 1)
+            year, month_num = map(int, month.split('-'))
+            validated_data['sale_date'] = datetime(year, month_num, 1).date()
         
         # Auto-populate unit_cost if not provided
         if 'unit_cost' not in validated_data:
