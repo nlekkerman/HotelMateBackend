@@ -245,8 +245,9 @@ def get_category_breakdown(
             ...
         ]
     """
-    from stock_tracker.models import Stocktake, Sale, StockCategory
-    from entertainment.models import CocktailConsumption
+    from stock_tracker.models import (
+        Stocktake, Sale, StockCategory, CocktailConsumption
+    )
     from django.db.models import Sum, Count
     
     result = []

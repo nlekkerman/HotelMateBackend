@@ -1244,7 +1244,7 @@ class SalesAnalysisSerializer(serializers.Serializer):
         stock_sales = Sale.objects.filter(
             stocktake=stocktake
         ) if stocktake else Sale.objects.none()
-        
+
         general_revenue = sum(
             sale.total_revenue or Decimal('0') for sale in stock_sales
         )
