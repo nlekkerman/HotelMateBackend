@@ -1106,22 +1106,83 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         serializer = SalesAnalysisSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'], url_path='download-pdf')
     @action(detail=True, methods=['get'], url_path='download-pdf')
     def download_pdf(self, request, pk=None, hotel_identifier=None):
         """
         Download period report as PDF.
         
-        GET /api/stock-tracker/{hotel_identifier}/periods/{id}/download-pdf/
+        Supports TWO access methods:
+        
+        1. By ID:
+           GET /api/stock-tracker/{hotel_identifier}/periods/
+               {id}/download-pdf/
+        
+        2. By date range:
+           GET /api/stock-tracker/{hotel_identifier}/periods/
+               download-pdf/?start_date=2024-11-01&end_date=2024-11-30
         
         Query params:
         - include_cocktails: true/false (default: true)
+        - start_date: Period start date (for date range method)
+        - end_date: Period end date (for date range method)
         
         Returns: PDF file download
         """
         from django.http import HttpResponse
         from .utils.pdf_generator import generate_period_pdf
+        from datetime import datetime
         
-        period = self.get_object()
+        # Get hotel
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        # Method 1: Access by ID (if pk is provided)
+        if pk is not None:
+            period = self.get_object()
+        # Method 2: Access by date range
+        else:
+            # Get date parameters
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            if not start_date or not end_date:
+                return Response(
+                    {
+                        "error": "start_date and end_date are required",
+                        "example": "?start_date=2024-11-01&end_date=2024-11-30"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Parse dates
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Find period by date range
+            period = StockPeriod.objects.filter(
+                hotel=hotel,
+                start_date=start,
+                end_date=end
+            ).first()
+            
+            if not period:
+                return Response(
+                    {
+                        "error": "No period found for date range",
+                        "start_date": start_date,
+                        "end_date": end_date
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
         
         # Get parameters
         include_cocktails = request.query_params.get(
@@ -1147,22 +1208,83 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         
         return response
 
+    @action(detail=False, methods=['get'], url_path='download-excel')
     @action(detail=True, methods=['get'], url_path='download-excel')
     def download_excel(self, request, pk=None, hotel_identifier=None):
         """
         Download period report as Excel workbook.
         
-        GET /api/stock-tracker/{hotel_identifier}/periods/{id}/download-excel/
+        Supports TWO access methods:
+        
+        1. By ID:
+           GET /api/stock-tracker/{hotel_identifier}/periods/
+               {id}/download-excel/
+        
+        2. By date range:
+           GET /api/stock-tracker/{hotel_identifier}/periods/
+               download-excel/?start_date=2024-11-01&end_date=2024-11-30
         
         Query params:
         - include_cocktails: true/false (default: true)
+        - start_date: Period start date (for date range method)
+        - end_date: Period end date (for date range method)
         
         Returns: Excel file download
         """
         from django.http import HttpResponse
         from .utils.excel_generator import generate_period_excel
+        from datetime import datetime
         
-        period = self.get_object()
+        # Get hotel
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        # Method 1: Access by ID (if pk is provided)
+        if pk is not None:
+            period = self.get_object()
+        # Method 2: Access by date range
+        else:
+            # Get date parameters
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            if not start_date or not end_date:
+                return Response(
+                    {
+                        "error": "start_date and end_date are required",
+                        "example": "?start_date=2024-11-01&end_date=2024-11-30"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Parse dates
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Find period by date range
+            period = StockPeriod.objects.filter(
+                hotel=hotel,
+                start_date=start,
+                end_date=end
+            ).first()
+            
+            if not period:
+                return Response(
+                    {
+                        "error": "No period found for date range",
+                        "start_date": start_date,
+                        "end_date": end_date
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
         
         # Get parameters
         include_cocktails = request.query_params.get(
@@ -1181,7 +1303,8 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         # Return Excel as download
         response = HttpResponse(
             excel_buffer.getvalue(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            content_type='application/vnd.openxmlformats-officedocument'
+            '.spreadsheetml.sheet'
         )
         response['Content-Disposition'] = \
             f'attachment; filename="{filename}"'
@@ -1776,26 +1899,88 @@ class StocktakeViewSet(viewsets.ModelViewSet):
             'summary': merge_summary
         }, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'], url_path='download-pdf')
     @action(detail=True, methods=['get'], url_path='download-pdf')
     def download_pdf(self, request, pk=None, hotel_identifier=None):
         """
         Download stocktake as PDF report.
         
-        GET /api/stock-tracker/{hotel_identifier}/stocktakes/{id}/download-pdf/
+        Supports TWO access methods:
+        
+        1. By ID:
+           GET /api/stock-tracker/{hotel_identifier}/stocktakes/{id}/download-pdf/
+        
+        2. By date range:
+           GET /api/stock-tracker/{hotel_identifier}/stocktakes/download-pdf/
+               ?start_date=2024-11-01&end_date=2024-11-30
+        
+        Query Parameters (for date range method):
+        - start_date: Period start date (YYYY-MM-DD) - Required
+        - end_date: Period end date (YYYY-MM-DD) - Required
         
         Returns: PDF file download
         """
         from django.http import HttpResponse
         from .utils.pdf_generator import generate_stocktake_pdf
+        from datetime import datetime
         
-        stocktake = self.get_object()
+        # Get hotel
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        # Method 1: Access by ID (if pk is provided)
+        if pk is not None:
+            stocktake = self.get_object()
+        # Method 2: Access by date range
+        else:
+            # Get date parameters
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            if not start_date or not end_date:
+                return Response(
+                    {
+                        "error": "start_date and end_date are required",
+                        "example": "?start_date=2024-11-01&end_date=2024-11-30"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Parse dates
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Find stocktake by date range
+            stocktake = Stocktake.objects.filter(
+                hotel=hotel,
+                period_start=start,
+                period_end=end
+            ).first()
+            
+            if not stocktake:
+                return Response(
+                    {
+                        "error": "No stocktake found for date range",
+                        "start_date": start_date,
+                        "end_date": end_date
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
         
         # Generate PDF
         pdf_buffer = generate_stocktake_pdf(stocktake)
         
         # Create filename
         filename = (
-            f"stocktake_{stocktake.hotel.name.replace(' ', '_')}_"
+            f"stocktake_{hotel.name.replace(' ', '_')}_"
             f"{stocktake.period_start}_to_{stocktake.period_end}.pdf"
         )
         
@@ -1809,33 +1994,97 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         
         return response
 
+    @action(detail=False, methods=['get'], url_path='download-excel')
     @action(detail=True, methods=['get'], url_path='download-excel')
     def download_excel(self, request, pk=None, hotel_identifier=None):
         """
         Download stocktake as Excel workbook.
         
-        GET /api/stock-tracker/{hotel_identifier}/stocktakes/{id}/download-excel/
+        Supports TWO access methods:
+        
+        1. By ID:
+           GET /api/stock-tracker/{hotel_identifier}/stocktakes/
+               {id}/download-excel/
+        
+        2. By date range:
+           GET /api/stock-tracker/{hotel_identifier}/stocktakes/
+               download-excel/?start_date=2024-11-01&end_date=2024-11-30
+        
+        Query Parameters (for date range method):
+        - start_date: Period start date (YYYY-MM-DD) - Required
+        - end_date: Period end date (YYYY-MM-DD) - Required
         
         Returns: Excel file download
         """
         from django.http import HttpResponse
         from .utils.excel_generator import generate_stocktake_excel
+        from datetime import datetime
         
-        stocktake = self.get_object()
+        # Get hotel
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        # Method 1: Access by ID (if pk is provided)
+        if pk is not None:
+            stocktake = self.get_object()
+        # Method 2: Access by date range
+        else:
+            # Get date parameters
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            if not start_date or not end_date:
+                return Response(
+                    {
+                        "error": "start_date and end_date are required",
+                        "example": "?start_date=2024-11-01&end_date=2024-11-30"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Parse dates
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Find stocktake by date range
+            stocktake = Stocktake.objects.filter(
+                hotel=hotel,
+                period_start=start,
+                period_end=end
+            ).first()
+            
+            if not stocktake:
+                return Response(
+                    {
+                        "error": "No stocktake found for date range",
+                        "start_date": start_date,
+                        "end_date": end_date
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
         
         # Generate Excel
         excel_buffer = generate_stocktake_excel(stocktake)
         
         # Create filename
         filename = (
-            f"stocktake_{stocktake.hotel.name.replace(' ', '_')}_"
+            f"stocktake_{hotel.name.replace(' ', '_')}_"
             f"{stocktake.period_start}_to_{stocktake.period_end}.xlsx"
         )
         
         # Return Excel as download
         response = HttpResponse(
             excel_buffer.getvalue(),
-            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            content_type='application/vnd.openxmlformats-officedocument'
+            '.spreadsheetml.sheet'
         )
         response['Content-Disposition'] = \
             f'attachment; filename="{filename}"'

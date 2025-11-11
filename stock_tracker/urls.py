@@ -398,6 +398,17 @@ urlpatterns = [
         period_download_excel,
         name='period-download-excel'
     ),
+    # Date-based period download endpoints
+    path(
+        '<str:hotel_identifier>/periods/download-pdf/',
+        period_download_pdf,
+        name='period-download-pdf-by-date'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/download-excel/',
+        period_download_excel,
+        name='period-download-excel-by-date'
+    ),
 
     # Stock Snapshots
     path(
@@ -498,6 +509,17 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktakes/<int:pk>/download-excel/',
         stocktake_download_excel,
         name='stocktake-download-excel'
+    ),
+    # Date-based stocktake download endpoints
+    path(
+        '<str:hotel_identifier>/stocktakes/download-pdf/',
+        stocktake_download_pdf,
+        name='stocktake-download-pdf-by-date'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktakes/download-excel/',
+        stocktake_download_excel,
+        name='stocktake-download-excel-by-date'
     ),
 
     # Stocktake Lines

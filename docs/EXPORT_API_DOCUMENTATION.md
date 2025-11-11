@@ -17,14 +17,24 @@ Where `{hotel_identifier}` is either the hotel's slug or subdomain.
 
 ### 1. Download Stocktake as PDF
 
+**Two Access Methods:**
+
+#### Method A: By ID
 **Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/stocktakes/{id}/download-pdf/`
-
-**Description:** Generates and downloads a formatted PDF report for a stocktake.
-
-**Authentication:** Required
 
 **Parameters:**
 - `id` (path parameter): Stocktake ID
+
+#### Method B: By Date Range
+**Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/stocktakes/download-pdf/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+
+**Query Parameters:**
+- `start_date` (required): Period start date (YYYY-MM-DD format)
+- `end_date` (required): Period end date (YYYY-MM-DD format)
+
+**Description:** Generates and downloads a formatted PDF report for a stocktake. Use the ID method when you know the stocktake ID, or use the date range method when you know the period dates (useful when the same month has multiple stocktakes with different IDs).
+
+**Authentication:** Required
 
 **Response:**
 - **Content-Type:** `application/pdf`
@@ -36,9 +46,13 @@ Where `{hotel_identifier}` is either the hotel's slug or subdomain.
 3. **Category Breakdown**: Totals grouped by category (D, B, S, W, M)
 4. **Detailed Items**: All line items with opening, purchases, expected, counted, variance
 
-**Example Request:**
+**Example Requests:**
 ```bash
+# By ID
 GET /api/stock-tracker/my-hotel/stocktakes/42/download-pdf/
+
+# By Date Range
+GET /api/stock-tracker/my-hotel/stocktakes/download-pdf/?start_date=2024-11-01&end_date=2024-11-30
 ```
 
 **Example Response Headers:**
@@ -47,18 +61,32 @@ Content-Type: application/pdf
 Content-Disposition: attachment; filename="stocktake_My_Hotel_2024-11-01_to_2024-11-30.pdf"
 ```
 
+**Error Responses (Date Method):**
+- `400 Bad Request`: Missing or invalid date parameters
+- `404 Not Found`: No stocktake found for specified date range
+
 ---
 
 ### 2. Download Stocktake as Excel
 
+**Two Access Methods:**
+
+#### Method A: By ID
 **Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/stocktakes/{id}/download-excel/`
-
-**Description:** Generates and downloads an Excel workbook for a stocktake with multiple sheets.
-
-**Authentication:** Required
 
 **Parameters:**
 - `id` (path parameter): Stocktake ID
+
+#### Method B: By Date Range
+**Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/stocktakes/download-excel/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+
+**Query Parameters:**
+- `start_date` (required): Period start date (YYYY-MM-DD format)
+- `end_date` (required): Period end date (YYYY-MM-DD format)
+
+**Description:** Generates and downloads an Excel workbook for a stocktake with multiple sheets. Use the ID method when you know the stocktake ID, or use the date range method when you know the period dates.
+
+**Authentication:** Required
 
 **Response:**
 - **Content-Type:** `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
@@ -80,9 +108,13 @@ Content-Disposition: attachment; filename="stocktake_My_Hotel_2024-11-01_to_2024
 - Columns: SKU, Name, Category, Expected Qty, Counted Qty, Variance Qty, Variance Value, % Variance
 - Useful for identifying problem items
 
-**Example Request:**
+**Example Requests:**
 ```bash
+# By ID
 GET /api/stock-tracker/my-hotel/stocktakes/42/download-excel/
+
+# By Date Range
+GET /api/stock-tracker/my-hotel/stocktakes/download-excel/?start_date=2024-11-01&end_date=2024-11-30
 ```
 
 **Example Response Headers:**
@@ -91,21 +123,35 @@ Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 Content-Disposition: attachment; filename="stocktake_My_Hotel_2024-11-01_to_2024-11-30.xlsx"
 ```
 
+**Error Responses (Date Method):**
+- `400 Bad Request`: Missing or invalid date parameters
+- `404 Not Found`: No stocktake found for specified date range
+
 ---
 
 ## Period Export Endpoints
 
 ### 3. Download Period as PDF
 
+**Two Access Methods:**
+
+#### Method A: By ID
 **Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/periods/{id}/download-pdf/`
-
-**Description:** Generates and downloads a formatted PDF report for a stock period.
-
-**Authentication:** Required
 
 **Parameters:**
 - `id` (path parameter): Period ID
-- `include_cocktails` (query parameter, optional): Include cocktail sales data (default: `true`)
+
+#### Method B: By Date Range
+**Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/periods/download-pdf/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+
+**Query Parameters:**
+- `start_date` (required): Period start date (YYYY-MM-DD format)
+- `end_date` (required): Period end date (YYYY-MM-DD format)
+- `include_cocktails` (optional): Include cocktail sales data (default: `true`)
+
+**Description:** Generates and downloads a formatted PDF report for a stock period. Use the ID method when you know the period ID, or use the date range method when you know the period dates (useful when the same month has multiple periods with different IDs).
+
+**Authentication:** Required
 
 **Response:**
 - **Content-Type:** `application/pdf`
@@ -119,11 +165,17 @@ Content-Disposition: attachment; filename="stocktake_My_Hotel_2024-11-01_to_2024
 
 **Example Requests:**
 ```bash
-# With cocktails (default)
+# By ID with cocktails (default)
 GET /api/stock-tracker/my-hotel/periods/15/download-pdf/
 
-# Without cocktails
+# By ID without cocktails
 GET /api/stock-tracker/my-hotel/periods/15/download-pdf/?include_cocktails=false
+
+# By Date Range
+GET /api/stock-tracker/my-hotel/periods/download-pdf/?start_date=2024-11-01&end_date=2024-11-30
+
+# By Date Range without cocktails
+GET /api/stock-tracker/my-hotel/periods/download-pdf/?start_date=2024-11-01&end_date=2024-11-30&include_cocktails=false
 ```
 
 **Example Response Headers:**
@@ -132,19 +184,33 @@ Content-Type: application/pdf
 Content-Disposition: attachment; filename="period_My_Hotel_November_2024.pdf"
 ```
 
+**Error Responses (Date Method):**
+- `400 Bad Request`: Missing or invalid date parameters
+- `404 Not Found`: No period found for specified date range
+
 ---
 
 ### 4. Download Period as Excel
 
+**Two Access Methods:**
+
+#### Method A: By ID
 **Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/periods/{id}/download-excel/`
-
-**Description:** Generates and downloads an Excel workbook for a period with multiple sheets.
-
-**Authentication:** Required
 
 **Parameters:**
 - `id` (path parameter): Period ID
-- `include_cocktails` (query parameter, optional): Include cocktail sales data (default: `true`)
+
+#### Method B: By Date Range
+**Endpoint:** `GET /api/stock-tracker/{hotel_identifier}/periods/download-excel/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+
+**Query Parameters:**
+- `start_date` (required): Period start date (YYYY-MM-DD format)
+- `end_date` (required): Period end date (YYYY-MM-DD format)
+- `include_cocktails` (optional): Include cocktail sales data (default: `true`)
+
+**Description:** Generates and downloads an Excel workbook for a period with multiple sheets. Use the ID method when you know the period ID, or use the date range method when you know the period dates.
+
+**Authentication:** Required
 
 **Response:**
 - **Content-Type:** `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
@@ -163,11 +229,17 @@ Content-Disposition: attachment; filename="period_My_Hotel_November_2024.pdf"
 
 **Example Requests:**
 ```bash
-# With cocktails (default)
+# By ID with cocktails (default)
 GET /api/stock-tracker/my-hotel/periods/15/download-excel/
 
-# Without cocktails
+# By ID without cocktails
 GET /api/stock-tracker/my-hotel/periods/15/download-excel/?include_cocktails=false
+
+# By Date Range
+GET /api/stock-tracker/my-hotel/periods/download-excel/?start_date=2024-11-01&end_date=2024-11-30
+
+# By Date Range without cocktails
+GET /api/stock-tracker/my-hotel/periods/download-excel/?start_date=2024-11-01&end_date=2024-11-30&include_cocktails=false
 ```
 
 **Example Response Headers:**
@@ -175,6 +247,10 @@ GET /api/stock-tracker/my-hotel/periods/15/download-excel/?include_cocktails=fal
 Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 Content-Disposition: attachment; filename="period_My_Hotel_November_2024.xlsx"
 ```
+
+**Error Responses (Date Method):**
+- `400 Bad Request`: Missing or invalid date parameters
+- `404 Not Found`: No period found for specified date range
 
 ---
 
