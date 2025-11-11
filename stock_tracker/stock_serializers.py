@@ -1222,8 +1222,7 @@ class SalesAnalysisSerializer(serializers.Serializer):
             calculate_percentages,
             get_category_breakdown
         )
-        from stock_tracker.models import Sale
-        from entertainment.models import CocktailConsumption
+        from stock_tracker.models import Sale, CocktailConsumption
         from decimal import Decimal
         
         # Extract parameters
