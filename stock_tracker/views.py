@@ -4,6 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
+from django.utils import timezone
 from decimal import Decimal, InvalidOperation
 import logging
 
@@ -281,6 +282,136 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
         context = super().get_serializer_context()
         context['request'] = self.request
         return context
+
+
+class CocktailIngredientConsumptionViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for viewing individual ingredient consumption records.
+    Read-only - these are auto-created when cocktails are made.
+    Supports filtering by merge status, stock item, date range, etc.
+    """
+    pagination_class = None
+    ordering = ['-timestamp']
+    
+    def get_serializer_class(self):
+        from .cocktail_serializers import (
+            CocktailIngredientConsumptionSerializer
+        )
+        return CocktailIngredientConsumptionSerializer
+    
+    def get_queryset(self):
+        from .models import CocktailIngredientConsumption
+        
+        hotel_identifier = self.kwargs.get('hotel_identifier')
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        qs = CocktailIngredientConsumption.objects.filter(
+            cocktail_consumption__hotel=hotel
+        ).select_related(
+            'cocktail_consumption__cocktail',
+            'ingredient',
+            'stock_item',
+            'merged_by',
+            'merged_to_stocktake'
+        )
+        
+        # Filter by merge status
+        merged = self.request.query_params.get('merged')
+        if merged == 'true':
+            qs = qs.filter(is_merged_to_stocktake=True)
+        elif merged == 'false':
+            qs = qs.filter(is_merged_to_stocktake=False)
+        
+        # Filter by stock item
+        stock_item_id = self.request.query_params.get('stock_item')
+        if stock_item_id:
+            qs = qs.filter(stock_item_id=stock_item_id)
+        
+        # Filter by ingredient
+        ingredient_id = self.request.query_params.get('ingredient')
+        if ingredient_id:
+            qs = qs.filter(ingredient_id=ingredient_id)
+        
+        # Filter by stocktake
+        stocktake_id = self.request.query_params.get('stocktake')
+        if stocktake_id:
+            qs = qs.filter(merged_to_stocktake_id=stocktake_id)
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        
+        if start_date:
+            from datetime import datetime
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d')
+                qs = qs.filter(timestamp__gte=start)
+            except ValueError:
+                pass
+        
+        if end_date:
+            from datetime import datetime
+            try:
+                end = datetime.strptime(end_date, '%Y-%m-%d')
+                qs = qs.filter(timestamp__lte=end)
+            except ValueError:
+                pass
+        
+        return qs
+    
+    @action(detail=False, methods=['get'], url_path='available')
+    def available(self, request, hotel_identifier=None):
+        """
+        Get all unmerged (available) ingredient consumptions.
+        These are ready to be merged into stocktakes.
+        """
+        queryset = self.filter_queryset(self.get_queryset()).filter(
+            is_merged_to_stocktake=False
+        )
+        serializer = self.get_serializer(queryset, many=True)
+        
+        # Calculate summary
+        from django.db.models import Sum, Count
+        summary = queryset.aggregate(
+            total_records=Count('id'),
+            total_quantity=Sum('quantity_used')
+        )
+        
+        return Response({
+            'count': summary['total_records'] or 0,
+            'total_quantity': str(summary['total_quantity'] or 0),
+            'consumptions': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'], url_path='by-stock-item')
+    def by_stock_item(self, request, hotel_identifier=None):
+        """
+        Group ingredient consumptions by stock item.
+        Shows summary of unmerged quantities for each stock item.
+        """
+        from django.db.models import Sum, Count
+        
+        queryset = self.filter_queryset(self.get_queryset()).filter(
+            is_merged_to_stocktake=False,
+            stock_item__isnull=False
+        )
+        
+        grouped = queryset.values(
+            'stock_item__id',
+            'stock_item__sku',
+            'stock_item__name',
+            'unit'
+        ).annotate(
+            total_quantity=Sum('quantity_used'),
+            consumption_count=Count('id')
+        ).order_by('-total_quantity')
+        
+        return Response({
+            'items': list(grouped)
+        })
 
 
 class IngredientUsageView(APIView):
@@ -1406,6 +1537,163 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         
         return Response(totals)
 
+    @action(
+        detail=True,
+        methods=['post'],
+        url_path='merge-all-cocktail-consumption'
+    )
+    def merge_all_cocktail_consumption(
+        self, request, pk=None, hotel_identifier=None
+    ):
+        """
+        Bulk merge all unmerged cocktail consumption for entire stocktake.
+        
+        This endpoint merges ALL available cocktail consumption across all
+        stocktake lines with one action. Creates StockMovement records with
+        COCKTAIL_CONSUMPTION type for each merged item.
+        
+        Returns summary of what was merged including:
+        - lines_affected: Number of lines that had cocktails merged
+        - total_items_merged: Total number of consumption records merged
+        - total_quantity_merged: Sum of all quantities merged
+        - total_value_merged: Sum of all values merged
+        - details: Per-line breakdown
+        """
+        from django.db import transaction
+        from decimal import Decimal
+        
+        stocktake = self.get_object()
+        
+        if stocktake.is_locked:
+            return Response(
+                {
+                    "error": (
+                        "Cannot merge cocktails into "
+                        "locked/approved stocktake"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get all lines with available cocktail consumption
+        lines = stocktake.lines.all()
+        
+        merge_summary = {
+            'lines_affected': 0,
+            'total_items_merged': 0,
+            'total_quantity_merged': Decimal('0'),
+            'total_value_merged': Decimal('0'),
+            'details': []
+        }
+        
+        with transaction.atomic():
+            for line in lines:
+                # Get available cocktail consumption for this line
+                available = line.get_available_cocktail_consumption()
+                
+                if not available.exists():
+                    continue
+                
+                # Calculate totals for this line
+                line_qty = sum(c.quantity_used for c in available)
+                line_value = sum(c.total_cost for c in available)
+                
+                # Find the matching StockPeriod
+                period = StockPeriod.objects.filter(
+                    hotel=stocktake.hotel,
+                    start_date=stocktake.period_start,
+                    end_date=stocktake.period_end
+                ).first()
+                
+                # Get staff profile for audit trail
+                staff = (
+                    request.user.staff_profile
+                    if hasattr(request.user, 'staff_profile')
+                    else None
+                )
+                
+                # Create StockMovement with COCKTAIL_CONSUMPTION type
+                StockMovement.objects.create(
+                    hotel=stocktake.hotel,
+                    item=line.item,
+                    period=period,
+                    movement_type=StockMovement.COCKTAIL_CONSUMPTION,
+                    quantity=line_qty,
+                    unit_cost=line.item.cost_price,
+                    reference=(
+                        f'Cocktail merge for stocktake {stocktake.id}'
+                    ),
+                    notes=(
+                        f'Bulk merged {available.count()} '
+                        f'cocktail consumption records'
+                    ),
+                    staff=staff
+                )
+                
+                # Mark all consumption records as merged
+                for consumption_record in available:
+                    consumption_record.is_merged_to_stocktake = True
+                    consumption_record.merged_at = timezone.now()
+                    consumption_record.merged_by = staff
+                    consumption_record.merged_to_stocktake = stocktake
+                    consumption_record.save()
+                
+                # Recalculate line purchases from movements
+                from .stocktake_service import _calculate_period_movements
+                movements = _calculate_period_movements(
+                    line.item,
+                    stocktake.period_start,
+                    stocktake.period_end
+                )
+                line.purchases = movements['purchases']
+                line.save()
+                
+                # Add to summary
+                merge_summary['lines_affected'] += 1
+                merge_summary['total_items_merged'] += available.count()
+                merge_summary['total_quantity_merged'] += line_qty
+                merge_summary['total_value_merged'] += line_value
+                merge_summary['details'].append({
+                    'line_id': line.id,
+                    'item_sku': line.item.sku,
+                    'item_name': line.item.name,
+                    'quantity_merged': str(line_qty),
+                    'value_merged': str(line_value),
+                    'records_merged': available.count()
+                })
+        
+        # Convert Decimal to string for JSON serialization
+        merge_summary['total_quantity_merged'] = str(
+            merge_summary['total_quantity_merged']
+        )
+        merge_summary['total_value_merged'] = str(
+            merge_summary['total_value_merged']
+        )
+        
+        # Broadcast bulk merge event
+        try:
+            broadcast_stocktake_status_changed(
+                hotel_identifier,
+                stocktake.id,
+                {
+                    "stocktake_id": stocktake.id,
+                    "event": "cocktails_bulk_merged",
+                    "summary": merge_summary
+                }
+            )
+            logger.info(f"Broadcasted bulk cocktail merge: {stocktake.id}")
+        except Exception as e:
+            logger.error(f"Failed to broadcast bulk merge: {e}")
+        
+        lines_affected = merge_summary["lines_affected"]
+        return Response({
+            'message': (
+                f'Successfully merged cocktail consumption '
+                f'for {lines_affected} lines'
+            ),
+            'summary': merge_summary
+        }, status=status.HTTP_200_OK)
+
 
 class StocktakeLineViewSet(viewsets.ModelViewSet):
     serializer_class = StocktakeLineSerializer
@@ -1946,6 +2234,144 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             logger.error(
                 f"Failed to broadcast movement update: {e}"
             )
+        
+        return Response(response_data, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='merge-cocktail-consumption')
+    def merge_cocktail_consumption(self, request, pk=None, hotel_identifier=None):
+        """
+        Merge unmerged cocktail consumption into this stocktake line.
+        
+        THIS IS THE ONLY WAY cocktail data enters stocktake calculations.
+        Requires explicit user action via button click.
+        
+        POST /api/stock_tracker/{hotel}/stocktake-lines/{line_id}/merge-cocktail-consumption/
+        
+        Process:
+        1. Gets all unmerged CocktailIngredientConsumption records
+        2. Creates StockMovement with type COCKTAIL_CONSUMPTION
+        3. Marks consumption records as merged
+        4. Recalculates line purchases/expected_qty
+        5. Returns updated line data
+        
+        CRITICAL: Does NOT affect variance until this action is called.
+        """
+        from stock_tracker.models import (
+            CocktailIngredientConsumption,
+            StockMovement,
+            StockPeriod
+        )
+        from django.utils import timezone
+        from django.db import transaction
+        from decimal import Decimal
+        
+        line = self.get_object()
+        
+        # Check if stocktake is locked
+        if line.stocktake.is_locked:
+            return Response(
+                {"error": "Cannot merge cocktails into approved stocktake"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get unmerged cocktail consumption for this item
+        unmerged_consumptions = line.get_available_cocktail_consumption()
+        
+        if not unmerged_consumptions.exists():
+            return Response(
+                {
+                    "message": "No unmerged cocktail consumption found",
+                    "merged_count": 0,
+                    "total_quantity": "0.0000"
+                },
+                status=status.HTTP_200_OK
+            )
+        
+        # Get staff if available
+        staff_user = None
+        if hasattr(request.user, 'staff'):
+            staff_user = request.user.staff
+        
+        # Find the matching StockPeriod
+        period = StockPeriod.objects.filter(
+            hotel=line.stocktake.hotel,
+            start_date=line.stocktake.period_start,
+            end_date=line.stocktake.period_end
+        ).first()
+        
+        # Use transaction to ensure atomicity
+        with transaction.atomic():
+            total_quantity_merged = Decimal('0.0000')
+            merged_count = 0
+            
+            # Create a single StockMovement for all merged consumptions
+            for consumption in unmerged_consumptions:
+                total_quantity_merged += consumption.quantity_used
+                
+                # Mark as merged
+                consumption.merge_to_stocktake(line.stocktake, staff_user)
+                merged_count += 1
+            
+            # Create StockMovement with COCKTAIL_CONSUMPTION type
+            movement = StockMovement.objects.create(
+                hotel=line.stocktake.hotel,
+                item=line.item,
+                period=period,
+                movement_type='COCKTAIL_CONSUMPTION',
+                quantity=total_quantity_merged,
+                unit_cost=line.item.cost_per_serving,
+                reference=f'Cocktail-Merge-Stocktake-{line.stocktake.id}',
+                notes=f'Merged {merged_count} cocktail consumption records',
+                staff=staff_user
+            )
+            
+            # Recalculate the line from all movements
+            from .stocktake_service import _calculate_period_movements
+            
+            movements = _calculate_period_movements(
+                line.item,
+                line.stocktake.period_start,
+                line.stocktake.period_end
+            )
+            
+            # Update line - cocktail consumption is added to purchases
+            line.purchases = movements['purchases']
+            line.waste = movements['waste']
+            line.save()
+        
+        # Refresh from DB to get calculated values
+        line.refresh_from_db()
+        
+        # Return updated line data
+        serializer = self.get_serializer(line)
+        response_data = {
+            'message': 'Cocktail consumption merged successfully',
+            'merged_count': merged_count,
+            'total_quantity_merged': str(total_quantity_merged),
+            'movement_id': movement.id,
+            'line': serializer.data
+        }
+        
+        # Broadcast update
+        try:
+            from .pusher_utils import broadcast_line_counted_updated
+            broadcast_line_counted_updated(
+                hotel_identifier,
+                line.stocktake.id,
+                {
+                    "line_id": line.id,
+                    "item_sku": line.item.sku,
+                    "action": "cocktail_merge",
+                    "merged_count": merged_count,
+                    "line": serializer.data
+                }
+            )
+            logger.info(
+                f"Broadcasted cocktail merge: {merged_count} "
+                f"consumptions merged for line {line.id}"
+            )
+        except Exception as e:
+            logger.error(f"Failed to broadcast cocktail merge: {e}")
         
         return Response(response_data, status=status.HTTP_200_OK)
 

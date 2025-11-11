@@ -701,6 +701,36 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
     counted_display_partial_units = serializers.SerializerMethodField()
     variance_display_full_units = serializers.SerializerMethodField()
     variance_display_partial_units = serializers.SerializerMethodField()
+    
+    # COCKTAIL CONSUMPTION TRACKING (DISPLAY ONLY - NO STOCKTAKE IMPACT)
+    available_cocktail_consumption_qty = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=4,
+        read_only=True,
+        help_text="Unmerged cocktail consumption (display only)"
+    )
+    merged_cocktail_consumption_qty = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=4,
+        read_only=True,
+        help_text="Already merged cocktail consumption (display only)"
+    )
+    available_cocktail_consumption_value = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        read_only=True,
+        help_text="Value of unmerged cocktails (display only)"
+    )
+    merged_cocktail_consumption_value = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        read_only=True,
+        help_text="Value of merged cocktails (display only)"
+    )
+    can_merge_cocktails = serializers.BooleanField(
+        read_only=True,
+        help_text="True if unmerged cocktail consumption exists"
+    )
 
     class Meta:
         model = StocktakeLine
@@ -722,7 +752,13 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'variance_display_full_units', 'variance_display_partial_units',
             # Values
             'valuation_cost', 'expected_value', 'counted_value',
-            'variance_value'
+            'variance_value',
+            # Cocktail consumption tracking (DISPLAY ONLY)
+            'available_cocktail_consumption_qty',
+            'merged_cocktail_consumption_qty',
+            'available_cocktail_consumption_value',
+            'merged_cocktail_consumption_value',
+            'can_merge_cocktails'
         ]
         read_only_fields = [
             'opening_qty', 'purchases', 'waste',

@@ -1,7 +1,7 @@
 # models.py
 from django.db import models
 from decimal import Decimal
-from datetime import date, timedelta
+from datetime import date
 from calendar import monthrange
 
 
@@ -16,6 +16,20 @@ class Ingredient(models.Model):
         'hotel.Hotel',
         on_delete=models.CASCADE,
         related_name="ingredients"
+    )
+    
+    # OPTIONAL link to stock inventory item
+    # This is for DISPLAY purposes only - does NOT affect stocktake
+    linked_stock_item = models.ForeignKey(
+        'StockItem',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='linked_ingredients',
+        help_text=(
+            "Optional: Link this ingredient to a stock item for "
+            "tracking cocktail consumption in inventory"
+        )
     )
 
     class Meta:
@@ -151,7 +165,10 @@ class CocktailConsumption(models.Model):
         return None
 
     def save(self, *args, **kwargs):
-        """Auto-calculate revenue and cost on save"""
+        """
+        Auto-calculate revenue and cost on save.
+        Also creates CocktailIngredientConsumption records.
+        """
         # Set unit price from cocktail if not already set
         if not self.unit_price and self.cocktail.price:
             self.unit_price = self.cocktail.price
@@ -163,7 +180,194 @@ class CocktailConsumption(models.Model):
         # Calculate total cost (simplified for now)
         self.total_cost = self.calculate_cost()
         
+        # Check if this is a new record
+        is_new = self.pk is None
+        
         super().save(*args, **kwargs)
+        
+        # Create ingredient consumption records for NEW cocktail consumptions
+        # These are tracked SEPARATELY and do NOT affect stocktake
+        if is_new:
+            self._create_ingredient_consumption_records()
+    
+    def _create_ingredient_consumption_records(self):
+        """
+        Create CocktailIngredientConsumption records for each ingredient.
+        
+        IMPORTANT: These records are for DISPLAY and optional manual merging.
+        They do NOT automatically affect stocktake calculations.
+        """
+        for recipe_ingredient in self.cocktail.ingredients.all():
+            # Calculate total quantity used for this batch
+            total_quantity = (
+                Decimal(str(recipe_ingredient.quantity_per_cocktail)) *
+                Decimal(str(self.quantity_made))
+            )
+            
+            # Get linked stock item if available
+            stock_item = recipe_ingredient.ingredient.linked_stock_item
+            
+            # Create consumption record
+            CocktailIngredientConsumption.objects.create(
+                cocktail_consumption=self,
+                ingredient=recipe_ingredient.ingredient,
+                stock_item=stock_item,  # May be None
+                quantity_used=total_quantity,
+                unit=recipe_ingredient.ingredient.unit,
+                # Cost tracking can be added later
+                unit_cost=None,
+                total_cost=None
+            )
+
+
+class CocktailIngredientConsumption(models.Model):
+    """
+    Tracks individual ingredient consumption from cocktail making.
+    
+    CRITICAL: This is COMPLETELY SEPARATE from stocktake logic.
+    Does NOT automatically affect stocktake calculations.
+    
+    Purpose:
+    - Track which ingredients were used when cocktails were made
+    - Link ingredients to stock items (optional, for display)
+    - Enable manual merging into stocktake (via explicit user action)
+    
+    The is_merged_to_stocktake flag prevents double-counting when user
+    manually merges cocktail consumption into stocktake purchases.
+    """
+    cocktail_consumption = models.ForeignKey(
+        CocktailConsumption,
+        on_delete=models.CASCADE,
+        related_name='ingredient_consumptions',
+        help_text="The cocktail batch this ingredient was used in"
+    )
+    ingredient = models.ForeignKey(
+        Ingredient,
+        on_delete=models.CASCADE,
+        related_name='consumptions',
+        help_text="The ingredient that was consumed"
+    )
+    stock_item = models.ForeignKey(
+        'StockItem',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='cocktail_consumptions',
+        help_text=(
+            "Optional link to inventory stock item "
+            "(if ingredient is in stocktake)"
+        )
+    )
+    
+    # Quantity consumed
+    quantity_used = models.DecimalField(
+        max_digits=15,
+        decimal_places=4,
+        help_text="Total quantity of this ingredient used in the batch"
+    )
+    unit = models.CharField(
+        max_length=20,
+        help_text="Unit of measurement (ml, cl, oz, etc.)"
+    )
+    
+    # Cost tracking (optional)
+    unit_cost = models.DecimalField(
+        max_digits=10,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="Cost per unit at time of consumption"
+    )
+    total_cost = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Total cost (quantity_used × unit_cost)"
+    )
+    
+    # Merge tracking
+    is_merged_to_stocktake = models.BooleanField(
+        default=False,
+        help_text="Has this consumption been manually merged into a stocktake?"
+    )
+    merged_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this was merged into stocktake"
+    )
+    merged_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='merged_cocktail_consumptions',
+        help_text="Staff member who merged this into stocktake"
+    )
+    merged_to_stocktake = models.ForeignKey(
+        'Stocktake',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='merged_cocktail_consumptions',
+        help_text="Which stocktake this was merged into"
+    )
+    
+    # Metadata
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this ingredient consumption was recorded"
+    )
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['stock_item', 'is_merged_to_stocktake']),
+            models.Index(fields=['timestamp']),
+            models.Index(fields=['is_merged_to_stocktake']),
+        ]
+    
+    def __str__(self):
+        merged_status = " [MERGED]" if self.is_merged_to_stocktake else ""
+        return (
+            f"{self.quantity_used} {self.unit} of {self.ingredient.name} "
+            f"for {self.cocktail_consumption.cocktail.name}{merged_status}"
+        )
+    
+    def save(self, *args, **kwargs):
+        """Auto-calculate total cost if unit cost is available"""
+        if self.unit_cost and not self.total_cost:
+            self.total_cost = self.quantity_used * self.unit_cost
+        super().save(*args, **kwargs)
+    
+    @property
+    def can_be_merged(self):
+        """Check if this consumption can be merged into stocktake"""
+        return (
+            not self.is_merged_to_stocktake and
+            self.stock_item is not None
+        )
+    
+    def merge_to_stocktake(self, stocktake, staff):
+        """
+        Mark this consumption as merged to a specific stocktake.
+        
+        DOES NOT modify stocktake data - that's done separately in the view.
+        This only updates the tracking flags.
+        """
+        from django.utils import timezone
+        
+        if self.is_merged_to_stocktake:
+            raise ValueError("This consumption has already been merged")
+        
+        if not self.stock_item:
+            raise ValueError("Cannot merge - no stock item linked")
+        
+        self.is_merged_to_stocktake = True
+        self.merged_at = timezone.now()
+        self.merged_by = staff
+        self.merged_to_stocktake = stocktake
+        self.save()
 
 
 # ============================================================================
@@ -1123,6 +1327,7 @@ class StockMovement(models.Model):
     TRANSFER_IN = 'TRANSFER_IN'
     TRANSFER_OUT = 'TRANSFER_OUT'
     ADJUSTMENT = 'ADJUSTMENT'
+    COCKTAIL_CONSUMPTION = 'COCKTAIL_CONSUMPTION'
 
     MOVEMENT_TYPES = [
         (PURCHASE, 'Purchase/Delivery'),
@@ -1131,6 +1336,7 @@ class StockMovement(models.Model):
         (TRANSFER_IN, 'Transfer In'),
         (TRANSFER_OUT, 'Transfer Out'),
         (ADJUSTMENT, 'Stocktake Adjustment'),
+        (COCKTAIL_CONSUMPTION, 'Cocktail Ingredient Usage (Merged)'),
     ]
 
     hotel = models.ForeignKey(
@@ -1200,8 +1406,14 @@ class StockMovement(models.Model):
             if self.movement_type in [self.PURCHASE, self.TRANSFER_IN]:
                 # Add to partial units (servings)
                 self.item.current_partial_units += self.quantity
-            elif self.movement_type in [self.SALE, self.WASTE, self.TRANSFER_OUT]:
+            elif self.movement_type in [
+                self.SALE,
+                self.WASTE,
+                self.TRANSFER_OUT,
+                self.COCKTAIL_CONSUMPTION
+            ]:
                 # Subtract from partial units (servings)
+                # COCKTAIL_CONSUMPTION is treated as consumption/usage
                 self.item.current_partial_units -= self.quantity
             elif self.movement_type == self.ADJUSTMENT:
                 # Adjustment directly modifies
@@ -1796,3 +2008,98 @@ class StocktakeLine(models.Model):
     def variance_value(self):
         """Variance in monetary terms"""
         return self.counted_value - self.expected_value
+    
+    # ========================================================================
+    # COCKTAIL CONSUMPTION TRACKING (DISPLAY ONLY - DOES NOT AFFECT STOCKTAKE)
+    # ========================================================================
+    
+    def get_available_cocktail_consumption(self):
+        """
+        Get unmerged cocktail consumption for this stock item during the period.
+        
+        CRITICAL: This is for DISPLAY ONLY.
+        Does NOT affect expected_qty, variance_qty, or any stocktake calculations.
+        
+        Returns:
+            QuerySet of CocktailIngredientConsumption that:
+            - Linked to this stock item
+            - Not yet merged (is_merged_to_stocktake=False)
+            - Within stocktake period dates
+        """
+        from django.db.models import Q
+        
+        return CocktailIngredientConsumption.objects.filter(
+            stock_item=self.item,
+            is_merged_to_stocktake=False,
+            timestamp__gte=self.stocktake.period_start,
+            timestamp__lte=self.stocktake.period_end
+        )
+    
+    def get_merged_cocktail_consumption(self):
+        """
+        Get cocktail consumption that has been merged into this stocktake.
+        
+        Returns:
+            QuerySet of CocktailIngredientConsumption that were merged
+        """
+        return CocktailIngredientConsumption.objects.filter(
+            stock_item=self.item,
+            is_merged_to_stocktake=True,
+            merged_to_stocktake=self.stocktake
+        )
+    
+    @property
+    def available_cocktail_consumption_qty(self):
+        """
+        Total quantity of this item used in cocktails (unmerged).
+        
+        DISPLAY ONLY - does NOT affect stocktake calculations.
+        Shows quantity that COULD be merged but hasn't been yet.
+        """
+        from django.db.models import Sum
+        
+        result = self.get_available_cocktail_consumption().aggregate(
+            total=Sum('quantity_used')
+        )
+        return result['total'] or Decimal('0.0000')
+    
+    @property
+    def merged_cocktail_consumption_qty(self):
+        """
+        Total quantity that has been merged from cocktails.
+        
+        DISPLAY ONLY - shows what was already merged.
+        """
+        from django.db.models import Sum
+        
+        result = self.get_merged_cocktail_consumption().aggregate(
+            total=Sum('quantity_used')
+        )
+        return result['total'] or Decimal('0.0000')
+    
+    @property
+    def available_cocktail_consumption_value(self):
+        """
+        Value of unmerged cocktail consumption.
+        
+        DISPLAY ONLY - shows potential value if merged.
+        """
+        return self.available_cocktail_consumption_qty * self.valuation_cost
+    
+    @property
+    def merged_cocktail_consumption_value(self):
+        """
+        Value of merged cocktail consumption.
+        
+        DISPLAY ONLY - shows value that was merged.
+        """
+        return self.merged_cocktail_consumption_qty * self.valuation_cost
+    
+    @property
+    def can_merge_cocktails(self):
+        """
+        Check if there's unmerged cocktail consumption available to merge.
+        
+        Frontend uses this to show/hide the "Merge Cocktails" button.
+        """
+        return self.available_cocktail_consumption_qty > 0

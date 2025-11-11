@@ -3,6 +3,7 @@ from .views import (
     IngredientViewSet,
     CocktailRecipeViewSet,
     CocktailConsumptionViewSet,
+    CocktailIngredientConsumptionViewSet,
     IngredientUsageView,
     StockCategoryViewSet,
     LocationViewSet,
@@ -47,13 +48,34 @@ cocktail_detail = CocktailRecipeViewSet.as_view({
 })
 
 # CocktailConsumption endpoints
-consumption_list = CocktailConsumptionViewSet.as_view({'get': 'list', 'post': 'create'})
+consumption_list = CocktailConsumptionViewSet.as_view({
+    'get': 'list',
+    'post': 'create'
+})
 consumption_detail = CocktailConsumptionViewSet.as_view({
     'get': 'retrieve',
     'put': 'update',
     'patch': 'partial_update',
     'delete': 'destroy'
 })
+
+# CocktailIngredientConsumption endpoints (read-only)
+ingredient_consumption_list = CocktailIngredientConsumptionViewSet.as_view({
+    'get': 'list'
+})
+ingredient_consumption_detail = CocktailIngredientConsumptionViewSet.as_view({
+    'get': 'retrieve'
+})
+ingredient_consumption_available = (
+    CocktailIngredientConsumptionViewSet.as_view({
+        'get': 'available'
+    })
+)
+ingredient_consumption_by_stock = (
+    CocktailIngredientConsumptionViewSet.as_view({
+        'get': 'by_stock_item'
+    })
+)
 
 # Stock Management endpoints
 stock_category_list = StockCategoryViewSet.as_view({
@@ -156,6 +178,9 @@ stocktake_reopen = StocktakeViewSet.as_view({'post': 'reopen'})
 stocktake_category_totals = StocktakeViewSet.as_view({
     'get': 'category_totals'
 })
+stocktake_merge_all_cocktails = StocktakeViewSet.as_view({
+    'post': 'merge_all_cocktail_consumption'
+})
 
 stocktake_line_list = StocktakeLineViewSet.as_view({
     'get': 'list'
@@ -175,6 +200,9 @@ stocktake_line_delete_movement = StocktakeLineViewSet.as_view({
 })
 stocktake_line_update_movement = StocktakeLineViewSet.as_view({
     'patch': 'update_movement'
+})
+stocktake_line_merge_cocktails = StocktakeLineViewSet.as_view({
+    'post': 'merge_cocktail_consumption'
 })
 
 # Sales endpoints
@@ -232,6 +260,28 @@ urlpatterns = [
         '<str:hotel_identifier>/consumptions/sales-report/',
         CocktailConsumptionViewSet.as_view({'get': 'sales_report'}),
         name='consumption-sales-report'
+    ),
+
+    # Cocktail Ingredient Consumptions (individual ingredients used)
+    path(
+        '<str:hotel_identifier>/ingredient-consumptions/',
+        ingredient_consumption_list,
+        name='ingredient-consumption-list'
+    ),
+    path(
+        '<str:hotel_identifier>/ingredient-consumptions/<int:pk>/',
+        ingredient_consumption_detail,
+        name='ingredient-consumption-detail'
+    ),
+    path(
+        '<str:hotel_identifier>/ingredient-consumptions/available/',
+        ingredient_consumption_available,
+        name='ingredient-consumption-available'
+    ),
+    path(
+        '<str:hotel_identifier>/ingredient-consumptions/by-stock-item/',
+        ingredient_consumption_by_stock,
+        name='ingredient-consumption-by-stock-item'
     ),
 
     # Analytics
@@ -409,6 +459,14 @@ urlpatterns = [
         stocktake_category_totals,
         name='stocktake-category-totals'
     ),
+    path(
+        (
+            '<str:hotel_identifier>/stocktakes/<int:pk>/'
+            'merge-all-cocktail-consumption/'
+        ),
+        stocktake_merge_all_cocktails,
+        name='stocktake-merge-all-cocktails'
+    ),
 
     # Stocktake Lines
     path(
@@ -440,6 +498,14 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktake-lines/<int:pk>/update-movement/<int:movement_id>/',
         stocktake_line_update_movement,
         name='line-update-movement'
+    ),
+    path(
+        (
+            '<str:hotel_identifier>/stocktake-lines/<int:pk>/'
+            'merge-cocktail-consumption/'
+        ),
+        stocktake_line_merge_cocktails,
+        name='line-merge-cocktails'
     ),
 
     # Sales
