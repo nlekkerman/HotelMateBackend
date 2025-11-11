@@ -2395,9 +2395,9 @@ class SaleViewSet(viewsets.ModelViewSet):
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
 
-        # Base queryset
+        # Base queryset - filter by item's hotel to include standalone sales
         queryset = Sale.objects.filter(
-            stocktake__hotel=hotel
+            item__hotel=hotel
         ).select_related('stocktake', 'item', 'created_by')
 
         # Filter by stocktake if provided
