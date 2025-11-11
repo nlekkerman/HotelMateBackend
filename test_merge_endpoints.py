@@ -64,7 +64,7 @@ def create_test_stocktake(hotel):
         period_type='WEEKLY',
         start_date=timezone.now().date() - timezone.timedelta(days=7),
         end_date=timezone.now().date(),
-        defaults={'status': 'OPEN'}
+        defaults={'is_closed': False}
     )
     
     print(f"✓ Using period: {period.period_name}")
@@ -75,8 +75,7 @@ def create_test_stocktake(hotel):
         period_start=period.start_date,
         period_end=period.end_date,
         defaults={
-            'status': 'IN_PROGRESS',
-            'created_by': Staff.objects.filter(hotel=hotel).first()
+            'status': 'DRAFT'
         }
     )
     
@@ -292,15 +291,23 @@ def test_locked_stocktake_rejection():
         print("❌ No period found!")
         return
     
-    locked_stocktake = Stocktake.objects.create(
+    locked_start = period.start_date - timezone.timedelta(days=14)
+    locked_end = period.start_date - timezone.timedelta(days=7)
+
+    # Use get_or_create to avoid UniqueConstraint errors if the period already exists
+    locked_stocktake, created = Stocktake.objects.get_or_create(
         hotel=hotel,
-        period_start=period.start_date - timezone.timedelta(days=14),
-        period_end=period.start_date - timezone.timedelta(days=7),
-        status='APPROVED',  # Locked
-        created_by=Staff.objects.filter(hotel=hotel).first()
+        period_start=locked_start,
+        period_end=locked_end,
+        defaults={
+            'status': 'APPROVED'
+        }
     )
-    
-    print(f"✓ Created locked stocktake ID: {locked_stocktake.id}")
+
+    if created:
+        print(f"✓ Created locked stocktake ID: {locked_stocktake.id}")
+    else:
+        print(f"✓ Using existing locked stocktake ID: {locked_stocktake.id}")
     print(f"  - Status: {locked_stocktake.status}")
     print(f"  - Is locked: {locked_stocktake.is_locked}")
     
