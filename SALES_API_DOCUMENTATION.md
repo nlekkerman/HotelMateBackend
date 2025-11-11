@@ -9,10 +9,12 @@ The Sales API allows you to track, create, and query sales data for stock items.
 ## Base URL
 
 ```
-/api/stock-tracker/<hotel_identifier>/sales/
+/api/stock_tracker/<hotel_identifier>/sales/
 ```
 
 **hotel_identifier**: The hotel's slug or subdomain (e.g., `hotel-killarney`, `myhotel`)
+
+**Note:** Use underscore `stock_tracker` not hyphen `stock_tracker`
 
 ---
 
@@ -20,7 +22,7 @@ The Sales API allows you to track, create, and query sales data for stock items.
 
 ### 1. List All Sales
 
-**GET** `/api/stock-tracker/<hotel_identifier>/sales/`
+**GET** `/api/stock_tracker/<hotel_identifier>/sales/`
 
 Retrieves all sales for the specified hotel.
 
@@ -52,7 +54,7 @@ Retrieves all sales for the specified hotel.
 
 ### 2. Filter Sales by Date Range
 
-**GET** `/api/stock-tracker/<hotel_identifier>/sales/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
+**GET** `/api/stock_tracker/<hotel_identifier>/sales/?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD`
 
 Filter sales within a specific date range.
 
@@ -64,23 +66,23 @@ Filter sales within a specific date range.
 
 ```bash
 # Sales from October 1st onwards
-GET /api/stock-tracker/hotel-killarney/sales/?start_date=2025-10-01
+GET /api/stock_tracker/hotel-killarney/sales/?start_date=2025-10-01
 
 # Sales up to October 31st
-GET /api/stock-tracker/hotel-killarney/sales/?end_date=2025-10-31
+GET /api/stock_tracker/hotel-killarney/sales/?end_date=2025-10-31
 
 # Sales in October 2025
-GET /api/stock-tracker/hotel-killarney/sales/?start_date=2025-10-01&end_date=2025-10-31
+GET /api/stock_tracker/hotel-killarney/sales/?start_date=2025-10-01&end_date=2025-10-31
 
 # Sales in September 2025
-GET /api/stock-tracker/hotel-killarney/sales/?start_date=2025-09-01&end_date=2025-09-30
+GET /api/stock_tracker/hotel-killarney/sales/?start_date=2025-09-01&end_date=2025-09-30
 ```
 
 ---
 
 ### 3. Filter Sales by Stocktake Period
 
-**GET** `/api/stock-tracker/<hotel_identifier>/sales/?stocktake=<stocktake_id>`
+**GET** `/api/stock_tracker/<hotel_identifier>/sales/?stocktake=<stocktake_id>`
 
 Get all sales linked to a specific stocktake period.
 
@@ -89,14 +91,14 @@ Get all sales linked to a specific stocktake period.
 
 **Example:**
 ```bash
-GET /api/stock-tracker/hotel-killarney/sales/?stocktake=42
+GET /api/stock_tracker/hotel-killarney/sales/?stocktake=42
 ```
 
 ---
 
 ### 4. Filter Sales by Item
 
-**GET** `/api/stock-tracker/<hotel_identifier>/sales/?item=<item_id>`
+**GET** `/api/stock_tracker/<hotel_identifier>/sales/?item=<item_id>`
 
 Get all sales for a specific stock item.
 
@@ -105,14 +107,14 @@ Get all sales for a specific stock item.
 
 **Example:**
 ```bash
-GET /api/stock-tracker/hotel-killarney/sales/?item=123
+GET /api/stock_tracker/hotel-killarney/sales/?item=123
 ```
 
 ---
 
 ### 5. Filter Sales by Category
 
-**GET** `/api/stock-tracker/<hotel_identifier>/sales/?category=<category_code>`
+**GET** `/api/stock_tracker/<hotel_identifier>/sales/?category=<category_code>`
 
 Get all sales for items in a specific category.
 
@@ -129,10 +131,10 @@ Get all sales for items in a specific category.
 **Example:**
 ```bash
 # All draught beer sales
-GET /api/stock-tracker/hotel-killarney/sales/?category=D
+GET /api/stock_tracker/hotel-killarney/sales/?category=D
 
 # All bottled beer sales
-GET /api/stock-tracker/hotel-killarney/sales/?category=B
+GET /api/stock_tracker/hotel-killarney/sales/?category=B
 ```
 
 ---
@@ -145,20 +147,20 @@ You can combine multiple filters for advanced queries.
 
 ```bash
 # Draught beer sales in October 2025
-GET /api/stock-tracker/hotel-killarney/sales/?category=D&start_date=2025-10-01&end_date=2025-10-31
+GET /api/stock_tracker/hotel-killarney/sales/?category=D&start_date=2025-10-01&end_date=2025-10-31
 
 # Specific item sales in a date range
-GET /api/stock-tracker/hotel-killarney/sales/?item=123&start_date=2025-09-01&end_date=2025-09-30
+GET /api/stock_tracker/hotel-killarney/sales/?item=123&start_date=2025-09-01&end_date=2025-09-30
 
 # Stocktake period sales for specific category
-GET /api/stock-tracker/hotel-killarney/sales/?stocktake=42&category=S
+GET /api/stock_tracker/hotel-killarney/sales/?stocktake=42&category=S
 ```
 
 ---
 
 ### 7. Get Sales Summary
 
-**GET** `/api/stock-tracker/<hotel_identifier>/sales/summary/?stocktake=<stocktake_id>`
+**GET** `/api/stock_tracker/<hotel_identifier>/sales/summary/?stocktake=<stocktake_id>`
 
 Get aggregated sales summary by category for a stocktake period.
 
@@ -199,7 +201,7 @@ Get aggregated sales summary by category for a stocktake period.
 
 ### 8. Create a New Sale
 
-**POST** `/api/stock-tracker/<hotel_identifier>/sales/`
+**POST** `/api/stock_tracker/<hotel_identifier>/sales/`
 
 Create a new sale record.
 
@@ -231,7 +233,7 @@ Create a new sale record.
 
 ### 9. Bulk Create Sales
 
-**POST** `/api/stock-tracker/<hotel_identifier>/sales/bulk-create/`
+**POST** `/api/stock_tracker/<hotel_identifier>/sales/bulk-create/`
 
 Create multiple sales at once.
 
@@ -270,7 +272,7 @@ Create multiple sales at once.
 
 ### 10. Update a Sale
 
-**PATCH** `/api/stock-tracker/<hotel_identifier>/sales/<sale_id>/`
+**PATCH** `/api/stock_tracker/<hotel_identifier>/sales/<sale_id>/`
 
 Update an existing sale record.
 
@@ -286,7 +288,7 @@ Update an existing sale record.
 
 ### 11. Delete a Sale
 
-**DELETE** `/api/stock-tracker/<hotel_identifier>/sales/<sale_id>/`
+**DELETE** `/api/stock_tracker/<hotel_identifier>/sales/<sale_id>/`
 
 Delete a sale record.
 
@@ -299,7 +301,7 @@ Delete a sale record.
 ```javascript
 // Get all sales for a date range
 const fetchSalesByDateRange = async (hotelIdentifier, startDate, endDate) => {
-  const url = `/api/stock-tracker/${hotelIdentifier}/sales/?start_date=${startDate}&end_date=${endDate}`;
+  const url = `/api/stock_tracker/${hotelIdentifier}/sales/?start_date=${startDate}&end_date=${endDate}`;
   const response = await fetch(url);
   const sales = await response.json();
   return sales;
@@ -311,7 +313,7 @@ console.log(sales);
 
 // Create a new sale
 const createSale = async (hotelIdentifier, saleData) => {
-  const url = `/api/stock-tracker/${hotelIdentifier}/sales/`;
+  const url = `/api/stock_tracker/${hotelIdentifier}/sales/`;
   const response = await fetch(url, {
     method: 'POST',
     headers: {
@@ -349,7 +351,7 @@ const getSales = async (filters) => {
   if (item) params.append('item', item);
   
   const response = await axios.get(
-    `/api/stock-tracker/${hotelIdentifier}/sales/?${params.toString()}`
+    `/api/stock_tracker/${hotelIdentifier}/sales/?${params.toString()}`
   );
   
   return response.data;
@@ -374,7 +376,7 @@ Fetch today's sales:
 ```javascript
 const today = new Date().toISOString().split('T')[0];
 const todaySales = await fetch(
-  `/api/stock-tracker/hotel-killarney/sales/?start_date=${today}&end_date=${today}`
+  `/api/stock_tracker/hotel-killarney/sales/?start_date=${today}&end_date=${today}`
 );
 ```
 
@@ -389,7 +391,7 @@ const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
   .toISOString().split('T')[0];
 
 const monthlySales = await fetch(
-  `/api/stock-tracker/hotel-killarney/sales/?start_date=${startOfMonth}&end_date=${endOfMonth}`
+  `/api/stock_tracker/hotel-killarney/sales/?start_date=${startOfMonth}&end_date=${endOfMonth}`
 );
 ```
 
@@ -398,7 +400,7 @@ const monthlySales = await fetch(
 Fetch all draught beer sales for analysis:
 ```javascript
 const draughtSales = await fetch(
-  `/api/stock-tracker/hotel-killarney/sales/?category=D&start_date=2025-09-01&end_date=2025-09-30`
+  `/api/stock_tracker/hotel-killarney/sales/?category=D&start_date=2025-09-01&end_date=2025-09-30`
 );
 ```
 
@@ -477,7 +479,7 @@ You can test the API using:
 2. **Postman:** Import the endpoints and test with different parameters
 3. **cURL:**
    ```bash
-   curl "http://localhost:8000/api/stock-tracker/hotel-killarney/sales/?start_date=2025-09-01&end_date=2025-09-30"
+   curl "http://localhost:8000/api/stock_tracker/hotel-killarney/sales/?start_date=2025-09-01&end_date=2025-09-30"
    ```
 
 4. **Python Script:** Use the provided test scripts in the repository

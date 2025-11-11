@@ -2436,28 +2436,61 @@ class SaleViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def summary(self, request, hotel_identifier=None):
         """
-        Get sales summary for a stocktake.
+        Get sales summary by date range OR stocktake.
         Returns total sales by category.
+        
+        Query Parameters:
+        - start_date & end_date: Filter by date range (YYYY-MM-DD)
+        - stocktake: Filter by stocktake ID (legacy support)
+        
+        Date range is preferred and independent of stocktakes.
         """
         from django.db.models import Sum, Count
+        from datetime import datetime
 
         hotel = get_object_or_404(
             Hotel,
             Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
         )
 
-        stocktake_id = request.query_params.get('stocktake')
-        if not stocktake_id:
+        # Base queryset - filter by hotel through item
+        sales_qs = Sale.objects.filter(item__hotel=hotel)
+
+        # Option 1: Filter by date range (PREFERRED)
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        if start_date and end_date:
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+                sales_qs = sales_qs.filter(
+                    sale_date__gte=start,
+                    sale_date__lte=end
+                )
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        # Option 2: Filter by stocktake (legacy support)
+        elif request.query_params.get('stocktake'):
+            stocktake_id = request.query_params.get('stocktake')
+            sales_qs = sales_qs.filter(stocktake_id=stocktake_id)
+        else:
             return Response(
-                {"error": "stocktake parameter is required"},
+                {
+                    "error": "Either start_date & end_date OR stocktake parameter is required",
+                    "examples": [
+                        "?start_date=2025-10-01&end_date=2025-10-31",
+                        "?stocktake=123"
+                    ]
+                },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         # Get sales grouped by category
-        sales_by_category = Sale.objects.filter(
-            stocktake_id=stocktake_id,
-            stocktake__hotel=hotel
-        ).values(
+        sales_by_category = sales_qs.values(
             'item__category__code',
             'item__category__name'
         ).annotate(
@@ -2468,10 +2501,7 @@ class SaleViewSet(viewsets.ModelViewSet):
         ).order_by('item__category__code')
 
         # Calculate overall totals
-        overall = Sale.objects.filter(
-            stocktake_id=stocktake_id,
-            stocktake__hotel=hotel
-        ).aggregate(
+        overall = sales_qs.aggregate(
             total_quantity=Sum('quantity'),
             total_cost=Sum('total_cost'),
             total_revenue=Sum('total_revenue'),
