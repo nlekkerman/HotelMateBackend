@@ -2026,13 +2026,22 @@ class StocktakeLine(models.Model):
             - Not yet merged (is_merged_to_stocktake=False)
             - Within stocktake period dates
         """
-        from django.db.models import Q
+        from django.utils import timezone
+        from datetime import datetime
+        
+        # Convert dates to datetime for proper comparison
+        start_dt = timezone.make_aware(
+            datetime.combine(self.stocktake.period_start, datetime.min.time())
+        )
+        end_dt = timezone.make_aware(
+            datetime.combine(self.stocktake.period_end, datetime.max.time())
+        )
         
         return CocktailIngredientConsumption.objects.filter(
             stock_item=self.item,
             is_merged_to_stocktake=False,
-            timestamp__gte=self.stocktake.period_start,
-            timestamp__lte=self.stocktake.period_end
+            timestamp__gte=start_dt,
+            timestamp__lte=end_dt
         )
     
     def get_merged_cocktail_consumption(self):
