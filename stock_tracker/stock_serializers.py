@@ -1277,10 +1277,12 @@ class SalesAnalysisSerializer(serializers.Serializer):
             'gp_percentage': 0.0
         }
         
-        if include_cocktails:
+        if include_cocktails and stocktake:
             cocktail_consumptions = CocktailConsumption.objects.filter(
-                stocktake=stocktake
-            ) if stocktake else CocktailConsumption.objects.none()
+                hotel=period.hotel,
+                timestamp__gte=period.start_date,
+                timestamp__lte=period.end_date
+            )
             
             cocktail_revenue = sum(
                 consumption.total_revenue or Decimal('0')

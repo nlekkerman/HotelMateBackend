@@ -299,7 +299,9 @@ def get_category_breakdown(
     # Add cocktails as separate category
     if include_cocktails:
         cocktail_data = CocktailConsumption.objects.filter(
-            stocktake=stocktake
+            hotel=period.hotel,
+            timestamp__gte=period.start_date,
+            timestamp__lte=period.end_date
         ).aggregate(
             total_revenue=Sum('total_revenue'),
             total_cost=Sum('total_cost'),
