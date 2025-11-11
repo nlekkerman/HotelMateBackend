@@ -131,6 +131,12 @@ period_approve_and_close = StockPeriodViewSet.as_view({
 period_sales_analysis = StockPeriodViewSet.as_view({
     'get': 'sales_analysis'
 })
+period_download_pdf = StockPeriodViewSet.as_view({
+    'get': 'download_pdf'
+})
+period_download_excel = StockPeriodViewSet.as_view({
+    'get': 'download_excel'
+})
 
 snapshot_list = StockSnapshotViewSet.as_view({
     'get': 'list', 'post': 'create'
@@ -180,6 +186,12 @@ stocktake_category_totals = StocktakeViewSet.as_view({
 })
 stocktake_merge_all_cocktails = StocktakeViewSet.as_view({
     'post': 'merge_all_cocktail_consumption'
+})
+stocktake_download_pdf = StocktakeViewSet.as_view({
+    'get': 'download_pdf'
+})
+stocktake_download_excel = StocktakeViewSet.as_view({
+    'get': 'download_excel'
 })
 
 stocktake_line_list = StocktakeLineViewSet.as_view({
@@ -376,6 +388,16 @@ urlpatterns = [
         period_sales_analysis,
         name='period-sales-analysis'
     ),
+    path(
+        '<str:hotel_identifier>/periods/<int:pk>/download-pdf/',
+        period_download_pdf,
+        name='period-download-pdf'
+    ),
+    path(
+        '<str:hotel_identifier>/periods/<int:pk>/download-excel/',
+        period_download_excel,
+        name='period-download-excel'
+    ),
 
     # Stock Snapshots
     path(
@@ -466,6 +488,16 @@ urlpatterns = [
         ),
         stocktake_merge_all_cocktails,
         name='stocktake-merge-all-cocktails'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktakes/<int:pk>/download-pdf/',
+        stocktake_download_pdf,
+        name='stocktake-download-pdf'
+    ),
+    path(
+        '<str:hotel_identifier>/stocktakes/<int:pk>/download-excel/',
+        stocktake_download_excel,
+        name='stocktake-download-excel'
     ),
 
     # Stocktake Lines

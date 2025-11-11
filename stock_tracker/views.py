@@ -1106,6 +1106,88 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         serializer = SalesAnalysisSerializer(data)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['get'], url_path='download-pdf')
+    def download_pdf(self, request, pk=None, hotel_identifier=None):
+        """
+        Download period report as PDF.
+        
+        GET /api/stock-tracker/{hotel_identifier}/periods/{id}/download-pdf/
+        
+        Query params:
+        - include_cocktails: true/false (default: true)
+        
+        Returns: PDF file download
+        """
+        from django.http import HttpResponse
+        from .utils.pdf_generator import generate_period_pdf
+        
+        period = self.get_object()
+        
+        # Get parameters
+        include_cocktails = request.query_params.get(
+            'include_cocktails', 'true'
+        ).lower() == 'true'
+        
+        # Generate PDF
+        pdf_buffer = generate_period_pdf(period, include_cocktails)
+        
+        # Create filename
+        filename = (
+            f"period_{period.hotel.name.replace(' ', '_')}_"
+            f"{period.period_name.replace(' ', '_')}.pdf"
+        )
+        
+        # Return PDF as download
+        response = HttpResponse(
+            pdf_buffer.getvalue(),
+            content_type='application/pdf'
+        )
+        response['Content-Disposition'] = \
+            f'attachment; filename="{filename}"'
+        
+        return response
+
+    @action(detail=True, methods=['get'], url_path='download-excel')
+    def download_excel(self, request, pk=None, hotel_identifier=None):
+        """
+        Download period report as Excel workbook.
+        
+        GET /api/stock-tracker/{hotel_identifier}/periods/{id}/download-excel/
+        
+        Query params:
+        - include_cocktails: true/false (default: true)
+        
+        Returns: Excel file download
+        """
+        from django.http import HttpResponse
+        from .utils.excel_generator import generate_period_excel
+        
+        period = self.get_object()
+        
+        # Get parameters
+        include_cocktails = request.query_params.get(
+            'include_cocktails', 'true'
+        ).lower() == 'true'
+        
+        # Generate Excel
+        excel_buffer = generate_period_excel(period, include_cocktails)
+        
+        # Create filename
+        filename = (
+            f"period_{period.hotel.name.replace(' ', '_')}_"
+            f"{period.period_name.replace(' ', '_')}.xlsx"
+        )
+        
+        # Return Excel as download
+        response = HttpResponse(
+            excel_buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = \
+            f'attachment; filename="{filename}"'
+        
+        return response
+
 
 class StockSnapshotViewSet(viewsets.ModelViewSet):
     """
@@ -1693,6 +1775,72 @@ class StocktakeViewSet(viewsets.ModelViewSet):
             ),
             'summary': merge_summary
         }, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['get'], url_path='download-pdf')
+    def download_pdf(self, request, pk=None, hotel_identifier=None):
+        """
+        Download stocktake as PDF report.
+        
+        GET /api/stock-tracker/{hotel_identifier}/stocktakes/{id}/download-pdf/
+        
+        Returns: PDF file download
+        """
+        from django.http import HttpResponse
+        from .utils.pdf_generator import generate_stocktake_pdf
+        
+        stocktake = self.get_object()
+        
+        # Generate PDF
+        pdf_buffer = generate_stocktake_pdf(stocktake)
+        
+        # Create filename
+        filename = (
+            f"stocktake_{stocktake.hotel.name.replace(' ', '_')}_"
+            f"{stocktake.period_start}_to_{stocktake.period_end}.pdf"
+        )
+        
+        # Return PDF as download
+        response = HttpResponse(
+            pdf_buffer.getvalue(),
+            content_type='application/pdf'
+        )
+        response['Content-Disposition'] = \
+            f'attachment; filename="{filename}"'
+        
+        return response
+
+    @action(detail=True, methods=['get'], url_path='download-excel')
+    def download_excel(self, request, pk=None, hotel_identifier=None):
+        """
+        Download stocktake as Excel workbook.
+        
+        GET /api/stock-tracker/{hotel_identifier}/stocktakes/{id}/download-excel/
+        
+        Returns: Excel file download
+        """
+        from django.http import HttpResponse
+        from .utils.excel_generator import generate_stocktake_excel
+        
+        stocktake = self.get_object()
+        
+        # Generate Excel
+        excel_buffer = generate_stocktake_excel(stocktake)
+        
+        # Create filename
+        filename = (
+            f"stocktake_{stocktake.hotel.name.replace(' ', '_')}_"
+            f"{stocktake.period_start}_to_{stocktake.period_end}.xlsx"
+        )
+        
+        # Return Excel as download
+        response = HttpResponse(
+            excel_buffer.getvalue(),
+            content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+        response['Content-Disposition'] = \
+            f'attachment; filename="{filename}"'
+        
+        return response
 
 
 class StocktakeLineViewSet(viewsets.ModelViewSet):
