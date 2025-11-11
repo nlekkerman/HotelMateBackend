@@ -220,67 +220,112 @@ def analyze_trends(periods: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def get_category_breakdown(
-    period_data: Dict[str, Any],
+    period,
     include_cocktails: bool = True
-) -> Dict[str, Any]:
+) -> List[Dict[str, Any]]:
     """
-    Get sales breakdown by category.
+    Get sales breakdown by category for a StockPeriod.
     
     Args:
-        period_data: Period sales data containing category breakdowns
+        period: StockPeriod object
         include_cocktails: Whether to include cocktails as separate category
     
     Returns:
-        {
-            'stock_categories': {
-                'D': {...},
-                'B': {...},
-                'S': {...},
-                'W': {...},
-                'M': {...}
+        List of category data:
+        [
+            {
+                'code': 'D',
+                'name': 'Draught Beer',
+                'revenue': Decimal,
+                'cost': Decimal,
+                'profit': Decimal,
+                'count': int,
+                'gp_percentage': float
             },
-            'cocktails': {...},  # Only if include_cocktails=True
-            'combined_total': Decimal
-        }
+            ...
+        ]
     """
-    result = {
-        'stock_categories': {},
-        'combined_total': Decimal('0.00')
-    }
+    from stock_tracker.models import Stocktake, Sale, StockCategory
+    from entertainment.models import CocktailConsumption
+    from django.db.models import Sum, Count
     
-    # Stock categories
-    stock_categories = period_data.get('stock_categories', {})
-    total = Decimal('0.00')
+    result = []
     
-    for category_code, data in stock_categories.items():
-        revenue = Decimal(str(data.get('revenue', 0)))
-        cost = Decimal(str(data.get('cost', 0)))
+    # Get matching stocktake
+    stocktake = Stocktake.objects.filter(
+        hotel=period.hotel,
+        period_start=period.start_date,
+        period_end=period.end_date
+    ).first()
+    
+    if not stocktake:
+        return result
+    
+    # Get stock category breakdown
+    categories = StockCategory.objects.all()
+    
+    for category in categories:
+        # Filter sales by category
+        category_sales = Sale.objects.filter(
+            stocktake=stocktake,
+            item__category=category
+        ).aggregate(
+            total_revenue=Sum('total_revenue'),
+            total_cost=Sum('total_cost'),
+            count=Count('id')
+        )
         
-        result['stock_categories'][category_code] = {
-            'name': data.get('name', category_code),
-            'revenue': revenue,
-            'cost': cost,
-            'profit': revenue - cost,
-            'count': data.get('count', 0)
-        }
-        total += revenue
+        revenue = category_sales['total_revenue'] or Decimal('0.00')
+        cost = category_sales['total_cost'] or Decimal('0.00')
+        count = category_sales['count'] or 0
+        profit = revenue - cost
+        
+        gp_pct = 0.0
+        if revenue > 0:
+            gp_pct = float((profit / revenue) * 100)
+        
+        if count > 0:  # Only include categories with sales
+            result.append({
+                'code': category.code,
+                'name': category.name,
+                'revenue': float(revenue),
+                'cost': float(cost),
+                'profit': float(profit),
+                'count': count,
+                'gp_percentage': round(gp_pct, 2)
+            })
     
-    # Cocktails (separate category)
+    # Add cocktails as separate category
     if include_cocktails:
-        cocktail_data = period_data.get('cocktails', {})
-        cocktail_revenue = Decimal(str(cocktail_data.get('revenue', 0)))
-        cocktail_cost = Decimal(str(cocktail_data.get('cost', 0)))
+        cocktail_data = CocktailConsumption.objects.filter(
+            stocktake=stocktake
+        ).aggregate(
+            total_revenue=Sum('total_revenue'),
+            total_cost=Sum('total_cost'),
+            count=Count('id')
+        )
         
-        result['cocktails'] = {
-            'name': 'Cocktails',
-            'revenue': cocktail_revenue,
-            'cost': cocktail_cost,
-            'profit': cocktail_revenue - cocktail_cost,
-            'count': cocktail_data.get('count', 0)
-        }
-        total += cocktail_revenue
-    
-    result['combined_total'] = total
+        cocktail_revenue = cocktail_data['total_revenue'] or Decimal('0.00')
+        cocktail_cost = cocktail_data['total_cost'] or Decimal('0.00')
+        cocktail_count = cocktail_data['count'] or 0
+        cocktail_profit = cocktail_revenue - cocktail_cost
+        
+        cocktail_gp_pct = 0.0
+        if cocktail_revenue > 0:
+            cocktail_gp_pct = float(
+                (cocktail_profit / cocktail_revenue) * 100
+            )
+        
+        if cocktail_count > 0:  # Only include if there are cocktails
+            result.append({
+                'code': 'COCKTAILS',
+                'name': 'Cocktails',
+                'revenue': float(cocktail_revenue),
+                'cost': float(cocktail_cost),
+                'profit': float(cocktail_profit),
+                'count': cocktail_count,
+                'gp_percentage': round(cocktail_gp_pct, 2)
+            })
     
     return result
 
