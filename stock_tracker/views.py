@@ -2481,7 +2481,10 @@ class SaleViewSet(viewsets.ModelViewSet):
         # Base queryset - filter by hotel through item
         sales_qs = Sale.objects.filter(item__hotel=hotel)
 
-        # Option 1: Filter by date range (PREFERRED)
+        # Initialize stocktake_id as None (only set if stocktake param used)
+        stocktake_id = None
+
+        # Option 1: Filter by date range (PREFERRED - INDEPENDENT FROM STOCKTAKE)
         start_date = request.query_params.get('start_date')
         end_date = request.query_params.get('end_date')
         
@@ -2545,11 +2548,22 @@ class SaleViewSet(viewsets.ModelViewSet):
             overall['gross_profit'] = None
             overall['gross_profit_percentage'] = None
 
-        return Response({
-            'stocktake_id': stocktake_id,
+        # Build response - only include stocktake_id if it was used
+        response_data = {
             'by_category': list(sales_by_category),
             'overall': overall
-        })
+        }
+        
+        # Add date range to response if used
+        if start_date and end_date:
+            response_data['start_date'] = start_date
+            response_data['end_date'] = end_date
+        
+        # Add stocktake_id to response if used (legacy support)
+        if stocktake_id:
+            response_data['stocktake_id'] = stocktake_id
+
+        return Response(response_data)
 
     @action(detail=False, methods=['post'])
     def bulk_create(self, request, hotel_identifier=None):
