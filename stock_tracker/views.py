@@ -2091,6 +2091,125 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         
         return response
 
+    @action(detail=False, methods=['get'], url_path='download-combined-pdf')
+    @action(detail=True, methods=['get'], url_path='download-combined-pdf')
+    def download_combined_pdf(self, request, pk=None, hotel_identifier=None):
+        """
+        Download combined stocktake + period report as single PDF.
+        
+        Supports TWO access methods:
+        
+        1. By ID:
+           GET /api/stock-tracker/{hotel_identifier}/stocktakes/
+               {id}/download-combined-pdf/
+        
+        2. By date range:
+           GET /api/stock-tracker/{hotel_identifier}/stocktakes/
+               download-combined-pdf/?start_date=2024-11-01&end_date=2024-11-30
+        
+        Query Parameters:
+        - start_date: Period start date (for date range method)
+        - end_date: Period end date (for date range method)
+        - include_cocktails: Include cocktail data (default: true)
+        
+        Returns: Combined PDF file with stocktake + period data
+        """
+        from django.http import HttpResponse
+        from .utils.combined_pdf_generator import generate_combined_report_pdf
+        from datetime import datetime
+        
+        # Get hotel
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
+        
+        # Method 1: Access by ID
+        if pk is not None:
+            stocktake = self.get_object()
+        # Method 2: Access by date range
+        else:
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            if not start_date or not end_date:
+                return Response(
+                    {
+                        "error": "start_date and end_date are required",
+                        "example": "?start_date=2024-11-01&end_date=2024-11-30"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+            except ValueError:
+                return Response(
+                    {"error": "Invalid date format. Use YYYY-MM-DD"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            stocktake = Stocktake.objects.filter(
+                hotel=hotel,
+                period_start=start,
+                period_end=end
+            ).first()
+            
+            if not stocktake:
+                return Response(
+                    {
+                        "error": "No stocktake found for date range",
+                        "start_date": start_date,
+                        "end_date": end_date
+                    },
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        
+        # Find matching period
+        period = StockPeriod.objects.filter(
+            hotel=hotel,
+            start_date=stocktake.period_start,
+            end_date=stocktake.period_end
+        ).first()
+        
+        if not period:
+            return Response(
+                {
+                    "error": "No matching period found for this stocktake",
+                    "suggestion": "Ensure a period exists with matching dates"
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get parameters
+        include_cocktails = request.query_params.get(
+            'include_cocktails', 'true'
+        ).lower() == 'true'
+        
+        # Generate combined PDF
+        pdf_buffer = generate_combined_report_pdf(
+            stocktake,
+            period,
+            include_cocktails
+        )
+        
+        # Create filename
+        filename = (
+            f"combined_report_{hotel.name.replace(' ', '_')}_"
+            f"{stocktake.period_start}_to_{stocktake.period_end}.pdf"
+        )
+        
+        # Return PDF as download
+        response = HttpResponse(
+            pdf_buffer.getvalue(),
+            content_type='application/pdf'
+        )
+        response['Content-Disposition'] = \
+            f'attachment; filename="{filename}"'
+        
+        return response
+
 
 class StocktakeLineViewSet(viewsets.ModelViewSet):
     serializer_class = StocktakeLineSerializer

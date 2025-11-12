@@ -193,6 +193,9 @@ stocktake_download_pdf = StocktakeViewSet.as_view({
 stocktake_download_excel = StocktakeViewSet.as_view({
     'get': 'download_excel'
 })
+stocktake_download_combined = StocktakeViewSet.as_view({
+    'get': 'download_combined_pdf'
+})
 
 stocktake_line_list = StocktakeLineViewSet.as_view({
     'get': 'list'
@@ -520,6 +523,18 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktakes/download-excel/',
         stocktake_download_excel,
         name='stocktake-download-excel-by-date'
+    ),
+    # Combined report (stocktake + period) - by ID
+    path(
+        '<str:hotel_identifier>/stocktakes/<int:pk>/download-combined-pdf/',
+        stocktake_download_combined,
+        name='stocktake-download-combined-pdf'
+    ),
+    # Combined report (stocktake + period) - by date
+    path(
+        '<str:hotel_identifier>/stocktakes/download-combined-pdf/',
+        stocktake_download_combined,
+        name='stocktake-download-combined-pdf-by-date'
     ),
 
     # Stocktake Lines
