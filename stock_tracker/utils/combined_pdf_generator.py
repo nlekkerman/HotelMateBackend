@@ -179,11 +179,12 @@ def generate_combined_report_pdf(stocktake, period, include_cocktails=True):
     elements.append(Spacer(1, 0.2 * inch))
     
     # Period info
+    period_status = 'Closed' if period.is_closed else 'Open'
     period_info = [
         ['Period Name:', period.period_name],
         ['Dates:', f"{period.start_date} to {period.end_date}"],
         ['Type:', period.get_period_type_display()],
-        ['Status:', period.get_status_display()],
+        ['Status:', period_status],
     ]
     
     period_info_table = Table(period_info, colWidths=[1.5*inch, 6*inch])

@@ -28,8 +28,7 @@ GET /api/stock-tracker/hotel-killarney/stocktakes/17/download-pdf/
 **Status Support:**
 - ✅ Works with **DRAFT** stocktakes
 - ✅ Works with **APPROVED** stocktakes
-- ✅ Works with **IN_PROGRESS** stocktakes
-- No restrictions based on status
+- No restrictions based on stocktake status
 
 **What it includes:**
 - Stocktake header (hotel name, dates, status)
