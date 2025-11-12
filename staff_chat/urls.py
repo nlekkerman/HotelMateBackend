@@ -31,6 +31,20 @@ urlpatterns = [
         name='conversation-for-forwarding'
     ),
     path(
+        '<slug:hotel_slug>/conversations/unread-count/',
+        StaffConversationViewSet.as_view({
+            'get': 'unread_count'
+        }),
+        name='conversation-unread-count'
+    ),
+    path(
+        '<slug:hotel_slug>/conversations/bulk-mark-as-read/',
+        StaffConversationViewSet.as_view({
+            'post': 'bulk_mark_as_read'
+        }),
+        name='conversation-bulk-mark-as-read'
+    ),
+    path(
         '<slug:hotel_slug>/conversations/<int:pk>/',
         StaffConversationViewSet.as_view({
             'get': 'retrieve',
@@ -55,6 +69,13 @@ urlpatterns = [
         '<slug:hotel_slug>/conversations/<int:conversation_id>/messages/',
         views_messages.get_conversation_messages,
         name='conversation-messages'
+    ),
+    
+    # Mark individual message as read
+    path(
+        '<slug:hotel_slug>/messages/<int:message_id>/mark-as-read/',
+        views_messages.mark_message_as_read,
+        name='mark-message-as-read'
     ),
     
     # Edit message
@@ -115,7 +136,7 @@ urlpatterns = [
         name='get-attachment-url'
     ),
     
-    # ==================== LEGACY ENDPOINTS (kept for compatibility) ====================
+    # ============ LEGACY ENDPOINTS (kept for compatibility) ============
     
     # Legacy send message endpoint
     path(

@@ -254,6 +254,9 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
         Mark all messages in conversation as read by current user
         POST /api/staff-chat/<hotel_slug>/conversations/{id}/mark_as_read/
         """
+        from .pusher_utils import broadcast_read_receipt
+        from django.utils import timezone
+        
         conversation = self.get_object()
 
         try:
@@ -269,14 +272,218 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
             is_deleted=False
         ).exclude(sender=staff).exclude(read_by=staff)
 
+        marked_message_ids = []
         for message in unread_messages:
             message.read_by.add(staff)
-            if not message.is_read:
+            marked_message_ids.append(message.id)
+            
+            # Check if ALL participants have read
+            all_participants = conversation.participants.exclude(
+                id=message.sender.id
+            )
+            if message.read_by.count() >= all_participants.count():
                 message.is_read = True
-                message.save(update_fields=['is_read'])
+                message.status = 'read'
+                message.save(update_fields=['is_read', 'status'])
+
+        # Broadcast read receipt to other participants
+        if marked_message_ids:
+            try:
+                staff_name = f"{staff.first_name} {staff.last_name}".strip()
+                broadcast_read_receipt(
+                    hotel_slug,
+                    conversation.id,
+                    {
+                        'staff_id': staff.id,
+                        'staff_name': staff_name,
+                        'message_ids': marked_message_ids,
+                        'timestamp': timezone.now().isoformat()
+                    }
+                )
+            except Exception:
+                # Log but don't fail the request
+                pass
 
         return Response(
-            {'message': f'Marked {unread_messages.count()} messages as read'},
+            {
+                'success': True,
+                'marked_count': len(marked_message_ids),
+                'message_ids': marked_message_ids
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=False, methods=['post'])
+    def bulk_mark_as_read(self, request, hotel_slug=None):
+        """
+        Mark multiple conversations as read in one request
+        POST /api/staff-chat/<hotel_slug>/conversations/bulk-mark-as-read/
+        
+        Body:
+        {
+            "conversation_ids": [1, 2, 3, ...]
+        }
+        
+        Returns:
+        {
+            "success": true,
+            "marked_conversations": 3,
+            "total_messages_marked": 45
+        }
+        """
+        from .pusher_utils import broadcast_read_receipt
+        from django.utils import timezone
+        
+        try:
+            staff = Staff.objects.get(user=request.user)
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        conversation_ids = request.data.get('conversation_ids', [])
+        
+        if not conversation_ids:
+            return Response(
+                {'error': 'conversation_ids is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get conversations where user is participant
+        conversations = StaffConversation.objects.filter(
+            id__in=conversation_ids,
+            hotel__slug=hotel_slug,
+            participants=staff
+        )
+        
+        total_marked = 0
+        marked_conversations = 0
+        
+        for conversation in conversations:
+            # Get unread messages in this conversation
+            unread_messages = conversation.messages.filter(
+                is_deleted=False
+            ).exclude(sender=staff).exclude(read_by=staff)
+            
+            marked_message_ids = []
+            for message in unread_messages:
+                message.read_by.add(staff)
+                marked_message_ids.append(message.id)
+                
+                # Check if ALL participants have read
+                all_participants = conversation.participants.exclude(
+                    id=message.sender.id
+                )
+                if message.read_by.count() >= all_participants.count():
+                    message.is_read = True
+                    message.status = 'read'
+                    message.save(update_fields=['is_read', 'status'])
+            
+            if marked_message_ids:
+                total_marked += len(marked_message_ids)
+                marked_conversations += 1
+                
+                # Broadcast read receipt for this conversation
+                try:
+                    staff_name = (
+                        f"{staff.first_name} {staff.last_name}".strip()
+                    )
+                    broadcast_read_receipt(
+                        hotel_slug,
+                        conversation.id,
+                        {
+                            'staff_id': staff.id,
+                            'staff_name': staff_name,
+                            'message_ids': marked_message_ids,
+                            'timestamp': timezone.now().isoformat()
+                        }
+                    )
+                except Exception:
+                    # Log but don't fail the request
+                    pass
+        
+        return Response(
+            {
+                'success': True,
+                'marked_conversations': marked_conversations,
+                'total_messages_marked': total_marked
+            },
+            status=status.HTTP_200_OK
+        )
+    
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request, hotel_slug=None):
+        """
+        Get total unread message count across all conversations
+        GET /api/staff-chat/<hotel_slug>/conversations/unread-count/
+        
+        Returns:
+        {
+            "total_unread": 42,
+            "conversations_with_unread": 5,
+            "breakdown": [
+                {
+                    "conversation_id": 1,
+                    "unread_count": 15,
+                    "title": "Team Chat",
+                    "is_group": true
+                },
+                ...
+            ]
+        }
+        """
+        try:
+            staff = Staff.objects.get(user=request.user)
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all conversations where user is participant
+        conversations = StaffConversation.objects.filter(
+            hotel__slug=hotel_slug,
+            participants=staff
+        ).prefetch_related('participants', 'messages')
+        
+        total_unread = 0
+        conversations_with_unread = 0
+        breakdown = []
+        
+        for conversation in conversations:
+            unread_count = conversation.get_unread_count_for_staff(staff)
+            
+            if unread_count > 0:
+                total_unread += unread_count
+                conversations_with_unread += 1
+                
+                # Get display title
+                if conversation.is_group:
+                    display_title = conversation.title or "Group Chat"
+                else:
+                    other = conversation.get_other_participant(staff)
+                    display_title = (
+                        f"{other.first_name} {other.last_name}".strip()
+                        if other else "Conversation"
+                    )
+                
+                breakdown.append({
+                    'conversation_id': conversation.id,
+                    'unread_count': unread_count,
+                    'title': display_title,
+                    'is_group': conversation.is_group
+                })
+        
+        # Sort breakdown by unread count (highest first)
+        breakdown.sort(key=lambda x: x['unread_count'], reverse=True)
+        
+        return Response(
+            {
+                'total_unread': total_unread,
+                'conversations_with_unread': conversations_with_unread,
+                'breakdown': breakdown
+            },
             status=status.HTTP_200_OK
         )
 

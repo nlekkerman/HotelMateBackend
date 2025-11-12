@@ -47,6 +47,80 @@ logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def mark_message_as_read(request, hotel_slug, message_id):
+    """
+    Mark a specific message as read by current user
+    POST /api/staff-chat/<hotel_slug>/messages/<id>/mark-as-read/
+    
+    Useful for marking individual messages in group chats
+    Returns updated message with read status
+    """
+    from .pusher_utils import broadcast_read_receipt
+    
+    message = get_object_or_404(
+        StaffChatMessage,
+        id=message_id,
+        conversation__hotel__slug=hotel_slug
+    )
+    
+    # Check if user is participant
+    try:
+        staff = request.user.staff_profile
+    except AttributeError:
+        return Response(
+            {'error': 'Staff profile not found'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    if not message.conversation.participants.filter(id=staff.id).exists():
+        return Response(
+            {'error': 'You are not a participant in this conversation'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Mark as read
+    was_unread = not message.read_by.filter(id=staff.id).exists()
+    
+    if was_unread and staff.id != message.sender.id:
+        message.mark_as_read_by(staff)
+        
+        # Broadcast read receipt
+        try:
+            staff_name = f"{staff.first_name} {staff.last_name}".strip()
+            broadcast_read_receipt(
+                hotel_slug,
+                message.conversation.id,
+                {
+                    'staff_id': staff.id,
+                    'staff_name': staff_name,
+                    'message_ids': [message.id],
+                    'timestamp': timezone.now().isoformat()
+                }
+            )
+            logger.info(
+                f"✅ Read receipt broadcasted for message {message.id}"
+            )
+        except Exception:
+            # Log but don't fail the request
+            logger.warning(
+                f"Failed to broadcast read receipt for message {message.id}"
+            )
+    
+    # Serialize and return updated message
+    serializer = StaffChatMessageSerializer(
+        message,
+        context={'request': request}
+    )
+    
+    return Response({
+        'success': True,
+        'was_unread': was_unread,
+        'message': serializer.data
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
 def send_message(request, hotel_slug, conversation_id):
     """
     Send a new message in a conversation

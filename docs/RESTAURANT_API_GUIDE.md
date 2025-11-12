@@ -126,10 +126,12 @@ Get all active restaurants for a specific hotel.
 **Endpoint:** `GET /api/bookings/{hotel_slug}/restaurants/`
 
 **URL Parameters:**
-- `hotel_slug` (string, required) - The hotel identifier
+- `hotel_slug` (string, **REQUIRED**) - The hotel identifier
 
 **Query Parameters:**
 - None
+
+**⚠️ IMPORTANT:** Hotel slug is **ALWAYS REQUIRED**. Without it, the API returns an empty list.
 
 **Response (200 OK):**
 
@@ -172,10 +174,16 @@ Get all active restaurants for a specific hotel.
 
 **Alternative Endpoint (Query Param):**
 
-You can also filter restaurants using the default router endpoint:
+You can also use query parameter (hotel_slug is still **REQUIRED**):
 
 ```
 GET /api/bookings/restaurants/?hotel_slug=grand-hotel
+```
+
+**Without hotel_slug:**
+```
+GET /api/bookings/restaurants/
+→ Returns empty list [] (hotel_slug required)
 ```
 
 ---
@@ -347,6 +355,11 @@ try {
 
 ```javascript
 const fetchRestaurants = async (hotelSlug) => {
+  // IMPORTANT: hotelSlug is REQUIRED
+  if (!hotelSlug) {
+    throw new Error('Hotel slug is required');
+  }
+  
   const response = await fetch(
     `/api/bookings/${hotelSlug}/restaurants/`,
     {
@@ -364,8 +377,12 @@ const fetchRestaurants = async (hotelSlug) => {
 };
 
 // Usage
-const restaurants = await fetchRestaurants('grand-hotel');
-console.log('Restaurants:', restaurants);
+try {
+  const restaurants = await fetchRestaurants('grand-hotel');
+  console.log('Restaurants:', restaurants);
+} catch (error) {
+  console.error('Error:', error.message);
+}
 ```
 
 #### Update Restaurant
@@ -478,11 +495,15 @@ console.log('Restaurant deleted (soft delete)');
 
 ## Best Practices
 
-### 1. Always Include Hotel Slug
-Use the hotel-specific endpoint for creating restaurants:
+### 1. Always Include Hotel Slug (MANDATORY)
+Hotel slug is **REQUIRED** for all restaurant operations:
 ```
+✅ GET /api/bookings/{hotel_slug}/restaurants/
 ✅ POST /api/bookings/{hotel_slug}/restaurants/
-❌ POST /api/bookings/restaurants/ (missing hotel context)
+✅ GET /api/bookings/restaurants/?hotel_slug=grand-hotel
+
+❌ GET /api/bookings/restaurants/ (returns empty list)
+❌ POST /api/bookings/restaurants/ (missing hotel context - will fail)
 ```
 
 ### 2. Time Format
@@ -541,10 +562,12 @@ const validateRestaurant = (data) => {
 
 ## Notes
 
+- **Hotel Slug Required:** ALL restaurant endpoints require `hotel_slug` in URL or query parameter. Without it, you get an empty list or error.
 - **Slug Generation:** Restaurant slugs are automatically generated from the name. For example, "The Garden Restaurant" becomes "the-garden-restaurant".
 - **Soft Delete:** Deleted restaurants are not removed from the database; they're marked as inactive (`is_active=False`).
 - **Hotel Context:** The hotel is automatically assigned from the URL parameter - you don't need to include it in the request body.
 - **Image Upload:** Currently, the `image` field is read-only. Image uploads may require a separate endpoint or admin panel access.
+- **Security:** Hotels can only see their own restaurants - never returns restaurants from other hotels.
 
 ---
 
