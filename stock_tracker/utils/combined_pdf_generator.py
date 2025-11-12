@@ -98,34 +98,40 @@ def generate_combined_report_pdf(stocktake, period, include_cocktails=True):
     elements.append(info_table)
     elements.append(Spacer(1, 0.3 * inch))
     
-    # Stocktake Summary
-    summary = stocktake.get_summary()
+    # Stocktake Summary - Calculate totals from lines
+    lines = stocktake.lines.all()
+    total_items = lines.count()
+    total_expected_value = sum(line.expected_value for line in lines)
+    total_counted_value = sum(line.counted_value for line in lines)
+    total_variance_value = sum(line.variance_value for line in lines)
     
     summary_data = [
-        ['Total Items:', str(summary['total_items'])],
-        ['Expected Stock Value:', f"€{summary['expected_value']:,.2f}"],
-        ['Counted Stock Value:', f"€{summary['counted_value']:,.2f}"],
-        ['Variance:', f"€{summary['variance_value']:,.2f}"],
+        ['Total Items:', str(total_items)],
+        ['Expected Stock Value:', f"€{total_expected_value:,.2f}"],
+        ['Counted Stock Value:', f"€{total_counted_value:,.2f}"],
+        ['Variance:', f"€{total_variance_value:,.2f}"],
     ]
     
     # Add profitability metrics if available
-    if 'total_cogs' in summary:
+    if hasattr(stocktake, 'total_cogs') and stocktake.total_cogs:
         summary_data.extend([
             ['', ''],
-            ['Total COGS:', f"€{summary['total_cogs']:,.2f}"],
-            ['Total Revenue:', f"€{summary['total_revenue']:,.2f}"],
-            ['GP%:', f"{summary['gross_profit_percentage']:.2f}%"],
-            ['Pour Cost%:', f"{summary['pour_cost_percentage']:.2f}%"],
+            ['Total COGS:', f"€{stocktake.total_cogs:,.2f}"],
+            ['Total Revenue:', f"€{stocktake.total_revenue:,.2f}"],
+            ['GP%:', f"{stocktake.gross_profit_percentage:.2f}%"],
+            ['Pour Cost%:', f"{stocktake.pour_cost_percentage:.2f}%"],
         ])
     
     summary_table = Table(summary_data, colWidths=[2.5*inch, 2*inch])
+    variance_color = (colors.red if total_variance_value < 0 
+                     else colors.green)
     summary_table.setStyle(TableStyle([
         ('FONTNAME', (0, 0), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 0), (-1, -1), 10),
         ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
         ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
         ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-        ('TEXTCOLOR', (1, 3), (1, 3), colors.red if summary['variance_value'] < 0 else colors.green),
+        ('TEXTCOLOR', (1, 3), (1, 3), variance_color),
         ('FONTNAME', (1, 3), (1, 3), 'Helvetica-Bold'),
         ('LEFTPADDING', (0, 0), (-1, -1), 5),
         ('RIGHTPADDING', (0, 0), (-1, -1), 5),
