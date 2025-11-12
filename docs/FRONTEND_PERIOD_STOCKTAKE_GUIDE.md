@@ -217,6 +217,67 @@ Show table of existing periods with status.
 - User selects start/end dates
 - POST to create period
 
+### **Step 2b: Delete Period Button (Superuser Only)**
+- Show **red "Delete" button** next to each period
+- Only visible if `user.is_superuser === true`
+- On click: Show confirmation modal:
+  ```
+  ⚠️ DELETE PERIOD AND ALL DATA?
+  
+  This will permanently delete:
+  - Period: November 2025
+  - 1 Stocktake
+  - 254 Stocktake Lines
+  - 254 Stock Snapshots
+  
+  This action CANNOT be undone!
+  
+  [Cancel] [⚠️ DELETE PERMANENTLY]
+  ```
+- On confirm: `DELETE /api/stock-tracker/{hotel}/periods/{id}/`
+- Show success message with deleted counts
+- Refresh period list
+
+**JavaScript Example:**
+```javascript
+const deletePeriod = async (periodId) => {
+  // Show confirmation dialog
+  const confirmed = confirm(
+    'Are you sure? This will delete the period and ALL related data (stocktake, lines, snapshots). This cannot be undone!'
+  );
+  
+  if (!confirmed) return;
+  
+  try {
+    const response = await fetch(`/api/stock-tracker/hotel1/periods/${periodId}/`, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `Bearer ${token}`
+      }
+    });
+    
+    if (response.status === 403) {
+      alert('Only superusers can delete periods');
+      return;
+    }
+    
+    const data = await response.json();
+    console.log('✅ Period deleted:', data);
+    
+    alert(`Deleted: ${data.message}\n` +
+          `- Stocktakes: ${data.deleted.stocktakes}\n` +
+          `- Lines: ${data.deleted.stocktake_lines}\n` +
+          `- Snapshots: ${data.deleted.snapshots}`);
+    
+    // Refresh list
+    fetchPeriods();
+  } catch (error) {
+    console.error('❌ Delete failed:', error);
+    alert('Failed to delete period');
+  }
+};
+```
+
 ### **Step 3: Create Stocktake Button**
 - Appears when period has no stocktake
 - POST to create stocktake (auto-links to period by dates)
@@ -369,6 +430,33 @@ GET /api/stock-tracker/{hotel}/periods/
 ```
 GET /api/stock-tracker/{hotel}/periods/{id}/
 ```
+
+### **Delete Period (Superuser Only):**
+```
+DELETE /api/stock-tracker/{hotel}/periods/{id}/
+```
+**⚠️ WARNING: This deletes:**
+- The Period
+- All Stocktakes for this period
+- All StocktakeLine records
+- All StockSnapshot records
+
+**Response:**
+```json
+{
+  "message": "Period 'November 2025' and all related data deleted successfully",
+  "deleted": {
+    "period": 1,
+    "stocktakes": 1,
+    "stocktake_lines": 254,
+    "snapshots": 254
+  }
+}
+```
+
+**Permission:**
+- Only **superusers** can delete periods
+- Returns 403 Forbidden for non-superusers
 
 ### **Get All Stocktakes:**
 ```
@@ -611,7 +699,29 @@ console.log('✅ Period closed:', {
 });
 ```
 
-### **10. Error Handling:**
+### **10. Delete Period (Superuser):**
+```javascript
+console.log('🗑️ Deleting period #' + periodId, {
+  period_name: period.period_name,
+  user_is_superuser: user.is_superuser
+});
+
+try {
+  const deleteResponse = await deletePeriod(periodId);
+  console.log('✅ Period deleted:', {
+    message: deleteResponse.message,
+    deleted: deleteResponse.deleted
+  });
+} catch (error) {
+  if (error.response?.status === 403) {
+    console.error('❌ Permission denied: Only superusers can delete periods');
+  } else {
+    console.error('❌ Delete failed:', error);
+  }
+}
+```
+
+### **11. Error Handling:**
 ```javascript
 try {
   await populateStocktake(stocktakeId);
@@ -631,7 +741,7 @@ try {
 }
 ```
 
-### **11. Network Request Logging:**
+### **12. Network Request Logging:**
 ```javascript
 // Axios interceptor example
 axios.interceptors.request.use(request => {
@@ -663,7 +773,7 @@ axios.interceptors.response.use(
 );
 ```
 
-### **12. Performance Monitoring:**
+### **13. Performance Monitoring:**
 ```javascript
 // Track time for each operation
 const performance = {

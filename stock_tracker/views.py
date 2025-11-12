@@ -508,6 +508,54 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         )
         serializer.save(hotel=hotel)
     
+    def destroy(self, request, *args, **kwargs):
+        """
+        Delete period and all related data (stocktake, lines, snapshots).
+        Only superusers can delete periods.
+        """
+        # Check if user is superuser
+        if not request.user.is_superuser:
+            return Response(
+                {"error": "Only superusers can delete periods"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        period = self.get_object()
+        
+        # Get counts before deletion for response
+        stocktake_count = Stocktake.objects.filter(
+            hotel=period.hotel,
+            period_start=period.start_date,
+            period_end=period.end_date
+        ).count()
+        
+        snapshot_count = period.snapshots.count()
+        
+        # Get stocktake lines count
+        lines_count = 0
+        stocktakes = Stocktake.objects.filter(
+            hotel=period.hotel,
+            period_start=period.start_date,
+            period_end=period.end_date
+        )
+        for st in stocktakes:
+            lines_count += st.lines.count()
+        
+        period_name = period.period_name
+        
+        # Delete period (cascade will delete stocktakes, lines, snapshots)
+        self.perform_destroy(period)
+        
+        return Response({
+            "message": f"Period '{period_name}' and all related data deleted successfully",
+            "deleted": {
+                "period": 1,
+                "stocktakes": stocktake_count,
+                "stocktake_lines": lines_count,
+                "snapshots": snapshot_count
+            }
+        }, status=status.HTTP_200_OK)
+    
     @action(detail=True, methods=['get'])
     def snapshots(self, request, pk=None, hotel_identifier=None):
         """Get all stock snapshots for this period"""
