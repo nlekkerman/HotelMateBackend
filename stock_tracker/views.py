@@ -1754,6 +1754,93 @@ class StocktakeViewSet(viewsets.ModelViewSet):
             ).data
         }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'], url_path='update-opening-stock')
+    def update_opening_stock(self, request, pk=None, hotel_identifier=None):
+        """
+        Manually update opening stock quantities for stocktake lines.
+        
+        Use this to correct opening stock when:
+        - Historical data was entered incorrectly
+        - Setting up first period
+        - Data migration/corrections needed
+        
+        Requires superuser or staff permission.
+        
+        Request body:
+        {
+            "lines": [
+                {"item_sku": "M0004", "opening_qty": 169.00},
+                {"item_sku": "M0320", "opening_qty": 150.37}
+            ]
+        }
+        
+        Returns: Updated line count and summary
+        """
+        stocktake = self.get_object()
+        
+        # Check permission - only superuser or staff can update
+        if not request.user.is_superuser:
+            if not hasattr(request.user, 'staff_profile'):
+                return Response(
+                    {
+                        "error": ("Only staff or superusers can update "
+                                  "opening stock")
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+        
+        # Can't update locked stocktakes
+        if stocktake.is_locked:
+            return Response(
+                {
+                    "error": ("Cannot update opening stock for approved "
+                              "stocktake. Reopen first.")
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        lines_data = request.data.get('lines', [])
+        if not lines_data:
+            return Response(
+                {"error": "No lines provided"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        updated_count = 0
+        errors = []
+        
+        for line_data in lines_data:
+            item_sku = line_data.get('item_sku')
+            opening_qty = line_data.get('opening_qty')
+            
+            if not item_sku or opening_qty is None:
+                errors.append("Missing item_sku or opening_qty")
+                continue
+            
+            try:
+                opening_qty = Decimal(str(opening_qty))
+                
+                line = StocktakeLine.objects.get(
+                    stocktake=stocktake,
+                    item__sku=item_sku
+                )
+                
+                line.opening_qty = opening_qty
+                line.save()
+                updated_count += 1
+                
+            except StocktakeLine.DoesNotExist:
+                errors.append(f"{item_sku}: Line not found")
+            except (ValueError, InvalidOperation) as e:
+                errors.append(f"{item_sku}: Invalid quantity - {str(e)}")
+        
+        return Response({
+            "success": True,
+            "updated": updated_count,
+            "errors": errors if errors else None,
+            "message": f"Updated opening stock for {updated_count} items"
+        })
+
     @action(detail=True, methods=['get'])
     def category_totals(self, request, pk=None, hotel_identifier=None):
         """
@@ -1763,6 +1850,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         - opening_qty, purchases, sales, waste, transfers, adjustments
         - expected_qty (calculated using the formula)
         - counted_qty, variance_qty
+        - opening_value, purchases_value (NEW)
         - expected_value, counted_value, variance_value
         
         Optional query parameter:

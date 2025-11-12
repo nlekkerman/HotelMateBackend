@@ -1620,6 +1620,8 @@ class Stocktake(models.Model):
                     'expected_qty': Decimal('1725.0000'),
                     'counted_qty': Decimal('1720.0000'),
                     'variance_qty': Decimal('-5.0000'),
+                    'opening_value': Decimal('3125.00'),
+                    'purchases_value': Decimal('1250.00'),
                     'expected_value': Decimal('4300.00'),
                     'counted_value': Decimal('4287.50'),
                     'variance_value': Decimal('-12.50'),
@@ -1657,6 +1659,8 @@ class Stocktake(models.Model):
                     'expected_qty': Decimal('0.0000'),
                     'counted_qty': Decimal('0.0000'),
                     'variance_qty': Decimal('0.0000'),
+                    'opening_value': Decimal('0.00'),
+                    'purchases_value': Decimal('0.00'),
                     'expected_value': Decimal('0.00'),
                     'counted_value': Decimal('0.00'),
                     'variance_value': Decimal('0.00'),
@@ -1680,6 +1684,8 @@ class Stocktake(models.Model):
             cat['variance_qty'] += line.variance_qty
             
             # Sum monetary values
+            cat['opening_value'] += line.opening_value
+            cat['purchases_value'] += line.purchases_value
             cat['expected_value'] += line.expected_value
             cat['counted_value'] += line.counted_value
             cat['variance_value'] += line.variance_value
@@ -2021,6 +2027,16 @@ class StocktakeLine(models.Model):
     def variance_value(self):
         """Variance in monetary terms"""
         return self.counted_value - self.expected_value
+
+    @property
+    def opening_value(self):
+        """Opening stock value at frozen cost"""
+        return self.opening_qty * self.valuation_cost
+
+    @property
+    def purchases_value(self):
+        """Purchases value at frozen cost"""
+        return self.purchases * self.valuation_cost
     
     # ========================================================================
     # COCKTAIL CONSUMPTION TRACKING (DISPLAY ONLY - DOES NOT AFFECT STOCKTAKE)
