@@ -146,7 +146,8 @@ def generate_combined_report_pdf(stocktake, period, include_cocktails=True):
     cat_headers = [['Category', 'Opening', 'Purchases', 'Expected', 'Counted', 'Variance', 'Value €']]
     cat_data = []
     
-    for cat in category_totals:
+    # category_totals is a dict with category codes as keys
+    for cat_code, cat in category_totals.items():
         cat_data.append([
             cat['category_name'],
             f"{cat['opening_qty']:.2f}",
@@ -228,11 +229,34 @@ def generate_combined_report_pdf(stocktake, period, include_cocktails=True):
     # Period Category Breakdown
     elements.append(Paragraph("Period Category Breakdown", section_style))
     
-    category_breakdown = period.get_category_breakdown()
+    # Calculate category breakdown from snapshots
+    snapshots = period.snapshots.select_related('item__category')
+    category_breakdown = {}
+    total_value = Decimal('0.00')
+    
+    for snapshot in snapshots:
+        cat_name = snapshot.item.category.name if snapshot.item.category else 'Uncategorized'
+        if cat_name not in category_breakdown:
+            category_breakdown[cat_name] = {
+                'category_name': cat_name,
+                'item_count': 0,
+                'value': Decimal('0.00')
+            }
+        category_breakdown[cat_name]['item_count'] += 1
+        category_breakdown[cat_name]['value'] += snapshot.closing_stock_value
+        total_value += snapshot.closing_stock_value
+    
+    # Calculate percentages
+    for cat in category_breakdown.values():
+        if total_value > 0:
+            cat['percentage'] = (cat['value'] / total_value) * 100
+        else:
+            cat['percentage'] = 0
+    
     period_cat_headers = [['Category', 'Items', 'Value €', '% of Total']]
     period_cat_data = []
     
-    for cat in category_breakdown:
+    for cat in category_breakdown.values():
         period_cat_data.append([
             cat['category_name'],
             str(cat['item_count']),
