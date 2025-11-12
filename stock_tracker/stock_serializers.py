@@ -761,7 +761,7 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'can_merge_cocktails'
         ]
         read_only_fields = [
-            'opening_qty', 'purchases', 'waste',
+            'waste',
             'transfers_in', 'transfers_out', 'adjustments', 'valuation_cost'
         ]
     
