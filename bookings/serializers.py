@@ -29,6 +29,11 @@ class BookingCategorySerializer(serializers.ModelSerializer):
 
 class RestaurantSerializer(serializers.ModelSerializer):
     image = serializers.ImageField(read_only=True)
+    hotel_slug = serializers.SlugField(
+        source='hotel.slug',
+        read_only=True
+    )
+    
     class Meta:
         model = Restaurant
         fields = [
@@ -36,6 +41,7 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "name",
             "slug",
             "hotel",
+            "hotel_slug",
             "capacity",
             "description",
             "opening_time",
@@ -46,7 +52,7 @@ class RestaurantSerializer(serializers.ModelSerializer):
             "taking_bookings",
             "image",
         ]
-        read_only_fields = ["id", "slug", "image"]
+        read_only_fields = ["id", "slug", "hotel", "hotel_slug", "image"]
 
 
 # 2) Nested serializer for Seats

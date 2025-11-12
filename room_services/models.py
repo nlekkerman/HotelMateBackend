@@ -124,6 +124,7 @@ class BreakfastOrder(models.Model):
     delivery_time = models.CharField(max_length=20, choices=TIME_SLOT_CHOICES, null=True, blank=True)
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Breakfast Order {self.id} for Room {self.room_number} - {self.status}"
@@ -133,6 +134,10 @@ class BreakfastOrderItem(models.Model):
     order = models.ForeignKey(BreakfastOrder, on_delete=models.CASCADE)
     item = models.ForeignKey(BreakfastItem, on_delete=models.CASCADE)
     quantity = models.PositiveIntegerField(default=1)
+    notes = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.quantity} x {self.item.name} in Breakfast Order {self.order.id}"
+        return (
+            f"{self.quantity} x {self.item.name} "
+            f"in Breakfast Order {self.order.id}"
+        )

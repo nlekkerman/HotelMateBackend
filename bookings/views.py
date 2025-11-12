@@ -285,6 +285,23 @@ class RestaurantViewSet(viewsets.ModelViewSet):
         return qs
 
     def perform_create(self, serializer):
+        """Create restaurant with automatic hotel assignment from URL"""
+        # Extract hotel identifier from URL kwargs or query params
+        hotel_slug = (
+            self.kwargs.get('hotel_slug')
+            or self.request.query_params.get('hotel_slug')
+        )
+        
+        if not hotel_slug:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({
+                "hotel": "Hotel identifier (hotel_slug) is required in URL"
+            })
+        
+        # Get hotel object
+        from hotel.models import Hotel
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
         name = serializer.validated_data.get("name")
 
         # Only include opening/closing times if provided
@@ -292,6 +309,7 @@ class RestaurantViewSet(viewsets.ModelViewSet):
         closing_time = serializer.validated_data.get("closing_time")
 
         serializer.save(
+            hotel=hotel,  # Auto-assign hotel from URL
             slug=slugify(name),
             opening_time=opening_time if opening_time else None,
             closing_time=closing_time if closing_time else None

@@ -21,7 +21,17 @@ router = DefaultRouter()
 router.register(r'restaurants', RestaurantViewSet)
 router.register(r'bookings', BookingViewSet)
 router.register(r'categories', BookingCategoryViewSet)
-router.register(r'blueprint-object-types', BlueprintObjectTypeViewSet, basename='blueprint-object-type')  # ← add here
+router.register(
+    r'blueprint-object-types',
+    BlueprintObjectTypeViewSet,
+    basename='blueprint-object-type'
+)
+
+# Restaurant views with hotel_slug parameter
+restaurant_list_create = RestaurantViewSet.as_view({
+    'get': 'list',
+    'post': 'create'
+})
 
 blueprint_list = RestaurantBlueprintViewSet.as_view({
     'get': 'list',
@@ -61,6 +71,14 @@ blueprint_object_detail = BlueprintObjectViewSet.as_view({
 urlpatterns = [
     # Include router-generated URLs (e.g. /bookings/, /categories/)
     path('', include(router.urls)),
+    
+    # Restaurant list/create with hotel_slug
+    path(
+        '<str:hotel_slug>/restaurants/',
+        restaurant_list_create,
+        name='restaurant-list-create'
+    ),
+    
     path(
         '<str:hotel_slug>/<str:restaurant_slug>/blueprint/<int:blueprint_id>/objects/',
         blueprint_objects,

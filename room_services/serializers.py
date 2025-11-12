@@ -93,12 +93,14 @@ class BreakfastOrderItemSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BreakfastOrderItem
-        fields = ['id', 'item', 'item_id', 'quantity']
+        fields = ['id', 'item', 'item_id', 'quantity', 'notes']
 
     def validate_item(self, item):
         hotel = self.context.get('hotel')
         if hotel and item.hotel_id != hotel.id:
-            raise serializers.ValidationError("This breakfast item does not belong to your hotel.")
+            raise serializers.ValidationError(
+                "This breakfast item does not belong to your hotel."
+            )
         return item
 
 
@@ -111,11 +113,23 @@ class BreakfastOrderSerializer(serializers.ModelSerializer):
         default=None
     )
     delivery_time = serializers.CharField(allow_blank=True, required=False)
-    items = BreakfastOrderItemSerializer(source='breakfastorderitem_set', many=True)
+    items = BreakfastOrderItemSerializer(
+        source='breakfastorderitem_set',
+        many=True
+    )
 
     class Meta:
         model = BreakfastOrder
-        fields = ['id', 'hotel', 'room_number', 'status', 'created_at', 'delivery_time', 'items']
+        fields = [
+            'id',
+            'hotel',
+            'room_number',
+            'status',
+            'created_at',
+            'updated_at',
+            'delivery_time',
+            'items'
+        ]
 
     def validate(self, data):
         if not data.get('hotel'):
