@@ -74,8 +74,35 @@ def populate_stocktake(stocktake):
 def _get_opening_balance(item, period_start):
     """
     Calculate opening balance at period_start.
-    This is the sum of all movements BEFORE period_start.
+    
+    Priority order:
+    1. Use previous period's closing stock (from StockSnapshot)
+    2. Use current stock levels if first stocktake (no movements/snapshots)
+    3. Calculate from movements (legacy/backup method)
     """
+    # OPTION 1: Try to find previous period's closing snapshot
+    previous_snapshot = StockSnapshot.objects.filter(
+        item=item,
+        period__end_date__lt=period_start,
+        period__hotel=item.hotel
+    ).order_by('-period__end_date').first()
+    
+    if previous_snapshot:
+        # Return previous period's closing as this period's opening
+        # closing_partial_units is already in servings
+        return previous_snapshot.closing_partial_units
+    
+    # OPTION 2: Check if first stocktake (no movements before start)
+    has_previous_movements = item.movements.filter(
+        timestamp__lt=period_start
+    ).exists()
+    
+    if not has_previous_movements:
+        # First stocktake - use current stock as opening balance
+        # This uses the StockItem's current inventory
+        return item.total_stock_in_servings
+    
+    # OPTION 3: Calculate from historical movements (legacy method)
     movements_before = item.movements.filter(
         timestamp__lt=period_start
     ).aggregate(
@@ -234,9 +261,9 @@ def round_decimal(value, places=4):
 
 def populate_period_opening_stock(period):
     """
-    Populate a new stock period with opening stock from the last closed period.
+    Populate a new stock period with opening stock from last closed period.
     
-    Opening stock = Last closed period's closing stock + movements between periods
+    Opening stock = Last closed period's closing stock + movements between
     
     Args:
         period: StockPeriod instance to populate
