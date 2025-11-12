@@ -61,13 +61,13 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
         spaceBefore=12
     )
     
-    # Title
+    # Title - Single line as requested
     title = Paragraph(
-        f"<b>Stocktake Report</b><br/>{stocktake.hotel.name}",
+        f"<b>Stocktake Report - {stocktake.hotel.name}</b>",
         title_style
     )
     elements.append(title)
-    elements.append(Spacer(1, 0.2*inch))
+    elements.append(Spacer(1, 0.3*inch))
     
     # Period Information
     period_data = [
@@ -124,6 +124,10 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
         ])
     
     summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
+    
+    # Apply colors: green for positive variance, red for negative
+    variance_color = colors.green if total_variance_value >= 0 else colors.red
+    
     summary_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#e8f4f8')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
@@ -135,6 +139,9 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 8),
         ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+        # Apply color to variance row (row 3, index 3)
+        ('TEXTCOLOR', (1, 3), (1, 3), variance_color),
+        ('FONTNAME', (1, 3), (1, 3), 'Helvetica-Bold'),
     ]))
     elements.append(summary_table)
     elements.append(Spacer(1, 0.3*inch))
@@ -149,6 +156,10 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
         ['Category', 'Opening', 'Purchases', 'Expected', 'Counted', 'Variance', 'Value']
     ]
     
+    # Build category table with color-coded variances
+    row_num = 1  # Start after header
+    variance_styles = []
+    
     for cat_code in ['D', 'B', 'S', 'W', 'M']:
         if cat_code in category_totals:
             cat = category_totals[cat_code]
@@ -161,9 +172,26 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
                 f"{float(cat['variance_qty']):,.2f}",
                 f"€{float(cat['variance_value']):,.2f}"
             ])
+            
+            # Add color for variance value (last column)
+            var_value = float(cat['variance_value'])
+            var_color = colors.green if var_value >= 0 else colors.red
+            variance_styles.append(
+                ('TEXTCOLOR', (6, row_num), (6, row_num), var_color)
+            )
+            variance_styles.append(
+                ('FONTNAME', (6, row_num), (6, row_num), 'Helvetica-Bold')
+            )
+            row_num += 1
     
-    category_table = Table(category_table_data, colWidths=[1.5*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1*inch])
-    category_table.setStyle(TableStyle([
+    category_table = Table(
+        category_table_data,
+        colWidths=[1.5*inch, 1*inch, 1*inch, 1*inch, 
+                   1*inch, 1*inch, 1*inch]
+    )
+    
+    # Base styles + variance colors
+    base_styles = [
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4a90e2')),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (0, -1), 'LEFT'),
@@ -172,22 +200,29 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
         ('FONTSIZE', (0, 0), (-1, -1), 9),
         ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
-    ]))
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), 
+         [colors.white, colors.HexColor('#f9f9f9')]),
+    ]
+    
+    category_table.setStyle(TableStyle(base_styles + variance_styles))
     elements.append(category_table)
-    elements.append(PageBreak())
     
-    # Detailed Line Items
-    items_heading = Paragraph("<b>Detailed Stock Items</b>", heading_style)
-    elements.append(items_heading)
-    elements.append(Spacer(1, 0.1*inch))
+    # Keep Summary and Category Totals on first page - no page break yet
+    elements.append(Spacer(1, 0.3*inch))
     
+    # Detailed Line Items - Each category on new page
     # Group by category
-    for cat_code in ['D', 'B', 'S', 'W', 'M']:
-        cat_lines = [line for line in lines if line.item.category.code == cat_code]
+    for cat_idx, cat_code in enumerate(['D', 'B', 'S', 'W', 'M']):
+        cat_lines = [
+            line for line in lines 
+            if line.item.category.code == cat_code
+        ]
         
         if not cat_lines:
             continue
+        
+        # Start each category on a NEW PAGE (as requested)
+        elements.append(PageBreak())
         
         # Category header
         cat_name = {
@@ -198,13 +233,22 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
             'M': 'Minerals & Syrups'
         }.get(cat_code, cat_code)
         
-        cat_header = Paragraph(f"<b>{cat_name}</b>", heading_style)
+        cat_header = Paragraph(
+            f"<b>{cat_name} - Detailed Items</b>", 
+            heading_style
+        )
         elements.append(cat_header)
+        elements.append(Spacer(1, 0.1*inch))
         
         # Items table
         items_data = [
-            ['SKU', 'Name', 'Opening', 'Purchases', 'Expected', 'Counted', 'Variance', 'Value €']
+            ['SKU', 'Name', 'Opening', 'Purchases', 
+             'Expected', 'Counted', 'Variance', 'Value €']
         ]
+        
+        # Track row numbers for variance coloring
+        row_num = 1  # Start after header
+        variance_styles = []
         
         for line in cat_lines:
             items_data.append([
@@ -217,12 +261,26 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
                 f"{float(line.variance_qty):,.1f}",
                 f"€{float(line.variance_value):,.2f}"
             ])
+            
+            # Color code variance values (last column)
+            var_value = float(line.variance_value)
+            var_color = colors.green if var_value >= 0 else colors.red
+            variance_styles.append(
+                ('TEXTCOLOR', (7, row_num), (7, row_num), var_color)
+            )
+            variance_styles.append(
+                ('FONTNAME', (7, row_num), (7, row_num), 'Helvetica-Bold')
+            )
+            row_num += 1
         
         items_table = Table(
             items_data,
-            colWidths=[0.8*inch, 2*inch, 0.7*inch, 0.8*inch, 0.7*inch, 0.7*inch, 0.7*inch, 0.8*inch]
+            colWidths=[0.8*inch, 2*inch, 0.7*inch, 0.8*inch, 
+                       0.7*inch, 0.7*inch, 0.7*inch, 0.8*inch]
         )
-        items_table.setStyle(TableStyle([
+        
+        # Base styles
+        base_styles = [
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4a90e2')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (1, -1), 'LEFT'),
@@ -231,9 +289,11 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
             ('FONTSIZE', (0, 0), (-1, -1), 8),
             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f9f9f9')]),
-        ]))
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), 
+             [colors.white, colors.HexColor('#f9f9f9')]),
+        ]
         
+        items_table.setStyle(TableStyle(base_styles + variance_styles))
         elements.append(items_table)
         elements.append(Spacer(1, 0.2*inch))
     
