@@ -268,21 +268,30 @@ class RestaurantViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing restaurants.
     Supports: list, retrieve, create, update, partial_update, destroy
-    Filters by hotel slug if provided as a query parameter: ?hotel_slug=hotel-slug
+    ALWAYS requires hotel_slug in URL or query parameter
     Only active restaurants are returned by default.
     """
     queryset = Restaurant.objects.filter(is_active=True).select_related("hotel")
     serializer_class = RestaurantSerializer
     lookup_field = 'slug'
+    
     def get_queryset(self):
         """
-        Optionally filter restaurants by hotel slug
+        Always filter restaurants by hotel slug (required)
         """
         qs = super().get_queryset()
-        hotel_slug = self.request.query_params.get("hotel_slug")
-        if hotel_slug:
-            qs = qs.filter(hotel__slug=hotel_slug)
-        return qs
+        
+        # Get hotel_slug from URL kwargs or query params
+        hotel_slug = (
+            self.kwargs.get('hotel_slug')
+            or self.request.query_params.get("hotel_slug")
+        )
+        
+        if not hotel_slug:
+            # Return empty queryset if no hotel specified
+            return qs.none()
+        
+        return qs.filter(hotel__slug=hotel_slug)
 
     def perform_create(self, serializer):
         """Create restaurant with automatic hotel assignment from URL"""
