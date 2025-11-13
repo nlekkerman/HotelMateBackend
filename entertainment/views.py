@@ -946,13 +946,8 @@ class QuizSessionViewSet(viewsets.ModelViewSet):
     lookup_field = 'id'
 
     def get_queryset(self):
-        """Filter sessions by hotel and quiz"""
+        """Filter sessions by quiz"""
         qs = QuizSession.objects.all()
-
-        # Filter by hotel
-        hotel = self.request.query_params.get('hotel')
-        if hotel:
-            qs = qs.filter(hotel_identifier=hotel)
 
         # Filter by quiz
         quiz_slug = self.request.query_params.get('quiz')
@@ -1034,29 +1029,26 @@ class QuizSessionViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'],
             permission_classes=[permissions.AllowAny])
-    def general_leaderboard(self, request):
+    def all_time_leaderboard(self, request):
         """
-        GENERAL LEADERBOARD - All completed sessions (practice + tournament)
+        ALL-TIME LEADERBOARD - All completed sessions (casual + tournament)
         Query params:
         - quiz: quiz slug (required)
-        - hotel: hotel identifier (required)
         - period: 'daily', 'weekly', 'all' (default: 'all')
         - limit: number of results (default: 50)
         """
         quiz_slug = request.query_params.get('quiz')
-        hotel = request.query_params.get('hotel')
         period = request.query_params.get('period', 'all')
         limit = int(request.query_params.get('limit', 50))
 
-        if not quiz_slug or not hotel:
+        if not quiz_slug:
             return Response({
-                'error': 'Both quiz and hotel parameters are required'
+                'error': 'Quiz parameter is required'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         # Build queryset - ALL completed sessions
         qs = QuizSession.objects.filter(
             quiz__slug=quiz_slug,
-            hotel_identifier=hotel,
             is_completed=True
         ).select_related('quiz')
 
@@ -1076,22 +1068,19 @@ class QuizSessionViewSet(viewsets.ModelViewSet):
             leaderboard_data.append({
                 'rank': rank,
                 'player_name': session.player_name,
-                'room_number': session.room_number,
                 'score': session.score,
                 'time_spent_seconds': session.time_spent_seconds,
                 'duration_formatted': session.duration_formatted,
                 'finished_at': session.finished_at,
-                'is_practice_mode': session.is_practice_mode,
-                'hotel_identifier': session.hotel_identifier
+                'is_tournament': session.is_tournament
             })
 
         serializer = QuizLeaderboardSerializer(leaderboard_data, many=True)
         return Response({
             'quiz': quiz_slug,
-            'hotel': hotel,
             'period': period,
-            'leaderboard_type': 'general',
-            'description': 'All players (practice + tournament mode)',
+            'leaderboard_type': 'all_time',
+            'description': 'All players (casual + tournament)',
             'count': len(leaderboard_data),
             'leaderboard': serializer.data
         })
@@ -1101,31 +1090,26 @@ class QuizSessionViewSet(viewsets.ModelViewSet):
     def tournament_leaderboard(self, request):
         """
         TOURNAMENT LEADERBOARD - Only tournament mode sessions
-        (is_practice_mode=False AND has room_number)
         Query params:
         - quiz: quiz slug (required)
-        - hotel: hotel identifier (required)
         - period: 'daily', 'weekly', 'all' (default: 'all')
         - limit: number of results (default: 50)
         """
         quiz_slug = request.query_params.get('quiz')
-        hotel = request.query_params.get('hotel')
         period = request.query_params.get('period', 'all')
         limit = int(request.query_params.get('limit', 50))
 
-        if not quiz_slug or not hotel:
+        if not quiz_slug:
             return Response({
-                'error': 'Both quiz and hotel parameters are required'
+                'error': 'Quiz parameter is required'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Build queryset - ONLY tournament mode sessions
+        # Build queryset - ONLY tournament sessions
         qs = QuizSession.objects.filter(
             quiz__slug=quiz_slug,
-            hotel_identifier=hotel,
             is_completed=True,
-            is_practice_mode=False,
-            room_number__isnull=False
-        ).exclude(room_number='').select_related('quiz')
+            is_tournament=True
+        ).select_related('quiz')
 
         # Apply period filter
         if period == 'daily':
@@ -1143,22 +1127,19 @@ class QuizSessionViewSet(viewsets.ModelViewSet):
             leaderboard_data.append({
                 'rank': rank,
                 'player_name': session.player_name,
-                'room_number': session.room_number,
                 'score': session.score,
                 'time_spent_seconds': session.time_spent_seconds,
                 'duration_formatted': session.duration_formatted,
                 'finished_at': session.finished_at,
-                'is_practice_mode': session.is_practice_mode,
-                'hotel_identifier': session.hotel_identifier
+                'is_tournament': session.is_tournament
             })
 
         serializer = QuizLeaderboardSerializer(leaderboard_data, many=True)
         return Response({
             'quiz': quiz_slug,
-            'hotel': hotel,
             'period': period,
             'leaderboard_type': 'tournament',
-            'description': 'Tournament players only (with room numbers)',
+            'description': 'Tournament players only',
             'count': len(leaderboard_data),
             'leaderboard': serializer.data
         })
@@ -1167,7 +1148,6 @@ class QuizSessionViewSet(viewsets.ModelViewSet):
             permission_classes=[permissions.AllowAny])
     def leaderboard(self, request):
         """
-        DEPRECATED: Use general_leaderboard or tournament_leaderboard instead
-        This redirects to general_leaderboard for backwards compatibility
+        Leaderboard endpoint - redirects to all_time_leaderboard
         """
-        return self.general_leaderboard(request)
+        return self.all_time_leaderboard(request)

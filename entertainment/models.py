@@ -944,17 +944,11 @@ class QuizAnswer(models.Model):
 
 class QuizSession(models.Model):
     """
-    HOTEL-SCOPED quiz session (started via QR code)
+    Quiz session - fully anonymous, no hotel or room tracking
     Tracks player progress through a quiz
     """
     # Unique session identifier
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
-    # Hotel context (from QR code)
-    hotel_identifier = models.CharField(
-        max_length=100,
-        help_text="Hotel identifier from QR code (hotel slug)"
-    )
     
     # Quiz reference
     quiz = models.ForeignKey(
@@ -968,12 +962,6 @@ class QuizSession(models.Model):
         max_length=100,
         help_text="Player's display name"
     )
-    room_number = models.CharField(
-        max_length=50,
-        blank=True,
-        null=True,
-        help_text="Room number for tournament submissions (required for leaderboard)"
-    )
     external_player_id = models.CharField(
         max_length=100,
         blank=True,
@@ -982,9 +970,9 @@ class QuizSession(models.Model):
     )
     
     # Game mode
-    is_practice_mode = models.BooleanField(
+    is_tournament = models.BooleanField(
         default=False,
-        help_text="If True, score won't appear on tournament leaderboard"
+        help_text="True for tournament mode, False for casual play"
     )
     
     # Session state
@@ -1019,7 +1007,6 @@ class QuizSession(models.Model):
     class Meta:
         ordering = ['-started_at']
         indexes = [
-            models.Index(fields=['hotel_identifier', 'quiz', '-started_at']),
             models.Index(fields=['quiz', '-score']),
             models.Index(fields=['is_completed', '-started_at']),
         ]
@@ -1050,17 +1037,11 @@ class QuizSession(models.Model):
 
 class QuizSubmission(models.Model):
     """
-    HOTEL-SCOPED answer submission
+    Answer submission - anonymous, no hotel tracking
     Used for ALL difficulties including dynamic math (Level 4)
     """
     # Submission identifier
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
-    # Hotel context
-    hotel_identifier = models.CharField(
-        max_length=100,
-        help_text="Hotel identifier from QR code"
-    )
     
     # Session reference
     session = models.ForeignKey(
@@ -1127,7 +1108,6 @@ class QuizSubmission(models.Model):
         ordering = ['session', 'answered_at']
         indexes = [
             models.Index(fields=['session', 'answered_at']),
-            models.Index(fields=['hotel_identifier', '-points_awarded']),
             models.Index(fields=['is_correct']),
         ]
 

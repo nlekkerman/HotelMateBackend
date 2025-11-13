@@ -555,8 +555,7 @@ class QuizSessionCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizSession
         fields = [
-            'quiz_slug', 'hotel_identifier', 'player_name',
-            'room_number', 'is_practice_mode', 'external_player_id'
+            'quiz_slug', 'player_name', 'external_player_id', 'is_tournament'
         ]
 
     def validate_quiz_slug(self, value):
@@ -586,8 +585,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuizSession
         fields = [
-            'id', 'hotel_identifier', 'quiz', 'player_name',
-            'room_number', 'external_player_id', 'is_practice_mode',
+            'id', 'quiz', 'player_name', 'external_player_id', 'is_tournament',
             'score', 'started_at', 'finished_at',
             'is_completed', 'time_spent_seconds', 'duration_formatted',
             'current_question_index', 'submission_count',
@@ -690,9 +688,6 @@ class QuizSubmissionCreateSerializer(serializers.ModelSerializer):
         session = validated_data.get('session')
         question = validated_data.get('question')
 
-        # Set hotel_identifier from session
-        validated_data['hotel_identifier'] = session.hotel_identifier
-
         # Determine if answer is correct
         if question:
             # Regular question - check against QuizAnswer
@@ -768,10 +763,8 @@ class QuizLeaderboardSerializer(serializers.Serializer):
     """Serializer for quiz leaderboard entries"""
     rank = serializers.IntegerField()
     player_name = serializers.CharField()
-    room_number = serializers.CharField(allow_null=True, required=False)
     score = serializers.IntegerField()
     time_spent_seconds = serializers.IntegerField()
     duration_formatted = serializers.CharField()
     finished_at = serializers.DateTimeField()
-    is_practice_mode = serializers.BooleanField()
-    hotel_identifier = serializers.CharField()
+    is_tournament = serializers.BooleanField()

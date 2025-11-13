@@ -521,17 +521,14 @@ class QuizAnswerAdmin(admin.ModelAdmin):
 class QuizSessionAdmin(admin.ModelAdmin):
     """Admin for quiz sessions"""
     list_display = (
-        'player_name', 'room_number', 'quiz', 'hotel_identifier', 'score',
-        'is_practice_mode', 'is_completed', 'current_multiplier',
-        'duration_formatted', 'started_at'
+        'player_name', 'quiz', 'score', 'is_tournament', 'is_completed',
+        'current_multiplier', 'duration_formatted', 'started_at'
     )
     list_filter = (
-        'is_completed', 'is_practice_mode', 'quiz__difficulty_level',
-        'hotel_identifier', 'started_at'
+        'is_completed', 'is_tournament', 'quiz__difficulty_level', 'started_at'
     )
     search_fields = (
-        'player_name', 'room_number', 'external_player_id',
-        'quiz__title', 'hotel_identifier'
+        'player_name', 'external_player_id', 'quiz__title'
     )
     readonly_fields = (
         'id', 'score', 'started_at', 'finished_at',
@@ -543,13 +540,12 @@ class QuizSessionAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Session Info', {
             'fields': (
-                'id', 'quiz', 'hotel_identifier'
+                'id', 'quiz'
             )
         }),
         ('Player Info', {
             'fields': (
-                'player_name', 'room_number', 'external_player_id',
-                'is_practice_mode'
+                'player_name', 'external_player_id', 'is_tournament'
             )
         }),
         ('Results', {
@@ -585,23 +581,20 @@ class QuizSubmissionAdmin(admin.ModelAdmin):
         'points_awarded', 'time_taken_seconds', 'answered_at'
     )
     list_filter = (
-        'is_correct', 'session__quiz__difficulty_level',
-        'hotel_identifier', 'answered_at'
+        'is_correct', 'session__quiz__difficulty_level', 'answered_at'
     )
     search_fields = (
-        'session__player_name', 'question_text',
-        'selected_answer', 'hotel_identifier'
+        'session__player_name', 'question_text', 'selected_answer'
     )
     readonly_fields = (
-        'id', 'hotel_identifier', 'is_correct',
-        'points_awarded', 'answered_at'
+        'id', 'is_correct', 'points_awarded', 'answered_at'
     )
     ordering = ('-answered_at',)
 
     fieldsets = (
         ('Submission Info', {
             'fields': (
-                'id', 'session', 'hotel_identifier', 'question'
+                'id', 'session', 'question'
             )
         }),
         ('Question Data', {
