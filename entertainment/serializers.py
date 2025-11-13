@@ -690,16 +690,19 @@ class QuizSubmissionCreateSerializer(serializers.ModelSerializer):
 class QuizSubmissionSerializer(serializers.ModelSerializer):
     """Serializer for quiz submission details"""
     question_number = serializers.SerializerMethodField()
+    correct_answer = serializers.SerializerMethodField()
 
     class Meta:
         model = QuizSubmission
         fields = [
             'id', 'question', 'question_number', 'question_text',
-            'selected_answer', 'is_correct', 'base_points',
-            'points_awarded', 'time_taken_seconds', 'answered_at'
+            'selected_answer', 'correct_answer', 'is_correct', 'base_points',
+            'points_awarded', 'time_taken_seconds', 'multiplier_used',
+            'answered_at'
         ]
         read_only_fields = [
-            'id', 'is_correct', 'points_awarded', 'answered_at'
+            'id', 'is_correct', 'points_awarded', 'answered_at',
+            'multiplier_used'
         ]
 
     def get_question_number(self, obj):
@@ -710,6 +713,19 @@ class QuizSubmissionSerializer(serializers.ModelSerializer):
         return obj.session.submissions.filter(
             answered_at__lt=obj.answered_at
         ).count() + 1
+
+    def get_correct_answer(self, obj):
+        """Get the correct answer text"""
+        # For regular questions
+        if obj.question:
+            correct = obj.question.answers.filter(is_correct=True).first()
+            return correct.text if correct else None
+        
+        # For math questions (stored in question_data)
+        if obj.question_data and 'correct_answer' in obj.question_data:
+            return obj.question_data['correct_answer']
+        
+        return None
 
 
 class QuizLeaderboardSerializer(serializers.Serializer):
