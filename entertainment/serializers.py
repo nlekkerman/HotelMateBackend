@@ -556,7 +556,7 @@ class QuizSessionCreateSerializer(serializers.ModelSerializer):
         model = QuizSession
         fields = [
             'quiz_slug', 'hotel_identifier', 'player_name',
-            'external_player_id'
+            'room_number', 'is_practice_mode', 'external_player_id'
         ]
 
     def validate_quiz_slug(self, value):
@@ -581,6 +581,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
     quiz = QuizListSerializer(read_only=True)
     duration_formatted = serializers.ReadOnlyField()
     submission_count = serializers.SerializerMethodField()
+    questions = serializers.SerializerMethodField()
 
     class Meta:
         model = QuizSession
@@ -590,7 +591,7 @@ class QuizSessionSerializer(serializers.ModelSerializer):
             'score', 'started_at', 'finished_at',
             'is_completed', 'time_spent_seconds', 'duration_formatted',
             'current_question_index', 'submission_count',
-            'consecutive_correct', 'current_multiplier'
+            'consecutive_correct', 'current_multiplier', 'questions'
         ]
         read_only_fields = [
             'id', 'score', 'started_at', 'finished_at',
@@ -601,6 +602,41 @@ class QuizSessionSerializer(serializers.ModelSerializer):
     def get_submission_count(self, obj):
         """Get number of submissions in this session"""
         return obj.submissions.count()
+
+    def get_questions(self, obj):
+        """
+        Get 10 random questions for this session
+        Returns empty list for math quiz (Level 4 - dynamic generation)
+        """
+        # Don't include questions if session is already completed
+        # (frontend already has them)
+        if obj.is_completed:
+            return []
+        
+        # For math quiz (Level 4), return empty
+        # Questions generated dynamically
+        if obj.quiz.is_math_quiz:
+            return []
+        
+        # Get 10 random questions from this quiz
+        import random
+        
+        all_questions = list(
+            obj.quiz.questions.filter(is_active=True)
+            .prefetch_related('answers')
+            .order_by('?')[:10]  # Random order, limit 10
+        )
+        
+        # Shuffle to ensure randomness
+        random.shuffle(all_questions)
+        
+        # Serialize questions with shuffled answers
+        serializer = QuizQuestionSerializer(
+            all_questions,
+            many=True,
+            context=self.context
+        )
+        return serializer.data
 
 
 class QuizSubmissionCreateSerializer(serializers.ModelSerializer):
