@@ -5,7 +5,10 @@ from .models import (
     Game, GameHighScore, GameQRCode,
     MemoryGameCard, MemoryGameSession, MemoryGameStats, MemoryGameTournament,
     TournamentParticipation, MemoryGameAchievement, UserAchievement,
-    QuizCategory, Quiz, QuizQuestion, QuizAnswer, QuizSession, QuizSubmission
+    # Quiz models
+    QuizCategory, Quiz, QuizQuestion, QuizAnswer,
+    QuizSession, QuizSubmission, QuizLeaderboard,
+    QuizTournament, TournamentLeaderboard
 )
 
 
@@ -324,306 +327,442 @@ class UserAchievementAdmin(admin.ModelAdmin):
 MemoryGameTournamentAdmin.inlines = [TournamentParticipationInline]
 
 
-# QUIZ GAME ADMIN
-
-@admin.register(QuizCategory)
-class QuizCategoryAdmin(admin.ModelAdmin):
-    """Admin for quiz categories"""
-    list_display = ('name', 'is_active', 'quiz_count', 'created_at')
-    list_filter = ('is_active', 'created_at')
-    search_fields = ('name', 'description')
-    readonly_fields = ('created_at', 'updated_at', 'quiz_count')
-
-    fieldsets = (
-        ('Category Info', {
-            'fields': ('name', 'description', 'is_active')
-        }),
-        ('Metadata', {
-            'fields': ('quiz_count', 'created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
-
-    def quiz_count(self, obj):
-        """Count of active quizzes in this category"""
-        return obj.quizzes.filter(is_active=True).count()
-    quiz_count.short_description = "Active Quizzes"
-
-
-class QuizQuestionInline(admin.TabularInline):
-    """Inline for quiz questions"""
-    model = QuizQuestion
-    extra = 0
-    fields = ('text', 'order', 'base_points', 'is_active')
-    ordering = ('order',)
-
-
-@admin.register(Quiz)
-class QuizAdmin(admin.ModelAdmin):
-    """Admin for quizzes"""
-    list_display = (
-        'title', 'difficulty_level', 'difficulty_display', 'category',
-        'is_daily', 'is_active', 'question_count', 'created_at'
-    )
-    list_filter = (
-        'difficulty_level', 'is_active', 'is_daily',
-        'category', 'created_at'
-    )
-    search_fields = ('title', 'slug', 'description')
-    prepopulated_fields = {"slug": ("title",)}
-    readonly_fields = (
-        'created_at', 'updated_at', 'question_count', 'is_math_quiz'
-    )
-    inlines = [QuizQuestionInline]
-
-    fieldsets = (
-        ('Basic Info', {
-            'fields': ('category', 'title', 'slug', 'description')
-        }),
-        ('Difficulty', {
-            'fields': (
-                'difficulty_level', 'is_math_quiz', 'max_questions'
-            )
-        }),
-        ('Status', {
-            'fields': ('is_active', 'is_daily')
-        }),
-        ('Timing Configuration', {
-            'fields': (
-                'time_per_question_seconds', 'total_time_limit_seconds'
-            ),
-            'description': (
-                'Leave blank to use defaults based on difficulty level'
-            )
-        }),
-        ('Audio Settings', {
-            'fields': (
-                'enable_background_music', 'enable_sound_effects',
-                'sound_theme'
-            )
-        }),
-        ('Metadata', {
-            'fields': ('question_count', 'created_at', 'updated_at'),
-            'classes': ('collapse',)
-        }),
-    )
-
-    def difficulty_display(self, obj):
-        """Display difficulty name"""
-        return obj.get_difficulty_level_display()
-    difficulty_display.short_description = "Difficulty"
-
-    actions = ['mark_as_daily', 'unmark_as_daily', 'activate', 'deactivate']
-
-    def mark_as_daily(self, request, queryset):
-        """Mark selected quizzes as daily"""
-        count = queryset.update(is_daily=True)
-        self.message_user(request, f'{count} quizzes marked as daily.')
-    mark_as_daily.short_description = "Mark as daily quiz"
-
-    def unmark_as_daily(self, request, queryset):
-        """Unmark selected quizzes as daily"""
-        count = queryset.update(is_daily=False)
-        self.message_user(request, f'{count} quizzes unmarked as daily.')
-    unmark_as_daily.short_description = "Remove daily quiz status"
-
-    def activate(self, request, queryset):
-        """Activate selected quizzes"""
-        count = queryset.update(is_active=True)
-        self.message_user(request, f'{count} quizzes activated.')
-    activate.short_description = "Activate quizzes"
-
-    def deactivate(self, request, queryset):
-        """Deactivate selected quizzes"""
-        count = queryset.update(is_active=False)
-        self.message_user(request, f'{count} quizzes deactivated.')
-    deactivate.short_description = "Deactivate quizzes"
-
+# ============================================================================
+# GUESSTICULATOR QUIZ GAME ADMIN
+# ============================================================================
 
 class QuizAnswerInline(admin.TabularInline):
-    """Inline for quiz answers"""
     model = QuizAnswer
     extra = 4
+    min_num = 4
     max_num = 4
     fields = ('text', 'is_correct', 'order')
     ordering = ('order',)
 
 
-@admin.register(QuizQuestion)
-class QuizQuestionAdmin(admin.ModelAdmin):
-    """Admin for quiz questions"""
+@admin.register(QuizCategory)
+class QuizCategoryAdmin(admin.ModelAdmin):
     list_display = (
-        'quiz', 'text_preview', 'order', 'base_points',
-        'answer_count', 'is_active'
+        'name', 'slug', 'order', 'question_count', 
+        'is_math_category', 'is_active'
     )
-    list_filter = ('quiz__difficulty_level', 'is_active', 'quiz')
-    search_fields = ('text', 'quiz__title')
-    readonly_fields = ('created_at', 'updated_at', 'answer_count')
-    inlines = [QuizAnswerInline]
-
+    list_filter = ('is_active', 'is_math_category')
+    search_fields = ('name', 'slug', 'description')
+    prepopulated_fields = {'slug': ('name',)}
+    ordering = ('order',)
+    
     fieldsets = (
-        ('Question Info', {
-            'fields': ('quiz', 'text', 'image_url', 'order')
+        ('Basic Information', {
+            'fields': ('name', 'slug', 'description', 'order')
         }),
-        ('Scoring', {
-            'fields': ('base_points', 'is_active')
+        ('Settings', {
+            'fields': ('is_math_category', 'is_active')
         }),
-        ('Metadata', {
-            'fields': ('answer_count', 'created_at', 'updated_at'),
+    )
+    
+    def question_count(self, obj):
+        return obj.question_count
+    question_count.short_description = 'Questions'
+
+
+@admin.register(Quiz)
+class QuizAdmin(admin.ModelAdmin):
+    list_display = (
+        'title', 'slug', 'questions_per_category',
+        'time_per_question_seconds', 'turbo_mode_threshold',
+        'turbo_multiplier', 'is_active', 'qr_preview'
+    )
+    list_filter = ('is_active',)
+    search_fields = ('title', 'slug', 'description')
+    prepopulated_fields = {'slug': ('title',)}
+    readonly_fields = ('qr_preview', 'qr_generated_at', 'created_at')
+    actions = ['generate_qr_codes']
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('title', 'slug', 'description', 'is_active')
+        }),
+        ('Game Settings', {
+            'fields': (
+                'questions_per_category',
+                'time_per_question_seconds',
+                'turbo_mode_threshold',
+                'turbo_multiplier'
+            )
+        }),
+        ('QR Code', {
+            'fields': ('qr_code_url', 'qr_preview', 'qr_generated_at'),
             'classes': ('collapse',)
         }),
-    )
-
-    def text_preview(self, obj):
-        """Show preview of question text"""
-        return obj.text[:60] + "..." if len(obj.text) > 60 else obj.text
-    text_preview.short_description = "Question"
-
-    def answer_count(self, obj):
-        """Count of answers"""
-        return obj.answers.count()
-    answer_count.short_description = "Answers"
-
-
-@admin.register(QuizAnswer)
-class QuizAnswerAdmin(admin.ModelAdmin):
-    """Admin for quiz answers"""
-    list_display = (
-        'question_preview', 'text_preview', 'is_correct', 'order'
-    )
-    list_filter = ('is_correct', 'question__quiz')
-    search_fields = ('text', 'question__text')
-    readonly_fields = ('created_at',)
-
-    fieldsets = (
-        ('Answer Info', {
-            'fields': ('question', 'text', 'is_correct', 'order')
-        }),
-        ('Metadata', {
+        ('Timestamps', {
             'fields': ('created_at',),
             'classes': ('collapse',)
-        }),
+        })
     )
+    
+    def qr_preview(self, obj):
+        if obj.qr_code_url:
+            return format_html(
+                '<img src="{}" style="max-width:150px; max-height:150px;"/>',
+                obj.qr_code_url
+            )
+        return "No QR code"
+    qr_preview.short_description = 'QR Code'
+    
+    def generate_qr_codes(self, request, queryset):
+        count = 0
+        for quiz in queryset:
+            quiz.generate_qr_code()
+            count += 1
+        self.message_user(request, f"Generated QR codes for {count} quiz(zes)")
+    generate_qr_codes.short_description = "Generate QR codes"
 
-    def question_preview(self, obj):
-        """Show preview of question"""
-        text = obj.question.text
-        return text[:40] + "..." if len(text) > 40 else text
-    question_preview.short_description = "Question"
 
+@admin.register(QuizQuestion)
+class QuizQuestionAdmin(admin.ModelAdmin):
+    list_display = (
+        'text_preview', 'category', 'answer_count',
+        'correct_answer_text', 'is_active'
+    )
+    list_filter = ('category', 'is_active')
+    search_fields = ('text',)
+    inlines = [QuizAnswerInline]
+    readonly_fields = ('created_at',)
+    
+    fieldsets = (
+        ('Question', {
+            'fields': ('category', 'text', 'image_url', 'is_active')
+        }),
+        ('Meta', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        })
+    )
+    
     def text_preview(self, obj):
-        """Show preview of answer text"""
-        return obj.text[:50] + "..." if len(obj.text) > 50 else obj.text
-    text_preview.short_description = "Answer"
+        return obj.text[:60] + '...' if len(obj.text) > 60 else obj.text
+    text_preview.short_description = 'Question'
+    
+    def answer_count(self, obj):
+        count = obj.answers.count()
+        if count != 4:
+            return format_html(
+                '<span style="color: red; font-weight: bold;">⚠ {} answers</span>',
+                count
+            )
+        return f'✓ {count}'
+    answer_count.short_description = 'Answers'
+    
+    def correct_answer_text(self, obj):
+        correct = obj.correct_answer
+        if correct:
+            return correct.text
+        return format_html('<span style="color: red;">❌ None</span>')
+    correct_answer_text.short_description = 'Correct Answer'
+
+
+class QuizSubmissionInline(admin.TabularInline):
+    model = QuizSubmission
+    extra = 0
+    can_delete = False
+    readonly_fields = (
+        'category', 'question_text', 'selected_answer',
+        'correct_answer', 'is_correct', 'time_taken_seconds',
+        'was_turbo_active', 'points_awarded', 'answered_at'
+    )
+    fields = readonly_fields
+    ordering = ('answered_at',)
+    
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(QuizSession)
 class QuizSessionAdmin(admin.ModelAdmin):
-    """Admin for quiz sessions"""
     list_display = (
-        'player_name', 'quiz', 'score', 'is_tournament', 'is_completed',
-        'current_multiplier', 'duration_formatted', 'started_at'
+        'player_name', 'mode_icon', 'score', 'turbo_icon',
+        'completion_status', 'duration_formatted', 'started_at'
     )
     list_filter = (
-        'is_completed', 'is_tournament', 'quiz__difficulty_level', 'started_at'
+        'is_completed', 'is_tournament_mode',
+        'is_turbo_active', 'started_at'
     )
     search_fields = (
-        'player_name', 'external_player_id', 'quiz__title'
+        'player_name', 'session_token', 'id'
     )
     readonly_fields = (
-        'id', 'score', 'started_at', 'finished_at',
-        'time_spent_seconds', 'duration_formatted', 'submission_count',
-        'consecutive_correct', 'current_multiplier'
+        'id', 'quiz', 'session_token', 'tournament',
+        'score', 'consecutive_correct', 'is_turbo_active',
+        'current_category_index', 'current_question_index',
+        'is_completed', 'finished_at', 'duration_formatted',
+        'started_at'
     )
-    ordering = ('-started_at',)
-
+    inlines = [QuizSubmissionInline]
+    
     fieldsets = (
-        ('Session Info', {
+        ('Player', {
+            'fields': ('player_name', 'session_token')
+        }),
+        ('Game', {
             'fields': (
-                'id', 'quiz'
+                'quiz', 'is_tournament_mode', 'tournament',
+                'score', 'consecutive_correct', 'is_turbo_active'
             )
         }),
-        ('Player Info', {
+        ('Progress', {
             'fields': (
-                'player_name', 'external_player_id', 'is_tournament'
+                'current_category_index', 'current_question_index',
+                'is_completed', 'finished_at', 'duration_formatted'
             )
         }),
-        ('Results', {
-            'fields': (
-                'score', 'is_completed', 'current_question_index',
-                'submission_count'
-            )
-        }),
-        ('Turbo Mode', {
-            'fields': (
-                'consecutive_correct', 'current_multiplier'
-            )
-        }),
-        ('Timing', {
-            'fields': (
-                'started_at', 'finished_at', 'time_spent_seconds',
-                'duration_formatted'
-            )
-        }),
+        ('Timestamps', {
+            'fields': ('started_at',),
+            'classes': ('collapse',)
+        })
     )
+    
+    def mode_icon(self, obj):
+        if obj.is_tournament_mode:
+            return '🏆 Tournament'
+        return '🎮 Casual'
+    mode_icon.short_description = 'Mode'
+    
+    def turbo_icon(self, obj):
+        if obj.is_turbo_active:
+            return format_html(
+                '<span style="color: red; font-weight: bold;">🔥 TURBO</span>'
+            )
+        return f'⚡ {obj.consecutive_correct} streak'
+    turbo_icon.short_description = 'Turbo Status'
+    
+    def completion_status(self, obj):
+        if obj.is_completed:
+            return format_html(
+                '<span style="color: green;">✓ Complete</span>'
+            )
+        return format_html(
+            '<span style="color: orange;">⏳ In Progress</span>'
+        )
+    completion_status.short_description = 'Status'
+    
+    def has_add_permission(self, request):
+        return False
 
-    def submission_count(self, obj):
-        """Count of submissions"""
-        return obj.submissions.count()
-    submission_count.short_description = "Submissions"
 
-
-@admin.register(QuizSubmission)
-class QuizSubmissionAdmin(admin.ModelAdmin):
-    """Admin for quiz submissions"""
+@admin.register(QuizLeaderboard)
+class QuizLeaderboardAdmin(admin.ModelAdmin):
     list_display = (
-        'session_player', 'question_preview', 'is_correct',
-        'points_awarded', 'time_taken_seconds', 'answered_at'
+        'rank_display', 'player_name', 'best_score',
+        'games_played', 'best_session_link', 'last_played'
     )
-    list_filter = (
-        'is_correct', 'session__quiz__difficulty_level', 'answered_at'
-    )
-    search_fields = (
-        'session__player_name', 'question_text', 'selected_answer'
-    )
+    list_filter = ('quiz', 'last_played')
+    search_fields = ('player_name', 'session_token')
     readonly_fields = (
-        'id', 'is_correct', 'points_awarded', 'answered_at'
+        'quiz', 'session_token', 'player_name',
+        'best_score', 'best_session', 'games_played',
+        'last_played'
     )
-    ordering = ('-answered_at',)
-
+    ordering = ('-best_score', 'last_played')
+    
     fieldsets = (
-        ('Submission Info', {
+        ('Player', {
+            'fields': ('player_name', 'session_token')
+        }),
+        ('Stats', {
             'fields': (
-                'id', 'session', 'question'
+                'quiz', 'best_score', 'games_played',
+                'best_session', 'last_played'
             )
-        }),
-        ('Question Data', {
-            'fields': ('question_text', 'question_data')
-        }),
-        ('Answer', {
-            'fields': (
-                'selected_answer', 'selected_answer_id',
-                'is_correct', 'time_taken_seconds'
+        })
+    )
+    
+    def rank_display(self, obj):
+        entries = QuizLeaderboard.objects.filter(
+            quiz=obj.quiz
+        ).order_by('-best_score', 'last_played')
+        
+        rank = None
+        for idx, entry in enumerate(entries, 1):
+            if entry.id == obj.id:
+                rank = idx
+                break
+        
+        if rank == 1:
+            return format_html(
+                '<span style="font-size: 16px;">🥇</span> #1'
             )
+        elif rank == 2:
+            return format_html(
+                '<span style="font-size: 16px;">🥈</span> #2'
+            )
+        elif rank == 3:
+            return format_html(
+                '<span style="font-size: 16px;">🥉</span> #3'
+            )
+        return f'#{rank}'
+    rank_display.short_description = 'Rank'
+    
+    def best_session_link(self, obj):
+        if obj.best_session:
+            url = reverse(
+                'admin:entertainment_quizsession_change',
+                args=[obj.best_session.id]
+            )
+            return format_html(
+                '<a href="{}">View Session</a>',
+                url
+            )
+        return '-'
+    best_session_link.short_description = 'Best Session'
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(QuizTournament)
+class QuizTournamentAdmin(admin.ModelAdmin):
+    list_display = (
+        'name', 'status', 'start_date', 'end_date',
+        'participant_count', 'qr_preview'
+    )
+    list_filter = ('status', 'start_date')
+    search_fields = ('name', 'slug', 'description')
+    prepopulated_fields = {'slug': ('name',)}
+    readonly_fields = (
+        'qr_preview', 'qr_generated_at', 'participant_count',
+        'created_at'
+    )
+    actions = ['generate_qr_codes', 'activate_tournaments']
+    
+    fieldsets = (
+        ('Tournament Information', {
+            'fields': ('name', 'slug', 'description', 'quiz')
         }),
-        ('Scoring', {
-            'fields': ('base_points', 'points_awarded')
+        ('Schedule', {
+            'fields': ('start_date', 'end_date', 'status')
         }),
-        ('Metadata', {
-            'fields': ('answered_at',),
+        ('Stats', {
+            'fields': ('participant_count',)
+        }),
+        ('QR Code', {
+            'fields': ('qr_code_url', 'qr_preview', 'qr_generated_at'),
             'classes': ('collapse',)
         }),
+        ('Timestamps', {
+            'fields': ('created_at',),
+            'classes': ('collapse',)
+        })
     )
-
-    def session_player(self, obj):
-        """Show session player name"""
-        return obj.session.player_name if obj.session else "N/A"
-    session_player.short_description = "Player"
-
-    def question_preview(self, obj):
-        """Show preview of question"""
-        text = obj.question_text or (
-            obj.question.text if obj.question else "N/A"
+    
+    def qr_preview(self, obj):
+        if obj.qr_code_url:
+            return format_html(
+                '<img src="{}" style="max-width:150px; max-height:150px;"/>',
+                obj.qr_code_url
+            )
+        return "No QR code"
+    qr_preview.short_description = 'QR Code'
+    
+    def participant_count(self, obj):
+        count = QuizSession.objects.filter(
+            tournament=obj,
+            is_tournament_mode=True
+        ).values('session_token').distinct().count()
+        return count
+    participant_count.short_description = 'Participants'
+    
+    def generate_qr_codes(self, request, queryset):
+        count = 0
+        for tournament in queryset:
+            tournament.generate_qr_code()
+            count += 1
+        self.message_user(
+            request,
+            f"Generated QR codes for {count} tournament(s)"
         )
-        return text[:40] + "..." if len(text) > 40 else text
-    question_preview.short_description = "Question"
+    generate_qr_codes.short_description = "Generate QR codes"
+    
+    def activate_tournaments(self, request, queryset):
+        count = queryset.update(
+            status=QuizTournament.TournamentStatus.ACTIVE
+        )
+        self.message_user(
+            request,
+            f"Activated {count} tournament(s)"
+        )
+    activate_tournaments.short_description = "Activate tournaments"
+
+
+@admin.register(TournamentLeaderboard)
+class TournamentLeaderboardAdmin(admin.ModelAdmin):
+    list_display = (
+        'rank_display', 'tournament', 'player_name',
+        'best_score', 'best_session_link', 'updated_at'
+    )
+    list_filter = ('tournament', 'updated_at')
+    search_fields = ('player_name', 'session_token')
+    readonly_fields = (
+        'tournament', 'session_token', 'player_name',
+        'best_score', 'best_session', 'updated_at'
+    )
+    ordering = ('tournament', '-best_score', 'updated_at')
+    
+    fieldsets = (
+        ('Tournament', {
+            'fields': ('tournament',)
+        }),
+        ('Player', {
+            'fields': ('player_name', 'session_token')
+        }),
+        ('Stats', {
+            'fields': ('best_score', 'best_session', 'updated_at')
+        })
+    )
+    
+    def rank_display(self, obj):
+        entries = TournamentLeaderboard.objects.filter(
+            tournament=obj.tournament
+        ).order_by('-best_score', 'updated_at')
+        
+        rank = None
+        for idx, entry in enumerate(entries, 1):
+            if entry.id == obj.id:
+                rank = idx
+                break
+        
+        if rank == 1:
+            return format_html(
+                '<span style="font-size: 16px;">🥇</span> #1'
+            )
+        elif rank == 2:
+            return format_html(
+                '<span style="font-size: 16px;">🥈</span> #2'
+            )
+        elif rank == 3:
+            return format_html(
+                '<span style="font-size: 16px;">🥉</span> #3'
+            )
+        return f'#{rank}'
+    rank_display.short_description = 'Rank'
+    
+    def best_session_link(self, obj):
+        if obj.best_session:
+            url = reverse(
+                'admin:entertainment_quizsession_change',
+                args=[obj.best_session.id]
+            )
+            return format_html(
+                '<a href="{}">View Session</a>',
+                url
+            )
+        return '-'
+    best_session_link.short_description = 'Best Session'
+    
+    def has_add_permission(self, request):
+        return False
+    
+    def has_delete_permission(self, request, obj=None):
+        return False

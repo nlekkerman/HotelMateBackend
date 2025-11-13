@@ -10,7 +10,8 @@ from .models import (
     Game, GameHighScore, GameQRCode,
     MemoryGameCard, MemoryGameSession, MemoryGameStats, MemoryGameTournament,
     TournamentParticipation, MemoryGameAchievement, UserAchievement,
-    QuizCategory, Quiz, QuizSession, QuizSubmission
+    QuizCategory, Quiz, QuizQuestion, QuizAnswer, QuizSession, QuizSubmission,
+    QuizTournament, QuizLeaderboard, TournamentLeaderboard
 )
 from .serializers import (
     GameSerializer,
@@ -23,19 +24,24 @@ from .serializers import (
     MemoryGameStatsSerializer,
     MemoryGameTournamentSerializer,
     TournamentParticipationSerializer,
-    TournamentLeaderboardSerializer,
     MemoryGameAchievementSerializer,
     UserAchievementSerializer,
     LeaderboardSerializer,
     DashboardStatsSerializer,
-    QuizCategorySerializer,
+    QuizCategoryListSerializer,
+    QuizCategoryDetailSerializer,
     QuizListSerializer,
     QuizDetailSerializer,
     QuizSessionCreateSerializer,
-    QuizSessionSerializer,
-    QuizSubmissionCreateSerializer,
+    QuizSessionDetailSerializer,
+    QuizSessionSummarySerializer,
     QuizSubmissionSerializer,
-    QuizLeaderboardSerializer
+    SubmitAnswerSerializer,
+    QuizLeaderboardSerializer,
+    QuizTournamentListSerializer,
+    QuizTournamentDetailSerializer,
+    TournamentLeaderboardSerializer,
+    QuizQuestionSerializer
 )
 
 
@@ -812,342 +818,502 @@ class DashboardViewSet(viewsets.ViewSet):
         return Response(serializer.data)
 
 
-# QUIZ GAME VIEWS
-
-class QuizCategoryViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet for quiz categories (read-only, global)
-    """
-    queryset = QuizCategory.objects.filter(is_active=True)
-    serializer_class = QuizCategorySerializer
-    permission_classes = [permissions.AllowAny]
-    lookup_field = 'id'
-
-    def get_queryset(self):
-        """Filter active categories"""
-        return QuizCategory.objects.filter(is_active=True).order_by('name')
-
+# ============================================================================
+# GUESSTICULATOR QUIZ GAME VIEWS
+# ============================================================================
 
 class QuizViewSet(viewsets.ReadOnlyModelViewSet):
-    """
-    ViewSet for quizzes (read-only, global)
-    Supports filtering by difficulty, category, and daily status
-    """
+    """Quiz endpoints - read-only"""
     permission_classes = [permissions.AllowAny]
+    queryset = Quiz.objects.filter(is_active=True)
     lookup_field = 'slug'
-
-    def get_queryset(self):
-        """Filter quizzes by various parameters"""
-        qs = Quiz.objects.filter(is_active=True)
-
-        # Filter by difficulty level
-        difficulty = self.request.query_params.get('difficulty')
-        if difficulty:
-            try:
-                difficulty_int = int(difficulty)
-                qs = qs.filter(difficulty_level=difficulty_int)
-            except ValueError:
-                pass
-
-        # Filter by category
-        category = self.request.query_params.get('category')
-        if category:
-            qs = qs.filter(category__id=category)
-
-        # Filter by daily status
-        is_daily = self.request.query_params.get('is_daily')
-        if is_daily is not None:
-            is_daily_bool = is_daily.lower() in ['true', '1', 'yes']
-            qs = qs.filter(is_daily=is_daily_bool)
-
-        return qs.select_related('category').order_by('difficulty_level',
-                                                      'title')
-
+    
     def get_serializer_class(self):
-        """Use detailed serializer for retrieve, list for list"""
         if self.action == 'retrieve':
             return QuizDetailSerializer
         return QuizListSerializer
-
-    @action(detail=True, methods=['post'],
-            permission_classes=[permissions.AllowAny])
-    def generate_math_question(self, request, slug=None):
-        """
-        Generate a dynamic math question for Level 4 quizzes
-        Returns question with 4 shuffled options (1 correct, 3 distractors)
-        """
-        import random
-
+    
+    @action(detail=True, methods=['post'])
+    def generate_qr(self, request, slug=None):
+        """Generate QR code for quiz"""
         quiz = self.get_object()
-
-        # Verify this is a math quiz
-        if not quiz.is_math_quiz:
-            return Response({
-                'error': 'This endpoint is only for Dynamic Math quizzes'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Generate random math problem
-        num1 = random.randint(0, 10)
-        num2 = random.randint(0, 10)
-        operation = random.choice(['+', '-', '×', '÷'])
-
-        # Calculate correct answer
-        if operation == '+':
-            correct_answer = num1 + num2
-            question_text = f"What is {num1} + {num2}?"
-        elif operation == '-':
-            correct_answer = num1 - num2
-            question_text = f"What is {num1} - {num2}?"
-        elif operation == '×':
-            correct_answer = num1 * num2
-            question_text = f"What is {num1} × {num2}?"
-        else:  # ÷
-            # Ensure whole number division
-            num1 = num2 * random.randint(1, 10)
-            correct_answer = num1 // num2
-            question_text = f"What is {num1} ÷ {num2}?"
-
-        # Generate 3 believable distractors
-        distractors = set()
-        while len(distractors) < 3:
-            # Generate distractors close to correct answer
-            offset = random.choice([-2, -1, 1, 2, 3, -3])
-            distractor = correct_answer + offset
-            if distractor != correct_answer and distractor >= 0:
-                distractors.add(distractor)
-
-        # Create answer options (1 correct + 3 distractors)
-        answers = [str(correct_answer)] + \
-            [str(d) for d in list(distractors)[:3]]
-
-        # Shuffle answers
-        random.shuffle(answers)
-
+        quiz.generate_qr_code()
         return Response({
-            'question_text': question_text,
-            'answers': answers,
-            'question_data': {
-                'num1': num1,
-                'num2': num2,
-                'operation': operation,
-                'correct_answer': correct_answer
-            },
-            'base_points': 10,
-            'time_limit': quiz.get_time_per_question()
+            'success': True,
+            'qr_code_url': quiz.qr_code_url,
+            'generated_at': quiz.qr_generated_at
         })
 
 
-class QuizSessionViewSet(viewsets.ModelViewSet):
-    """
-    ViewSet for quiz sessions
-    Handles session creation, answer submission, and completion
-    """
+class QuizCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """Category endpoints - read-only"""
     permission_classes = [permissions.AllowAny]
-    lookup_field = 'id'
-
-    def get_queryset(self):
-        """Filter sessions by quiz"""
-        qs = QuizSession.objects.all()
-
-        # Filter by quiz
-        quiz_slug = self.request.query_params.get('quiz')
-        if quiz_slug:
-            qs = qs.filter(quiz__slug=quiz_slug)
-
-        # Filter by completion status
-        is_completed = self.request.query_params.get('is_completed')
-        if is_completed is not None:
-            is_completed_bool = is_completed.lower() in ['true', '1', 'yes']
-            qs = qs.filter(is_completed=is_completed_bool)
-
-        return qs.select_related('quiz').order_by('-started_at')
-
+    queryset = QuizCategory.objects.filter(is_active=True).order_by('order')
+    lookup_field = 'slug'
+    
     def get_serializer_class(self):
-        """Use create serializer for create action"""
-        if self.action == 'create':
-            return QuizSessionCreateSerializer
-        return QuizSessionSerializer
+        if self.action == 'retrieve':
+            return QuizCategoryDetailSerializer
+        return QuizCategoryListSerializer
 
-    @action(detail=True, methods=['post'],
-            permission_classes=[permissions.AllowAny])
-    def submit_answer(self, request, id=None):
-        """
-        Submit an answer to a quiz question
-        Auto-validates and calculates score
-        """
-        session = self.get_object()
 
-        # Create submission
-        serializer = QuizSubmissionCreateSerializer(
-            data=request.data,
-            context={'request': request}
+class QuizGameViewSet(viewsets.ViewSet):
+    """Main game logic endpoints"""
+    permission_classes = [permissions.AllowAny]
+    
+    @action(detail=False, methods=['post'])
+    def start_session(self, request):
+        """Start a new game session"""
+        player_name = request.data.get('player_name')
+        session_token = request.data.get('session_token')
+        is_tournament_mode = request.data.get('is_tournament_mode', False)
+        tournament_slug = request.data.get('tournament_slug')
+        
+        if not player_name or not session_token:
+            return Response(
+                {'error': 'player_name and session_token are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            quiz = Quiz.objects.get(slug='guessticulator', is_active=True)
+        except Quiz.DoesNotExist:
+            return Response(
+                {'error': 'Quiz not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        tournament = None
+        if is_tournament_mode:
+            if not tournament_slug:
+                return Response(
+                    {'error': 'tournament_slug required for tournament mode'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            tournament = get_object_or_404(
+                QuizTournament,
+                slug=tournament_slug
+            )
+            
+            if not tournament.is_active:
+                return Response(
+                    {'error': 'Tournament is not currently active'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        session = QuizSession.objects.create(
+            quiz=quiz,
+            session_token=session_token,
+            player_name=player_name,
+            is_tournament_mode=is_tournament_mode,
+            tournament=tournament
         )
-
-        if serializer.is_valid():
-            submission = serializer.save()
-
-            # Check if quiz is complete
-            quiz = session.quiz
-            total_questions = quiz.max_questions
-            completed_count = session.submissions.count()
-
-            if completed_count >= total_questions:
-                session.complete_session()
-
-            return Response({
-                'submission': QuizSubmissionSerializer(submission).data,
-                'session': QuizSessionSerializer(session).data,
-                'quiz_completed': session.is_completed
-            }, status=status.HTTP_201_CREATED)
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
+        
+        categories = QuizCategory.objects.filter(
+            is_active=True
+        ).order_by('order')
+        
+        if not categories.exists():
+            return Response(
+                {'error': 'No categories available'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        first_category = categories.first()
+        questions = self._get_category_questions(
+            first_category,
+            quiz.questions_per_category
         )
-
-    @action(detail=True, methods=['post'],
-            permission_classes=[permissions.AllowAny])
-    def complete(self, request, id=None):
-        """
-        Manually complete a quiz session
-        Useful for timeout or early exit scenarios
-        """
-        session = self.get_object()
-
+        
+        serializer = QuizSessionDetailSerializer(session)
+        
+        return Response({
+            'session': serializer.data,
+            'current_category': QuizCategoryListSerializer(first_category).data,
+            'questions': questions,
+            'total_categories': categories.count(),
+            'questions_per_category': quiz.questions_per_category
+        }, status=status.HTTP_201_CREATED)
+    
+    def _get_category_questions(self, category, count=10):
+        """Get questions for a category"""
+        if category.is_math_category:
+            return self._generate_math_questions(count)
+        else:
+            questions = QuizQuestion.objects.filter(
+                category=category,
+                is_active=True
+            ).prefetch_related('answers').order_by('?')[:count]
+            
+            return QuizQuestionSerializer(questions, many=True).data
+    
+    def _generate_math_questions(self, count=10):
+        """Generate dynamic math questions"""
+        import random
+        questions = []
+        operators = ['+', '-', '*', '/']
+        operator_symbols = {'+': '+', '-': '-', '*': '×', '/': '÷'}
+        
+        for _ in range(count):
+            num1 = random.randint(0, 10)
+            num2 = random.randint(1, 10)
+            operator = random.choice(operators)
+            
+            if operator == '+':
+                correct_answer = num1 + num2
+            elif operator == '-':
+                correct_answer = num1 - num2
+            elif operator == '*':
+                correct_answer = num1 * num2
+            else:
+                num1 = num2 * random.randint(0, 10)
+                correct_answer = num1 // num2
+            
+            wrong_answers = set()
+            while len(wrong_answers) < 3:
+                offset = random.choice([-3, -2, -1, 1, 2, 3])
+                wrong = correct_answer + offset
+                if wrong != correct_answer and wrong >= 0:
+                    wrong_answers.add(int(wrong))
+            
+            answers = [
+                {'id': 1, 'text': str(int(correct_answer)), 'order': 0},
+                {'id': 2, 'text': str(list(wrong_answers)[0]), 'order': 1},
+                {'id': 3, 'text': str(list(wrong_answers)[1]), 'order': 2},
+                {'id': 4, 'text': str(list(wrong_answers)[2]), 'order': 3}
+            ]
+            
+            random.shuffle(answers)
+            
+            for idx, ans in enumerate(answers):
+                ans['order'] = idx
+            
+            question_text = f"{num1} {operator_symbols[operator]} {num2} = ?"
+            
+            questions.append({
+                'id': None,
+                'category_slug': 'dynamic-math',
+                'text': question_text,
+                'image_url': None,
+                'answers': answers,
+                'question_data': {
+                    'num1': num1,
+                    'num2': num2,
+                    'operator': operator,
+                    'correct_answer': int(correct_answer)
+                }
+            })
+        
+        return questions
+    
+    @action(detail=False, methods=['post'])
+    def submit_answer(self, request):
+        """Submit an answer"""
+        serializer = SubmitAnswerSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        data = serializer.validated_data
+        
+        try:
+            session = QuizSession.objects.get(id=data['session_id'])
+        except QuizSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
         if session.is_completed:
-            return Response({
-                'message': 'Session already completed',
-                'session': QuizSessionSerializer(session).data
-            })
-
+            return Response(
+                {'error': 'Session already completed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        category = get_object_or_404(
+            QuizCategory,
+            slug=data['category_slug']
+        )
+        
+        if category.is_math_category:
+            question_data = data.get('question_data', {})
+            correct_answer_value = str(question_data.get('correct_answer', ''))
+        else:
+            question = get_object_or_404(
+                QuizQuestion,
+                id=data.get('question_id')
+            )
+            correct_ans = question.correct_answer
+            if not correct_ans:
+                return Response(
+                    {'error': 'Question has no correct answer defined'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            correct_answer_value = correct_ans.text
+        
+        is_correct = data['selected_answer'].strip() == correct_answer_value.strip()
+        
+        submission = QuizSubmission.objects.create(
+            session=session,
+            category=category,
+            question=None if category.is_math_category else QuizQuestion.objects.get(id=data.get('question_id')),
+            question_text=data['question_text'],
+            question_data=data.get('question_data'),
+            selected_answer=data['selected_answer'],
+            selected_answer_id=data.get('selected_answer_id'),
+            correct_answer=correct_answer_value,
+            is_correct=is_correct,
+            time_taken_seconds=data['time_taken_seconds'],
+            was_turbo_active=session.is_turbo_active
+        )
+        
+        points = submission.calculate_points()
+        submission.points_awarded = points
+        submission.save()
+        
+        session.score += points
+        
+        if is_correct and points > 0:
+            session.consecutive_correct += 1
+            
+            turbo_threshold = session.quiz.turbo_mode_threshold
+            if session.consecutive_correct >= turbo_threshold:
+                session.is_turbo_active = True
+        else:
+            session.consecutive_correct = 0
+            session.is_turbo_active = False
+        
+        session.save()
+        session.refresh_from_db()
+        
+        return Response({
+            'success': True,
+            'submission': QuizSubmissionSerializer(submission).data,
+            'session_updated': {
+                'score': session.score,
+                'consecutive_correct': session.consecutive_correct,
+                'is_turbo_active': session.is_turbo_active
+            }
+        })
+    
+    @action(detail=False, methods=['post'])
+    def complete_session(self, request):
+        """Complete a game session and update leaderboards"""
+        session_id = request.data.get('session_id')
+        
+        if not session_id:
+            return Response(
+                {'error': 'session_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            session = QuizSession.objects.get(id=session_id)
+        except QuizSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        if session.is_completed:
+            return Response(
+                {'error': 'Session already completed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         session.complete_session()
-
-        return Response({
-            'message': 'Session completed',
-            'session': QuizSessionSerializer(session).data
-        })
-
-    @action(detail=False, methods=['get'],
-            permission_classes=[permissions.AllowAny])
-    def all_time_leaderboard(self, request):
-        """
-        ALL-TIME LEADERBOARD - All completed sessions (casual + tournament)
-        Query params:
-        - quiz: quiz slug (required)
-        - period: 'daily', 'weekly', 'all' (default: 'all')
-        - limit: number of results (default: 50)
-        """
-        quiz_slug = request.query_params.get('quiz')
-        period = request.query_params.get('period', 'all')
-        limit = int(request.query_params.get('limit', 50))
-
-        if not quiz_slug:
-            return Response({
-                'error': 'Quiz parameter is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Build queryset - ALL completed sessions
-        qs = QuizSession.objects.filter(
-            quiz__slug=quiz_slug,
-            is_completed=True
-        ).select_related('quiz')
-
-        # Apply period filter
-        if period == 'daily':
-            qs = qs.filter(finished_at__date=timezone.now().date())
-        elif period == 'weekly':
-            week_ago = timezone.now() - timezone.timedelta(days=7)
-            qs = qs.filter(finished_at__gte=week_ago)
-
-        # Order and limit
-        top_sessions = qs.order_by('-score', 'time_spent_seconds')[:limit]
-
-        # Build leaderboard
-        leaderboard_data = []
-        for rank, session in enumerate(top_sessions, 1):
-            leaderboard_data.append({
-                'rank': rank,
+        
+        leaderboard_entry, created = QuizLeaderboard.objects.get_or_create(
+            quiz=session.quiz,
+            session_token=session.session_token,
+            defaults={
                 'player_name': session.player_name,
-                'score': session.score,
-                'time_spent_seconds': session.time_spent_seconds,
-                'duration_formatted': session.duration_formatted,
-                'finished_at': session.finished_at,
-                'is_tournament': session.is_tournament
-            })
-
-        serializer = QuizLeaderboardSerializer(leaderboard_data, many=True)
+                'best_score': session.score,
+                'best_session': session,
+                'games_played': 1
+            }
+        )
+        
+        if not created:
+            if session.score > leaderboard_entry.best_score:
+                leaderboard_entry.best_score = session.score
+                leaderboard_entry.best_session = session
+                leaderboard_entry.player_name = session.player_name
+            leaderboard_entry.games_played += 1
+            leaderboard_entry.save()
+        
+        if session.is_tournament_mode and session.tournament:
+            tournament_entry, t_created = TournamentLeaderboard.objects.get_or_create(
+                tournament=session.tournament,
+                session_token=session.session_token,
+                defaults={
+                    'player_name': session.player_name,
+                    'best_score': session.score,
+                    'best_session': session
+                }
+            )
+            
+            if not t_created and session.score > tournament_entry.best_score:
+                tournament_entry.best_score = session.score
+                tournament_entry.best_session = session
+                tournament_entry.player_name = session.player_name
+                tournament_entry.save()
+        
+        all_time_rank = QuizLeaderboard.objects.filter(
+            quiz=session.quiz,
+            best_score__gt=session.score
+        ).count() + 1
+        
+        tournament_rank = None
+        if session.is_tournament_mode and session.tournament:
+            tournament_rank = TournamentLeaderboard.objects.filter(
+                tournament=session.tournament,
+                best_score__gt=session.score
+            ).count() + 1
+        
         return Response({
-            'quiz': quiz_slug,
-            'period': period,
-            'leaderboard_type': 'all_time',
-            'description': 'All players (casual + tournament)',
-            'count': len(leaderboard_data),
-            'leaderboard': serializer.data
+            'success': True,
+            'session': QuizSessionDetailSerializer(session).data,
+            'rankings': {
+                'all_time_rank': all_time_rank,
+                'tournament_rank': tournament_rank
+            },
+            'is_new_best': created or (not created and session.score == leaderboard_entry.best_score)
         })
+    
+    @action(detail=False, methods=['get'])
+    def get_session(self, request):
+        """Get session details"""
+        session_id = request.query_params.get('session_id')
+        
+        if not session_id:
+            return Response(
+                {'error': 'session_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            session = QuizSession.objects.get(id=session_id)
+        except QuizSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = QuizSessionDetailSerializer(session)
+        return Response(serializer.data)
 
-    @action(detail=False, methods=['get'],
-            permission_classes=[permissions.AllowAny])
-    def tournament_leaderboard(self, request):
-        """
-        TOURNAMENT LEADERBOARD - Only tournament mode sessions
-        Query params:
-        - quiz: quiz slug (required)
-        - period: 'daily', 'weekly', 'all' (default: 'all')
-        - limit: number of results (default: 50)
-        """
-        quiz_slug = request.query_params.get('quiz')
-        period = request.query_params.get('period', 'all')
-        limit = int(request.query_params.get('limit', 50))
 
-        if not quiz_slug:
-            return Response({
-                'error': 'Quiz parameter is required'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Build queryset - ONLY tournament sessions
-        qs = QuizSession.objects.filter(
-            quiz__slug=quiz_slug,
-            is_completed=True,
-            is_tournament=True
-        ).select_related('quiz')
-
-        # Apply period filter
-        if period == 'daily':
-            qs = qs.filter(finished_at__date=timezone.now().date())
-        elif period == 'weekly':
-            week_ago = timezone.now() - timezone.timedelta(days=7)
-            qs = qs.filter(finished_at__gte=week_ago)
-
-        # Order and limit
-        top_sessions = qs.order_by('-score', 'time_spent_seconds')[:limit]
-
-        # Build leaderboard
-        leaderboard_data = []
-        for rank, session in enumerate(top_sessions, 1):
-            leaderboard_data.append({
-                'rank': rank,
-                'player_name': session.player_name,
-                'score': session.score,
-                'time_spent_seconds': session.time_spent_seconds,
-                'duration_formatted': session.duration_formatted,
-                'finished_at': session.finished_at,
-                'is_tournament': session.is_tournament
-            })
-
-        serializer = QuizLeaderboardSerializer(leaderboard_data, many=True)
+class QuizLeaderboardViewSet(viewsets.ViewSet):
+    """Leaderboard endpoints"""
+    permission_classes = [permissions.AllowAny]
+    
+    @action(detail=False, methods=['get'])
+    def all_time(self, request):
+        """Get all-time leaderboard"""
+        limit = int(request.query_params.get('limit', 100))
+        
+        entries = QuizLeaderboard.objects.select_related(
+            'quiz', 'best_session'
+        ).order_by('-best_score', 'last_played')[:limit]
+        
+        for idx, entry in enumerate(entries, 1):
+            entry.rank = idx
+        
+        serializer = QuizLeaderboardSerializer(entries, many=True)
         return Response({
-            'quiz': quiz_slug,
-            'period': period,
-            'leaderboard_type': 'tournament',
-            'description': 'Tournament players only',
-            'count': len(leaderboard_data),
-            'leaderboard': serializer.data
+            'count': entries.count(),
+            'results': serializer.data
         })
+    
+    @action(detail=False, methods=['get'])
+    def player_stats(self, request):
+        """Get player's stats"""
+        session_token = request.query_params.get('session_token')
+        
+        if not session_token:
+            return Response(
+                {'error': 'session_token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            entry = QuizLeaderboard.objects.get(session_token=session_token)
+        except QuizLeaderboard.DoesNotExist:
+            return Response(
+                {'error': 'No stats found for this player'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        rank = QuizLeaderboard.objects.filter(
+            quiz=entry.quiz,
+            best_score__gt=entry.best_score
+        ).count() + 1
+        
+        entry.rank = rank
+        
+        serializer = QuizLeaderboardSerializer(entry)
+        return Response(serializer.data)
 
-    @action(detail=False, methods=['get'],
-            permission_classes=[permissions.AllowAny])
-    def leaderboard(self, request):
-        """
-        Leaderboard endpoint - redirects to all_time_leaderboard
-        """
-        return self.all_time_leaderboard(request)
+
+class QuizTournamentViewSet(viewsets.ReadOnlyModelViewSet):
+    """Tournament endpoints"""
+    permission_classes = [permissions.AllowAny]
+    queryset = QuizTournament.objects.all().order_by('-start_date')
+    lookup_field = 'slug'
+    
+    def get_serializer_class(self):
+        if self.action == 'retrieve':
+            return QuizTournamentDetailSerializer
+        return QuizTournamentListSerializer
+    
+    @action(detail=False, methods=['get'])
+    def active(self, request):
+        """Get currently active tournament"""
+        now = timezone.now()
+        tournament = QuizTournament.objects.filter(
+            status=QuizTournament.TournamentStatus.ACTIVE,
+            start_date__lte=now,
+            end_date__gte=now
+        ).first()
+        
+        if not tournament:
+            return Response(
+                {'error': 'No active tournament'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = QuizTournamentDetailSerializer(tournament)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def leaderboard(self, request, slug=None):
+        """Get tournament leaderboard"""
+        tournament = self.get_object()
+        limit = int(request.query_params.get('limit', 10))
+        
+        entries = TournamentLeaderboard.objects.filter(
+            tournament=tournament
+        ).select_related('best_session').order_by(
+            '-best_score', 'updated_at'
+        )[:limit]
+        
+        for idx, entry in enumerate(entries, 1):
+            entry.rank = idx
+        
+        serializer = TournamentLeaderboardSerializer(entries, many=True)
+        return Response({
+            'tournament': tournament.name,
+            'count': entries.count(),
+            'results': serializer.data
+        })
+    
+    @action(detail=True, methods=['post'])
+    def generate_qr(self, request, slug=None):
+        """Generate QR code for tournament"""
+        tournament = self.get_object()
+        tournament.generate_qr_code()
+        return Response({
+            'success': True,
+            'qr_code_url': tournament.qr_code_url,
+            'generated_at': tournament.qr_generated_at
+        })

@@ -6,7 +6,8 @@ from .models import (
     Game, GameHighScore, GameQRCode,
     MemoryGameCard, MemoryGameSession, MemoryGameStats, MemoryGameTournament,
     TournamentParticipation, MemoryGameAchievement, UserAchievement,
-    QuizCategory, Quiz, QuizQuestion, QuizAnswer, QuizSession, QuizSubmission
+    QuizCategory, Quiz, QuizQuestion, QuizAnswer, QuizSession, QuizSubmission,
+    QuizTournament, QuizLeaderboard, TournamentLeaderboard
 )
 
 User = get_user_model()
@@ -411,360 +412,420 @@ class DashboardStatsSerializer(serializers.Serializer):
     completion_rate = serializers.FloatField()
 
 
-# QUIZ GAME SERIALIZERS
+# ============================================================================
+# GUESSTICULATOR QUIZ SERIALIZERS
+# ============================================================================
 
-class QuizCategorySerializer(serializers.ModelSerializer):
-    """Serializer for quiz categories"""
-    quiz_count = serializers.SerializerMethodField()
-
+class QuizCategoryListSerializer(serializers.ModelSerializer):
+    """List view of categories"""
+    question_count = serializers.ReadOnlyField()
+    
     class Meta:
         model = QuizCategory
         fields = [
-            'id', 'name', 'description', 'is_active',
-            'quiz_count', 'created_at'
+            'id',
+            'name',
+            'slug',
+            'description',
+            'order',
+            'is_math_category',
+            'question_count',
+            'is_active'
         ]
-        read_only_fields = ['id', 'created_at', 'quiz_count']
 
-    def get_quiz_count(self, obj):
-        """Get count of active quizzes in this category"""
-        return obj.quizzes.filter(is_active=True).count()
+
+class QuizCategoryDetailSerializer(serializers.ModelSerializer):
+    """Detailed category view with question count"""
+    question_count = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = QuizCategory
+        fields = [
+            'id',
+            'name',
+            'slug',
+            'description',
+            'order',
+            'is_math_category',
+            'question_count',
+            'is_active',
+            'created_at',
+            'updated_at'
+        ]
 
 
 class QuizAnswerSerializer(serializers.ModelSerializer):
-    """Serializer for quiz answers"""
-
+    """Answer option serializer"""
+    
     class Meta:
         model = QuizAnswer
-        fields = ['id', 'text', 'is_correct', 'order']
-        read_only_fields = ['id']
-
-    def to_representation(self, instance):
-        """Hide is_correct from API responses (prevent cheating)"""
-        ret = super().to_representation(instance)
-        # Only show is_correct in admin/create contexts
-        request = self.context.get('request')
-        if not (request and request.user and request.user.is_staff):
-            ret.pop('is_correct', None)
-        return ret
+        fields = [
+            'id',
+            'text',
+            'order'
+        ]
 
 
 class QuizQuestionSerializer(serializers.ModelSerializer):
-    """Serializer for quiz questions with answers"""
+    """Question with answers"""
     answers = QuizAnswerSerializer(many=True, read_only=True)
-    image_url = serializers.SerializerMethodField()
-
+    category_slug = serializers.CharField(
+        source='category.slug',
+        read_only=True
+    )
+    
     class Meta:
         model = QuizQuestion
         fields = [
-            'id', 'text', 'image_url', 'order', 'base_points',
-            'answers', 'is_active'
+            'id',
+            'category_slug',
+            'text',
+            'image_url',
+            'answers'
         ]
-        read_only_fields = ['id', 'image_url']
-
-    def get_image_url(self, obj):
-        """Get full URL of question image"""
-        if obj.image_url:
-            return str(obj.image_url)
-        return None
 
 
-class QuizListSerializer(serializers.ModelSerializer):
-    """Serializer for quiz list view"""
+class QuizQuestionAdminSerializer(serializers.ModelSerializer):
+    """Admin view - includes correct answer info"""
+    answers = serializers.SerializerMethodField()
     category_name = serializers.CharField(
         source='category.name',
         read_only=True
     )
-    difficulty_display = serializers.CharField(
-        source='get_difficulty_level_display',
-        read_only=True
-    )
-    time_per_question = serializers.SerializerMethodField()
+    correct_answer = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizQuestion
+        fields = [
+            'id',
+            'category',
+            'category_name',
+            'text',
+            'image_url',
+            'is_active',
+            'answers',
+            'correct_answer',
+            'created_at'
+        ]
+    
+    def get_answers(self, obj):
+        """Include is_correct for admin"""
+        return [
+            {
+                'id': ans.id,
+                'text': ans.text,
+                'is_correct': ans.is_correct,
+                'order': ans.order
+            }
+            for ans in obj.answers.all()
+        ]
+    
+    def get_correct_answer(self, obj):
+        """Get correct answer text"""
+        correct = obj.correct_answer
+        return correct.text if correct else None
 
+
+class QuizListSerializer(serializers.ModelSerializer):
+    """List view of quizzes"""
+    
     class Meta:
         model = Quiz
         fields = [
-            'id', 'slug', 'title', 'description', 'category_name',
-            'difficulty_level', 'difficulty_display', 'is_daily',
-            'max_questions', 'question_count', 'time_per_question',
-            'is_active'
+            'id',
+            'title',
+            'slug',
+            'description',
+            'is_active',
+            'qr_code_url'
         ]
-        read_only_fields = ['id', 'question_count']
-
-    def get_time_per_question(self, obj):
-        """Get resolved time per question"""
-        return obj.get_time_per_question()
 
 
 class QuizDetailSerializer(serializers.ModelSerializer):
-    """Detailed quiz serializer with all configuration"""
-    category = QuizCategorySerializer(read_only=True)
-    questions = serializers.SerializerMethodField()
-    difficulty_display = serializers.CharField(
-        source='get_difficulty_level_display',
-        read_only=True
-    )
-    sound_theme_display = serializers.CharField(
-        source='get_sound_theme_display',
-        read_only=True
-    )
-    time_per_question = serializers.SerializerMethodField()
-    is_math_quiz = serializers.ReadOnlyField()
-
+    """Detailed quiz view"""
+    
     class Meta:
         model = Quiz
         fields = [
-            'id', 'slug', 'title', 'description', 'category',
-            'difficulty_level', 'difficulty_display', 'is_active',
-            'is_daily', 'is_math_quiz', 'max_questions', 'question_count',
-            'time_per_question', 'total_time_limit_seconds',
-            'enable_background_music', 'enable_sound_effects',
-            'sound_theme', 'sound_theme_display', 'questions',
-            'created_at', 'updated_at'
+            'id',
+            'title',
+            'slug',
+            'description',
+            'questions_per_category',
+            'time_per_question_seconds',
+            'turbo_mode_threshold',
+            'turbo_multiplier',
+            'is_active',
+            'qr_code_url',
+            'qr_generated_at',
+            'created_at',
+            'updated_at'
         ]
-        read_only_fields = [
-            'id', 'is_math_quiz', 'question_count',
-            'created_at', 'updated_at'
-        ]
-
-    def get_time_per_question(self, obj):
-        """Get resolved time per question"""
-        return obj.get_time_per_question()
-
-    def get_questions(self, obj):
-        """Get questions (empty for math quiz)"""
-        if obj.is_math_quiz:
-            return []  # Math questions generated at runtime
-
-        questions = obj.questions.filter(
-            is_active=True
-        ).prefetch_related('answers').order_by('order')
-
-        # Shuffle answers for each question to prevent pattern learning
-        serializer = QuizQuestionSerializer(
-            questions,
-            many=True,
-            context=self.context
-        )
-        return serializer.data
 
 
 class QuizSessionCreateSerializer(serializers.ModelSerializer):
-    """Serializer for creating quiz sessions"""
-    quiz_slug = serializers.SlugField(write_only=True)
-
+    """Create new game session"""
+    
     class Meta:
         model = QuizSession
         fields = [
-            'quiz_slug', 'player_name', 'external_player_id', 'is_tournament'
+            'quiz',
+            'session_token',
+            'player_name',
+            'is_tournament_mode',
+            'tournament'
         ]
-
-    def validate_quiz_slug(self, value):
-        """Validate quiz exists and is active"""
-        try:
-            quiz = Quiz.objects.get(slug=value, is_active=True)
-            return quiz
-        except Quiz.DoesNotExist:
-            raise serializers.ValidationError(
-                "Quiz not found or not active"
-            )
-
-    def create(self, validated_data):
-        """Create session with quiz object"""
-        quiz = validated_data.pop('quiz_slug')
-        validated_data['quiz'] = quiz
-        return super().create(validated_data)
-
-
-class QuizSessionSerializer(serializers.ModelSerializer):
-    """Serializer for quiz session details"""
-    quiz = QuizListSerializer(read_only=True)
-    duration_formatted = serializers.ReadOnlyField()
-    submission_count = serializers.SerializerMethodField()
-    questions = serializers.SerializerMethodField()
-
-    class Meta:
-        model = QuizSession
-        fields = [
-            'id', 'quiz', 'player_name', 'external_player_id', 'is_tournament',
-            'score', 'started_at', 'finished_at',
-            'is_completed', 'time_spent_seconds', 'duration_formatted',
-            'current_question_index', 'submission_count',
-            'consecutive_correct', 'current_multiplier', 'questions'
-        ]
-        read_only_fields = [
-            'id', 'score', 'started_at', 'finished_at',
-            'is_completed', 'time_spent_seconds',
-            'consecutive_correct', 'current_multiplier'
-        ]
-
-    def get_submission_count(self, obj):
-        """Get number of submissions in this session"""
-        return obj.submissions.count()
-
-    def get_questions(self, obj):
-        """
-        Get 10 random questions for this session
-        Returns empty list for math quiz (Level 4 - dynamic generation)
-        """
-        # Don't include questions if session is already completed
-        # (frontend already has them)
-        if obj.is_completed:
-            return []
-        
-        # For math quiz (Level 4), return empty
-        # Questions generated dynamically
-        if obj.quiz.is_math_quiz:
-            return []
-        
-        # Get 10 random questions from this quiz
-        import random
-        
-        all_questions = list(
-            obj.quiz.questions.filter(is_active=True)
-            .prefetch_related('answers')
-            .order_by('?')[:10]  # Random order, limit 10
-        )
-        
-        # Shuffle to ensure randomness
-        random.shuffle(all_questions)
-        
-        # Serialize questions with shuffled answers
-        serializer = QuizQuestionSerializer(
-            all_questions,
-            many=True,
-            context=self.context
-        )
-        return serializer.data
-
-
-class QuizSubmissionCreateSerializer(serializers.ModelSerializer):
-    """Serializer for submitting quiz answers"""
-
-    class Meta:
-        model = QuizSubmission
-        fields = [
-            'session', 'question', 'question_text', 'question_data',
-            'selected_answer', 'selected_answer_id', 'time_taken_seconds'
-        ]
-
+    
     def validate(self, data):
-        """Validate submission data"""
-        session = data.get('session')
-        question = data.get('question')
-
-        # Check if session is completed
-        if session and session.is_completed:
+        """Validate tournament mode"""
+        if data.get('is_tournament_mode') and not data.get('tournament'):
             raise serializers.ValidationError(
-                "Cannot submit answers to a completed session"
+                "Tournament is required for tournament mode"
             )
-
-        # For non-math questions, validate question belongs to quiz
-        if question and session:
-            if question.quiz_id != session.quiz_id:
+        
+        if data.get('tournament'):
+            tournament = data['tournament']
+            if not tournament.is_active:
                 raise serializers.ValidationError(
-                    "Question does not belong to this quiz"
+                    "Tournament is not currently active"
                 )
-
-        # For math questions, ensure question_text and question_data provided
-        quiz = session.quiz if session else None
-        if quiz and quiz.is_math_quiz:
-            if not data.get('question_text'):
-                raise serializers.ValidationError({
-                    'question_text': (
-                        'Required for math quiz submissions'
-                    )
-                })
-            if not data.get('question_data'):
-                raise serializers.ValidationError({
-                    'question_data': (
-                        'Required for math quiz submissions'
-                    )
-                })
-
+        
         return data
-
-    def create(self, validated_data):
-        """Create submission and update session"""
-        session = validated_data.get('session')
-        question = validated_data.get('question')
-
-        # Determine if answer is correct
-        if question:
-            # Regular question - check against QuizAnswer
-            correct_answer = question.correct_answer
-            is_correct = (
-                correct_answer and
-                validated_data['selected_answer'] == correct_answer.text
-            )
-            validated_data['is_correct'] = is_correct
-            validated_data['base_points'] = question.base_points
-        else:
-            # Math question - check against question_data
-            question_data = validated_data.get('question_data', {})
-            correct_answer = question_data.get('correct_answer', '')
-            is_correct = (
-                validated_data['selected_answer'] == str(correct_answer)
-            )
-            validated_data['is_correct'] = is_correct
-            validated_data['base_points'] = 10  # Math always 10 points
-
-        # Create submission (will auto-calculate points)
-        submission = super().create(validated_data)
-
-        # Update session current_question_index
-        session.current_question_index += 1
-        session.save()
-
-        return submission
 
 
 class QuizSubmissionSerializer(serializers.ModelSerializer):
-    """Serializer for quiz submission details"""
-    question_number = serializers.SerializerMethodField()
-    correct_answer = serializers.SerializerMethodField()
-
+    """Submission details"""
+    
     class Meta:
         model = QuizSubmission
         fields = [
-            'id', 'question', 'question_number', 'question_text',
-            'selected_answer', 'correct_answer', 'is_correct', 'base_points',
-            'points_awarded', 'time_taken_seconds', 'multiplier_used',
+            'id',
+            'category',
+            'question_text',
+            'selected_answer',
+            'correct_answer',
+            'is_correct',
+            'time_taken_seconds',
+            'was_turbo_active',
+            'points_awarded',
             'answered_at'
         ]
         read_only_fields = [
-            'id', 'is_correct', 'points_awarded', 'answered_at',
-            'multiplier_used'
+            'id',
+            'is_correct',
+            'points_awarded',
+            'answered_at'
         ]
 
-    def get_question_number(self, obj):
-        """Get question number in session"""
-        if obj.question:
-            return obj.question.order + 1
-        # For math, use submission order
-        return obj.session.submissions.filter(
-            answered_at__lt=obj.answered_at
-        ).count() + 1
 
-    def get_correct_answer(self, obj):
-        """Get the correct answer text"""
-        # For regular questions
-        if obj.question:
-            correct = obj.question.answers.filter(is_correct=True).first()
-            return correct.text if correct else None
-        
-        # For math questions (stored in question_data)
-        if obj.question_data and 'correct_answer' in obj.question_data:
-            return obj.question_data['correct_answer']
-        
-        return None
+class QuizSessionDetailSerializer(serializers.ModelSerializer):
+    """Detailed session view with submissions"""
+    submissions = QuizSubmissionSerializer(many=True, read_only=True)
+    duration_formatted = serializers.ReadOnlyField()
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    tournament_name = serializers.CharField(
+        source='tournament.name',
+        read_only=True,
+        allow_null=True
+    )
+    
+    class Meta:
+        model = QuizSession
+        fields = [
+            'id',
+            'session_token',
+            'quiz',
+            'quiz_title',
+            'player_name',
+            'is_tournament_mode',
+            'tournament',
+            'tournament_name',
+            'score',
+            'started_at',
+            'finished_at',
+            'is_completed',
+            'time_spent_seconds',
+            'duration_formatted',
+            'consecutive_correct',
+            'is_turbo_active',
+            'current_category_index',
+            'current_question_index',
+            'submissions'
+        ]
 
 
-class QuizLeaderboardSerializer(serializers.Serializer):
-    """Serializer for quiz leaderboard entries"""
-    rank = serializers.IntegerField()
-    player_name = serializers.CharField()
-    score = serializers.IntegerField()
-    time_spent_seconds = serializers.IntegerField()
-    duration_formatted = serializers.CharField()
-    finished_at = serializers.DateTimeField()
-    is_tournament = serializers.BooleanField()
+class QuizSessionSummarySerializer(serializers.ModelSerializer):
+    """Summary view for leaderboards"""
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    duration_formatted = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = QuizSession
+        fields = [
+            'id',
+            'player_name',
+            'quiz_title',
+            'score',
+            'is_turbo_active',
+            'consecutive_correct',
+            'started_at',
+            'finished_at',
+            'duration_formatted',
+            'is_completed'
+        ]
+
+
+class SubmitAnswerSerializer(serializers.Serializer):
+    """Submit an answer during gameplay"""
+    session_id = serializers.UUIDField()
+    category_slug = serializers.CharField()
+    question_id = serializers.IntegerField(required=False, allow_null=True)
+    question_text = serializers.CharField()
+    question_data = serializers.JSONField(required=False, allow_null=True)
+    selected_answer = serializers.CharField()
+    selected_answer_id = serializers.IntegerField(
+        required=False,
+        allow_null=True
+    )
+    time_taken_seconds = serializers.IntegerField(min_value=0, max_value=5)
+    
+    def validate_time_taken_seconds(self, value):
+        """Ensure time is within bounds"""
+        if value < 0 or value > 5:
+            raise serializers.ValidationError(
+                "Time must be between 0 and 5 seconds"
+            )
+        return value
+
+
+class QuizLeaderboardSerializer(serializers.ModelSerializer):
+    """All-time leaderboard entry"""
+    rank = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizLeaderboard
+        fields = [
+            'rank',
+            'player_name',
+            'best_score',
+            'games_played',
+            'last_played'
+        ]
+    
+    def get_rank(self, obj):
+        """Calculate rank based on order"""
+        return getattr(obj, 'rank', None)
+
+
+class TournamentLeaderboardSerializer(serializers.ModelSerializer):
+    """Tournament leaderboard entry"""
+    rank = serializers.SerializerMethodField()
+    tournament_name = serializers.CharField(
+        source='tournament.name',
+        read_only=True
+    )
+    
+    class Meta:
+        model = TournamentLeaderboard
+        fields = [
+            'rank',
+            'player_name',
+            'best_score',
+            'tournament_name',
+            'updated_at'
+        ]
+    
+    def get_rank(self, obj):
+        """Calculate rank"""
+        return getattr(obj, 'rank', None)
+
+
+class QuizTournamentListSerializer(serializers.ModelSerializer):
+    """List view of tournaments"""
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    is_active = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = QuizTournament
+        fields = [
+            'id',
+            'name',
+            'slug',
+            'description',
+            'quiz',
+            'quiz_title',
+            'start_date',
+            'end_date',
+            'status',
+            'is_active',
+            'first_prize',
+            'second_prize',
+            'third_prize',
+            'qr_code_url'
+        ]
+
+
+class QuizTournamentDetailSerializer(serializers.ModelSerializer):
+    """Detailed tournament view with leaderboard"""
+    quiz_title = serializers.CharField(source='quiz.title', read_only=True)
+    is_active = serializers.ReadOnlyField()
+    leaderboard = serializers.SerializerMethodField()
+    participant_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizTournament
+        fields = [
+            'id',
+            'name',
+            'slug',
+            'description',
+            'quiz',
+            'quiz_title',
+            'start_date',
+            'end_date',
+            'status',
+            'is_active',
+            'first_prize',
+            'second_prize',
+            'third_prize',
+            'qr_code_url',
+            'qr_generated_at',
+            'participant_count',
+            'leaderboard',
+            'created_at',
+            'updated_at'
+        ]
+    
+    def get_leaderboard(self, obj):
+        """Get top 10 leaderboard"""
+        entries = obj.get_leaderboard(limit=10)
+        for idx, entry in enumerate(entries, 1):
+            entry.rank = idx
+        return QuizSessionSummarySerializer(entries, many=True).data
+    
+    def get_participant_count(self, obj):
+        """Get unique participant count"""
+        return QuizSession.objects.filter(
+            tournament=obj,
+            is_completed=True
+        ).values('session_token').distinct().count()
+
+
+class GameStateSerializer(serializers.Serializer):
+    """Current game state response"""
+    session = QuizSessionDetailSerializer()
+    current_category = QuizCategoryListSerializer()
+    questions = QuizQuestionSerializer(many=True)
+    turbo_status = serializers.DictField()
+    progress = serializers.DictField()
+
+
+class MathQuestionSerializer(serializers.Serializer):
+    """Generated math question"""
+    question_text = serializers.CharField()
+    question_data = serializers.DictField()
+    answers = serializers.ListField(child=serializers.CharField())
+
+
+# Legacy serializers for backwards compatibility (if needed)
+QuizCategorySerializer = QuizCategoryDetailSerializer
