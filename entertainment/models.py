@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
+from django.core.exceptions import ValidationError
 from django.db.models import Q, Avg, Min, Max, Count
 from cloudinary.models import CloudinaryField
 import uuid
@@ -685,3 +686,510 @@ class UserAchievement(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.achievement.name}"
+
+
+# QUIZ GAME MODELS
+
+class QuizCategory(models.Model):
+    """
+    GLOBAL quiz categories (not tied to any hotel)
+    """
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this category is active"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Quiz Categories"
+        ordering = ['name']
+        indexes = [
+            models.Index(fields=['is_active', 'name']),
+        ]
+
+    def __str__(self):
+        return self.name
+
+
+class Quiz(models.Model):
+    """
+    GLOBAL quiz configuration
+    Each quiz has a difficulty level (1-5) with specific characteristics
+    """
+    class DifficultyLevel(models.IntegerChoices):
+        CLASSIC_TRIVIA = 1, 'Classic Trivia (Easy)'
+        ODD_ONE_OUT = 2, 'Odd One Out (Moderate)'
+        FILL_THE_BLANK = 3, 'Fill the Blank (Challenging)'
+        DYNAMIC_MATH = 4, 'Dynamic Math (Mid-Hard)'
+        KNOWLEDGE_TRAP = 5, 'Knowledge Trap (Hard)'
+
+    class SoundTheme(models.TextChoices):
+        DEFAULT = 'default', 'Default'
+        TENSE = 'tense', 'Tense'
+        CHILL = 'chill', 'Chill'
+
+    # Basic Info
+    category = models.ForeignKey(
+        QuizCategory,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='quizzes'
+    )
+    title = models.CharField(max_length=200)
+    slug = models.SlugField(max_length=200, unique=True)
+    description = models.TextField(blank=True)
+    
+    # Difficulty
+    difficulty_level = models.IntegerField(
+        choices=DifficultyLevel.choices,
+        default=DifficultyLevel.CLASSIC_TRIVIA,
+        validators=[MinValueValidator(1), MaxValueValidator(5)]
+    )
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    is_daily = models.BooleanField(
+        default=False,
+        help_text="Mark as daily quiz (featured)"
+    )
+    
+    # Configuration
+    max_questions = models.PositiveIntegerField(
+        default=10,
+        help_text="Maximum number of questions in this quiz"
+    )
+    
+    # Timing Configuration (optional overrides, defaults based on difficulty)
+    time_per_question_seconds = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Time per question (default based on difficulty: "
+            "L1=20, L2=18, L3=15, L4=12, L5=10)"
+        )
+    )
+    total_time_limit_seconds = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Optional total time limit for entire quiz"
+    )
+    
+    # Audio Configuration
+    enable_background_music = models.BooleanField(default=True)
+    enable_sound_effects = models.BooleanField(default=True)
+    sound_theme = models.CharField(
+        max_length=10,
+        choices=SoundTheme.choices,
+        default=SoundTheme.DEFAULT
+    )
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = "Quizzes"
+        ordering = ['difficulty_level', 'title']
+        indexes = [
+            models.Index(fields=['is_active', 'difficulty_level']),
+            models.Index(fields=['is_daily', 'is_active']),
+            models.Index(fields=['slug']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} (Level {self.difficulty_level})"
+
+    @property
+    def is_math_quiz(self):
+        """Check if this is a dynamic math quiz (Level 4)"""
+        return self.difficulty_level == self.DifficultyLevel.DYNAMIC_MATH
+
+    def get_time_per_question(self):
+        """Get time per question with defaults based on difficulty"""
+        if self.time_per_question_seconds:
+            return self.time_per_question_seconds
+        
+        # Default times based on difficulty level (all 5 seconds for fast-paced turbo mode)
+        defaults = {
+            1: 5,  # Classic Trivia
+            2: 5,  # Odd One Out
+            3: 5,  # Fill the Blank
+            4: 5,  # Dynamic Math
+            5: 5,  # Knowledge Trap
+        }
+        return defaults.get(self.difficulty_level, 5)
+
+    @property
+    def question_count(self):
+        """Get actual number of questions (excluding math which is dynamic)"""
+        if self.is_math_quiz:
+            return self.max_questions
+        return self.questions.filter(is_active=True).count()
+
+
+class QuizQuestion(models.Model):
+    """
+    GLOBAL quiz questions (NOT used for Level 4 - Dynamic Math)
+    All questions use 4-option multiple choice format
+    """
+    quiz = models.ForeignKey(
+        Quiz,
+        on_delete=models.CASCADE,
+        related_name='questions'
+    )
+    text = models.TextField(help_text="Question text")
+    image_url = CloudinaryField(
+        'quiz_question_image',
+        blank=True,
+        null=True,
+        folder="quiz_questions/",
+        help_text="Optional image for question"
+    )
+    
+    # Ordering
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order (lower numbers first)"
+    )
+    
+    # Scoring
+    base_points = models.PositiveIntegerField(
+        default=10,
+        help_text="Base points for correct answer (reduced by time taken)"
+    )
+    
+    # Status
+    is_active = models.BooleanField(default=True)
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['quiz', 'order', 'id']
+        indexes = [
+            models.Index(fields=['quiz', 'is_active', 'order']),
+        ]
+        unique_together = ['quiz', 'order']
+
+    def __str__(self):
+        return f"{self.quiz.title} - Q{self.order}: {self.text[:50]}"
+
+    def clean(self):
+        """Validate that math quizzes don't have questions"""
+        if self.quiz and self.quiz.is_math_quiz:
+            raise ValidationError(
+                "Cannot add questions to Dynamic Math quizzes (Level 4). "
+                "Math questions are generated at runtime."
+            )
+
+    @property
+    def correct_answer(self):
+        """Get the correct answer for this question"""
+        return self.answers.filter(is_correct=True).first()
+
+
+class QuizAnswer(models.Model):
+    """
+    GLOBAL quiz answers (NOT used for Level 4 - Dynamic Math)
+    Each question must have exactly 4 answers (1 correct, 3 incorrect)
+    """
+    question = models.ForeignKey(
+        QuizQuestion,
+        on_delete=models.CASCADE,
+        related_name='answers'
+    )
+    text = models.CharField(max_length=500)
+    is_correct = models.BooleanField(
+        default=False,
+        help_text="Mark as the correct answer"
+    )
+    
+    # Ordering (for display)
+    order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order in answer list"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['question', 'order']
+        indexes = [
+            models.Index(fields=['question', 'is_correct']),
+        ]
+
+    def __str__(self):
+        correct = "✓" if self.is_correct else "✗"
+        return f"{correct} {self.text[:50]}"
+
+    def clean(self):
+        """Validate answer constraints"""
+        # Ensure only one correct answer per question
+        if self.is_correct:
+            existing_correct = QuizAnswer.objects.filter(
+                question=self.question,
+                is_correct=True
+            ).exclude(pk=self.pk)
+            
+            if existing_correct.exists():
+                raise ValidationError(
+                    "Each question can have only ONE correct answer"
+                )
+
+
+class QuizSession(models.Model):
+    """
+    HOTEL-SCOPED quiz session (started via QR code)
+    Tracks player progress through a quiz
+    """
+    # Unique session identifier
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Hotel context (from QR code)
+    hotel_identifier = models.CharField(
+        max_length=100,
+        help_text="Hotel identifier from QR code (hotel slug)"
+    )
+    
+    # Quiz reference
+    quiz = models.ForeignKey(
+        Quiz,
+        on_delete=models.CASCADE,
+        related_name='sessions'
+    )
+    
+    # Player info (anonymous)
+    player_name = models.CharField(
+        max_length=100,
+        help_text="Player's display name"
+    )
+    room_number = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Room number for tournament submissions (required for leaderboard)"
+    )
+    external_player_id = models.CharField(
+        max_length=100,
+        blank=True,
+        null=True,
+        help_text="Optional external player identifier (e.g., device ID)"
+    )
+    
+    # Game mode
+    is_practice_mode = models.BooleanField(
+        default=False,
+        help_text="If True, score won't appear on tournament leaderboard"
+    )
+    
+    # Session state
+    score = models.IntegerField(
+        default=0,
+        help_text="Total accumulated score"
+    )
+    started_at = models.DateTimeField(auto_now_add=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    is_completed = models.BooleanField(default=False)
+    time_spent_seconds = models.PositiveIntegerField(
+        default=0,
+        help_text="Total time spent on quiz"
+    )
+    
+    # Current question tracking
+    current_question_index = models.PositiveIntegerField(
+        default=0,
+        help_text="Index of current question (0-based)"
+    )
+    
+    # Turbo Mode fields
+    consecutive_correct = models.PositiveIntegerField(
+        default=0,
+        help_text="Consecutive correct answers for turbo mode multiplier"
+    )
+    current_multiplier = models.PositiveIntegerField(
+        default=1,
+        help_text="Current score multiplier (doubles with each correct answer: 1x, 2x, 4x, 8x...)"
+    )
+
+    class Meta:
+        ordering = ['-started_at']
+        indexes = [
+            models.Index(fields=['hotel_identifier', 'quiz', '-started_at']),
+            models.Index(fields=['quiz', '-score']),
+            models.Index(fields=['is_completed', '-started_at']),
+        ]
+
+    def __str__(self):
+        status = "✓" if self.is_completed else "..."
+        return f"{status} {self.player_name} - {self.quiz.title} ({self.score} pts)"
+
+    def complete_session(self):
+        """Mark session as completed"""
+        if not self.is_completed:
+            self.is_completed = True
+            self.finished_at = timezone.now()
+            if self.started_at:
+                delta = self.finished_at - self.started_at
+                self.time_spent_seconds = int(delta.total_seconds())
+            self.save()
+
+    @property
+    def duration_formatted(self):
+        """Get formatted duration string"""
+        if not self.time_spent_seconds:
+            return "0s"
+        minutes = self.time_spent_seconds // 60
+        seconds = self.time_spent_seconds % 60
+        return f"{minutes}m {seconds}s" if minutes > 0 else f"{seconds}s"
+
+
+class QuizSubmission(models.Model):
+    """
+    HOTEL-SCOPED answer submission
+    Used for ALL difficulties including dynamic math (Level 4)
+    """
+    # Submission identifier
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    # Hotel context
+    hotel_identifier = models.CharField(
+        max_length=100,
+        help_text="Hotel identifier from QR code"
+    )
+    
+    # Session reference
+    session = models.ForeignKey(
+        QuizSession,
+        on_delete=models.CASCADE,
+        related_name='submissions'
+    )
+    
+    # Question reference (nullable for math)
+    question = models.ForeignKey(
+        QuizQuestion,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='submissions',
+        help_text="Null for dynamic math questions"
+    )
+    
+    # Dynamic question data (required for math)
+    question_text = models.TextField(
+        blank=True,
+        help_text="Question text (for math or reference)"
+    )
+    question_data = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Additional question data (e.g., math operands, correct answer)"
+    )
+    
+    # Answer data
+    selected_answer = models.CharField(
+        max_length=500,
+        help_text="Text of selected answer"
+    )
+    selected_answer_id = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="ID of selected QuizAnswer (null for math)"
+    )
+    
+    # Result
+    is_correct = models.BooleanField(default=False)
+    base_points = models.PositiveIntegerField(
+        default=10,
+        help_text="Base points for this question"
+    )
+    points_awarded = models.IntegerField(
+        default=0,
+        help_text="Actual points awarded (base minus time penalty)"
+    )
+    time_taken_seconds = models.PositiveIntegerField(
+        default=0,
+        help_text="Time taken to answer (seconds)"
+    )
+    multiplier_used = models.PositiveIntegerField(
+        default=1,
+        help_text="Multiplier that was active when this answer was submitted"
+    )
+    
+    # Timestamp
+    answered_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['session', 'answered_at']
+        indexes = [
+            models.Index(fields=['session', 'answered_at']),
+            models.Index(fields=['hotel_identifier', '-points_awarded']),
+            models.Index(fields=['is_correct']),
+        ]
+
+    def __str__(self):
+        result = "✓" if self.is_correct else "✗"
+        q_ref = self.question_text[:30] if self.question_text else "Question"
+        return f"{result} {self.session.player_name} - {q_ref} ({self.points_awarded} pts)"
+
+    @property
+    def quiz_id(self):
+        """Get quiz ID from session"""
+        return self.session.quiz_id if self.session else None
+
+    def calculate_points(self):
+        """
+        Turbo Mode Scoring:
+        - Base: 5 points max per question
+        - Deduct 1 point per second (5 second timer)
+        - Correct streak: multiplier doubles (1x, 2x, 4x, 8x, 16x...)
+        - Wrong answer: reset multiplier to 1x
+        """
+        if not self.is_correct:
+            return 0
+        
+        # Base calculation: 5 - seconds taken (minimum 0, max 5)
+        base_points = max(0, min(5, 5 - self.time_taken_seconds))
+        
+        # Apply multiplier from session
+        points = base_points * self.multiplier_used
+        
+        return points
+
+    def save(self, *args, **kwargs):
+        """Auto-calculate points on save with turbo mode logic"""
+        session = self.session
+        
+        # Set multiplier for this submission based on current session state
+        # Check if this is a new submission (no id in db yet)
+        is_new = self._state.adding
+        if is_new:
+            self.multiplier_used = session.current_multiplier
+        
+        # Calculate points
+        self.points_awarded = self.calculate_points()
+        
+        # Save submission first
+        super().save(*args, **kwargs)
+        
+        # Update session state
+        if self.is_correct and self.points_awarded > 0:
+            # Increase consecutive correct count (only if earned points)
+            session.consecutive_correct += 1
+            # Double multiplier for next question (cap at 128x)
+            session.current_multiplier = min(session.current_multiplier * 2, 128)
+        else:
+            # Reset turbo mode on wrong answer OR timeout (0 points)
+            session.consecutive_correct = 0
+            session.current_multiplier = 1
+        
+        # Update session score (sum of all points)
+        session.score = session.submissions.aggregate(
+            total=models.Sum('points_awarded')
+        )['total'] or 0
+        
+        session.save()

@@ -2,8 +2,10 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     GameViewSet, GameHighScoreViewSet, GameQRCodeViewSet,
-    MemoryGameCardViewSet, MemoryGameSessionViewSet, MemoryGameTournamentViewSet,
-    MemoryGameAchievementViewSet, DashboardViewSet
+    MemoryGameCardViewSet, MemoryGameSessionViewSet,
+    MemoryGameTournamentViewSet,
+    MemoryGameAchievementViewSet, DashboardViewSet,
+    QuizCategoryViewSet, QuizViewSet, QuizSessionViewSet
 )
 
 # Create router for ViewSets
@@ -14,6 +16,13 @@ router.register(r'memory-sessions', MemoryGameSessionViewSet, basename='memory-s
 router.register(r'tournaments', MemoryGameTournamentViewSet, basename='tournaments')
 router.register(r'achievements', MemoryGameAchievementViewSet, basename='achievements')
 router.register(r'dashboard', DashboardViewSet, basename='dashboard')
+
+# Quiz Game
+router.register(r'quiz-categories', QuizCategoryViewSet,
+                basename='quiz-categories')
+router.register(r'quizzes', QuizViewSet, basename='quizzes')
+router.register(r'quiz-sessions', QuizSessionViewSet,
+                basename='quiz-sessions')
 
 # Legacy URL patterns for backward compatibility
 game_list = GameViewSet.as_view({'get': 'list'})
@@ -75,4 +84,24 @@ urlpatterns = [
     path('dashboard/stats/',
          DashboardViewSet.as_view({'get': 'stats'}),
          name='dashboard-stats'),
+
+    # Quiz Game endpoints
+    path('quizzes/<slug:slug>/generate_math_question/',
+         QuizViewSet.as_view({'post': 'generate_math_question'}),
+         name='quiz-generate-math'),
+    path('quiz-sessions/<uuid:id>/submit_answer/',
+         QuizSessionViewSet.as_view({'post': 'submit_answer'}),
+         name='quiz-session-submit-answer'),
+    path('quiz-sessions/<uuid:id>/complete/',
+         QuizSessionViewSet.as_view({'post': 'complete'}),
+         name='quiz-session-complete'),
+    path('quiz-sessions/general_leaderboard/',
+         QuizSessionViewSet.as_view({'get': 'general_leaderboard'}),
+         name='quiz-general-leaderboard'),
+    path('quiz-sessions/tournament_leaderboard/',
+         QuizSessionViewSet.as_view({'get': 'tournament_leaderboard'}),
+         name='quiz-tournament-leaderboard'),
+    path('quiz-sessions/leaderboard/',
+         QuizSessionViewSet.as_view({'get': 'leaderboard'}),
+         name='quiz-leaderboard'),
 ]
