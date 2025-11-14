@@ -622,6 +622,20 @@ class QuizLeaderboardAdmin(admin.ModelAdmin):
         return False
 
 
+@admin.register(QuizPlayerProgress)
+class QuizPlayerProgressAdmin(admin.ModelAdmin):
+    list_display = ('session_token', 'quiz', 'total_seen', 'updated_at')
+    list_filter = ('quiz', 'updated_at')
+    search_fields = ('session_token',)
+    
+    def total_seen(self, obj):
+        total = sum(len(ids) for ids in obj.seen_question_ids.values())
+        total += len(obj.seen_math_questions)
+        return total
+    total_seen.short_description = 'Total Seen'
+    
+    def has_add_permission(self, request):
+        return False
 @admin.register(QuizTournament)
 class QuizTournamentAdmin(admin.ModelAdmin):
     list_display = (
