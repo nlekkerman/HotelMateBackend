@@ -903,6 +903,8 @@ class QuizGameViewSet(viewsets.ViewSet):
                 )
         
         # NO RESUME - Always start fresh game
+        # Delete any existing session with this token
+        QuizSession.objects.filter(session_token=session_token).delete()
         
         # Get or create player progress tracker
         from .models import QuizPlayerProgress
