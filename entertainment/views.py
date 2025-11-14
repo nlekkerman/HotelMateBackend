@@ -929,7 +929,7 @@ class QuizGameViewSet(viewsets.ViewSet):
             tournament=tournament
         )
         
-        # Optimize: Fetch categories with prefetch to avoid N+1 queries
+        # Fetch categories
         categories = list(QuizCategory.objects.filter(
             is_active=True
         ).order_by('order'))
@@ -940,19 +940,12 @@ class QuizGameViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Generate questions ensuring no repeats until pool exhausted
-        all_questions = self._generate_tracked_questions(
-            categories,
-            quiz.questions_per_category,
-            player_progress
-        )
-        
         serializer = QuizSessionDetailSerializer(session)
         
         elapsed_time = time.time() - start_time
         logger.info(
             f"Quiz session created in {elapsed_time:.2f}s - "
-            f"Player: {player_name}, Questions: {len(all_questions)}"
+            f"Player: {player_name}"
         )
         
         return Response({
@@ -960,15 +953,125 @@ class QuizGameViewSet(viewsets.ViewSet):
             'categories': QuizCategoryListSerializer(
                 categories, many=True
             ).data,
-            'all_questions': all_questions,
             'total_categories': len(categories),
             'questions_per_category': quiz.questions_per_category,
-            'total_questions': len(all_questions),
-            'game_rules': self._get_game_rules(quiz, categories),
-            'performance': {
-                'generation_time_seconds': round(elapsed_time, 2)
-            }
+            'game_rules': self._get_game_rules(quiz, categories)
         }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['get'])
+    def fetch_category_questions(self, request):
+        """Fetch questions for a specific category"""
+        session_id = request.query_params.get('session_id')
+        category_slug = request.query_params.get('category_slug')
+        
+        if not session_id or not category_slug:
+            return Response(
+                {'error': 'session_id and category_slug are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            session = QuizSession.objects.get(id=session_id)
+        except QuizSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        try:
+            category = QuizCategory.objects.get(
+                slug=category_slug,
+                is_active=True
+            )
+        except QuizCategory.DoesNotExist:
+            return Response(
+                {'error': 'Category not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get or create player progress tracker
+        from .models import QuizPlayerProgress
+        player_progress, _ = QuizPlayerProgress.objects.get_or_create(
+            session_token=session.session_token,
+            quiz=session.quiz
+        )
+        
+        count = session.quiz.questions_per_category
+        
+        if category.is_math_category:
+            # Generate math questions
+            questions = self._generate_math_questions_tracked(
+                count,
+                player_progress
+            )
+        else:
+            # Get regular questions with tracking
+            category_slug = category.slug
+            seen_ids = set(
+                player_progress.seen_question_ids.get(category_slug, [])
+            )
+            
+            # Fetch questions
+            all_questions = list(QuizQuestion.objects.filter(
+                category=category,
+                is_active=True
+            ).prefetch_related('answers').order_by('?'))
+            
+            # Filter unseen questions
+            unseen_questions = [
+                q for q in all_questions
+                if q.id not in seen_ids
+            ]
+            
+            # If not enough unseen questions, reset
+            if len(unseen_questions) < count:
+                player_progress.seen_question_ids[category_slug] = []
+                seen_ids = set()
+                unseen_questions = all_questions
+            
+            # Take only the needed count
+            selected_questions = unseen_questions[:count]
+            
+            # Serialize questions
+            questions = []
+            for q in selected_questions:
+                questions.append({
+                    'id': q.id,
+                    'category_slug': q.category.slug,
+                    'category_name': q.category.name,
+                    'category_order': q.category.order,
+                    'text': q.text,
+                    'image_url': q.image_url,
+                    'answers': [
+                        {
+                            'id': a.id,
+                            'text': a.text,
+                            'order': a.order
+                        } for a in q.answers.all()
+                    ]
+                })
+            
+            # Mark as seen
+            for q in selected_questions:
+                if category_slug not in player_progress.seen_question_ids:
+                    player_progress.seen_question_ids[category_slug] = []
+                seen_list = player_progress.seen_question_ids[category_slug]
+                if q.id not in seen_list:
+                    seen_list.append(q.id)
+            
+            player_progress.save()
+        
+        return Response({
+            'category': {
+                'id': category.id,
+                'name': category.name,
+                'slug': category.slug,
+                'order': category.order,
+                'is_math_category': category.is_math_category
+            },
+            'questions': questions,
+            'question_count': len(questions)
+        })
     
     def _generate_tracked_questions(self, categories, count, player_progress):
         """
