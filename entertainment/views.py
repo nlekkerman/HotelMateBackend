@@ -10,7 +10,8 @@ from .models import (
     Game, GameHighScore, GameQRCode,
     MemoryGameCard, MemoryGameSession, MemoryGameStats, MemoryGameTournament,
     TournamentParticipation, MemoryGameAchievement, UserAchievement,
-    
+    QuizCategory, QuizQuestion, QuizSession, QuizAnswer,
+    QuizLeaderboard, QuizTournament,
 )
 from .serializers import (
     GameSerializer,
@@ -809,3 +810,316 @@ class DashboardViewSet(viewsets.ViewSet):
 # ============================================================================
 # GUESSTICULATOR QUIZ GAME VIEWS
 # ============================================================================
+
+
+class QuizCategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for Quiz Categories
+    List active categories, retrieve category details
+    """
+    queryset = QuizCategory.objects.filter(is_active=True)
+    permission_classes = [permissions.AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import QuizCategorySerializer
+        return QuizCategorySerializer
+    
+    @action(detail=False, methods=['get'])
+    def random_selection(self, request):
+        """
+        Slot machine: Get 5 random categories for a quiz
+        """
+        count = int(request.query_params.get('count', 5))
+        categories = QuizCategory.get_random_categories(count)
+        serializer = self.get_serializer(categories, many=True)
+        return Response(serializer.data)
+
+
+class QuizQuestionViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for Quiz Questions
+    Only list/retrieve, creation done via admin
+    """
+    queryset = QuizQuestion.objects.filter(is_active=True)
+    permission_classes = [permissions.AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import (
+            QuizQuestionSerializer, QuizQuestionDetailSerializer
+        )
+        if self.action == 'retrieve':
+            return QuizQuestionDetailSerializer
+        return QuizQuestionSerializer
+    
+    def get_queryset(self):
+        """Filter questions by category if specified"""
+        queryset = super().get_queryset()
+        
+        category_id = self.request.query_params.get('category')
+        if category_id:
+            queryset = queryset.filter(category_id=category_id)
+        
+        difficulty = self.request.query_params.get('difficulty')
+        if difficulty:
+            queryset = queryset.filter(difficulty=difficulty)
+        
+        return queryset
+
+
+class QuizSessionViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for Quiz Sessions
+    Handles session creation, answer submission, completion
+    """
+    queryset = QuizSession.objects.all()
+    permission_classes = [permissions.AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import (
+            QuizSessionSerializer,
+            QuizSessionCreateSerializer,
+            QuizSessionStartSerializer
+        )
+        if self.action == 'create':
+            return QuizSessionCreateSerializer
+        elif self.action == 'start_quiz':
+            return QuizSessionStartSerializer
+        return QuizSessionSerializer
+    
+    def get_queryset(self):
+        """Filter by player token or tournament"""
+        queryset = super().get_queryset()
+        
+        player_token = self.request.query_params.get('player_token')
+        if player_token:
+            queryset = queryset.filter(
+                player_name__icontains=player_token
+            )
+        
+        tournament_id = self.request.query_params.get('tournament')
+        if tournament_id:
+            queryset = queryset.filter(tournament_id=tournament_id)
+        
+        return queryset.order_by('-started_at')
+    
+    @action(detail=False, methods=['post'])
+    def start_quiz(self, request):
+        """
+        Start a new quiz with slot machine category selection
+        POST /quiz-sessions/start_quiz/
+        Body: {player_name, hotel?, tournament?, questions_per_quiz?}
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        player_name = serializer.validated_data['player_name']
+        hotel = serializer.validated_data.get('hotel')
+        tournament = serializer.validated_data.get('tournament')
+        questions_per_quiz = serializer.validated_data.get(
+            'questions_per_quiz', 20
+        )
+        
+        # Slot machine: randomly select 5 categories
+        selected_categories = QuizCategory.get_random_categories(5)
+        category_ids = [cat.id for cat in selected_categories]
+        
+        # Get questions from selected categories
+        questions = QuizSession.get_questions_for_categories(
+            category_ids,
+            questions_per_category=questions_per_quiz // 5
+        )
+        
+        # Create session
+        session = QuizSession.objects.create(
+            player_name=player_name,
+            hotel=hotel,
+            tournament=tournament,
+            selected_categories=category_ids,
+            total_questions=len(questions),
+            completed=False
+        )
+        
+        # Return session data with selected categories and questions
+        from .serializers import (
+            QuizSessionSerializer,
+            QuizCategorySerializer,
+            QuizQuestionSerializer
+        )
+        
+        return Response({
+            'session': QuizSessionSerializer(session).data,
+            'categories': QuizCategorySerializer(
+                selected_categories, many=True
+            ).data,
+            'questions': QuizQuestionSerializer(
+                questions, many=True
+            ).data
+        }, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['post'])
+    def submit_answer(self, request, pk=None):
+        """
+        Submit an answer for a question in this session
+        POST /quiz-sessions/{id}/submit_answer/
+        Body: {question_id, selected_answer, time_seconds?}
+        """
+        session = self.get_object()
+        
+        if session.completed:
+            return Response(
+                {'error': 'This quiz session is already completed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .serializers import QuizAnswerCreateSerializer
+        answer_data = {
+            'session': session.id,
+            'question': request.data.get('question_id'),
+            'selected_answer': request.data.get('selected_answer'),
+            'time_seconds': request.data.get('time_seconds')
+        }
+        
+        serializer = QuizAnswerCreateSerializer(data=answer_data)
+        serializer.is_valid(raise_exception=True)
+        answer = serializer.save()
+        
+        # Update session progress
+        session.correct_answers = session.answers.filter(
+            is_correct=True
+        ).count()
+        session.current_question_index += 1
+        session.save()
+        
+        from .serializers import QuizAnswerSerializer
+        return Response(
+            QuizAnswerSerializer(answer).data,
+            status=status.HTTP_201_CREATED
+        )
+    
+    @action(detail=True, methods=['post'])
+    def complete_session(self, request, pk=None):
+        """
+        Complete the quiz session and calculate final score
+        POST /quiz-sessions/{id}/complete_session/
+        Body: {time_seconds?}
+        """
+        session = self.get_object()
+        
+        if session.completed:
+            return Response(
+                {'error': 'This quiz session is already completed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Set total time if provided
+        if 'time_seconds' in request.data:
+            session.time_seconds = request.data['time_seconds']
+        
+        # Complete the session (calculates score automatically)
+        session.complete_session()
+        
+        from .serializers import QuizSessionSerializer
+        return Response(
+            QuizSessionSerializer(session).data,
+            status=status.HTTP_200_OK
+        )
+
+
+class QuizLeaderboardViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for General Quiz Leaderboard
+    Best score per player
+    """
+    queryset = QuizLeaderboard.objects.all()
+    permission_classes = [permissions.AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import QuizLeaderboardSerializer
+        return QuizLeaderboardSerializer
+    
+    @action(detail=False, methods=['get'])
+    def my_rank(self, request):
+        """
+        Get current user's rank
+        GET /quiz-leaderboard/my_rank/?player_token=xxx
+        """
+        player_token = request.query_params.get('player_token')
+        if not player_token:
+            return Response(
+                {'error': 'player_token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            entry = QuizLeaderboard.objects.get(player_token=player_token)
+            serializer = self.get_serializer(entry)
+            return Response(serializer.data)
+        except QuizLeaderboard.DoesNotExist:
+            return Response(
+                {'error': 'Player not found on leaderboard'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+
+class QuizTournamentViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for Quiz Tournaments
+    List, retrieve, and get tournament leaderboards
+    """
+    queryset = QuizTournament.objects.all()
+    permission_classes = [permissions.AllowAny]
+    
+    def get_serializer_class(self):
+        from .serializers import QuizTournamentSerializer
+        return QuizTournamentSerializer
+    
+    def get_queryset(self):
+        """Filter by status or hotel"""
+        queryset = super().get_queryset()
+        
+        status_filter = self.request.query_params.get('status')
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        
+        hotel_id = self.request.query_params.get('hotel')
+        if hotel_id:
+            queryset = queryset.filter(hotel_id=hotel_id)
+        
+        return queryset.order_by('-created_at')
+    
+    @action(detail=True, methods=['get'])
+    def leaderboard(self, request, pk=None):
+        """
+        Get tournament leaderboard (all plays)
+        GET /quiz-tournaments/{id}/leaderboard/?limit=10
+        """
+        tournament = self.get_object()
+        limit = request.query_params.get('limit')
+        
+        if limit:
+            try:
+                limit = int(limit)
+            except ValueError:
+                limit = None
+        
+        leaderboard = tournament.get_leaderboard(limit=limit)
+        
+        from .serializers import QuizTournamentLeaderboardSerializer
+        serializer = QuizTournamentLeaderboardSerializer(
+            leaderboard, many=True
+        )
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def top_players(self, request, pk=None):
+        """
+        Get top 3 players (best score per player)
+        GET /quiz-tournaments/{id}/top_players/
+        """
+        tournament = self.get_object()
+        top_players = tournament.get_top_players(limit=3)
+        
+        return Response({
+            'tournament': self.get_serializer(tournament).data,
+            'top_players': top_players
+        })

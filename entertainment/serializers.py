@@ -6,7 +6,8 @@ from .models import (
     Game, GameHighScore, GameQRCode,
     MemoryGameCard, MemoryGameSession, MemoryGameStats, MemoryGameTournament,
     TournamentParticipation, MemoryGameAchievement, UserAchievement,
-    
+    QuizCategory, QuizQuestion, QuizSession, QuizAnswer,
+    QuizLeaderboard, QuizTournament,
 )
 
 User = get_user_model()
@@ -414,4 +415,281 @@ class DashboardStatsSerializer(serializers.Serializer):
 # ============================================================================
 # GUESSTICULATOR QUIZ SERIALIZERS
 # ============================================================================
+
+
+class QuizCategorySerializer(serializers.ModelSerializer):
+    """Serializer for Quiz Categories"""
+    question_count = serializers.IntegerField(read_only=True)
+    
+    class Meta:
+        model = QuizCategory
+        fields = [
+            'id', 'name', 'slug', 'description', 'icon',
+            'color', 'is_active', 'display_order', 'question_count'
+        ]
+
+
+class QuizQuestionSerializer(serializers.ModelSerializer):
+    """Serializer for Quiz Questions with all options"""
+    category_name = serializers.CharField(
+        source='category.name', read_only=True
+    )
+    category_icon = serializers.CharField(
+        source='category.icon', read_only=True
+    )
+    difficulty_display = serializers.CharField(
+        source='get_difficulty_display', read_only=True
+    )
+    
+    class Meta:
+        model = QuizQuestion
+        fields = [
+            'id', 'category', 'category_name', 'category_icon',
+            'question_text', 'difficulty', 'difficulty_display',
+            'option_a', 'option_b', 'option_c', 'option_d',
+            'points', 'is_active'
+        ]
+        # Don't expose correct_answer or explanation in list view
+
+
+class QuizQuestionDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer including correct answer (for admin/results)"""
+    category_name = serializers.CharField(
+        source='category.name', read_only=True
+    )
+    difficulty_display = serializers.CharField(
+        source='get_difficulty_display', read_only=True
+    )
+    correct_option_text = serializers.CharField(read_only=True)
+    
+    class Meta:
+        model = QuizQuestion
+        fields = [
+            'id', 'category', 'category_name', 'question_text',
+            'difficulty', 'difficulty_display',
+            'option_a', 'option_b', 'option_c', 'option_d',
+            'correct_answer', 'correct_option_text',
+            'explanation', 'points'
+        ]
+
+
+class QuizAnswerSerializer(serializers.ModelSerializer):
+    """Serializer for Quiz Answers"""
+    question_text = serializers.CharField(
+        source='question.question_text', read_only=True
+    )
+    category_name = serializers.CharField(
+        source='question.category.name', read_only=True
+    )
+    
+    class Meta:
+        model = QuizAnswer
+        fields = [
+            'id', 'question', 'question_text', 'category_name',
+            'selected_answer', 'is_correct', 'time_seconds',
+            'answered_at'
+        ]
+        read_only_fields = ['is_correct', 'answered_at']
+
+
+class QuizAnswerCreateSerializer(serializers.ModelSerializer):
+    """Serializer for submitting quiz answers"""
+    
+    class Meta:
+        model = QuizAnswer
+        fields = ['session', 'question', 'selected_answer', 'time_seconds']
+    
+    def validate_selected_answer(self, value):
+        """Ensure answer is A, B, C, or D"""
+        if value not in ['A', 'B', 'C', 'D']:
+            raise serializers.ValidationError(
+                'Answer must be A, B, C, or D'
+            )
+        return value
+
+
+class QuizSessionSerializer(serializers.ModelSerializer):
+    """Serializer for Quiz Sessions"""
+    player_display_name = serializers.SerializerMethodField()
+    hotel_name = serializers.CharField(
+        source='hotel.name', read_only=True, allow_null=True
+    )
+    tournament_name = serializers.CharField(
+        source='tournament.name', read_only=True, allow_null=True
+    )
+    answers = QuizAnswerSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = QuizSession
+        fields = [
+            'id', 'player_name', 'player_display_name',
+            'hotel', 'hotel_name', 'tournament', 'tournament_name',
+            'selected_categories', 'total_questions',
+            'correct_answers', 'score', 'time_seconds',
+            'completed', 'started_at', 'completed_at',
+            'current_question_index', 'answers'
+        ]
+        read_only_fields = [
+            'score', 'started_at', 'completed_at'
+        ]
+    
+    def get_player_display_name(self, obj):
+        """Extract display name from player_name"""
+        return obj.get_player_display_name()
+
+
+class QuizSessionCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating new quiz sessions"""
+    
+    class Meta:
+        model = QuizSession
+        fields = [
+            'player_name', 'hotel', 'tournament',
+            'selected_categories', 'total_questions'
+        ]
+    
+    def validate_player_name(self, value):
+        """Ensure player_name is in correct format"""
+        if '|' not in value:
+            raise serializers.ValidationError(
+                'player_name must be in format: PlayerName|token'
+            )
+        parts = value.split('|')
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError(
+                'player_name format: PlayerName|token (both parts required)'
+            )
+        return value
+    
+    def validate_selected_categories(self, value):
+        """Ensure selected_categories is a valid list"""
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                'selected_categories must be a list'
+            )
+        if len(value) == 0:
+            raise serializers.ValidationError(
+                'At least one category must be selected'
+            )
+        # Verify all category IDs exist and are active
+        valid_ids = list(
+            QuizCategory.objects.filter(
+                id__in=value, is_active=True
+            ).values_list('id', flat=True)
+        )
+        if len(valid_ids) != len(value):
+            raise serializers.ValidationError(
+                'One or more category IDs are invalid or inactive'
+            )
+        return value
+
+
+class QuizSessionStartSerializer(serializers.Serializer):
+    """Serializer for starting a new quiz (slot machine)"""
+    player_name = serializers.CharField(max_length=150)
+    hotel = serializers.IntegerField(required=False, allow_null=True)
+    tournament = serializers.PrimaryKeyRelatedField(
+        queryset=QuizTournament.objects.filter(status='active'),
+        required=False,
+        allow_null=True
+    )
+    questions_per_quiz = serializers.IntegerField(
+        default=20, min_value=5, max_value=50
+    )
+    
+    def validate_player_name(self, value):
+        """Ensure player_name format"""
+        if '|' not in value:
+            raise serializers.ValidationError(
+                'player_name must be in format: PlayerName|token'
+            )
+        return value
+    
+    def validate_hotel(self, value):
+        """Validate hotel ID exists"""
+        if value is not None:
+            from hotel.models import Hotel
+            if not Hotel.objects.filter(id=value).exists():
+                raise serializers.ValidationError('Hotel does not exist')
+        return value
+
+
+class QuizLeaderboardSerializer(serializers.ModelSerializer):
+    """Serializer for Quiz Leaderboard"""
+    player_display_name = serializers.SerializerMethodField()
+    rank = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizLeaderboard
+        fields = [
+            'id', 'player_name', 'player_display_name',
+            'player_token', 'best_score', 'rank',
+            'total_games_played', 'best_score_achieved_at',
+            'first_played_at', 'last_played_at'
+        ]
+    
+    def get_player_display_name(self, obj):
+        """Extract display name"""
+        if '|' in obj.player_name:
+            return obj.player_name.split('|')[0]
+        return obj.player_name
+    
+    def get_rank(self, obj):
+        """Calculate player's rank"""
+        return QuizLeaderboard.get_player_rank(obj.player_token)
+
+
+class QuizTournamentSerializer(serializers.ModelSerializer):
+    """Serializer for Quiz Tournaments"""
+    hotel_name = serializers.CharField(
+        source='hotel.name', read_only=True, allow_null=True
+    )
+    status_display = serializers.CharField(
+        source='get_status_display', read_only=True
+    )
+    is_registration_open = serializers.BooleanField(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    participant_count = serializers.IntegerField(read_only=True)
+    
+    class Meta:
+        model = QuizTournament
+        fields = [
+            'id', 'name', 'slug', 'hotel', 'hotel_name',
+            'description', 'status', 'status_display',
+            'max_participants', 'participant_count',
+            'questions_per_quiz', 'min_age', 'max_age',
+            'start_date', 'end_date', 'registration_deadline',
+            'is_registration_open', 'is_active',
+            'first_prize', 'second_prize', 'third_prize',
+            'rules', 'qr_code_url', 'created_at'
+        ]
+        read_only_fields = ['qr_code_url', 'created_at']
+
+
+class QuizTournamentLeaderboardSerializer(serializers.ModelSerializer):
+    """Serializer for tournament leaderboard (all plays)"""
+    player_display_name = serializers.SerializerMethodField()
+    rank = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = QuizSession
+        fields = [
+            'id', 'player_name', 'player_display_name',
+            'score', 'correct_answers', 'total_questions',
+            'time_seconds', 'completed_at', 'rank'
+        ]
+    
+    def get_player_display_name(self, obj):
+        """Extract display name"""
+        return obj.get_player_display_name()
+    
+    def get_rank(self, obj):
+        """Calculate rank within tournament"""
+        if not obj.tournament:
+            return None
+        better_scores = obj.tournament.sessions.filter(
+            completed=True,
+            score__gt=obj.score
+        ).count()
+        return better_scores + 1
 

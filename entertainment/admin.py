@@ -5,7 +5,8 @@ from .models import (
     Game, GameHighScore, GameQRCode,
     MemoryGameCard, MemoryGameSession, MemoryGameStats, MemoryGameTournament,
     TournamentParticipation, MemoryGameAchievement, UserAchievement,
-    
+    QuizCategory, QuizQuestion, QuizSession, QuizAnswer,
+    QuizLeaderboard, QuizTournament,
 )
 
 
@@ -327,3 +328,316 @@ MemoryGameTournamentAdmin.inlines = [TournamentParticipationInline]
 # ============================================================================
 # GUESSTICULATOR QUIZ GAME ADMIN
 # ============================================================================
+
+
+@admin.register(QuizCategory)
+class QuizCategoryAdmin(admin.ModelAdmin):
+    """Admin for Quiz Categories"""
+    list_display = (
+        'name', 'slug', 'icon', 'color_preview',
+        'is_active', 'question_count', 'display_order'
+    )
+    list_filter = ('is_active', 'created_at')
+    search_fields = ('name', 'slug', 'description')
+    prepopulated_fields = {"slug": ("name",)}
+    ordering = ('display_order', 'name')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'slug', 'description', 'icon')
+        }),
+        ('Display Settings', {
+            'fields': ('color', 'display_order', 'is_active')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = ('created_at', 'updated_at')
+    
+    def color_preview(self, obj):
+        """Show color swatch"""
+        return format_html(
+            '<div style="width:20px;height:20px;'
+            'background-color:{};border:1px solid #ccc;"></div>',
+            obj.color
+        )
+    color_preview.short_description = 'Color'
+    
+    def question_count(self, obj):
+        """Display number of questions"""
+        count = obj.question_count
+        return format_html(
+            '<a href="{}?category__id__exact={}">{} questions</a>',
+            reverse('admin:entertainment_quizquestion_changelist'),
+            obj.id,
+            count
+        )
+    question_count.short_description = 'Questions'
+
+
+class QuizAnswerInline(admin.TabularInline):
+    """Inline for quiz answers in session admin"""
+    model = QuizAnswer
+    extra = 0
+    fields = (
+        'question', 'selected_answer', 'is_correct',
+        'time_seconds', 'answered_at'
+    )
+    readonly_fields = ('is_correct', 'answered_at')
+    can_delete = False
+
+
+@admin.register(QuizQuestion)
+class QuizQuestionAdmin(admin.ModelAdmin):
+    """Admin for Quiz Questions"""
+    list_display = (
+        'question_preview', 'category', 'difficulty',
+        'correct_answer', 'points', 'is_active', 'created_at'
+    )
+    list_filter = ('category', 'difficulty', 'is_active', 'created_at')
+    search_fields = ('question_text', 'explanation')
+    ordering = ('category', 'difficulty', '-created_at')
+    
+    fieldsets = (
+        ('Question', {
+            'fields': ('category', 'question_text', 'difficulty', 'points')
+        }),
+        ('Options', {
+            'fields': (
+                ('option_a', 'option_b'),
+                ('option_c', 'option_d'),
+                'correct_answer'
+            )
+        }),
+        ('Explanation', {
+            'fields': ('explanation',),
+            'classes': ('collapse',)
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+        ('Metadata', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = ('created_at', 'updated_at')
+    
+    def question_preview(self, obj):
+        """Show abbreviated question"""
+        return obj.question_text[:75] + '...' if len(
+            obj.question_text
+        ) > 75 else obj.question_text
+    question_preview.short_description = 'Question'
+    
+    def save_model(self, request, obj, form, change):
+        """Auto-set created_by"""
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+
+@admin.register(QuizSession)
+class QuizSessionAdmin(admin.ModelAdmin):
+    """Admin for Quiz Sessions"""
+    list_display = (
+        'display_player', 'score', 'correct_answers',
+        'total_questions', 'tournament', 'completed',
+        'started_at'
+    )
+    list_filter = (
+        'completed', 'tournament', 'hotel', 'started_at'
+    )
+    search_fields = ('player_name',)
+    ordering = ('-started_at',)
+    inlines = [QuizAnswerInline]
+    
+    fieldsets = (
+        ('Player Info', {
+            'fields': ('player_name', 'hotel', 'tournament')
+        }),
+        ('Game Configuration', {
+            'fields': ('selected_categories', 'total_questions')
+        }),
+        ('Results', {
+            'fields': (
+                'correct_answers', 'score', 'time_seconds',
+                'completed', 'completed_at'
+            )
+        }),
+        ('Session State', {
+            'fields': ('current_question_index', 'session_state'),
+            'classes': ('collapse',)
+        }),
+        ('Timestamps', {
+            'fields': ('started_at',),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = ('started_at', 'completed_at', 'score')
+    
+    def display_player(self, obj):
+        """Show player display name"""
+        return obj.get_player_display_name()
+    display_player.short_description = 'Player'
+
+
+@admin.register(QuizAnswer)
+class QuizAnswerAdmin(admin.ModelAdmin):
+    """Admin for Quiz Answers"""
+    list_display = (
+        'session', 'question_preview', 'selected_answer',
+        'is_correct', 'time_seconds', 'answered_at'
+    )
+    list_filter = ('is_correct', 'answered_at')
+    search_fields = ('session__player_name', 'question__question_text')
+    ordering = ('-answered_at',)
+    
+    def question_preview(self, obj):
+        """Show abbreviated question"""
+        text = obj.question.question_text
+        return text[:50] + '...' if len(text) > 50 else text
+    question_preview.short_description = 'Question'
+
+
+@admin.register(QuizLeaderboard)
+class QuizLeaderboardAdmin(admin.ModelAdmin):
+    """Admin for Quiz Leaderboard"""
+    list_display = (
+        'rank', 'display_player', 'best_score',
+        'total_games_played', 'best_score_achieved_at'
+    )
+    list_filter = ('best_score_achieved_at', 'last_played_at')
+    search_fields = ('player_name', 'player_token')
+    ordering = ('-best_score',)
+    
+    fieldsets = (
+        ('Player Info', {
+            'fields': ('player_name', 'player_token')
+        }),
+        ('Best Performance', {
+            'fields': ('best_score', 'best_session', 'best_score_achieved_at')
+        }),
+        ('Statistics', {
+            'fields': (
+                'total_games_played', 'first_played_at', 'last_played_at'
+            )
+        }),
+    )
+    
+    readonly_fields = (
+        'player_token', 'first_played_at',
+        'last_played_at', 'best_score_achieved_at'
+    )
+    
+    def rank(self, obj):
+        """Show player's rank"""
+        better_count = QuizLeaderboard.objects.filter(
+            best_score__gt=obj.best_score
+        ).count()
+        return better_count + 1
+    rank.short_description = 'Rank'
+    
+    def display_player(self, obj):
+        """Show player display name"""
+        if '|' in obj.player_name:
+            return obj.player_name.split('|')[0]
+        return obj.player_name
+    display_player.short_description = 'Player'
+
+
+@admin.register(QuizTournament)
+class QuizTournamentAdmin(admin.ModelAdmin):
+    """Admin for Quiz Tournaments"""
+    list_display = (
+        'name', 'hotel', 'status', 'participant_count',
+        'start_date', 'end_date', 'qr_code_preview'
+    )
+    list_filter = ('status', 'hotel', 'start_date')
+    search_fields = ('name', 'slug', 'description')
+    prepopulated_fields = {"slug": ("name",)}
+    ordering = ('-created_at',)
+    
+    fieldsets = (
+        ('Tournament Details', {
+            'fields': ('name', 'slug', 'hotel', 'description')
+        }),
+        ('Configuration', {
+            'fields': (
+                'max_participants', 'questions_per_quiz',
+                'min_age', 'max_age'
+            )
+        }),
+        ('Schedule', {
+            'fields': (
+                'start_date', 'end_date',
+                'registration_deadline', 'status'
+            )
+        }),
+        ('Prizes', {
+            'fields': ('first_prize', 'second_prize', 'third_prize'),
+            'classes': ('collapse',)
+        }),
+        ('Rules', {
+            'fields': ('rules',),
+            'classes': ('collapse',)
+        }),
+        ('QR Code', {
+            'fields': ('qr_code_url', 'qr_generated_at'),
+            'classes': ('collapse',)
+        }),
+        ('Metadata', {
+            'fields': ('created_by', 'created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = (
+        'qr_generated_at', 'created_at', 'updated_at'
+    )
+    
+    actions = ['generate_qr_codes']
+    
+    def qr_code_preview(self, obj):
+        """Show QR code if available"""
+        if obj.qr_code_url:
+            return format_html(
+                '<img src="{}" width="50" height="50"/>',
+                obj.qr_code_url
+            )
+        return '-'
+    qr_code_preview.short_description = 'QR Code'
+    
+    def participant_count(self, obj):
+        """Show number of participants"""
+        count = obj.participant_count
+        return format_html(
+            '<a href="{}?tournament__id__exact={}">{} players</a>',
+            reverse('admin:entertainment_quizsession_changelist'),
+            obj.id,
+            count
+        )
+    participant_count.short_description = 'Participants'
+    
+    def generate_qr_codes(self, request, queryset):
+        """Generate QR codes for selected tournaments"""
+        count = 0
+        for tournament in queryset:
+            if tournament.generate_qr_code():
+                count += 1
+        self.message_user(
+            request,
+            f'Successfully generated {count} QR code(s).'
+        )
+    generate_qr_codes.short_description = 'Generate QR codes'
+    
+    def save_model(self, request, obj, form, change):
+        """Auto-set created_by"""
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
