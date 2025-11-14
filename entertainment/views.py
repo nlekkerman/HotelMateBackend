@@ -909,6 +909,11 @@ class QuizGameViewSet(viewsets.ViewSet):
         ).first()
         
         if existing_session:
+            # Reset streak on page refresh/resume
+            existing_session.consecutive_correct = 0
+            existing_session.is_turbo_active = False
+            existing_session.save()
+            
             # Return existing incomplete session
             categories = QuizCategory.objects.filter(
                 is_active=True
