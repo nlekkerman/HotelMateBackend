@@ -2,11 +2,29 @@
 
 ## 🔴 Issue Summary
 
-Three critical frontend bugs preventing the quiz from working:
+Four critical frontend bugs preventing the quiz from working:
 
 1. **400 Bad Request Error** - Missing required fields in API request
 2. **"Correct answer: Unknown"** - Not displaying the correct answer from response
 3. **Timeout Handling** - Need to submit special answer when time runs out
+4. **Game Not Finishing** - Auto-completion now handled by backend after 50 questions
+
+---
+
+## ✅ Backend Auto-Completion (NEW!)
+
+**The backend now automatically completes the game after 50 questions!**
+
+When you submit the 50th answer:
+- Backend detects all questions answered (5 categories × 10 questions)
+- Automatically calls `session.complete_session()`
+- Returns `game_completed: true` in response
+- Session is marked as `is_completed: true`
+
+**Frontend just needs to:**
+1. Watch for `game_completed: true` in submit_answer response
+2. Navigate to results/leaderboard screen
+3. No need to manually call `complete_session` endpoint anymore
 
 ---
 

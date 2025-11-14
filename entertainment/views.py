@@ -1430,14 +1430,31 @@ class QuizGameViewSet(viewsets.ViewSet):
         session.save()
         session.refresh_from_db()
         
+        # Check if player has completed all 50 questions (auto-complete)
+        total_submissions = session.submissions.count()
+        total_questions = (
+            session.quiz.questions_per_category *
+            QuizCategory.objects.filter(is_active=True).count()
+        )
+        
+        game_completed = total_submissions >= total_questions
+        
+        # Auto-complete if all questions answered
+        if game_completed and not session.is_completed:
+            session.complete_session()
+        
         return Response({
             'success': True,
             'submission': QuizSubmissionSerializer(submission).data,
             'session_updated': {
                 'score': session.score,
                 'consecutive_correct': session.consecutive_correct,
-                'is_turbo_active': session.is_turbo_active
-            }
+                'is_turbo_active': session.is_turbo_active,
+                'is_completed': session.is_completed,
+                'total_questions_answered': total_submissions,
+                'total_questions': total_questions
+            },
+            'game_completed': game_completed
         })
     
     @action(detail=False, methods=['post'])
