@@ -1454,7 +1454,9 @@ class QuizGameViewSet(viewsets.ViewSet):
                 'total_questions_answered': total_submissions,
                 'total_questions': total_questions
             },
-            'game_completed': game_completed
+            'game_completed': game_completed,
+            'is_timeout': is_timeout,  # Flag for frontend to handle
+            'move_to_next_question': True  # Always move to next question
         })
     
     @action(detail=False, methods=['post'])
