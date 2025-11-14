@@ -6,8 +6,7 @@ from .views import (
     MemoryGameTournamentViewSet,
     MemoryGameAchievementViewSet, DashboardViewSet,
     # Quiz Game Views
-    QuizViewSet, QuizCategoryViewSet, QuizGameViewSet,
-    QuizLeaderboardViewSet, QuizTournamentViewSet,
+
 )
 
 # Create router for ViewSets
@@ -18,11 +17,6 @@ router.register(r'memory-sessions', MemoryGameSessionViewSet, basename='memory-s
 router.register(r'tournaments', MemoryGameTournamentViewSet, basename='tournaments')
 router.register(r'achievements', MemoryGameAchievementViewSet, basename='achievements')
 router.register(r'dashboard', DashboardViewSet, basename='dashboard')
-
-# Quiz Game ViewSets - register BEFORE creating urlpatterns
-router.register(r'quizzes', QuizViewSet, basename='quizzes')
-router.register(r'quiz-categories', QuizCategoryViewSet, basename='quiz-categories')
-router.register(r'quiz-tournaments', QuizTournamentViewSet, basename='quiz-tournaments')
 
 # Legacy URL patterns for backward compatibility
 game_list = GameViewSet.as_view({'get': 'list'})
@@ -90,40 +84,3 @@ urlpatterns = [
 # GUESSTICULATOR QUIZ GAME URLS
 # ============================================================================
 
-# Quiz game action URLs
-quiz_game_urls = [
-    path('quiz/game/start_session/',
-         QuizGameViewSet.as_view({'post': 'start_session'}),
-         name='quiz-game-start-session'),
-    path('quiz/game/fetch_category_questions/',
-         QuizGameViewSet.as_view({'get': 'fetch_category_questions'}),
-         name='quiz-game-fetch-category-questions'),
-    path('quiz/game/submit_answer/',
-         QuizGameViewSet.as_view({'post': 'submit_answer'}),
-         name='quiz-game-submit-answer'),
-    path('quiz/game/submit_timeout/',
-         QuizGameViewSet.as_view({'post': 'submit_timeout'}),
-         name='quiz-game-submit-timeout'),
-    path('quiz/game/ready_for_next_category/',
-         QuizGameViewSet.as_view({'post': 'ready_for_next_category'}),
-         name='quiz-game-ready-for-next-category'),
-    path('quiz/game/complete_session/',
-         QuizGameViewSet.as_view({'post': 'complete_session'}),
-         name='quiz-game-complete-session'),
-    path('quiz/game/get_session/',
-         QuizGameViewSet.as_view({'get': 'get_session'}),
-         name='quiz-game-get-session'),
-]
-
-# Quiz leaderboard URLs
-quiz_leaderboard_urls = [
-    path('quiz/leaderboard/all-time/',
-         QuizLeaderboardViewSet.as_view({'get': 'all_time'}),
-         name='quiz-leaderboard-all-time'),
-    path('quiz/leaderboard/player-stats/',
-         QuizLeaderboardViewSet.as_view({'get': 'player_stats'}),
-         name='quiz-leaderboard-player-stats'),
-]
-
-# Add quiz URLs to main urlpatterns
-urlpatterns += quiz_game_urls + quiz_leaderboard_urls
