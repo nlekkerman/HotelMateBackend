@@ -1198,7 +1198,7 @@ class QuizGameViewSet(viewsets.ViewSet):
             },
             'instructions': [
                 f'Answer {quiz.questions_per_category} questions '
-                f'from each of the {categories.count()} categories',
+                f'from each of the {len(categories)} categories',
                 f'You have {quiz.time_per_question_seconds} seconds '
                 f'per question',
                 f'Get {quiz.turbo_mode_threshold} correct answers '
