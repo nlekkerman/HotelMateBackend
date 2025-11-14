@@ -967,17 +967,25 @@ class QuizGameViewSet(viewsets.ViewSet):
                 )
                 category_questions = math_questions
             else:
-                # Get unseen questions for this category
-                unseen_ids = player_progress.get_unseen_questions(
-                    category,
-                    count
-                )
+                # Get seen IDs for this category
+                category_slug = category.slug
+                seen_ids = player_progress.seen_question_ids.get(category_slug, [])
                 
-                # Fetch the actual questions
+                # Get unseen questions directly
                 questions = QuizQuestion.objects.filter(
-                    id__in=unseen_ids,
+                    category=category,
                     is_active=True
+                ).exclude(
+                    id__in=seen_ids
                 ).prefetch_related('answers')[:count]
+                
+                # If not enough unseen questions, reset and get all
+                if questions.count() < count:
+                    player_progress.seen_question_ids[category_slug] = []
+                    questions = QuizQuestion.objects.filter(
+                        category=category,
+                        is_active=True
+                    ).prefetch_related('answers')[:count]
                 
                 category_questions = QuizQuestionSerializer(
                     questions,
@@ -985,10 +993,10 @@ class QuizGameViewSet(viewsets.ViewSet):
                 ).data
                 
                 # Mark as seen
-                player_progress.mark_questions_seen(
-                    category.slug,
-                    [q['id'] for q in category_questions]
-                )
+                new_seen_ids = [q['id'] for q in category_questions]
+                if category_slug not in player_progress.seen_question_ids:
+                    player_progress.seen_question_ids[category_slug] = []
+                player_progress.seen_question_ids[category_slug].extend(new_seen_ids)
             
             # Add category info
             for question in category_questions:
@@ -996,6 +1004,9 @@ class QuizGameViewSet(viewsets.ViewSet):
                 question['category_order'] = category.order
             
             all_questions.extend(category_questions)
+        
+        # Save progress once at the end
+        player_progress.save()
         
         return all_questions
     
