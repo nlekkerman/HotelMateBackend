@@ -910,8 +910,12 @@ class QuizGameViewSet(viewsets.ViewSet):
                 )
         
         # NO RESUME - Always start fresh game
-        # Delete any existing session with this token
-        QuizSession.objects.filter(session_token=session_token).delete()
+        # Check if session exists and delete it first
+        existing_sessions = QuizSession.objects.filter(
+            session_token=session_token
+        )
+        if existing_sessions.exists():
+            existing_sessions.delete()
         
         # Get or create player progress tracker
         from .models import QuizPlayerProgress
@@ -920,14 +924,27 @@ class QuizGameViewSet(viewsets.ViewSet):
             quiz=quiz
         )
         
-        # Create new session
-        session = QuizSession.objects.create(
-            quiz=quiz,
+        # Create new session (or get existing if race condition)
+        session, created = QuizSession.objects.get_or_create(
             session_token=session_token,
-            player_name=player_name,
-            is_tournament_mode=is_tournament_mode,
-            tournament=tournament
+            defaults={
+                'quiz': quiz,
+                'player_name': player_name,
+                'is_tournament_mode': is_tournament_mode,
+                'tournament': tournament
+            }
         )
+        
+        # If not created (already existed), update it
+        if not created:
+            session.player_name = player_name
+            session.is_tournament_mode = is_tournament_mode
+            session.tournament = tournament
+            session.score = 0
+            session.consecutive_correct = 0
+            session.is_turbo_active = False
+            session.is_completed = False
+            session.save()
         
         # Fetch categories
         categories = list(QuizCategory.objects.filter(
