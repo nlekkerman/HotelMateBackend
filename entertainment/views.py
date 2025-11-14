@@ -864,10 +864,17 @@ class QuizGameViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def start_session(self, request):
         """Start a new game session"""
+        import time
+        import logging
+        logger = logging.getLogger(__name__)
+        start_time = time.time()
+        
         player_name = request.data.get('player_name')
         session_token = request.data.get('session_token')
         is_tournament_mode = request.data.get('is_tournament_mode', False)
         tournament_slug = request.data.get('tournament_slug')
+        
+        logger.info(f"Quiz session start requested by {player_name}")
         
         if not player_name or not session_token:
             return Response(
@@ -922,11 +929,12 @@ class QuizGameViewSet(viewsets.ViewSet):
             tournament=tournament
         )
         
-        categories = QuizCategory.objects.filter(
+        # Optimize: Fetch categories with prefetch to avoid N+1 queries
+        categories = list(QuizCategory.objects.filter(
             is_active=True
-        ).order_by('order')
+        ).order_by('order'))
         
-        if not categories.exists():
+        if not categories:
             return Response(
                 {'error': 'No categories available'},
                 status=status.HTTP_400_BAD_REQUEST
@@ -941,23 +949,62 @@ class QuizGameViewSet(viewsets.ViewSet):
         
         serializer = QuizSessionDetailSerializer(session)
         
+        elapsed_time = time.time() - start_time
+        logger.info(
+            f"Quiz session created in {elapsed_time:.2f}s - "
+            f"Player: {player_name}, Questions: {len(all_questions)}"
+        )
+        
         return Response({
             'session': serializer.data,
-            'categories': QuizCategoryListSerializer(categories, many=True).data,
+            'categories': QuizCategoryListSerializer(
+                categories, many=True
+            ).data,
             'all_questions': all_questions,
-            'total_categories': categories.count(),
+            'total_categories': len(categories),
             'questions_per_category': quiz.questions_per_category,
             'total_questions': len(all_questions),
-            'game_rules': self._get_game_rules(quiz, categories)
+            'game_rules': self._get_game_rules(quiz, categories),
+            'performance': {
+                'generation_time_seconds': round(elapsed_time, 2)
+            }
         }, status=status.HTTP_201_CREATED)
     
     def _generate_tracked_questions(self, categories, count, player_progress):
         """
         Generate questions with tracking to avoid repeats
         Player must see ALL questions before ANY repeat
+        OPTIMIZED: Batch database queries to reduce DB round trips
         """
         all_questions = []
         
+        # Batch fetch all questions for non-math categories at once
+        non_math_categories = [
+            c for c in categories if not c.is_math_category
+        ]
+        
+        # Build a map of category_id -> questions for efficient lookup
+        if non_math_categories:
+            category_ids = [c.id for c in non_math_categories]
+            # Fetch all questions at once with select_related to avoid N+1
+            all_db_questions = QuizQuestion.objects.filter(
+                category_id__in=category_ids,
+                is_active=True
+            ).select_related('category').prefetch_related(
+                'answers'
+            ).order_by('?')
+            
+            # Group questions by category
+            questions_by_category = {}
+            for question in all_db_questions:
+                cat_id = question.category_id
+                if cat_id not in questions_by_category:
+                    questions_by_category[cat_id] = []
+                questions_by_category[cat_id].append(question)
+        else:
+            questions_by_category = {}
+        
+        # Process each category
         for category in categories:
             if category.is_math_category:
                 # Generate math questions from unseen pool
@@ -969,34 +1016,56 @@ class QuizGameViewSet(viewsets.ViewSet):
             else:
                 # Get seen IDs for this category
                 category_slug = category.slug
-                seen_ids = player_progress.seen_question_ids.get(category_slug, [])
+                seen_ids = set(
+                    player_progress.seen_question_ids.get(
+                        category_slug, []
+                    )
+                )
                 
-                # Get unseen questions directly
-                questions = QuizQuestion.objects.filter(
-                    category=category,
-                    is_active=True
-                ).exclude(
-                    id__in=seen_ids
-                ).prefetch_related('answers')[:count]
+                # Get questions from pre-fetched data
+                available_questions = questions_by_category.get(
+                    category.id, []
+                )
                 
-                # If not enough unseen questions, reset and get all
-                if questions.count() < count:
+                # Filter unseen questions
+                unseen_questions = [
+                    q for q in available_questions
+                    if q.id not in seen_ids
+                ]
+                
+                # If not enough unseen questions, reset
+                if len(unseen_questions) < count:
                     player_progress.seen_question_ids[category_slug] = []
-                    questions = QuizQuestion.objects.filter(
-                        category=category,
-                        is_active=True
-                    ).prefetch_related('answers')[:count]
+                    seen_ids = set()
+                    unseen_questions = available_questions
                 
-                category_questions = QuizQuestionSerializer(
-                    questions,
-                    many=True
-                ).data
+                # Take only the needed count
+                selected_questions = unseen_questions[:count]
+                
+                # Serialize questions (avoid N+1 by using prefetched data)
+                category_questions = []
+                for q in selected_questions:
+                    category_questions.append({
+                        'id': q.id,
+                        'category_slug': q.category.slug,
+                        'text': q.text,
+                        'image_url': q.image_url,
+                        'answers': [
+                            {
+                                'id': a.id,
+                                'text': a.text,
+                                'order': a.order
+                            } for a in q.answers.all()
+                        ]
+                    })
                 
                 # Mark as seen
                 new_seen_ids = [q['id'] for q in category_questions]
                 if category_slug not in player_progress.seen_question_ids:
                     player_progress.seen_question_ids[category_slug] = []
-                player_progress.seen_question_ids[category_slug].extend(new_seen_ids)
+                player_progress.seen_question_ids[category_slug].extend(
+                    new_seen_ids
+                )
             
             # Add category info
             for question in category_questions:

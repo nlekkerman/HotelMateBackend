@@ -115,8 +115,11 @@ WSGI_APPLICATION = 'HotelMateBackend.wsgi.application'
 
 # Database
 DATABASES = {
-    'default': dj_database_url.parse(env('DATABASE_URL'), conn_max_age=0)
-   
+    'default': dj_database_url.parse(
+        env('DATABASE_URL'),
+        conn_max_age=600,  # Keep connections alive for 10 minutes
+        conn_health_checks=True  # Check connection health
+    )
 }
 
 # Password validation
