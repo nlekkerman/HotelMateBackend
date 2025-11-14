@@ -1460,6 +1460,185 @@ class QuizGameViewSet(viewsets.ViewSet):
         })
     
     @action(detail=False, methods=['post'])
+    def submit_timeout(self, request):
+        """
+        Dedicated endpoint for timeout submissions.
+        Automatically records timeout, gives 0 points, and tells frontend to move on.
+        """
+        session_id = request.data.get('session_id')
+        category_slug = request.data.get('category_slug')
+        question_id = request.data.get('question_id')
+        question_text = request.data.get('question_text')
+        
+        if not all([session_id, category_slug, question_text]):
+            return Response(
+                {'error': 'session_id, category_slug, and question_text are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            session = QuizSession.objects.get(id=session_id)
+        except QuizSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        if session.is_completed:
+            return Response(
+                {'error': 'Session already completed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        category = get_object_or_404(QuizCategory, slug=category_slug)
+        
+        # Get correct answer
+        if category.is_math_category:
+            question_data = request.data.get('question_data', {})
+            correct_answer_value = str(question_data.get('correct_answer', ''))
+        else:
+            question = get_object_or_404(QuizQuestion, id=question_id)
+            correct_answer_value = question.correct_answer.text
+        
+        # Create timeout submission
+        submission = QuizSubmission.objects.create(
+            session=session,
+            category=category,
+            question=None if category.is_math_category else QuizQuestion.objects.get(id=question_id),
+            question_text=question_text,
+            question_data=request.data.get('question_data'),
+            selected_answer='TIMEOUT',
+            selected_answer_id=None,
+            correct_answer=correct_answer_value,
+            is_correct=False,
+            time_taken_seconds=6,
+            was_turbo_active=session.is_turbo_active,
+            points_awarded=0
+        )
+        
+        # Reset session state
+        session.consecutive_correct = 0
+        session.is_turbo_active = False
+        session.save()
+        
+        # Check if game completed
+        total_submissions = session.submissions.count()
+        total_questions = 50  # 4 categories × 10 + 1 math × 10
+        game_completed = total_submissions >= total_questions
+        
+        if game_completed and not session.is_completed:
+            session.complete_session()
+        
+        return Response({
+            'success': True,
+            'timeout': True,
+            'submission': {
+                'selected_answer': 'TIMEOUT',
+                'correct_answer': correct_answer_value,
+                'is_correct': False,
+                'points_awarded': 0,
+                'time_taken_seconds': 6
+            },
+            'session_updated': {
+                'score': session.score,
+                'consecutive_correct': 0,
+                'is_turbo_active': False,
+                'is_completed': session.is_completed,
+                'total_questions_answered': total_submissions,
+                'total_questions': total_questions
+            },
+            'game_completed': game_completed,
+            'move_to_next_question': True
+        })
+    
+    @action(detail=False, methods=['post'])
+    def ready_for_next_category(self, request):
+        """
+        Check if player completed current category and can move to next.
+        Returns info about next category or game completion.
+        """
+        session_id = request.data.get('session_id')
+        current_category_slug = request.data.get('current_category_slug')
+        
+        if not session_id:
+            return Response(
+                {'error': 'session_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            session = QuizSession.objects.get(id=session_id)
+        except QuizSession.DoesNotExist:
+            return Response(
+                {'error': 'Session not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all categories in order
+        categories = list(QuizCategory.objects.filter(
+            is_active=True
+        ).order_by('order_index'))
+        
+        # Find current category index
+        if current_category_slug:
+            try:
+                current_category = next(
+                    c for c in categories 
+                    if c.slug == current_category_slug
+                )
+                current_index = categories.index(current_category)
+            except (StopIteration, ValueError):
+                current_index = -1
+        else:
+            current_index = -1
+        
+        # Count submissions per category
+        category_progress = {}
+        for cat in categories:
+            count = session.submissions.filter(category=cat).count()
+            category_progress[cat.slug] = {
+                'name': cat.name,
+                'completed': count,
+                'total': 10,
+                'is_complete': count >= 10
+            }
+        
+        # Get next category
+        next_index = current_index + 1
+        if next_index < len(categories):
+            next_category = categories[next_index]
+            has_next = True
+        else:
+            next_category = None
+            has_next = False
+        
+        # Calculate total progress
+        total_answered = session.submissions.count()
+        total_questions = len(categories) * 10
+        all_categories_complete = total_answered >= total_questions
+        
+        return Response({
+            'success': True,
+            'has_next_category': has_next,
+            'next_category': {
+                'slug': next_category.slug,
+                'name': next_category.name,
+                'description': next_category.description,
+                'is_math_category': next_category.is_math_category,
+                'order_index': next_category.order_index
+            } if next_category else None,
+            'category_progress': category_progress,
+            'session_stats': {
+                'score': session.score,
+                'consecutive_correct': session.consecutive_correct,
+                'is_turbo_active': session.is_turbo_active,
+                'total_questions_answered': total_answered,
+                'total_questions': total_questions
+            },
+            'game_completed': all_categories_complete
+        })
+    
+    @action(detail=False, methods=['post'])
     def complete_session(self, request):
         """Complete a game session and update leaderboards"""
         session_id = request.data.get('session_id')
