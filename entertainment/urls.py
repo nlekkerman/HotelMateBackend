@@ -19,7 +19,10 @@ router.register(r'tournaments', MemoryGameTournamentViewSet, basename='tournamen
 router.register(r'achievements', MemoryGameAchievementViewSet, basename='achievements')
 router.register(r'dashboard', DashboardViewSet, basename='dashboard')
 
-# Quiz Game
+# Quiz Game ViewSets - register BEFORE creating urlpatterns
+router.register(r'quizzes', QuizViewSet, basename='quizzes')
+router.register(r'quiz-categories', QuizCategoryViewSet, basename='quiz-categories')
+router.register(r'quiz-tournaments', QuizTournamentViewSet, basename='quiz-tournaments')
 
 # Legacy URL patterns for backward compatibility
 game_list = GameViewSet.as_view({'get': 'list'})
@@ -86,11 +89,6 @@ urlpatterns = [
 # ============================================================================
 # GUESSTICULATOR QUIZ GAME URLS
 # ============================================================================
-
-# Register quiz ViewSets
-router.register(r'quizzes', QuizViewSet, basename='quizzes')
-router.register(r'quiz-categories', QuizCategoryViewSet, basename='quiz-categories')
-router.register(r'quiz-tournaments', QuizTournamentViewSet, basename='quiz-tournaments')
 
 # Quiz game action URLs
 quiz_game_urls = [

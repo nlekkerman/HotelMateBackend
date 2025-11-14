@@ -612,6 +612,7 @@ class QuizSubmissionSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id',
+            'correct_answer',
             'is_correct',
             'points_awarded',
             'answered_at'
