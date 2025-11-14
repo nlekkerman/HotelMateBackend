@@ -688,13 +688,17 @@ class SubmitAnswerSerializer(serializers.Serializer):
         required=False,
         allow_null=True
     )
-    time_taken_seconds = serializers.IntegerField(min_value=0, max_value=5)
+    time_taken_seconds = serializers.IntegerField(min_value=0, max_value=10)
     
     def validate_time_taken_seconds(self, value):
-        """Ensure time is within bounds"""
-        if value < 0 or value > 5:
+        """Ensure time is within bounds (allow up to 10 for timeout grace)"""
+        if value < 0:
             raise serializers.ValidationError(
-                "Time must be between 0 and 5 seconds"
+                "Time cannot be negative"
+            )
+        if value > 10:
+            raise serializers.ValidationError(
+                "Time cannot exceed 10 seconds"
             )
         return value
 

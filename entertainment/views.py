@@ -1380,7 +1380,19 @@ class QuizGameViewSet(viewsets.ViewSet):
                 )
             correct_answer_value = correct_ans.text
         
-        is_correct = data['selected_answer'].strip() == correct_answer_value.strip()
+        # Check if timeout or valid answer
+        selected_answer = data['selected_answer'].strip()
+        time_taken = data['time_taken_seconds']
+        
+        # If time > 5 or answer is "TIMEOUT", treat as timeout (0 points)
+        is_timeout = time_taken > 5 or selected_answer.upper() == 'TIMEOUT'
+        
+        if is_timeout:
+            is_correct = False
+            # Cap time at 6 for timeout submissions
+            time_taken = min(time_taken, 6)
+        else:
+            is_correct = selected_answer == correct_answer_value.strip()
         
         submission = QuizSubmission.objects.create(
             session=session,
@@ -1388,27 +1400,30 @@ class QuizGameViewSet(viewsets.ViewSet):
             question=None if category.is_math_category else QuizQuestion.objects.get(id=data.get('question_id')),
             question_text=data['question_text'],
             question_data=data.get('question_data'),
-            selected_answer=data['selected_answer'],
+            selected_answer=selected_answer if not is_timeout else 'TIMEOUT',
             selected_answer_id=data.get('selected_answer_id'),
             correct_answer=correct_answer_value,
             is_correct=is_correct,
-            time_taken_seconds=data['time_taken_seconds'],
+            time_taken_seconds=time_taken,
             was_turbo_active=session.is_turbo_active
         )
         
+        # Calculate points (will be 0 for timeout or time > 5)
         points = submission.calculate_points()
         submission.points_awarded = points
         submission.save()
         
         session.score += points
         
-        if is_correct and points > 0:
+        # Reset streak on timeout, wrong answer, or 0 points
+        if is_correct and points > 0 and not is_timeout:
             session.consecutive_correct += 1
             
             turbo_threshold = session.quiz.turbo_mode_threshold
             if session.consecutive_correct >= turbo_threshold:
                 session.is_turbo_active = True
         else:
+            # Timeout, wrong answer, or too slow = reset streak
             session.consecutive_correct = 0
             session.is_turbo_active = False
         
