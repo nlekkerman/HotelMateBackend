@@ -1097,6 +1097,94 @@ class QuizSubmission(models.Model):
             return base_points
 
 
+class QuizPlayerProgress(models.Model):
+    """
+    Track which questions each player has seen
+    Ensures no repeats until all questions exhausted
+    """
+    session_token = models.CharField(
+        max_length=255,
+        db_index=True,
+        help_text="Player's unique session token"
+    )
+    quiz = models.ForeignKey(
+        Quiz,
+        on_delete=models.CASCADE,
+        related_name='player_progress'
+    )
+    
+    # Track seen question IDs per category
+    seen_question_ids = models.JSONField(
+        default=dict,
+        help_text="Dict of category_slug: [question_ids] player has seen"
+    )
+    
+    # Track generated math questions (store the actual questions)
+    seen_math_questions = models.JSONField(
+        default=list,
+        help_text="List of math questions player has seen"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ['session_token', 'quiz']
+        indexes = [
+            models.Index(fields=['session_token', 'quiz']),
+        ]
+    
+    def __str__(self):
+        return f"{self.session_token} - Quiz Progress"
+    
+    def get_unseen_questions(self, category, count=10):
+        """Get questions this player hasn't seen yet"""
+        category_slug = category.slug
+        seen_ids = self.seen_question_ids.get(category_slug, [])
+        
+        # Get all question IDs for this category
+        all_questions = QuizQuestion.objects.filter(
+            category=category,
+            is_active=True
+        ).values_list('id', flat=True)
+        
+        # Get unseen questions
+        unseen_ids = [qid for qid in all_questions if qid not in seen_ids]
+        
+        # If we've seen all questions, reset for this category
+        if len(unseen_ids) < count:
+            self.seen_question_ids[category_slug] = []
+            self.save()
+            unseen_ids = list(all_questions)
+        
+        return unseen_ids[:count]
+    
+    def mark_questions_seen(self, category_slug, question_ids):
+        """Mark questions as seen by this player"""
+        if category_slug not in self.seen_question_ids:
+            self.seen_question_ids[category_slug] = []
+        
+        self.seen_question_ids[category_slug].extend(question_ids)
+        self.save()
+    
+    def get_unseen_math_questions_pool(self, total_pool=100):
+        """Get count of unseen math questions from pool of 100"""
+        seen_count = len(self.seen_math_questions)
+        
+        # Reset if we've seen all 100
+        if seen_count >= total_pool:
+            self.seen_math_questions = []
+            self.save()
+            return total_pool
+        
+        return total_pool - seen_count
+    
+    def mark_math_questions_seen(self, math_questions):
+        """Mark math questions as seen"""
+        self.seen_math_questions.extend(math_questions)
+        self.save()
+
+
 class QuizLeaderboard(models.Model):
     """
     All-time leaderboard - best score per player (session_token)

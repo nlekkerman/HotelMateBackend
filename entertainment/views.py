@@ -902,41 +902,14 @@ class QuizGameViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Check if session already exists with this token
-        existing_session = QuizSession.objects.filter(
-            session_token=session_token,
-            is_completed=False
-        ).first()
+        # NO RESUME - Always start fresh game
         
-        if existing_session:
-            # Reset streak on page refresh/resume
-            existing_session.consecutive_correct = 0
-            existing_session.is_turbo_active = False
-            existing_session.save()
-            
-            # Return existing incomplete session
-            categories = QuizCategory.objects.filter(
-                is_active=True
-            ).order_by('order')
-            
-            # Get the category based on current progress
-            current_category = categories[existing_session.current_category_index] if existing_session.current_category_index < categories.count() else categories.first()
-            
-            questions = self._get_category_questions(
-                current_category,
-                quiz.questions_per_category
-            )
-            
-            serializer = QuizSessionDetailSerializer(existing_session)
-            
-            return Response({
-                'session': serializer.data,
-                'current_category': QuizCategoryListSerializer(current_category).data,
-                'questions': questions,
-                'total_categories': categories.count(),
-                'questions_per_category': quiz.questions_per_category,
-                'resumed': True
-            }, status=status.HTTP_200_OK)
+        # Get or create player progress tracker
+        from .models import QuizPlayerProgress
+        player_progress, _ = QuizPlayerProgress.objects.get_or_create(
+            session_token=session_token,
+            quiz=quiz
+        )
         
         # Create new session
         session = QuizSession.objects.create(
@@ -957,21 +930,100 @@ class QuizGameViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        first_category = categories.first()
-        questions = self._get_category_questions(
-            first_category,
-            quiz.questions_per_category
+        # Generate questions ensuring no repeats until pool exhausted
+        all_questions = self._generate_tracked_questions(
+            categories,
+            quiz.questions_per_category,
+            player_progress
         )
         
         serializer = QuizSessionDetailSerializer(session)
         
         return Response({
             'session': serializer.data,
-            'current_category': QuizCategoryListSerializer(first_category).data,
-            'questions': questions,
+            'categories': QuizCategoryListSerializer(categories, many=True).data,
+            'all_questions': all_questions,
             'total_categories': categories.count(),
-            'questions_per_category': quiz.questions_per_category
+            'questions_per_category': quiz.questions_per_category,
+            'total_questions': len(all_questions),
+            'game_rules': self._get_game_rules(quiz, categories)
         }, status=status.HTTP_201_CREATED)
+    
+    def _generate_tracked_questions(self, categories, count, player_progress):
+        """
+        Generate questions with tracking to avoid repeats
+        Player must see ALL questions before ANY repeat
+        """
+        all_questions = []
+        
+        for category in categories:
+            if category.is_math_category:
+                # Generate math questions from unseen pool
+                math_questions = self._generate_math_questions_tracked(
+                    count,
+                    player_progress
+                )
+                category_questions = math_questions
+            else:
+                # Get unseen questions for this category
+                unseen_ids = player_progress.get_unseen_questions(
+                    category,
+                    count
+                )
+                
+                # Fetch the actual questions
+                questions = QuizQuestion.objects.filter(
+                    id__in=unseen_ids,
+                    is_active=True
+                ).prefetch_related('answers')[:count]
+                
+                category_questions = QuizQuestionSerializer(
+                    questions,
+                    many=True
+                ).data
+                
+                # Mark as seen
+                player_progress.mark_questions_seen(
+                    category.slug,
+                    [q['id'] for q in category_questions]
+                )
+            
+            # Add category info
+            for question in category_questions:
+                question['category_name'] = category.name
+                question['category_order'] = category.order
+            
+            all_questions.extend(category_questions)
+        
+        return all_questions
+    
+    def _get_game_rules(self, quiz, categories):
+        """Get game rules object"""
+        return {
+            'time_per_question': quiz.time_per_question_seconds,
+            'turbo_mode_threshold': quiz.turbo_mode_threshold,
+            'turbo_multiplier': float(quiz.turbo_multiplier),
+            'scoring': {
+                'normal': {
+                    '0s': 5, '1s': 5, '2s': 4, '3s': 3, '4s': 2, '5s': 0
+                },
+                'turbo': {
+                    '0s': 10, '1s': 10, '2s': 8, '3s': 6, '4s': 4, '5s': 0
+                }
+            },
+            'instructions': [
+                f'Answer {quiz.questions_per_category} questions '
+                f'from each of the {categories.count()} categories',
+                f'You have {quiz.time_per_question_seconds} seconds '
+                f'per question',
+                f'Get {quiz.turbo_mode_threshold} correct answers '
+                f'in a row to activate TURBO MODE (2x points)',
+                'Wrong answer breaks your streak and deactivates '
+                'Turbo Mode',
+                'Faster answers = more points (5-4-3-2-0 points)',
+                'Complete all 50 questions to finish the game'
+            ]
+        }
     
     def _get_category_questions(self, category, count=10):
         """Get questions for a category"""
@@ -985,18 +1037,52 @@ class QuizGameViewSet(viewsets.ViewSet):
             
             return QuizQuestionSerializer(questions, many=True).data
     
-    def _generate_math_questions(self, count=10):
-        """Generate dynamic math questions"""
+    def _generate_math_questions_tracked(self, count, player_progress):
+        """
+        Generate math questions with tracking
+        Pool of 100 unique combinations - must exhaust before repeats
+        """
         import random
-        questions = []
+        
+        # Generate pool of 100 unique math questions
+        all_possible = []
         operators = ['+', '-', '*', '/']
         operator_symbols = {'+': '+', '-': '-', '*': '×', '/': '÷'}
         
-        for _ in range(count):
-            num1 = random.randint(0, 10)
-            num2 = random.randint(1, 10)
-            operator = random.choice(operators)
-            
+        # Generate predictable pool (0-10 range, 4 operators)
+        for num1 in range(0, 11):
+            for num2 in range(1, 11):
+                for operator in operators:
+                    if operator == '/':
+                        # Only include if divisible
+                        if num1 % num2 == 0:
+                            all_possible.append((num1, num2, operator))
+                    else:
+                        all_possible.append((num1, num2, operator))
+                    
+                    if len(all_possible) >= 100:
+                        break
+                if len(all_possible) >= 100:
+                    break
+            if len(all_possible) >= 100:
+                break
+        
+        # Filter out seen questions
+        seen_set = {tuple(q[:3]) for q in player_progress.seen_math_questions}
+        unseen = [q for q in all_possible if q not in seen_set]
+        
+        # Reset if we've seen all
+        if len(unseen) < count:
+            player_progress.seen_math_questions = []
+            player_progress.save()
+            unseen = all_possible
+        
+        # Pick random unseen questions
+        selected = random.sample(unseen, min(count, len(unseen)))
+        
+        # Generate question objects
+        questions = []
+        for num1, num2, operator in selected:
             if operator == '+':
                 correct_answer = num1 + num2
             elif operator == '-':
@@ -1004,7 +1090,6 @@ class QuizGameViewSet(viewsets.ViewSet):
             elif operator == '*':
                 correct_answer = num1 * num2
             else:
-                num1 = num2 * random.randint(0, 10)
                 correct_answer = num1 // num2
             
             wrong_answers = set()
@@ -1022,7 +1107,6 @@ class QuizGameViewSet(viewsets.ViewSet):
             ]
             
             random.shuffle(answers)
-            
             for idx, ans in enumerate(answers):
                 ans['order'] = idx
             
@@ -1041,6 +1125,13 @@ class QuizGameViewSet(viewsets.ViewSet):
                     'correct_answer': int(correct_answer)
                 }
             })
+        
+        # Mark as seen
+        player_progress.mark_math_questions_seen(
+            [(q['question_data']['num1'],
+              q['question_data']['num2'],
+              q['question_data']['operator']) for q in questions]
+        )
         
         return questions
     

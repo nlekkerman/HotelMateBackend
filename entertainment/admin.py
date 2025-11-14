@@ -1,4 +1,4 @@
-from django.contrib import admin
+﻿from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from .models import (
@@ -7,7 +7,7 @@ from .models import (
     TournamentParticipation, MemoryGameAchievement, UserAchievement,
     # Quiz models
     QuizCategory, Quiz, QuizQuestion, QuizAnswer,
-    QuizSession, QuizSubmission, QuizLeaderboard,
+    QuizSession, QuizSubmission, QuizLeaderboard, QuizPlayerProgress,
     QuizTournament, TournamentLeaderboard
 )
 
@@ -766,3 +766,4 @@ class TournamentLeaderboardAdmin(admin.ModelAdmin):
     
     def has_delete_permission(self, request, obj=None):
         return False
+
