@@ -902,6 +902,38 @@ class QuizGameViewSet(viewsets.ViewSet):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
+        # Check if session already exists with this token
+        existing_session = QuizSession.objects.filter(
+            session_token=session_token,
+            is_completed=False
+        ).first()
+        
+        if existing_session:
+            # Return existing incomplete session
+            categories = QuizCategory.objects.filter(
+                is_active=True
+            ).order_by('order')
+            
+            # Get the category based on current progress
+            current_category = categories[existing_session.current_category_index] if existing_session.current_category_index < categories.count() else categories.first()
+            
+            questions = self._get_category_questions(
+                current_category,
+                quiz.questions_per_category
+            )
+            
+            serializer = QuizSessionDetailSerializer(existing_session)
+            
+            return Response({
+                'session': serializer.data,
+                'current_category': QuizCategoryListSerializer(current_category).data,
+                'questions': questions,
+                'total_categories': categories.count(),
+                'questions_per_category': quiz.questions_per_category,
+                'resumed': True
+            }, status=status.HTTP_200_OK)
+        
+        # Create new session
         session = QuizSession.objects.create(
             quiz=quiz,
             session_token=session_token,

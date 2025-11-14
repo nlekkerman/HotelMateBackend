@@ -4,9 +4,11 @@
 
 ### Base URL
 ```
-Production: https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment
-Local Dev: http://localhost:8000/api/v1/entertainment
+Production: https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment
+Local Dev: http://localhost:8000/api/entertainment
 ```
+
+⚠️ **IMPORTANT:** Note that there is NO `/v1/` in the URL path!
 
 ---
 
@@ -116,7 +118,7 @@ Local Dev: http://localhost:8000/api/v1/entertainment
 }
 ```
 
-**Response:**
+**Response (New Session - 201 Created):**
 ```json
 {
   "session": {
@@ -173,6 +175,31 @@ Local Dev: http://localhost:8000/api/v1/entertainment
   "questions_per_category": 10
 }
 ```
+
+**Response (Resumed Session - 200 OK):**
+If a session with the same `session_token` already exists and is incomplete, the API will return the existing session instead of creating a new one:
+```json
+{
+  "session": {
+    "id": "existing-uuid",
+    "player_name": "PlayerName",
+    "score": 45,
+    "is_turbo_active": true,
+    "consecutive_correct": 6,
+    "current_category_index": 2,
+    "current_question_index": 5
+  },
+  "current_category": { /* current category */ },
+  "questions": [ /* 10 questions */ ],
+  "total_categories": 5,
+  "questions_per_category": 10,
+  "resumed": true
+}
+```
+
+**⚠️ Important:** 
+- If you call `start_session` with an existing `session_token` that has an incomplete session, you'll get the existing session back (HTTP 200).
+- To start a completely new game, either complete the existing session first or generate a new `session_token`.
 
 **Math Category Questions:**
 ```json
@@ -442,7 +469,7 @@ if (!sessionToken) {
 
 // ===== STEP 2: Start Session =====
 async function startQuizSession(playerName, isTournament = false, tournamentSlug = null) {
-  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment/quiz/game/start_session/', {
+  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment/quiz/game/start_session/', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -511,7 +538,7 @@ async function submitAnswer(sessionId, question, selectedAnswer, selectedAnswerI
     body.question_data = question.question_data;
   }
   
-  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment/quiz/game/submit_answer/', {
+  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment/quiz/game/submit_answer/', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -549,7 +576,7 @@ function handleAnswerResult(result) {
 // ===== STEP 6: Move to Next Category =====
 async function moveToNextCategory(sessionId, nextCategorySlug) {
   // Frontend fetches next category questions
-  const response = await fetch(`https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment/quiz-categories/${nextCategorySlug}/`);
+  const response = await fetch(`https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment/quiz-categories/${nextCategorySlug}/`);
   const category = await response.json();
   
   // Display category transition
@@ -558,7 +585,7 @@ async function moveToNextCategory(sessionId, nextCategorySlug) {
 
 // ===== STEP 7: Complete Session =====
 async function completeSession(sessionId) {
-  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment/quiz/game/complete_session/', {
+  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment/quiz/game/complete_session/', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -605,7 +632,7 @@ function displayFinalResults(result) {
 
 // ===== Additional: Load Tournaments =====
 async function loadTournaments() {
-  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment/quiz-tournaments/');
+  const response = await fetch('https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment/quiz-tournaments/');
   const tournaments = await response.json();
   
   // Filter active tournaments
@@ -616,7 +643,7 @@ async function loadTournaments() {
 
 // ===== Additional: Load Leaderboard =====
 async function loadLeaderboard(limit = 10) {
-  const response = await fetch(`https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment/quiz/leaderboard/all-time/?limit=${limit}`);
+  const response = await fetch(`https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment/quiz/leaderboard/all-time/?limit=${limit}`);
   return await response.json();
 }
 ```
@@ -710,18 +737,20 @@ https://res.cloudinary.com/dg0ssec7u/image/upload/v1763076810/quiz_tournament_qr
 
 ## 🐛 Common Issues
 
-1. **CORS Errors**: Backend has ALLOWED_HOSTS configured for hotelsmates.com
-2. **Session Token**: Must be consistent for same player
-3. **Math Questions**: Don't have question_id, use question_data instead
-4. **Timer**: Frontend responsibility, backend just receives time_taken_seconds
-5. **Categories**: Come in order 1-5, frontend should not shuffle
+1. **Wrong URL**: Use `/api/entertainment/` NOT `/api/v1/entertainment/`
+2. **Duplicate Session Token**: If you try to start a session with an existing incomplete session_token, you'll get the existing session back (200 OK) instead of creating a new one. To start fresh, complete the old session or use a new token.
+3. **CORS Errors**: Backend has ALLOWED_HOSTS configured for hotelsmates.com
+4. **Session Token**: Must be consistent for same player across games to track leaderboard
+5. **Math Questions**: Don't have question_id, use question_data instead
+6. **Timer**: Frontend responsibility, backend just receives time_taken_seconds
+7. **Categories**: Come in order 1-5, frontend should not shuffle
 
 ---
 
 ## 📞 Support
 
 Backend Repository: https://github.com/nlekkerman/HotelMateBackend
-Production API: https://hotel-porter-d25ad83b12cf.herokuapp.com/api/v1/entertainment
+Production API: https://hotel-porter-d25ad83b12cf.herokuapp.com/api/entertainment
 
 ---
 
