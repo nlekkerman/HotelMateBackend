@@ -669,6 +669,9 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         source='item.uom', max_digits=10, decimal_places=2, read_only=True
     )
     
+    # Cost breakdown for dozen/case items
+    case_cost = serializers.SerializerMethodField()
+    
     # Calculated fields from model properties (raw servings)
     sales_qty = serializers.DecimalField(
         max_digits=15, decimal_places=4, read_only=True
@@ -737,6 +740,8 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'stocktake', 'item', 'item_sku', 'item_name',
             'category_code', 'category_name', 'item_size', 'item_uom',
+            # Cost breakdown
+            'case_cost',
             # Raw quantities (servings)
             'opening_qty', 'purchases', 'sales_qty', 'waste',
             'transfers_in', 'transfers_out', 'adjustments',
@@ -848,6 +853,16 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         """Variance display partial units"""
         _, partial = self._calculate_display_units(obj.variance_qty, obj.item)
         return partial
+    
+    def get_case_cost(self, obj):
+        """Calculate case/dozen cost (valuation_cost × UOM)"""
+        from decimal import Decimal
+        # For items sold by dozen/case, calculate full case cost
+        if obj.item.size and 'Doz' in obj.item.size:
+            case_cost = obj.valuation_cost * obj.item.uom
+            return str(case_cost)
+        # For other items, return None (not applicable)
+        return None
 
 
 class StocktakeSerializer(serializers.ModelSerializer):
