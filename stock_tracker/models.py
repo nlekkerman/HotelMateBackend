@@ -9,7 +9,7 @@ from calendar import monthrange
 # MINERALS SERVING SIZE CONSTANTS
 # ============================================================================
 # Serving sizes for Minerals & Syrups subcategories
-SYRUP_SERVING_SIZE = Decimal('25')  # 25ml per serving
+SYRUP_SERVING_SIZE = Decimal('35')  # 35ml per serving (standard shot)
 JUICE_SERVING_SIZE = Decimal('200')  # 200ml per serving
 BIB_SERVING_SIZE = Decimal('0.2')  # 200ml = 0.2 liters per serving
 
@@ -587,7 +587,7 @@ class StockItem(models.Model):
         
         Minerals (M) - handled by subcategory:
           SOFT_DRINKS: cases + bottles → bottles (1 bottle = 1 serving)
-          SYRUPS: bottles + ml → servings (25ml per serving)
+          SYRUPS: bottles + ml → servings (35ml per serving)
           JUICES: bottles + ml → servings (200ml per serving)
           CORDIALS: cases + bottles → bottles (no serving conversion)
           BIB: boxes + liters → servings (200ml per serving)
@@ -2023,7 +2023,7 @@ class StocktakeLine(models.Model):
         
         Minerals (M) - handled by subcategory:
           SOFT_DRINKS: counted_cases + counted_bottles → bottles
-          SYRUPS: counted_bottles + counted_ml → servings (25ml)
+          SYRUPS: counted_bottles + counted_ml → servings (35ml)
           JUICES: counted_bottles + counted_ml → servings (200ml)
           CORDIALS: counted_cases + counted_bottles → bottles
           BIB: counted_boxes + counted_liters → servings (200ml)

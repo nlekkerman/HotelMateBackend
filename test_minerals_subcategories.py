@@ -61,14 +61,14 @@ if syrup:
     print(f"Current Stock: {syrup.current_full_units} bottles + {syrup.current_partial_units} ml")
     print(f"Serving Size: {SYRUP_SERVING_SIZE}ml")
     
-    # Formula: ((bottles × 700ml) + ml) / 25ml = servings
+    # Formula: ((bottles × 700ml) + ml) / 35ml = servings
     full_ml = syrup.current_full_units * syrup.uom
     total_ml = full_ml + syrup.current_partial_units
     expected_servings = total_ml / SYRUP_SERVING_SIZE
     actual_servings = syrup.total_stock_in_servings
     
     print(f"\nTotal ml: {total_ml:.2f} ml")
-    print(f"Expected Servings: {expected_servings:.2f} servings (25ml each)")
+    print(f"Expected Servings: {expected_servings:.2f} servings (35ml each)")
     print(f"Actual Servings: {actual_servings:.2f} servings")
     print(f"✓ PASS" if expected_servings == actual_servings else f"✗ FAIL")
 else:
