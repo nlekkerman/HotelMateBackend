@@ -512,6 +512,16 @@ class StockItemSerializer(serializers.ModelSerializer):
         source='category.name', read_only=True
     )
     
+    # Minerals subcategory
+    subcategory = serializers.CharField(read_only=True)
+    subcategory_display = serializers.SerializerMethodField()
+    
+    def get_subcategory_display(self, obj):
+        """Get human-readable subcategory name"""
+        if obj.subcategory:
+            return obj.get_subcategory_display()
+        return None
+    
     # Calculated fields from model properties
     total_stock_in_servings = serializers.DecimalField(
         max_digits=10, decimal_places=4, read_only=True
@@ -548,6 +558,7 @@ class StockItemSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'hotel', 'sku', 'name',
             'category', 'category_code', 'category_name',
+            'subcategory', 'subcategory_display',
             'size', 'size_value', 'size_unit', 'uom',
             'unit_cost', 'current_full_units', 'current_partial_units',
             'menu_price', 'menu_price_large', 'bottle_price', 'promo_price',
@@ -663,14 +674,94 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         source='item.category.name', read_only=True
     )
     
+    # Minerals subcategory
+    subcategory = serializers.CharField(
+        source='item.subcategory', read_only=True
+    )
+    
+    # UI helper to show which fields to display for counting
+    input_fields = serializers.SerializerMethodField()
+    
+    def get_input_fields(self, obj):
+        """
+        Return which fields the UI should show for counting.
+        Based on category and subcategory.
+        
+        Returns dict with field names and labels for frontend display.
+        """
+        category = obj.item.category_id
+        
+        # Minerals subcategories
+        if category == 'M' and obj.item.subcategory:
+            if obj.item.subcategory == 'SOFT_DRINKS':
+                return {
+                    'full': {'name': 'counted_full_units', 'label': 'Cases'},
+                    'partial': {'name': 'counted_partial_units', 'label': 'Bottles', 'max': 11}
+                }
+            elif obj.item.subcategory == 'SYRUPS':
+                return {
+                    'full': {'name': 'counted_full_units', 'label': 'Bottles'},
+                    'partial': {'name': 'counted_partial_units', 'label': 'ml', 'max': 1000}
+                }
+            elif obj.item.subcategory == 'JUICES':
+                return {
+                    'full': {'name': 'counted_full_units', 'label': 'Bottles'},
+                    'partial': {'name': 'counted_partial_units', 'label': 'ml', 'max': 1500}
+                }
+            elif obj.item.subcategory == 'CORDIALS':
+                return {
+                    'full': {'name': 'counted_full_units', 'label': 'Cases'},
+                    'partial': {'name': 'counted_partial_units', 'label': 'Bottles'}
+                }
+            elif obj.item.subcategory == 'BIB':
+                return {
+                    'full': {'name': 'counted_full_units', 'label': 'Boxes'},
+                    'partial': {'name': 'counted_partial_units', 'label': 'Liters', 'max': 18, 'step': 0.1}
+                }
+        
+        # Draught Beer
+        if category == 'D':
+            return {
+                'full': {'name': 'counted_full_units', 'label': 'Kegs'},
+                'partial': {'name': 'counted_partial_units', 'label': 'Pints', 'step': 0.25}
+            }
+        
+        # Bottled Beer
+        if category == 'B':
+            return {
+                'full': {'name': 'counted_full_units', 'label': 'Cases'},
+                'partial': {'name': 'counted_partial_units', 'label': 'Bottles', 'max': 23}
+            }
+        
+        # Spirits
+        if category == 'S':
+            return {
+                'full': {'name': 'counted_full_units', 'label': 'Bottles'},
+                'partial': {'name': 'counted_partial_units', 'label': 'Fractional (0-0.99)', 'max': 0.99, 'step': 0.05}
+            }
+        
+        # Wine
+        if category == 'W':
+            return {
+                'full': {'name': 'counted_full_units', 'label': 'Bottles'},
+                'partial': {'name': 'counted_partial_units', 'label': 'Fractional (0-0.99)', 'max': 0.99, 'step': 0.05}
+            }
+        
+        # Fallback for unknown categories
+        return {
+            'full': {'name': 'counted_full_units', 'label': 'Full Units'},
+            'partial': {'name': 'counted_partial_units', 'label': 'Partial Units'}
+        }
+    
     # Item details for display calculations
     item_size = serializers.CharField(source='item.size', read_only=True)
     item_uom = serializers.DecimalField(
         source='item.uom', max_digits=10, decimal_places=2, read_only=True
     )
     
-    # Cost breakdown for dozen/case items
+    # Cost breakdown for dozen/case items and spirits bottles
     case_cost = serializers.SerializerMethodField()
+    bottle_cost = serializers.SerializerMethodField()
     
     # Calculated fields from model properties (raw servings)
     sales_qty = serializers.DecimalField(
@@ -739,9 +830,10 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         model = StocktakeLine
         fields = [
             'id', 'stocktake', 'item', 'item_sku', 'item_name',
-            'category_code', 'category_name', 'item_size', 'item_uom',
+            'category_code', 'category_name', 'subcategory', 'input_fields',
+            'item_size', 'item_uom',
             # Cost breakdown
-            'case_cost',
+            'case_cost', 'bottle_cost',
             # Raw quantities (servings)
             'opening_qty', 'purchases', 'sales_qty', 'waste',
             'transfers_in', 'transfers_out', 'adjustments',
@@ -775,38 +867,90 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         Calculate display full and partial units from servings.
         Returns (full_units, partial_units) as strings.
         
-        - Bottles (Doz): cases + bottles (int)
-        - Draught: kegs + pints (2 decimals)
-        - Spirits/Wine: bottles + fractional (2 decimals)
+        Minerals subcategories:
+          SOFT_DRINKS: servings(bottles) → cases + bottles
+          SYRUPS: servings → bottles + ml
+          JUICES: servings → bottles + ml
+          CORDIALS: servings(bottles) → cases + bottles
+          BIB: servings → boxes + liters
+        
+        Other categories:
+          Draught: pints → kegs + pints
+          Bottled: bottles → cases + bottles
+          Spirits/Wine: shots/glasses → bottles + fractional
         """
         from decimal import Decimal, ROUND_HALF_UP
+        from stock_tracker.models import (
+            SYRUP_SERVING_SIZE,
+            JUICE_SERVING_SIZE,
+            BIB_SERVING_SIZE
+        )
         
         if servings is None or servings == 0:
             return "0", "0"
         
         servings_decimal = Decimal(str(servings))
-        uom = Decimal(str(item.uom))
-        
-        # Full units (kegs/cases/bottles)
-        full = int(servings_decimal / uom)
-        
-        # Partial units (pints/bottles/fractional)
-        partial = servings_decimal % uom
-        
-        # Category-specific rounding
         category = item.category.code
         
-        if category == 'B' or (category == 'M' and 'Doz' in item.size):
-            # Bottles - whole numbers only
+        # Handle Minerals subcategories
+        if category == 'M' and item.subcategory:
+            if item.subcategory == 'SOFT_DRINKS':
+                # servings = bottles → cases + bottles
+                uom = Decimal(str(item.uom))
+                full = int(servings_decimal / uom)  # cases
+                partial = int(servings_decimal % uom)  # bottles (0-11)
+                return str(full), str(partial)
+            
+            elif item.subcategory == 'SYRUPS':
+                # servings → bottles + ml
+                total_ml = servings_decimal * SYRUP_SERVING_SIZE
+                uom = Decimal(str(item.uom))  # bottle size in ml
+                full = int(total_ml / uom)  # bottles
+                partial = int(total_ml % uom)  # ml
+                return str(full), str(partial)
+            
+            elif item.subcategory == 'JUICES':
+                # servings → bottles + ml
+                total_ml = servings_decimal * JUICE_SERVING_SIZE
+                uom = Decimal(str(item.uom))  # bottle size in ml
+                full = int(total_ml / uom)  # bottles
+                partial = int(total_ml % uom)  # ml
+                return str(full), str(partial)
+            
+            elif item.subcategory == 'CORDIALS':
+                # servings = bottles → cases + bottles
+                uom = Decimal(str(item.uom))
+                full = int(servings_decimal / uom)  # cases
+                partial = int(servings_decimal % uom)  # bottles
+                return str(full), str(partial)
+            
+            elif item.subcategory == 'BIB':
+                # servings → boxes + liters
+                total_liters = servings_decimal * BIB_SERVING_SIZE
+                uom = Decimal(str(item.uom))  # 18 liters/box
+                full = int(total_liters / uom)  # boxes
+                partial_liters = total_liters % uom  # liters
+                partial_rounded = partial_liters.quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                return str(full), str(partial_rounded)
+        
+        # Handle other categories
+        uom = Decimal(str(item.uom))
+        full = int(servings_decimal / uom)
+        partial = servings_decimal % uom
+        
+        if category == 'B':
+            # Bottled Beer: cases + bottles (whole numbers)
             partial_display = str(int(round(float(partial))))
         elif category == 'D':
-            # Draught - pints with 2 decimals
+            # Draught: kegs + pints (2 decimals)
             partial_rounded = partial.quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
             partial_display = str(partial_rounded)
         else:
-            # Spirits/Wine/Others - 2 decimals
+            # Spirits/Wine: bottles + fractional (2 decimals)
             partial_rounded = partial.quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
@@ -862,6 +1006,24 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             case_cost = obj.valuation_cost * obj.item.uom
             return str(case_cost)
         # For other items, return None (not applicable)
+        return None
+    
+    def get_bottle_cost(self, obj):
+        """Calculate bottle cost for spirits only (valuation_cost × UOM)
+        
+        Spirits are sold by shots/servings, so:
+        - valuation_cost = cost per shot/serving
+        - bottle_cost = cost per full bottle (valuation_cost × shots per bottle)
+        
+        Wine is NOT included - wine is sold by bottle, not by serving.
+        """
+        from decimal import Decimal
+        # Only for spirits (S) - calculate full bottle cost
+        category = obj.item.category.code
+        if category == 'S':
+            bottle_cost = obj.valuation_cost * obj.item.uom
+            return str(bottle_cost)
+        # For other items (including wine), return None
         return None
 
 

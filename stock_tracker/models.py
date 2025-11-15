@@ -6,6 +6,15 @@ from calendar import monthrange
 
 
 # ============================================================================
+# MINERALS SERVING SIZE CONSTANTS
+# ============================================================================
+# Serving sizes for Minerals & Syrups subcategories
+SYRUP_SERVING_SIZE = Decimal('25')  # 25ml per serving
+JUICE_SERVING_SIZE = Decimal('200')  # 200ml per serving
+BIB_SERVING_SIZE = Decimal('0.2')  # 200ml = 0.2 liters per serving
+
+
+# ============================================================================
 # COCKTAIL RECIPE MODELS (Keep existing - not changing)
 # ============================================================================
 
@@ -421,6 +430,22 @@ class StockItem(models.Model):
         related_name='stock_items',
         help_text="Auto-set from SKU prefix"
     )
+    
+    # === MINERALS SUBCATEGORY ===
+    # Only used for category 'M' - defines storage and serving logic
+    subcategory = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        choices=[
+            ('SOFT_DRINKS', 'Soft Drinks (Bottled)'),
+            ('SYRUPS', 'Syrups & Flavourings'),
+            ('JUICES', 'Juices & Lemonades'),
+            ('CORDIALS', 'Cordials'),
+            ('BIB', 'Bag-in-Box (18L)'),
+        ],
+        help_text="Sub-category for Minerals (M) items only"
+    )
 
     # === SIZE & PACKAGING ===
     size = models.CharField(
@@ -558,36 +583,80 @@ class StockItem(models.Model):
     @property
     def total_stock_in_servings(self):
         """
-        Convert all stock to servings for consistent calculations:
-
-        SIZE-SPECIFIC HANDLING:
+        Convert all stock to servings for consistent calculations.
         
-        Draught Beer (D) + Bag-in-Box (size contains "LT") + Dozen ("Doz"):
-        - Full units = kegs/BIBs/cases
-        - Partial units = individual servings (pints/serves/bottles)
-        - Formula: (full_units × servings_per_unit) + partial_servings
-        - Example Draught: (6 kegs × 88) + 39.75 pints = 567.75 pints
-        - Example BIB: (1 BIB × 500) + 1 serve = 501 serves
-        - Example Bottled: (0 cases × 12) + 145 bottles = 145 bottles
+        Minerals (M) - handled by subcategory:
+          SOFT_DRINKS: cases + bottles → bottles (1 bottle = 1 serving)
+          SYRUPS: bottles + ml → servings (25ml per serving)
+          JUICES: bottles + ml → servings (200ml per serving)
+          CORDIALS: cases + bottles → bottles (no serving conversion)
+          BIB: boxes + liters → servings (200ml per serving)
         
-        All other items (Spirits, Wine, Individual items):
-        - Full units = base units (bottles, units)
-        - Partial units = fractional base units (0.70 = 0.70 of a bottle)
-        - Formula: (full_units × servings) + (partial_units × servings)
-        - Example Spirits: (2 bottles × 20) + (0.70 bottles × 20) = 54 shots
+        Draught (D): kegs + pints → pints
+        Bottled (B): cases + bottles → bottles
+        Spirits (S): bottles + fractional → shots
+        Wine (W): bottles + fractional → glasses
         """
         category = self.category_id
         
-        # Draught, BIB (LT in size), and Dozen: partial = servings
-        if (category == 'D') or (self.size and ('Doz' in self.size or 'LT' in self.size.upper())):
+        # Handle Minerals subcategories
+        if category == 'M' and self.subcategory:
+            if self.subcategory == 'SOFT_DRINKS':
+                # Cases + Bottles → bottles
+                # Full = cases, Partial = bottles (0-11)
+                # UOM = 12 bottles/case
+                # Serving = 1 bottle
+                return (self.current_full_units * self.uom) + self.current_partial_units
+            
+            elif self.subcategory == 'SYRUPS':
+                # Bottles + ml → servings (25ml per serving)
+                # Full = bottles, Partial = ml
+                # UOM = bottle size in ml (700, 1000)
+                full_ml = self.current_full_units * self.uom  # bottles → ml
+                total_ml = full_ml + self.current_partial_units  # add partial ml
+                return total_ml / SYRUP_SERVING_SIZE  # ml → servings
+            
+            elif self.subcategory == 'JUICES':
+                # Bottles + ml → servings (200ml per serving)
+                # Full = bottles, Partial = ml
+                # UOM = bottle size in ml (1000, 1500)
+                full_ml = self.current_full_units * self.uom  # bottles → ml
+                total_ml = full_ml + self.current_partial_units  # add partial ml
+                return total_ml / JUICE_SERVING_SIZE  # ml → servings
+            
+            elif self.subcategory == 'CORDIALS':
+                # Cases + Bottles → bottles (no serving conversion)
+                # Full = cases, Partial = bottles
+                # UOM = 12 bottles/case
+                return (self.current_full_units * self.uom) + self.current_partial_units
+            
+            elif self.subcategory == 'BIB':
+                # Boxes + Liters → servings (200ml per serving)
+                # Full = boxes, Partial = liters
+                # UOM = 18 liters/box
+                full_liters = self.current_full_units * self.uom  # boxes → liters
+                total_liters = full_liters + self.current_partial_units  # add partial liters
+                return total_liters / BIB_SERVING_SIZE  # liters → servings
+        
+        # Draught: kegs + pints (partial = pints)
+        if category == 'D':
             full_servings = self.current_full_units * self.uom
-            # Partial units are already in serving units
             return full_servings + self.current_partial_units
-        else:
-            # Spirits, Wine, Individual items: partial = fractional
+        
+        # Bottled Beer: cases + bottles (partial = bottles)
+        if category == 'B':
+            full_servings = self.current_full_units * self.uom
+            return full_servings + self.current_partial_units
+        
+        # Spirits, Wine: bottles + fractional (partial = fractional)
+        if category in ['S', 'W']:
             full_servings = self.current_full_units * self.uom
             partial_servings = self.current_partial_units * self.uom
             return full_servings + partial_servings
+        
+        # Fallback for any uncategorized items
+        full_servings = self.current_full_units * self.uom
+        return full_servings + self.current_partial_units
 
     @property
     def total_stock_value(self):
@@ -1949,48 +2018,80 @@ class StocktakeLine(models.Model):
     @property
     def counted_qty(self):
         """
-        Convert mixed units to servings (base units):
-        Matches StockItem.total_stock_in_servings logic
+        Convert counted units to servings.
+        Matches StockItem.total_stock_in_servings logic exactly.
         
-        Draught (D) + Minerals BIB (LT) + Bottled Beer Dozen (Doz):
-        - Full units = kegs/BIBs/cases
-        - Partial units = pints/serves/bottles (ALREADY servings)
-        - Formula: (full × servings_per_unit) + partial
+        Minerals (M) - handled by subcategory:
+          SOFT_DRINKS: counted_cases + counted_bottles → bottles
+          SYRUPS: counted_bottles + counted_ml → servings (25ml)
+          JUICES: counted_bottles + counted_ml → servings (200ml)
+          CORDIALS: counted_cases + counted_bottles → bottles
+          BIB: counted_boxes + counted_liters → servings (200ml)
         
-        All other items (Spirits liters, Wine, Individual):
-        - Full units = bottles/units/liters
-        - Partial units = fractional units
-        - Formula: (full × servings) + (partial × servings)
+        Draught (D): counted_kegs + counted_pints → pints
+        Bottled (B): counted_cases + counted_bottles → bottles
+        Spirits (S): counted_bottles + counted_fractional → shots
+        Wine (W): counted_bottles + counted_fractional → glasses
         """
         category = self.item.category_id
-        size = self.item.size or ''
-        size_upper = size.upper()
         
-        # Check for liter variations in SIZE field only
-        # Match patterns: "1 Lt", "1Lt", "18LT", "1 Ltr", "1 Liter", "1 Litre"
-        # Must have LT/LITER/LITRE in the size, not just in product name
-        has_lt_pattern = (
-            'LT' in size_upper and 
-            not 'ML' in size_upper  # Exclude 330ML, 700ML, etc
-        )
-        has_liter_word = 'LITER' in size_upper or 'LITRE' in size_upper
-        is_liter_size = has_lt_pattern or has_liter_word
+        # Handle Minerals subcategories
+        if category == 'M' and self.item.subcategory:
+            if self.item.subcategory == 'SOFT_DRINKS':
+                # Cases + Bottles → bottles
+                # counted_full_units = cases
+                # counted_partial_units = bottles (0-11)
+                return (self.counted_full_units * self.item.uom) + self.counted_partial_units
+            
+            elif self.item.subcategory == 'SYRUPS':
+                # Bottles + ml → servings (25ml per serving)
+                # counted_full_units = bottles
+                # counted_partial_units = ml
+                full_ml = self.counted_full_units * self.item.uom  # bottles → ml
+                total_ml = full_ml + self.counted_partial_units  # add partial ml
+                return total_ml / SYRUP_SERVING_SIZE  # ml → servings
+            
+            elif self.item.subcategory == 'JUICES':
+                # Bottles + ml → servings (200ml per serving)
+                # counted_full_units = bottles
+                # counted_partial_units = ml
+                full_ml = self.counted_full_units * self.item.uom  # bottles → ml
+                total_ml = full_ml + self.counted_partial_units  # add partial ml
+                return total_ml / JUICE_SERVING_SIZE  # ml → servings
+            
+            elif self.item.subcategory == 'CORDIALS':
+                # Cases + Bottles → bottles (no serving conversion)
+                # counted_full_units = cases
+                # counted_partial_units = bottles
+                return (self.counted_full_units * self.item.uom) + self.counted_partial_units
+            
+            elif self.item.subcategory == 'BIB':
+                # Boxes + Liters → servings (200ml per serving)
+                # counted_full_units = boxes
+                # counted_partial_units = liters
+                full_liters = self.counted_full_units * self.item.uom  # boxes → liters
+                total_liters = full_liters + self.counted_partial_units  # add partial liters
+                return total_liters / BIB_SERVING_SIZE  # liters → servings
         
-        # Only Draught + Minerals BIB/Dozen + Bottled Beer Dozen use special calc
-        # Spirits liters are treated as fractional (0.90 = 0.9 liters)
-        is_draught = category == 'D'
-        is_minerals_bib = category == 'M' and is_liter_size
-        is_dozen = 'DOZ' in size_upper  # Both Minerals and Bottled Beer
-        
-        if is_draught or is_minerals_bib or is_dozen:
-            # Partial already in servings
+        # Draught: kegs + pints (partial = pints)
+        if category == 'D':
             full_servings = self.counted_full_units * self.item.uom
             return full_servings + self.counted_partial_units
-        else:
-            # Partial is fractional (including Spirits liters, Wine)
+        
+        # Bottled Beer: cases + bottles (partial = bottles)
+        if category == 'B':
+            full_servings = self.counted_full_units * self.item.uom
+            return full_servings + self.counted_partial_units
+        
+        # Spirits, Wine: bottles + fractional (partial = fractional)
+        if category in ['S', 'W']:
             full_servings = self.counted_full_units * self.item.uom
             partial_servings = self.counted_partial_units * self.item.uom
             return full_servings + partial_servings
+        
+        # Fallback for any uncategorized items
+        full_servings = self.counted_full_units * self.item.uom
+        return full_servings + self.counted_partial_units
 
     @property
     def expected_qty(self):
