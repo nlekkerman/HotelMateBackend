@@ -617,16 +617,15 @@ class StockItem(models.Model):
             
             elif self.subcategory == 'SYRUPS':
                 # Bottles (with decimals) → servings (35ml per serving)
-                # current_full_units = 0 (not used)
-                # current_partial_units = bottles with decimal (e.g., 10.5)
-                #   - Integer part = full bottles
-                #   - Decimal part = ml (0.5 × 1000ml = 500ml)
+                # current_full_units = whole bottles (e.g., 10)
+                # current_partial_units = decimal fraction (e.g., 0.5)
+                # User enters 10.5 → stored as full=10, partial=0.5
                 
-                bottles_with_fraction = self.current_partial_units
+                full_bottles = self.current_full_units
+                fractional_bottle = self.current_partial_units
                 
-                # Split bottles into whole bottles + ml
-                full_bottles = int(bottles_with_fraction)
-                ml = (bottles_with_fraction - full_bottles) * self.uom
+                # Convert fractional to ml
+                ml = fractional_bottle * self.uom  # 0.5 × 1000ml = 500ml
                 
                 # Calculate total ml and servings
                 total_ml = (full_bottles * self.uom) + ml
@@ -2075,16 +2074,15 @@ class StocktakeLine(models.Model):
             
             elif self.item.subcategory == 'SYRUPS':
                 # Bottles (with decimals) → servings (35ml per serving)
-                # counted_full_units = 0 (not used)
-                # counted_partial_units = bottles with decimal (e.g., 10.5)
-                #   - Integer part = full bottles
-                #   - Decimal part = ml (0.5 × 1000ml = 500ml)
+                # counted_full_units = whole bottles (e.g., 10)
+                # counted_partial_units = decimal fraction (e.g., 0.5)
+                # User enters 10.5 → stored as full=10, partial=0.5
                 
-                bottles_with_fraction = self.counted_partial_units
+                full_bottles = self.counted_full_units
+                fractional_bottle = self.counted_partial_units
                 
-                # Split bottles into whole bottles + ml
-                full_bottles = int(bottles_with_fraction)
-                ml = (bottles_with_fraction - full_bottles) * self.item.uom
+                # Convert fractional to ml
+                ml = fractional_bottle * self.item.uom  # 0.5 × 1000ml = 500ml
                 
                 # Calculate total ml and servings
                 total_ml = (full_bottles * self.item.uom) + ml

@@ -902,19 +902,23 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 return str(full), str(partial)
             
             elif item.subcategory == 'SYRUPS':
-                # servings → bottles (with decimal)
-                # Bottles in partial_units only (full_units = 0)
+                # servings → bottles (split into full + fractional)
+                # full_units = whole bottles, partial_units = decimal fraction
                 total_ml = servings_decimal * SYRUP_SERVING_SIZE
                 uom = Decimal(str(item.uom))  # bottle size in ml
                 
-                # Calculate bottles with decimal
+                # Calculate total bottles as decimal
                 bottles_decimal = total_ml / uom
-                bottles_rounded = bottles_decimal.quantize(
+                
+                # Split into full bottles + fractional
+                full_bottles = int(bottles_decimal)
+                fractional = bottles_decimal - full_bottles
+                fractional_rounded = fractional.quantize(
                     Decimal('0.001'), rounding=ROUND_HALF_UP
                 )
                 
-                # Return: full_units = "0", partial_units = "X.YZZ" (bottles)
-                return "0", str(bottles_rounded)
+                # Return: full_units = whole bottles, partial_units = fraction
+                return str(full_bottles), str(fractional_rounded)
             
             elif item.subcategory == 'JUICES':
                 # servings → cases + bottles (with decimal)
