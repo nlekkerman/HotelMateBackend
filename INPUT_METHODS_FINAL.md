@@ -30,7 +30,20 @@ total_ml = (10 × 1000) + (0.5 × 1000) = 10,500ml
 servings = 10,500 ÷ 35 = 300 servings
 ```
 
-**Display:** `"10.5 bottles"` = 300 servings
+**Display:** `"10.50"` (combine full + partial for display)
+
+**How to display:**
+```javascript
+// Backend returns:
+counted_full_units: 10
+counted_partial_units: 0.50
+
+// Frontend displays as single decimal:
+const displayValue = counted_full_units + counted_partial_units;
+// Shows: "10.50"
+
+// Or format as: "10.50 bottles"
+```
 
 **Examples:**
 | User Enters | full_units | partial_units | Total ml | Servings |
@@ -144,17 +157,70 @@ current_partial_units = 8.5  # bottles with decimal
 
 ## Summary Table
 
-| Category | Input Method | Field Usage | Display |
-|----------|-------------|-------------|---------|
-| **SYRUPS** | Decimal: `10.5` | `full_units=10, partial_units=0.5` | `"10.5 bottles"` |
-| **SOFT_DRINKS** | Cases+Bottles OR Total Bottles | `"12 cases, 1 bottle"` (calculated) |
-| **JUICES** | Cases+Bottles OR Total Bottles | `"59 cases, 8.5 bottles"` (calculated) |
-| **CORDIALS** | Cases + Bottles (separate) | `"4 cases, 7 bottles"` |
-| **BIB** | Boxes + Liters (separate) | `"2 boxes, 5.5 liters"` |
-| **DRAUGHT** | Kegs + Pints (separate) | `"3 kegs, 12 pints"` |
-| **BOTTLED** | Cases + Bottles (separate) | `"8 cases, 10 bottles"` |
-| **SPIRITS** | Bottles + Fractional (separate) | `"5.75 bottles"` |
-| **WINE** | Bottles + Fractional (separate) | `"12.5 bottles"` |
+| Category | Input Method | Storage | Display Format |
+|----------|-------------|---------|----------------|
+| **SYRUPS** | `10.50` (single) | `full=10, partial=0.50` | `"10.50"` (combine both) |
+| **SOFT_DRINKS** | Cases+Bottles OR Total | `full=12, partial=1` | `"12 cases, 1 bottle"` |
+| **JUICES** | Cases+Bottles OR Total | `full=59, partial=8.50` | `"59 cases, 8.50 bottles"` |
+| **CORDIALS** | Cases + Bottles | `full=4, partial=7` | `"4 cases, 7 bottles"` |
+| **BIB** | Boxes + Liters | `full=2, partial=5.50` | `"2 boxes, 5.50 liters"` |
+| **DRAUGHT** | Kegs + Pints | `full=3, partial=12` | `"3 kegs, 12 pints"` |
+| **BOTTLED** | Cases + Bottles | `full=8, partial=10` | `"8 cases, 10 bottles"` |
+| **SPIRITS** | Bottles + Fractional | `full=5, partial=0.75` | `"5.00 + 0.75"` or `"5.75 bottles"` |
+| **WINE** | Bottles + Fractional | `full=12, partial=0.50` | `"12.00 + 0.50"` or `"12.50 bottles"` |
+
+---
+
+## How to Display Values (Frontend)
+
+### SYRUPS - Combine Both Fields
+```javascript
+// Backend sends:
+{ counted_full_units: 10, counted_partial_units: 0.50 }
+
+// Display as single number:
+const displayValue = counted_full_units + counted_partial_units;
+// Result: 10.50
+
+// Format: "10.50" or "10.50 bottles"
+```
+
+### SOFT_DRINKS, CORDIALS, BOTTLED - Show Separately
+```javascript
+// Backend sends:
+{ counted_full_units: 12, counted_partial_units: 1 }
+
+// Display: "12 cases, 1 bottle"
+```
+
+### JUICES - Show Cases + Decimal Bottles
+```javascript
+// Backend sends:
+{ counted_full_units: 59, counted_partial_units: 8.50 }
+
+// Display: "59 cases, 8.50 bottles"
+```
+
+### SPIRITS, WINE - Two Options
+```javascript
+// Backend sends:
+{ counted_full_units: 5, counted_partial_units: 0.75 }
+
+// Option 1: Combined
+const total = counted_full_units + counted_partial_units;
+// Display: "5.75 bottles"
+
+// Option 2: Separate (like Django admin)
+// Display: "5.00 + 0.75"
+```
+
+### BIB - Show Separately
+```javascript
+// Backend sends:
+{ counted_full_units: 2, counted_partial_units: 5.50 }
+
+// Display: "2 boxes, 5.50 liters"
+```
 
 ---
 

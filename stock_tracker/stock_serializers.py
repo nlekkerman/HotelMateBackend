@@ -826,6 +826,15 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         help_text="True if unmerged cocktail consumption exists"
     )
 
+    # Helper field for SYRUPS single decimal input
+    syrup_bottles_input = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        write_only=True,
+        required=False,
+        help_text="For SYRUPS: enter bottles as decimal (e.g., 10.5). Auto-splits to full+partial"
+    )
+
     class Meta:
         model = StocktakeLine
         fields = [
@@ -841,6 +850,7 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'manual_purchases_value', 'manual_waste_value',
             'manual_sales_value',
             'counted_full_units', 'counted_partial_units',
+            'syrup_bottles_input',  # Helper for SYRUPS
             'counted_qty', 'expected_qty', 'variance_qty',
             # Display quantities (kegs+pints, cases+bottles, etc)
             'opening_display_full_units', 'opening_display_partial_units',
@@ -861,6 +871,22 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'waste',
             'transfers_in', 'transfers_out', 'adjustments', 'valuation_cost'
         ]
+    
+    def update(self, instance, validated_data):
+        """Handle syrup_bottles_input for SYRUPS"""
+        # Check if syrup_bottles_input was provided
+        syrup_input = validated_data.pop('syrup_bottles_input', None)
+        
+        if syrup_input is not None and instance.item.subcategory == 'SYRUPS':
+            # Split decimal into full + partial
+            full_bottles = int(syrup_input)
+            partial = float(syrup_input) - full_bottles
+            
+            # Set both fields
+            validated_data['counted_full_units'] = full_bottles
+            validated_data['counted_partial_units'] = round(partial, 2)
+        
+        return super().update(instance, validated_data)
     
     def _calculate_display_units(self, servings, item):
         """
