@@ -13,6 +13,13 @@ SYRUP_SERVING_SIZE = Decimal('35')  # 35ml per serving (standard shot)
 JUICE_SERVING_SIZE = Decimal('200')  # 200ml per serving
 BIB_SERVING_SIZE = Decimal('0.2')  # 200ml = 0.2 liters per serving
 
+# Import juice helpers for 3-level tracking (cases + bottles + ml)
+from stock_tracker.juice_helpers import (
+    bottles_to_cases_bottles_ml,
+    cases_bottles_ml_to_servings,
+    servings_to_cases_bottles_ml
+)
+
 
 # ============================================================================
 # COCKTAIL RECIPE MODELS (Keep existing - not changing)
@@ -617,12 +624,26 @@ class StockItem(models.Model):
                 return total_ml / SYRUP_SERVING_SIZE  # ml → servings
             
             elif self.subcategory == 'JUICES':
-                # Bottles + ml → servings (200ml per serving)
-                # Full = bottles, Partial = ml
-                # UOM = bottle size in ml (1000, 1500)
-                full_ml = self.current_full_units * self.uom  # bottles → ml
-                total_ml = full_ml + self.current_partial_units  # add partial ml
-                return total_ml / JUICE_SERVING_SIZE  # ml → servings
+                # Cases + Bottles (with decimals) → servings (200ml)
+                # current_full_units = cases (whole number)
+                # current_partial_units = bottles (can be 3.5, 11.75, etc.)
+                #   - Integer part = full bottles
+                #   - Decimal part = ml (e.g., 0.5 × 1000ml = 500ml)
+                
+                cases = self.current_full_units
+                bottles_with_fraction = self.current_partial_units
+                
+                # Split bottles into whole bottles + ml
+                full_bottles = int(bottles_with_fraction)
+                ml = (bottles_with_fraction - full_bottles) * self.uom
+                
+                # Calculate servings using 3-level helper
+                return cases_bottles_ml_to_servings(
+                    cases, full_bottles, ml,
+                    bottle_size_ml=float(self.uom),
+                    bottles_per_case=12,
+                    serving_size_ml=200
+                )
             
             elif self.subcategory == 'CORDIALS':
                 # Cases + Bottles → bottles (no serving conversion)
@@ -2052,12 +2073,26 @@ class StocktakeLine(models.Model):
                 return total_ml / SYRUP_SERVING_SIZE  # ml → servings
             
             elif self.item.subcategory == 'JUICES':
-                # Bottles + ml → servings (200ml per serving)
-                # counted_full_units = bottles
-                # counted_partial_units = ml
-                full_ml = self.counted_full_units * self.item.uom  # bottles → ml
-                total_ml = full_ml + self.counted_partial_units  # add partial ml
-                return total_ml / JUICE_SERVING_SIZE  # ml → servings
+                # Cases + Bottles (with decimals) → servings (200ml)
+                # counted_full_units = cases (whole number)
+                # counted_partial_units = bottles (can be 3.5, 11.75, etc.)
+                #   - Integer part = full bottles
+                #   - Decimal part = ml (e.g., 0.5 × 1000ml = 500ml)
+                
+                cases = self.counted_full_units
+                bottles_with_fraction = self.counted_partial_units
+                
+                # Split bottles into whole bottles + ml
+                full_bottles = int(bottles_with_fraction)
+                ml = (bottles_with_fraction - full_bottles) * self.item.uom
+                
+                # Calculate servings using 3-level helper
+                return cases_bottles_ml_to_servings(
+                    cases, full_bottles, ml,
+                    bottle_size_ml=float(self.item.uom),
+                    bottles_per_case=12,
+                    serving_size_ml=200
+                )
             
             elif self.item.subcategory == 'CORDIALS':
                 # Cases + Bottles → bottles (no serving conversion)

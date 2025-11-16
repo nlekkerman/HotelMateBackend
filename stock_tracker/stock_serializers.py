@@ -910,12 +910,31 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 return str(full), str(partial)
             
             elif item.subcategory == 'JUICES':
-                # servings → bottles + ml
-                total_ml = servings_decimal * JUICE_SERVING_SIZE
-                uom = Decimal(str(item.uom))  # bottle size in ml
-                full = int(total_ml / uom)  # bottles
-                partial = int(total_ml % uom)  # ml
-                return str(full), str(partial)
+                # servings → cases + bottles (with decimal)
+                # Cases in full, bottles+ml as decimal in partial
+                from stock_tracker.juice_helpers import (
+                    servings_to_cases_bottles_ml
+                )
+                
+                # Convert servings to cases + bottles + ml
+                cases, bottles, ml = servings_to_cases_bottles_ml(
+                    float(servings_decimal),
+                    bottle_size_ml=float(item.uom),
+                    bottles_per_case=12,
+                    serving_size_ml=200
+                )
+                
+                # Combine bottles + ml as decimal
+                # e.g., 3 bottles + 500ml (of 1000ml bottle) = 3.5
+                uom = Decimal(str(item.uom))
+                bottles_decimal = Decimal(str(bottles)) + (
+                    Decimal(str(ml)) / uom
+                )
+                bottles_rounded = bottles_decimal.quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                
+                return str(cases), str(bottles_rounded)
             
             elif item.subcategory == 'CORDIALS':
                 # servings = bottles → cases + bottles
