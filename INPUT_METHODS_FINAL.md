@@ -1,39 +1,68 @@
 # 📝 Input Methods - Final Implementation
 
-## SYRUPS - Single Decimal Field
+## SYRUPS - Single Decimal Input (Two Fields Storage)
 
-⚠️ **IMPORTANT:** For SYRUPS, `current_partial_units` stores the **TOTAL bottles** (not just partial)!
+**User enters:** `10.5` bottles (single input)  
 
-**User enters:** `100.5` bottles (any amount)  
-**Backend stores:**
-```python
-current_full_units = 0  # ALWAYS 0 (not used for SYRUPS)
-current_partial_units = 100.5  # TOTAL BOTTLES (full + partial combined)
+**Frontend must split and send TWO fields:**
+```javascript
+// User types: 10.5
+const bottlesInput = 10.5;
+
+// Split into whole + decimal
+const fullBottles = Math.floor(bottlesInput);     // 10
+const fractional = bottlesInput - fullBottles;     // 0.5
+
+// Send to backend:
+current_full_units = 10        // whole bottles
+current_partial_units = 0.5    // decimal fraction ONLY
 ```
 
-**Backend internally splits for calculation:**
-- `100` bottles (integer part)
-- `500ml` (0.5 × 1000ml = decimal part)
-- Total: `100,500ml ÷ 35ml = 2,871.43 servings`
+**Backend stores:**
+```python
+current_full_units = 10      # whole bottles
+current_partial_units = 0.5  # decimal part (0.5, NOT 10.5!)
+```
 
-**Display:** `"100.5 bottles"` = 2,871.43 servings
+**Backend calculates:**
+```python
+total_ml = (10 × 1000) + (0.5 × 1000) = 10,500ml
+servings = 10,500 ÷ 35 = 300 servings
+```
+
+**Display:** `"10.5 bottles"` = 300 servings
 
 **Examples:**
-- `10.5` → 10 bottles + 500ml
-- `100.5` → 100 bottles + 500ml
-- `0.5` → 0 bottles + 500ml
-- `1234.567` → 1234 bottles + 567ml
+| User Enters | full_units | partial_units | Total ml | Servings |
+|-------------|-----------|---------------|----------|----------|
+| `10.50` | 10 | 0.50 | 10,500 | 300 |
+| `100.75` | 100 | 0.75 | 100,750 | 2,878.57 |
+| `0.50` | 0 | 0.50 | 500 | 14.29 |
+| `10.00` | 10 | 0.00 | 10,000 | 285.71 |
 
-**Frontend:**
+**Frontend Implementation:**
 ```javascript
 <Input 
-  label="Total Bottles" 
-  name="current_partial_units"  // Stores TOTAL, not just partial!
+  label="Bottles" 
   type="number" 
-  step="0.001"
-  placeholder="e.g., 10.5 or 100.5"
+  step="0.01"
+  placeholder="e.g., 10.5"
+  onChange={(value) => {
+    // Split the decimal input (2 decimal places)
+    const full = Math.floor(value);
+    const partial = parseFloat((value - full).toFixed(2));
+    
+    // Set both fields
+    setCurrentFullUnits(full);        // 10
+    setCurrentPartialUnits(partial);  // 0.5 or 0.75
+  }}
 />
-// Note: current_full_units should be 0 for SYRUPS
+
+// When sending to backend:
+{
+  current_full_units: 10,      // whole number
+  current_partial_units: 0.50  // decimal fraction (2 decimals max)
+}
 ```
 
 ---
@@ -117,7 +146,7 @@ current_partial_units = 8.5  # bottles with decimal
 
 | Category | Input Method | Field Usage | Display |
 |----------|-------------|-------------|---------|
-| **SYRUPS** | Decimal only: `100.5` | `full_units=0, partial_units=100.5` (TOTAL) | `"100.5 bottles"` |
+| **SYRUPS** | Decimal: `10.5` | `full_units=10, partial_units=0.5` | `"10.5 bottles"` |
 | **SOFT_DRINKS** | Cases+Bottles OR Total Bottles | `"12 cases, 1 bottle"` (calculated) |
 | **JUICES** | Cases+Bottles OR Total Bottles | `"59 cases, 8.5 bottles"` (calculated) |
 | **CORDIALS** | Cases + Bottles (separate) | `"4 cases, 7 bottles"` |
@@ -131,12 +160,12 @@ current_partial_units = 8.5  # bottles with decimal
 
 ## Key Features
 
-✅ **SYRUPS:** One decimal field stores TOTAL bottles in `partial_units` (100.5, 10.5, etc.)  
+✅ **SYRUPS:** One input field, frontend splits into `full_units` (whole) + `partial_units` (decimal)  
 ✅ **SOFT_DRINKS:** Flexible - accepts total bottles and auto-converts to cases  
 ✅ **Display:** Always shows breakdown when user enters total  
 ✅ **Backend:** Handles both input methods automatically  
 ✅ **No database changes:** Uses existing 2 fields (`full_units` + `partial_units`)  
-⚠️ **Field naming quirk:** For SYRUPS, `partial_units` holds the TOTAL value (not just partial)
+⚠️ **IMPORTANT:** For SYRUPS, frontend MUST split `10.5` → `full=10, partial=0.5` before sending
 
 ---
 
