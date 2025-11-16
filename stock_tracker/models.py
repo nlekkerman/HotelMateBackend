@@ -450,6 +450,7 @@ class StockItem(models.Model):
             ('JUICES', 'Juices & Lemonades'),
             ('CORDIALS', 'Cordials'),
             ('BIB', 'Bag-in-Box (18L)'),
+            ('BULK_JUICES', 'Bulk Juices (Individual Bottles)'),
         ],
         help_text="Sub-category for Minerals (M) items only"
     )
@@ -666,6 +667,14 @@ class StockItem(models.Model):
                 full_liters = self.current_full_units * self.uom  # boxes → liters
                 total_liters = full_liters + self.current_partial_units  # add partial liters
                 return total_liters / BIB_SERVING_SIZE  # liters → servings
+            
+            elif self.subcategory == 'BULK_JUICES':
+                # Individual bottles with decimals (NOT on menu)
+                # current_full_units = whole bottles
+                # current_partial_units = fractional bottles (e.g., 0.5)
+                # UOM = 1 (individual bottles)
+                # Return total bottles (e.g., 43 + 0.5 = 43.5 bottles)
+                return self.current_full_units + self.current_partial_units
         
         # Draught: kegs + pints (partial = pints)
         if category == 'D':
@@ -2123,6 +2132,13 @@ class StocktakeLine(models.Model):
                 full_liters = self.counted_full_units * self.item.uom  # boxes → liters
                 total_liters = full_liters + self.counted_partial_units  # add partial liters
                 return total_liters / BIB_SERVING_SIZE  # liters → servings
+            
+            elif self.item.subcategory == 'BULK_JUICES':
+                # Individual bottles with decimals (NOT on menu)
+                # counted_full_units = whole bottles
+                # counted_partial_units = fractional (e.g., 0.5)
+                # Return total bottles (e.g., 43 + 0.5 = 43.5 bottles)
+                return self.counted_full_units + self.counted_partial_units
         
         # Draught: kegs + pints (partial = pints)
         if category == 'D':

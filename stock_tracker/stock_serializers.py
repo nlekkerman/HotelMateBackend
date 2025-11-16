@@ -718,6 +718,11 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                     'full': {'name': 'counted_full_units', 'label': 'Boxes'},
                     'partial': {'name': 'counted_partial_units', 'label': 'Liters', 'max': 18, 'step': 0.1}
                 }
+            elif obj.item.subcategory == 'BULK_JUICES':
+                return {
+                    'full': {'name': 'counted_full_units', 'label': 'Bottles'},
+                    'partial': {'name': 'counted_partial_units', 'label': 'Partial', 'max': 0.99, 'step': 0.5}
+                }
         
         # Draught Beer
         if category == 'D':
@@ -990,6 +995,16 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
                 return str(full), str(partial_rounded)
+            
+            elif item.subcategory == 'BULK_JUICES':
+                # servings = bottles (already as bottles)
+                # Split into whole + fractional
+                full_bottles = int(servings_decimal)
+                partial_bottles = servings_decimal - full_bottles
+                partial_rounded = partial_bottles.quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
+                )
+                return str(full_bottles), str(partial_rounded)
         
         # Handle other categories
         uom = Decimal(str(item.uom))
