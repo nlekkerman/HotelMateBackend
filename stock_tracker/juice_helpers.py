@@ -8,6 +8,32 @@ These functions convert between:
 from decimal import Decimal, ROUND_DOWN
 
 
+def bottles_to_cases_and_bottles(total_bottles, bottles_per_case=12):
+    """
+    Convert total bottles to Cases + Bottles (no ml).
+    Used for SOFT_DRINKS, CORDIALS where bottles aren't opened.
+    
+    Args:
+        total_bottles (int or float): Total bottles (e.g., 145)
+        bottles_per_case (int): Bottles per case (default 12)
+    
+    Returns:
+        tuple: (cases, bottles)
+    
+    Example:
+        >>> bottles_to_cases_and_bottles(145, 12)
+        (12, 1)
+        
+        Calculation:
+        - 145 ÷ 12 = 12 cases (144 bottles)
+        - Remainder: 145 - 144 = 1 bottle
+    """
+    total_bottles = int(total_bottles)
+    cases = total_bottles // bottles_per_case
+    bottles = total_bottles % bottles_per_case
+    return cases, bottles
+
+
 def bottles_to_cases_bottles_ml(total_bottles, bottle_size_ml=1000, bottles_per_case=12):
     """
     Convert total bottles to Cases + Bottles + ml.
