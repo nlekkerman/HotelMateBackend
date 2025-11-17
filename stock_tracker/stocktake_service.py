@@ -92,17 +92,12 @@ def _get_opening_balance(item, period_start):
         # Use total_servings to include both full units + partial units
         return previous_snapshot.total_servings
     
-    # OPTION 2: Check if first stocktake (no movements before start)
-    has_previous_movements = item.movements.filter(
-        timestamp__lt=period_start
-    ).exists()
+    # No previous snapshot found - return 0 as opening balance
+    # This ensures we only use period-based snapshots, not live inventory
+    return Decimal('0')
     
-    if not has_previous_movements:
-        # First stocktake - use current stock as opening balance
-        # This uses the StockItem's current inventory
-        return item.total_stock_in_servings
-    
-    # OPTION 3: Calculate from historical movements (legacy method)
+    # LEGACY: Calculate from historical movements (kept for reference)
+    # This code is no longer used but kept for backward compatibility
     movements_before = item.movements.filter(
         timestamp__lt=period_start
     ).aggregate(

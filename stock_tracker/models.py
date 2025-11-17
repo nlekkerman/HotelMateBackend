@@ -1505,28 +1505,14 @@ class StockMovement(models.Model):
         )
 
     def save(self, *args, **kwargs):
-        is_new = self.pk is None
+        # Just save the movement - don't update StockItem.current_* fields
+        # Those fields are now updated only when periods are closed
+        # Real-time inventory tracking is done through period snapshots
         super().save(*args, **kwargs)
-
-        if is_new:
-            # Update current stock based on movement type
-            if self.movement_type in [self.PURCHASE, self.TRANSFER_IN]:
-                # Add to partial units (servings)
-                self.item.current_partial_units += self.quantity
-            elif self.movement_type in [
-                self.SALE,
-                self.WASTE,
-                self.TRANSFER_OUT,
-                self.COCKTAIL_CONSUMPTION
-            ]:
-                # Subtract from partial units (servings)
-                # COCKTAIL_CONSUMPTION is treated as consumption/usage
-                self.item.current_partial_units -= self.quantity
-            elif self.movement_type == self.ADJUSTMENT:
-                # Adjustment directly modifies
-                self.item.current_partial_units += self.quantity
-
-            self.item.save(update_fields=['current_partial_units'])
+        
+        # REMOVED: Auto-update of current_partial_units
+        # Reason: Using period-based tracking, not real-time inventory
+        # If you need real-time inventory, create a separate CurrentInventory model
 
 
 class Location(models.Model):
