@@ -1,7 +1,7 @@
 import os
 import django
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hotel_mate.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'HotelMateBackend.settings')
 django.setup()
 
 from stock_tracker.models import StocktakeLine
