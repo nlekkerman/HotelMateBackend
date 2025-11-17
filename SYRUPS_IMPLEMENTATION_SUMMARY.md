@@ -2,7 +2,7 @@
 
 ## What Changed
 
-### Backend Logic ✅ COMPLETED
+### Backend Logic ✅ COMPLETEDai
 - Updated `StockItem.total_stock_in_servings` for SYRUPS
 - Updated `StocktakeLine.counted_qty` for SYRUPS
 - **Formula**: `(full_bottles + fractional) × bottle_size_ml ÷ 35ml = servings`
