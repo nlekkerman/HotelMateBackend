@@ -583,7 +583,18 @@ class StockItem(models.Model):
         """
         Cost per individual serving (pint, bottle, shot, glass)
         Formula: unit_cost ÷ uom
+        BIB Exception: unit_cost ÷ servings_per_box
         """
+        # BIB special case: calculate from serving size (36ml)
+        if (self.category_id == 'M' and
+                self.subcategory == 'BIB' and
+                self.size_value and
+                self.size_value > 0):
+            # 18L box = 18000ml, divide by serving size (36ml)
+            box_ml = Decimal('18000')
+            servings_per_box = box_ml / self.size_value
+            return self.unit_cost / servings_per_box
+        
         if self.uom and self.uom > 0:
             return self.unit_cost / self.uom
         return Decimal('0.0000')
