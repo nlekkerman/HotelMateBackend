@@ -89,8 +89,8 @@ def _get_opening_balance(item, period_start):
     
     if previous_snapshot:
         # Return previous period's closing as this period's opening
-        # closing_partial_units is already in servings
-        return previous_snapshot.closing_partial_units
+        # Use total_servings to include both full units + partial units
+        return previous_snapshot.total_servings
     
     # OPTION 2: Check if first stocktake (no movements before start)
     has_previous_movements = item.movements.filter(
