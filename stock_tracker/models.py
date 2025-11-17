@@ -617,19 +617,13 @@ class StockItem(models.Model):
                 return (self.current_full_units * self.uom) + self.current_partial_units
             
             elif self.subcategory == 'SYRUPS':
-                # Bottles (with decimals) → servings (35ml per serving)
-                # current_full_units = whole bottles (e.g., 10)
-                # current_partial_units = decimal fraction (e.g., 0.5)
-                # User enters 10.5 → stored as full=10, partial=0.5
+                # Individual bottles (decimal input)
+                # User enters total bottles as decimal (e.g., 10.5 bottles)
+                # Stored as: current_full_units + current_partial_units = total bottles
+                # Example: 10.5 bottles × 700ml = 7350ml ÷ 35ml = 210 servings
                 
-                full_bottles = self.current_full_units
-                fractional_bottle = self.current_partial_units
-                
-                # Convert fractional to ml
-                ml = fractional_bottle * self.uom  # 0.5 × 1000ml = 500ml
-                
-                # Calculate total ml and servings
-                total_ml = (full_bottles * self.uom) + ml
+                total_bottles = self.current_full_units + self.current_partial_units
+                total_ml = total_bottles * self.uom
                 return total_ml / SYRUP_SERVING_SIZE  # ml → servings (35ml)
             
             elif self.subcategory == 'JUICES':
@@ -2068,19 +2062,13 @@ class StocktakeLine(models.Model):
                 return (self.counted_full_units * self.item.uom) + self.counted_partial_units
             
             elif self.item.subcategory == 'SYRUPS':
-                # Bottles (with decimals) → servings (35ml per serving)
-                # counted_full_units = whole bottles (e.g., 10)
-                # counted_partial_units = decimal fraction (e.g., 0.5)
-                # User enters 10.5 → stored as full=10, partial=0.5
+                # Individual bottles (decimal input)
+                # User enters total bottles as decimal (e.g., 10.5 bottles)
+                # Stored as: counted_full_units + counted_partial_units = total bottles
+                # Example: 10.5 bottles × 700ml = 7350ml ÷ 35ml = 210 servings
                 
-                full_bottles = self.counted_full_units
-                fractional_bottle = self.counted_partial_units
-                
-                # Convert fractional to ml
-                ml = fractional_bottle * self.item.uom  # 0.5 × 1000ml = 500ml
-                
-                # Calculate total ml and servings
-                total_ml = (full_bottles * self.item.uom) + ml
+                total_bottles = self.counted_full_units + self.counted_partial_units
+                total_ml = total_bottles * self.item.uom
                 return total_ml / SYRUP_SERVING_SIZE  # ml → servings (35ml)
             
             elif self.item.subcategory == 'JUICES':

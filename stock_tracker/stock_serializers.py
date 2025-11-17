@@ -560,16 +560,18 @@ class StockItemSerializer(serializers.ModelSerializer):
             'category', 'category_code', 'category_name',
             'subcategory', 'subcategory_display',
             'size', 'size_value', 'size_unit', 'uom',
-            'unit_cost', 'current_full_units', 'current_partial_units',
+            'unit_cost',
+            # DEPRECATED: No longer auto-updated. Use period snapshots.
+            'current_full_units', 'current_partial_units',
             'menu_price', 'menu_price_large', 'bottle_price', 'promo_price',
             'available_on_menu', 'available_by_bottle', 'active',
             'created_at', 'updated_at',
-            # Calculated fields
+            # Calculated fields (also deprecated - use snapshot.total_servings)
             'total_stock_in_servings', 'total_stock_value',
             'cost_per_serving', 'gross_profit_per_serving',
             'gross_profit_percentage', 'markup_percentage',
             'pour_cost_percentage',
-            # Display helpers
+            # Display helpers (deprecated - use snapshot data)
             'display_full_units', 'display_partial_units'
         ]
         read_only_fields = ['hotel', 'created_at', 'updated_at']
@@ -700,8 +702,8 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 }
             elif obj.item.subcategory == 'SYRUPS':
                 return {
-                    'full': {'name': 'counted_full_units', 'label': None},
-                    'partial': {'name': 'counted_partial_units', 'label': 'Total Bottles', 'step': 0.01}
+                    'full': {'name': 'counted_full_units', 'label': 'Bottles'},
+                    'partial': {'name': 'counted_partial_units', 'label': 'Fractional (0-0.99)', 'max': 0.99, 'step': 0.01}
                 }
             elif obj.item.subcategory == 'JUICES':
                 return {
