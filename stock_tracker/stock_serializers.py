@@ -700,8 +700,8 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 }
             elif obj.item.subcategory == 'SYRUPS':
                 return {
-                    'full': {'name': 'counted_full_units', 'label': 'Bottles'},
-                    'partial': {'name': 'counted_partial_units', 'label': 'ml', 'max': 1000}
+                    'full': {'name': 'counted_full_units', 'label': None},
+                    'partial': {'name': 'counted_partial_units', 'label': 'Total Bottles', 'step': 0.01}
                 }
             elif obj.item.subcategory == 'JUICES':
                 return {
