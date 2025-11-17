@@ -655,12 +655,11 @@ class StockItem(models.Model):
                 return (self.current_full_units * self.uom) + self.current_partial_units
             
             elif self.subcategory == 'BIB':
-                # Boxes + Liters → servings (200ml per serving)
-                # Full = boxes, Partial = liters
-                # UOM = 18 liters/box
-                full_liters = self.current_full_units * self.uom  # boxes → liters
-                total_liters = full_liters + self.current_partial_units  # add partial liters
-                return total_liters / BIB_SERVING_SIZE  # liters → servings
+                # BIB: Storage only (no serving conversion)
+                # Full = boxes, Partial = decimal fraction (e.g., 0.5)
+                # UOM = 1 (individual box)
+                # Return total boxes (e.g., 1.5 boxes)
+                return self.current_full_units + self.current_partial_units
             
             elif self.subcategory == 'BULK_JUICES':
                 # Individual bottles with decimals (NOT on menu)
@@ -695,7 +694,15 @@ class StockItem(models.Model):
         """
         Total value of current stock at cost price
         Formula: total_servings × cost_per_serving
+        BIB Exception: total_boxes × unit_cost
         """
+        # BIB uses unit_cost not cost_per_serving
+        if (self.category_id == 'M' and
+                self.subcategory == 'BIB'):
+            total_boxes = (
+                self.current_full_units + self.current_partial_units
+            )
+            return total_boxes * self.unit_cost
         return self.total_stock_in_servings * self.cost_per_serving
 
     @property
@@ -709,8 +716,14 @@ class StockItem(models.Model):
         Value of partial units - size-specific handling
         
         Items sold by DOZEN ("Doz"): partial = individual bottles
+        BIB: partial = fractional boxes at unit_cost
         Others: partial = fractional units of the base unit
         """
+        # BIB: partial boxes valued at unit_cost
+        if (self.category_id == 'M' and
+                self.subcategory == 'BIB'):
+            return self.current_partial_units * self.unit_cost
+        
         # Check if item is sold by dozen
         if self.size and 'Doz' in self.size:
             # Partial bottles valued at cost per bottle (cost per serving)
@@ -2100,12 +2113,11 @@ class StocktakeLine(models.Model):
                 return (self.counted_full_units * self.item.uom) + self.counted_partial_units
             
             elif self.item.subcategory == 'BIB':
-                # Boxes + Liters → servings (200ml per serving)
+                # BIB: Storage only (no serving conversion)
                 # counted_full_units = boxes
-                # counted_partial_units = liters
-                full_liters = self.counted_full_units * self.item.uom  # boxes → liters
-                total_liters = full_liters + self.counted_partial_units  # add partial liters
-                return total_liters / BIB_SERVING_SIZE  # liters → servings
+                # counted_partial_units = decimal fraction (e.g., 0.5)
+                # Return total boxes for stocktake tracking
+                return self.counted_full_units + self.counted_partial_units
             
             elif self.item.subcategory == 'BULK_JUICES':
                 # Individual bottles with decimals (NOT on menu)
@@ -2158,11 +2170,23 @@ class StocktakeLine(models.Model):
     @property
     def expected_value(self):
         """Expected value at frozen cost"""
+        # BIB: Use unit_cost (expected_qty = total boxes)
+        if (self.item.category_id == 'M' and
+                self.item.subcategory == 'BIB'):
+            return self.expected_qty * self.item.unit_cost
         return self.expected_qty * self.valuation_cost
 
     @property
     def counted_value(self):
         """Counted value at frozen cost"""
+        # BIB special case: value by unit_cost not serving cost
+        if (self.item.category_id == 'M' and
+                self.item.subcategory == 'BIB'):
+            total_units = (
+                self.counted_full_units + self.counted_partial_units
+            )
+            return total_units * self.item.unit_cost
+
         return self.counted_qty * self.valuation_cost
 
     @property
@@ -2173,6 +2197,10 @@ class StocktakeLine(models.Model):
     @property
     def opening_value(self):
         """Opening stock value at frozen cost"""
+        # BIB: Use unit_cost (opening_qty = total boxes)
+        if (self.item.category_id == 'M' and
+                self.item.subcategory == 'BIB'):
+            return self.opening_qty * self.item.unit_cost
         return self.opening_qty * self.valuation_cost
 
     @property

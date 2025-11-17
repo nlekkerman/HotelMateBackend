@@ -717,8 +717,16 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 }
             elif obj.item.subcategory == 'BIB':
                 return {
-                    'full': {'name': 'counted_full_units', 'label': 'Boxes'},
-                    'partial': {'name': 'counted_partial_units', 'label': 'Liters', 'max': 18, 'step': 0.1}
+                    'full': {
+                        'name': 'counted_full_units',
+                        'label': 'Boxes'
+                    },
+                    'partial': {
+                        'name': 'counted_partial_units',
+                        'label': 'Fraction',
+                        'max': 0.99,
+                        'step': 0.01
+                    }
                 }
             elif obj.item.subcategory == 'BULK_JUICES':
                 return {
@@ -988,12 +996,11 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 return str(full), str(partial)
             
             elif item.subcategory == 'BIB':
-                # servings → boxes + liters
-                total_liters = servings_decimal * BIB_SERVING_SIZE
-                uom = Decimal(str(item.uom))  # 18 liters/box
-                full = int(total_liters / uom)  # boxes
-                partial_liters = total_liters % uom  # liters
-                partial_rounded = partial_liters.quantize(
+                # BIB: Storage only (no serving conversion)
+                # servings_decimal = total boxes (e.g., 1.5)
+                full = int(servings_decimal)  # whole boxes
+                partial = servings_decimal - full  # fraction
+                partial_rounded = partial.quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
                 return str(full), str(partial_rounded)
