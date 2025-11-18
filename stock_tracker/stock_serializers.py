@@ -156,7 +156,7 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
         ).order_by('-period__end_date').first()
         
         if prev_snapshot:
-            opening_servings = prev_snapshot.closing_partial_units
+            opening_servings = prev_snapshot.total_servings
             display_full = obj.calculate_opening_display_full(
                 opening_servings
             )
@@ -180,7 +180,7 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
         ).order_by('-period__end_date').first()
         
         if prev_snapshot:
-            opening_servings = prev_snapshot.closing_partial_units
+            opening_servings = prev_snapshot.total_servings
             display_partial = obj.calculate_opening_display_partial(
                 opening_servings
             )
@@ -202,7 +202,7 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
         Get closing display full units (kegs/cases)
         Calculated from closing stock
         """
-        closing_servings = obj.closing_partial_units
+        closing_servings = obj.total_servings
         display_full = obj.calculate_opening_display_full(
             closing_servings
         )
@@ -218,7 +218,7 @@ class StockSnapshotNestedSerializer(serializers.ModelSerializer):
         """
         from decimal import Decimal, ROUND_HALF_UP
         
-        closing_servings = obj.closing_partial_units
+        closing_servings = obj.total_servings
         display_partial = obj.calculate_opening_display_partial(
             closing_servings
         )

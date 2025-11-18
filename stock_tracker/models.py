@@ -1320,6 +1320,70 @@ class StockSnapshot(models.Model):
     def __str__(self):
         return f"{self.item.sku} - {self.period.period_name}"
 
+    @staticmethod
+    def split_bottles_into_cases_and_remainder(total_bottles, item):
+        """
+        Split total bottles into cases + remaining bottles for Doz items.
+        Used when saving closing stock for items with 'Doz' size.
+        
+        Examples:
+          - 279 bottles with UOM=12 → (23 cases, 3 bottles)
+          - 169 bottles with UOM=12 → (14 cases, 1 bottle)
+          - 10.5 bottles (Spirits) → (10.5, 0) - NOT split for non-Doz
+        
+        Args:
+            total_bottles: Total number of bottles (Decimal)
+            item: StockItem instance
+            
+        Returns:
+            tuple: (full_units, partial_units) as Decimals
+        """
+        from decimal import Decimal
+        
+        # Only split for Doz items (Bottled Beer, Minerals SOFT_DRINKS/CORDIALS)
+        if item.size and 'Doz' in item.size and item.uom > 0:
+            # Split into cases + remainder bottles
+            uom = Decimal(str(item.uom))
+            full_cases = int(total_bottles / uom)
+            remaining_bottles = total_bottles % uom
+            return (Decimal(str(full_cases)), remaining_bottles)
+        else:
+            # For Spirits, Wine, Syrups, etc: keep as-is (e.g., 10.50 bottles)
+            # Assume total_bottles already represents full + partial correctly
+            return (Decimal('0.00'), total_bottles)
+
+    def save(self, *args, **kwargs):
+        """
+        Override save to automatically split bottles into cases+bottles
+        for Minerals with 'Doz' size (SOFT_DRINKS, CORDIALS).
+        
+        This ensures Minerals with Doz size work the same as Draught Beer:
+        - Draught: kegs + pints
+        - Bottled Beer: cases + bottles (already works via UI)
+        - Minerals Doz: cases + bottles (auto-convert here)
+        """
+        from decimal import Decimal
+        
+        # Only auto-convert for Minerals (M) with Doz size
+        if (self.item.category_id == 'M' and 
+            self.item.size and 'Doz' in self.item.size and 
+            self.item.uom > 0):
+            
+            # Check if full_units = 0 and partial has total bottles
+            # This indicates data needs conversion
+            if self.closing_full_units == 0 and self.closing_partial_units > 0:
+                total_bottles = self.closing_partial_units
+                uom = Decimal(str(self.item.uom))
+                
+                # Split into cases + remaining bottles
+                full_cases = int(total_bottles / uom)
+                remaining_bottles = total_bottles % uom
+                
+                self.closing_full_units = Decimal(str(full_cases))
+                self.closing_partial_units = remaining_bottles
+        
+        super().save(*args, **kwargs)
+
     @property
     def total_servings(self):
         """
@@ -1389,7 +1453,8 @@ class StockSnapshot(models.Model):
         Calculate display full units for opening stock
         - Draught (D): kegs
         - Dozen: cases
-        - Others: 0
+        - BIB (LT): boxes
+        - Others (Spirits, Wine, Individual): full bottles/units
         """
         from decimal import Decimal
         
@@ -1400,24 +1465,35 @@ class StockSnapshot(models.Model):
         servings = Decimal(str(opening_servings))
         uom = Decimal(str(self.item.uom))
         
+        if uom == 0:
+            return 0
+        
         # Draught: convert pints to kegs
-        if category == 'D' and uom > 0:
+        if category == 'D':
             kegs = int(servings / uom)
             return kegs
         
-        # Dozen: convert bottles to cases
-        if self.item.size and 'Doz' in self.item.size and uom > 0:
+        # Dozen (Bottled Beers): convert bottles to cases
+        if self.item.size and 'Doz' in self.item.size:
             dozens = int(servings / uom)
             return dozens
         
-        return 0
+        # BIB (Bag in Box): convert liters to boxes
+        if self.item.size and 'LT' in self.item.size.upper():
+            boxes = int(servings / uom)
+            return boxes
+        
+        # Spirits, Wine, Individual Minerals (Syrups, etc): full bottles/units
+        # For these, closing_full_units represents the actual full bottles
+        return int(self.closing_full_units)
     
     def calculate_opening_display_partial(self, opening_servings):
         """
         Calculate display partial units for opening stock
-        - Draught (D): remaining pints
-        - Dozen: remaining bottles
-        - Others: opening_servings as-is
+        - Draught (D): remaining pints after full kegs
+        - Dozen: remaining bottles after full cases
+        - BIB (LT): remaining liters after full boxes
+        - Others (Spirits, Wine, Individual): fractional part (0.00-0.99)
         """
         from decimal import Decimal
         
@@ -1428,17 +1504,27 @@ class StockSnapshot(models.Model):
         servings = Decimal(str(opening_servings))
         uom = Decimal(str(self.item.uom))
         
-        # Draught: remaining pints
-        if category == 'D' and uom > 0:
+        if uom == 0:
+            return servings
+        
+        # Draught: remaining pints after full kegs
+        if category == 'D':
             remaining = servings % uom
             return remaining
         
-        # Dozen: remaining bottles
-        if self.item.size and 'Doz' in self.item.size and uom > 0:
+        # Dozen (Bottled Beers): remaining bottles after full cases
+        if self.item.size and 'Doz' in self.item.size:
             remaining = servings % uom
             return remaining
         
-        return opening_servings
+        # BIB (Bag in Box): remaining liters after full boxes
+        if self.item.size and 'LT' in self.item.size.upper():
+            remaining = servings % uom
+            return remaining
+        
+        # Spirits, Wine, Individual Minerals (Syrups, etc): fractional bottles
+        # For these, closing_partial_units represents the fractional part
+        return self.closing_partial_units
 
 
 class StockMovement(models.Model):
