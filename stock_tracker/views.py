@@ -2478,7 +2478,21 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             end_date=line.stocktake.period_end
         ).first()
         
-        # Create the movement
+        # Create the movement with timestamp within the stocktake period
+        # CRITICAL: Use period end date to ensure movement is within period
+        from django.utils import timezone
+        from datetime import datetime, time
+        
+        # Set timestamp to end of stocktake period (or current time if in period)
+        movement_timestamp = timezone.now()
+        period_end_dt = timezone.make_aware(
+            datetime.combine(line.stocktake.period_end, time.max)
+        )
+        
+        # If current time is after period, use period end date instead
+        if movement_timestamp > period_end_dt:
+            movement_timestamp = period_end_dt
+        
         movement = StockMovement.objects.create(
             hotel=line.stocktake.hotel,
             item=line.item,
@@ -2490,6 +2504,10 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             notes=request.data.get('notes', ''),
             staff=staff_user
         )
+        
+        # Override the auto_now_add timestamp to be within period
+        movement.timestamp = movement_timestamp
+        movement.save(update_fields=['timestamp'])
         
         # Recalculate the line by re-populating from movements
         from .stocktake_service import _calculate_period_movements

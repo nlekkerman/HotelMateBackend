@@ -515,13 +515,86 @@ WHERE id = 123;
 
 ---
 
+## ⚠️ CRITICAL BUGS FIXED
+
+### Bug #1: Movement Timestamp Outside Period
+
+**Problem:** When adding purchases/waste via the API, movements were created with `timestamp=NOW()`. If you're entering data for a past period (e.g., February stocktake in November), the movement timestamp would be in November, **outside the stocktake period**. This caused the movement to be excluded from calculations.
+
+**Example:**
+- Stocktake period: Feb 1-28, 2025
+- User adds purchase on Nov 18, 2025
+- Movement timestamp: Nov 18, 2025 ❌ (outside period)
+- Result: Movement not included in purchases calculation
+
+**Fix Applied:**
+```python
+# Create movement with timestamp within the stocktake period
+movement_timestamp = timezone.now()
+period_end_dt = timezone.make_aware(
+    datetime.combine(line.stocktake.period_end, time.max)
+)
+
+# If current time is after period, use period end date instead
+if movement_timestamp > period_end_dt:
+    movement_timestamp = period_end_dt
+
+# Create movement and override auto_now_add timestamp
+movement = StockMovement.objects.create(...)
+movement.timestamp = movement_timestamp  # Force timestamp to be in period
+movement.save(update_fields=['timestamp'])
+```
+
+**Impact:**
+- ✅ Movements are always within the stocktake period
+- ✅ Historical data entry works correctly
+- ✅ Purchases/waste fields update properly
+
+---
+
+### Bug #2: Date/DateTime Comparison Issue
+
+**Problem:** The `_calculate_period_movements` function was comparing:
+- `timestamp` (DateTimeField) 
+- `period_start` / `period_end` (DateField)
+
+This caused Django to receive **naive datetime** objects, which could miss movements created at certain times of day.
+
+**Fix Applied:**
+```python
+# Before (WRONG)
+movements = item.movements.filter(
+    timestamp__gte=period_start,  # date compared to datetime
+    timestamp__lte=period_end
+)
+
+# After (CORRECT)
+from django.utils import timezone
+from datetime import datetime, time
+
+start_dt = timezone.make_aware(datetime.combine(period_start, time.min))
+end_dt = timezone.make_aware(datetime.combine(period_end, time.max))
+
+movements = item.movements.filter(
+    timestamp__gte=start_dt,  # timezone-aware datetime
+    timestamp__lte=end_dt
+)
+```
+
+**Impact:**
+- ✅ All movements are now properly included in calculations
+- ✅ Purchases and waste fields update correctly after adding movements
+- ✅ No timezone warnings in logs
+
+---
+
 ## Conclusion
 
-The backend implementation is **correct and robust**. The issue is **documentation mismatch** between frontend expectations and backend reality. The frontend needs to:
+The backend implementation is **correct and robust** with the datetime fix applied. The frontend needs to:
 
 1. Update documentation to match actual backend behavior
 2. Trust backend calculations completely
 3. Use response data directly without local calculations
 4. Understand that `StockMovement` (not `StocktakeMovement`) is the source of truth
 
-**No backend changes required** - system is working as designed! ✅
+**Backend fix applied** ✅ - system is now working as designed!

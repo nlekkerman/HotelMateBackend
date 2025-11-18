@@ -135,9 +135,18 @@ def _calculate_period_movements(item, period_start, period_end):
     Returns dict with keys: purchases, waste,
     transfers_in, transfers_out, adjustments
     """
+    from django.utils import timezone
+    from datetime import datetime, time
+    
+    # Convert date to datetime for proper comparison
+    # period_start (date) → datetime at 00:00:00
+    # period_end (date) → datetime at 23:59:59
+    start_dt = timezone.make_aware(datetime.combine(period_start, time.min))
+    end_dt = timezone.make_aware(datetime.combine(period_end, time.max))
+    
     movements = item.movements.filter(
-        timestamp__gte=period_start,
-        timestamp__lte=period_end
+        timestamp__gte=start_dt,
+        timestamp__lte=end_dt
     ).aggregate(
         purchases=Sum(
             'quantity',
