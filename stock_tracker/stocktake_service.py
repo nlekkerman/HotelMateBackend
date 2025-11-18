@@ -182,6 +182,8 @@ def _calculate_period_movements(item, period_start, period_end):
 def approve_stocktake(stocktake, approved_by):
     """
     Approve stocktake and create ADJUSTMENT movements for variances.
+    Also updates StockSnapshot closing values so next period has
+    correct opening stock.
 
     Args:
         stocktake: Stocktake instance
@@ -194,6 +196,17 @@ def approve_stocktake(stocktake, approved_by):
         raise ValueError("Can only approve draft stocktakes")
 
     adjustments_created = 0
+    snapshots_updated = 0
+
+    # Get the corresponding StockPeriod
+    try:
+        period = StockPeriod.objects.get(
+            hotel=stocktake.hotel,
+            start_date=stocktake.period_start,
+            end_date=stocktake.period_end
+        )
+    except StockPeriod.DoesNotExist:
+        period = None
 
     for line in stocktake.lines.all():
         variance = line.variance_qty
@@ -214,6 +227,37 @@ def approve_stocktake(stocktake, approved_by):
                 staff=approved_by,
             )
             adjustments_created += 1
+
+        # Update snapshot with counted stock (for ALL categories)
+        # Next period opening stock = this period counted closing
+        if period:
+            try:
+                snapshot = StockSnapshot.objects.get(
+                    period=period,
+                    item=line.item
+                )
+                
+                # Update closing stock with counted values
+                snapshot.closing_full_units = line.counted_full_units
+                snapshot.closing_partial_units = line.counted_partial_units
+                snapshot.closing_stock_value = line.counted_value
+                snapshot.save()
+                snapshots_updated += 1
+                
+            except StockSnapshot.DoesNotExist:
+                # Create snapshot if it doesn't exist
+                StockSnapshot.objects.create(
+                    hotel=stocktake.hotel,
+                    item=line.item,
+                    period=period,
+                    closing_full_units=line.counted_full_units,
+                    closing_partial_units=line.counted_partial_units,
+                    unit_cost=line.valuation_cost,
+                    cost_per_serving=line.item.cost_per_serving,
+                    closing_stock_value=line.counted_value,
+                    menu_price=line.item.menu_price or Decimal('0.00')
+                )
+                snapshots_updated += 1
 
     # Mark as approved
     stocktake.status = Stocktake.APPROVED
