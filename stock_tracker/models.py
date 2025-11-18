@@ -2181,18 +2181,18 @@ class StocktakeLine(models.Model):
     @property
     def expected_value(self):
         """Expected value at frozen cost"""
-        # BIB: Use unit_cost (expected_qty = total boxes)
+        # BIB and SYRUPS: Use unit_cost (bottles/boxes), not serving cost
         if (self.item.category_id == 'M' and
-                self.item.subcategory == 'BIB'):
+                self.item.subcategory in ['BIB', 'SYRUPS']):
             return self.expected_qty * self.item.unit_cost
         return self.expected_qty * self.valuation_cost
 
     @property
     def counted_value(self):
         """Counted value at frozen cost"""
-        # BIB special case: value by unit_cost not serving cost
+        # BIB and SYRUPS: value by unit_cost (per bottle/box), not serving cost
         if (self.item.category_id == 'M' and
-                self.item.subcategory == 'BIB'):
+                self.item.subcategory in ['BIB', 'SYRUPS']):
             total_units = (
                 self.counted_full_units + self.counted_partial_units
             )
@@ -2208,9 +2208,9 @@ class StocktakeLine(models.Model):
     @property
     def opening_value(self):
         """Opening stock value at frozen cost"""
-        # BIB: Use unit_cost (opening_qty = total boxes)
+        # BIB and SYRUPS: Use unit_cost (bottles/boxes), not serving cost
         if (self.item.category_id == 'M' and
-                self.item.subcategory == 'BIB'):
+                self.item.subcategory in ['BIB', 'SYRUPS']):
             return self.opening_qty * self.item.unit_cost
         return self.opening_qty * self.valuation_cost
 
