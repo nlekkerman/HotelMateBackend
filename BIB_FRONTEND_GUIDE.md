@@ -144,20 +144,57 @@
 "1 box + 0.75"
 ```
 
-### Variance Display
+### Variance Display - IMPORTANT! 🎯
+
+**BIB variance is ALREADY in BOXES (backend handles this automatically)**
 
 ```javascript
-// Backend returns:
+// Backend returns (for +2.5 box variance):
 {
-  "variance_display_full_units": "-0",
-  "variance_display_partial_units": "-0.25"
+  "variance_display_full_units": "+2",      // ← Full boxes
+  "variance_display_partial_units": "+0.5", // ← Fraction of box
+  "variance_qty": 2.5,                       // ← Total boxes
+  "variance_value": 427.90                   // ← Value: 2.5 × €171.16
 }
 
-// Display format:
-"-0.25 boxes"
-// OR with sign:
-"Short 0.25 boxes"
+// ✅ CORRECT Display (what user sees):
+"+2 containers"    // Full boxes
+"+0.5 serves"      // Box fraction (NOT drink servings!)
+"+€427.90 ⚠️"
+"(+2.50 boxes)"    // Total boxes (backend already did conversion!)
+
+// 📊 Drink Servings Calculation (if needed for display):
+// 1 box = 18L = 18,000ml
+// Serving size = 36ml (from item.size_value)
+// Servings per box = 18,000 ÷ 36 = 500 servings
+// 2.5 boxes = 2.5 × 500 = 1,250 drink servings
+
+// Backend Logic (you don't need to do this):
+// For BIB: variance_qty is ALREADY in boxes
+// _calculate_display_units() treats servings as boxes for BIB
+// full = int(2.5) = 2
+// partial = 2.5 - 2 = 0.5
 ```
+
+**Key Points:**
+1. ✅ Backend `variance_qty` for BIB = boxes (not drink servings)
+2. ✅ Backend `_calculate_display_units()` splits boxes into full + partial
+3. ✅ Display as boxes: "+2.50 boxes" (this is storage units, not drink servings!)
+4. ✅ "servings" terminology = legacy label, actually means **box fraction** for BIB
+5. ✅ No conversion needed - backend handles everything!
+
+**Drink Servings Math (for reference):**
+- 1 BIB box = 18 liters = 18,000ml
+- Serving size = 36ml (from `item.size_value`)
+- **Servings per box = 18,000ml ÷ 36ml = ~500 servings**
+- 2.5 boxes = 2.5 × 500 = **1,250 drink servings**
+- But variance shows "2.5 boxes", NOT "1,250 servings"!
+
+**Why "servings" appears:**
+- Other categories track servings (drinks sold)
+- BIB reuses same UI components/labels
+- For BIB: "servings" field = storage units (boxes)
+- Frontend just displays what backend sends
 
 ---
 
@@ -166,19 +203,52 @@
 **Important:** BIB values use `unit_cost` (box cost), NOT `cost_per_serving`
 
 ```javascript
-// Example item:
+// Example item from backend:
 {
   "sku": "M25",
   "name": "Splash Cola 18LTR",
   "unit_cost": 171.16,  // ← Cost per 18L box
+  "size_value": 36,     // ← Serving size in ml
   "counted_full_units": 2,
   "counted_partial_units": 0.50,
   "counted_value": 427.90  // = 2.5 × 171.16
 }
 
+// Calculate total servings available:
+const totalBoxes = counted_full_units + counted_partial_units;  // 2.5
+const servingsPerBox = 18000 / size_value;  // 18000ml ÷ 36ml = 500
+const totalServings = totalBoxes * servingsPerBox;  // 2.5 × 500 = 1,250
+
 // Display:
 "Stock: 2.50 boxes"
+"Available Servings: 1,250 servings (36ml)"
 "Value: €427.90"
+```
+
+### Full Display Example
+
+```tsx
+function BIBStockDisplay({ line }) {
+  const { counted_full_units, counted_partial_units, counted_value, item } = line;
+  
+  // Calculate totals
+  const totalBoxes = counted_full_units + counted_partial_units;
+  const servingsPerBox = 18000 / item.size_value;  // 500
+  const totalServings = totalBoxes * servingsPerBox;  // 1,250
+  
+  return (
+    <div className="stock-info">
+      <div>📦 Stock: {totalBoxes.toFixed(2)} boxes</div>
+      <div>🥤 Servings: {totalServings.toLocaleString()} × {item.size_value}ml</div>
+      <div>💰 Value: €{counted_value}</div>
+    </div>
+  );
+}
+
+// Output:
+// 📦 Stock: 2.50 boxes
+// 🥤 Servings: 1,250 × 36ml
+// 💰 Value: €427.90
 ```
 
 ---
@@ -316,6 +386,187 @@ Display: "2.50 boxes"
 3. ✅ **Display combined**: Show as single decimal "2.50 boxes"
 4. ✅ **Use unit_cost**: For value calculations (NOT cost_per_serving)
 5. ✅ **Like SYRUPS**: Same input/display pattern
+6. ✅ **Variance in BOXES**: Display "+2.50 boxes" NOT "+2.50 servings"
+
+---
+
+## 📱 How to Display BIB Variance
+
+### What Backend Sends (Example: +2.5 boxes variance)
+
+```json
+{
+  "variance_display_full_units": "2",
+  "variance_display_partial_units": "0.50",
+  "variance_qty": 2.5000,
+  "variance_value": 427.90
+}
+```
+
+### Display Options
+
+**Option 1: Keep existing UI labels (recommended)**
+```tsx
+// Your existing variance display component
+<div className="variance">
+  <div>{variance_display_full_units} containers</div>
+  <div>{variance_display_partial_units} serves</div>
+  <div>€{variance_value} ⚠️</div>
+  <div>({variance_qty} servings)</div>  {/* This shows "2.50 servings" */}
+</div>
+
+// Result shows:
+// 2 containers
+// 0.50 serves
+// €427.90 ⚠️
+// (2.50 servings)  ← For BIB, this actually means boxes!
+```
+
+**Option 2: Change label for BIB only**
+```tsx
+// Conditionally change "servings" to "boxes" for BIB
+<div className="variance">
+  <div>{variance_display_full_units} containers</div>
+  <div>{variance_display_partial_units} serves</div>
+  <div>€{variance_value} ⚠️</div>
+  <div>
+    ({variance_qty} {item.subcategory === 'BIB' ? 'boxes' : 'servings'})
+  </div>
+</div>
+
+// Result shows:
+// 2 containers
+// 0.50 serves
+// €427.90 ⚠️
+// (2.50 boxes)  ← More accurate for BIB!
+```
+
+**Option 3: Show drink servings in tooltip/additional info**
+```tsx
+// Display variance with drink servings calculation
+function BIBVarianceDisplay({ line }) {
+  const { variance_display_full_units, variance_display_partial_units, 
+          variance_qty, variance_value, item } = line;
+  
+  // Calculate drink servings from boxes
+  const servingSize = item.size_value;  // 36ml from backend
+  const servingsPerBox = 18000 / servingSize;  // 18000ml ÷ 36ml = 500
+  const totalDrinkServings = variance_qty * servingsPerBox;  // 2.5 × 500 = 1250
+  
+  return (
+    <div className="variance">
+      <div>{variance_display_full_units} containers</div>
+      <div>{variance_display_partial_units} serves</div>
+      <div>€{variance_value} ⚠️</div>
+      <div>({variance_qty} boxes)</div>
+      
+      {/* Optional: Show drink servings as additional info */}
+      <div className="drink-servings-info" style={{ fontSize: '0.85em', color: '#666' }}>
+        = {totalDrinkServings.toLocaleString()} drink servings ({servingSize}ml each)
+      </div>
+      
+      {/* OR as tooltip */}
+      <div 
+        title={`${variance_qty} boxes = ${totalDrinkServings.toLocaleString()} drink servings (${servingSize}ml)`}
+      >
+        ℹ️ Serving details
+      </div>
+    </div>
+  );
+}
+
+// Example output:
+// 2 containers
+// 0.50 serves
+// €427.90 ⚠️
+// (2.50 boxes)
+// = 1,250 drink servings (36ml each)  ← Additional info line
+```
+
+### Key Point: Don't Convert!
+
+```javascript
+// ❌ DON'T DO THIS:
+const servingSize = 36;  // ml
+const servingsPerBox = 18000 / servingSize;  // = 500 servings
+const drinkServings = variance_qty * servingsPerBox;  // 2.5 × 500 = 1250
+// Shows: "(1250 servings)" ← CONFUSING! Don't show drink servings!
+
+// ✅ DO THIS:
+const boxVariance = variance_qty;  // Already in boxes from backend
+// Shows: "(2.50 boxes)" ← CLEAR!
+```
+
+**Math Breakdown:**
+- 1 box = 18 liters = 18,000ml
+- Serving size = 36ml (set in backend: `item.size_value`)
+- Servings per box = 18,000ml ÷ 36ml = **500 servings**
+- 2.5 boxes = 2.5 × 500 = **1,250 drink servings**
+- **Primary display**: "2.5 boxes"
+- **Optional display**: "+ 1,250 drink servings (36ml each)" as additional info
+
+**Frontend Calculation:**
+```javascript
+// Get serving size from backend
+const servingSize = item.size_value;  // 36 (ml)
+
+// Calculate servings per box
+const servingsPerBox = 18000 / servingSize;  // 18000 ÷ 36 = 500
+
+// Calculate total drink servings from box variance
+const drinkServings = variance_qty * servingsPerBox;  // 2.5 × 500 = 1250
+
+// Format for display
+const display = `${variance_qty} boxes = ${drinkServings.toLocaleString()} drink servings (${servingSize}ml)`;
+// Result: "2.5 boxes = 1,250 drink servings (36ml)"
+```
+
+---
+
+## ⚠️ CRITICAL: Backend Logic for BIB Display
+
+**Backend automatically converts BIB to box display (no frontend work needed!)**
+
+### How Backend Handles BIB Variance
+
+```python
+# In stock_serializers.py - _calculate_display_units():
+
+elif item.subcategory == 'BIB':
+    # BIB: Storage only (no serving conversion)
+    # servings_decimal = total boxes (e.g., 2.5)
+    full = int(servings_decimal)  # whole boxes → 2
+    partial = servings_decimal - full  # fraction → 0.5
+    return str(full), str(partial_rounded)
+```
+
+**What This Means:**
+1. ✅ Backend receives `variance_qty = 2.5` (boxes, not servings)
+2. ✅ Backend splits into `full = 2` and `partial = 0.5`
+3. ✅ Frontend displays: "+2 containers / +0.5 serves / (+2.50 servings)"
+4. ✅ "servings" label = boxes (reusing existing UI component)
+
+### Why "Servings" Label Appears
+
+```javascript
+// Other categories (SOFT_DRINKS, JUICES):
+variance_qty = 1250 → actual drink servings
+display: "(+1250 servings)" → correct
+
+// BIB category:
+variance_qty = 2.5 → boxes (not drink servings!)
+display: "(+2.50 servings)" → label reused, means boxes
+
+// Backend difference:
+SOFT_DRINKS: counted_qty = bottles → converted to servings
+BIB: counted_qty = boxes → NO conversion (stays as boxes)
+```
+
+**Display Rules:**
+- ✅ Accept that "servings" label means "boxes" for BIB
+- ✅ OR change label dynamically: `{subcategory === 'BIB' ? 'boxes' : 'servings'}`
+- ✅ Value is ALWAYS correct: uses box count × unit_cost
+- ✅ No conversion math needed in frontend!
 
 ---
 

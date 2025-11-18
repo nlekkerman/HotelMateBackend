@@ -810,6 +810,7 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
     counted_display_partial_units = serializers.SerializerMethodField()
     variance_display_full_units = serializers.SerializerMethodField()
     variance_display_partial_units = serializers.SerializerMethodField()
+    variance_drink_servings = serializers.SerializerMethodField()
     
     # COCKTAIL CONSUMPTION TRACKING (DISPLAY ONLY - NO STOCKTAKE IMPACT)
     available_cocktail_consumption_qty = serializers.DecimalField(
@@ -872,6 +873,7 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             'expected_display_full_units', 'expected_display_partial_units',
             'counted_display_full_units', 'counted_display_partial_units',
             'variance_display_full_units', 'variance_display_partial_units',
+            'variance_drink_servings',
             # Values
             'valuation_cost', 'expected_value', 'counted_value',
             'variance_value',
@@ -1077,6 +1079,42 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         """Variance display partial units"""
         _, partial = self._calculate_display_units(obj.variance_qty, obj.item)
         return partial
+    
+    def get_variance_drink_servings(self, obj):
+        """Calculate actual drink servings for BIB items only
+        
+        For BIB: variance_qty is in boxes (storage units), so we convert
+        to actual drink servings:
+        - 1 BIB box = 18 liters = 18,000ml
+        - Serving size = item.size_value (e.g., 36ml)
+        - Servings per box = 18,000ml ÷ serving_size
+        - Total drink servings = boxes × servings_per_box
+        
+        For all other categories: Returns None (they already track
+        drink servings in variance_qty)
+        """
+        from decimal import Decimal
+        
+        # Only calculate for BIB items
+        if obj.item.subcategory != 'BIB':
+            return None
+        
+        # Get serving size (e.g., 36ml)
+        serving_size = obj.item.size_value
+        if not serving_size or serving_size == 0:
+            return None
+        
+        # Calculate servings per box: 18,000ml ÷ serving_size
+        servings_per_box = (
+            Decimal('18000') / Decimal(str(serving_size))
+        )
+        
+        # Calculate total drink servings: boxes × servings_per_box
+        variance_boxes = Decimal(str(obj.variance_qty))
+        drink_servings = variance_boxes * servings_per_box
+        
+        # Return as string with 2 decimal places
+        return str(drink_servings.quantize(Decimal('0.01')))
     
     def get_case_cost(self, obj):
         """Calculate case/dozen cost (valuation_cost × UOM)"""
