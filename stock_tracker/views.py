@@ -2693,12 +2693,23 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             )
         
         # Get the movement
+        from django.utils import timezone
+        from datetime import datetime, time
+        
+        # Convert date to datetime for proper comparison
+        start_dt = timezone.make_aware(
+            datetime.combine(line.stocktake.period_start, time.min)
+        )
+        end_dt = timezone.make_aware(
+            datetime.combine(line.stocktake.period_end, time.max)
+        )
+        
         try:
             movement = StockMovement.objects.get(
                 id=movement_id,
                 item=line.item,
-                timestamp__gte=line.stocktake.period_start,
-                timestamp__lte=line.stocktake.period_end
+                timestamp__gte=start_dt,
+                timestamp__lte=end_dt
             )
         except StockMovement.DoesNotExist:
             return Response(
@@ -2794,12 +2805,23 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             )
         
         # Get the movement
+        from django.utils import timezone
+        from datetime import datetime, time
+        
+        # Convert date to datetime for proper comparison
+        start_dt = timezone.make_aware(
+            datetime.combine(line.stocktake.period_start, time.min)
+        )
+        end_dt = timezone.make_aware(
+            datetime.combine(line.stocktake.period_end, time.max)
+        )
+        
         try:
             movement = StockMovement.objects.get(
                 id=movement_id,
                 item=line.item,
-                timestamp__gte=line.stocktake.period_start,
-                timestamp__lte=line.stocktake.period_end
+                timestamp__gte=start_dt,
+                timestamp__lte=end_dt
             )
         except StockMovement.DoesNotExist:
             return Response(
