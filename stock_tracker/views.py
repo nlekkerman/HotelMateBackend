@@ -1066,11 +1066,11 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_404_NOT_FOUND)
         
         # STEP 1: Approve the stocktake
+        adjustments_created = 0
         if stocktake.status != Stocktake.APPROVED:
-            stocktake.status = Stocktake.APPROVED
-            stocktake.approved_at = timezone.now()
-            stocktake.approved_by = staff
-            stocktake.save()
+            # Call approve_stocktake service to create snapshots and adjustments
+            from .stocktake_service import approve_stocktake
+            adjustments_created = approve_stocktake(stocktake, staff)
             
             # Broadcast stocktake status change
             from .stock_serializers import StocktakeSerializer
@@ -1082,6 +1082,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                     "stocktake_id": stocktake.id,
                     "status": "APPROVED",
                     "message": "Stocktake approved",
+                    "adjustments_created": adjustments_created,
                     "stocktake": serializer.data
                 }
             )
