@@ -1392,15 +1392,32 @@ class StockSnapshot(models.Model):
         """
         category = self.item.category_id
         
-        # Draught, BIB (LT), Dozen: partial = servings
-        if (category == 'D') or (self.item.size and ('Doz' in self.item.size or 'LT' in self.item.size.upper())):
+        # Draught: partial = servings (pints)
+        if category == 'D':
             full_servings = self.closing_full_units * self.item.uom
             return full_servings + self.closing_partial_units
-        else:
-            # Spirits, Wine, Individual: partial = fractional
+        
+        # Bottled Beer (Doz), Soft Drinks, Cordials: partial = servings
+        elif (self.item.size and 'Doz' in self.item.size) or (
+            self.item.subcategory in ['SOFT_DRINKS', 'CORDIALS']
+        ):
             full_servings = self.closing_full_units * self.item.uom
-            partial_servings = self.closing_partial_units * self.item.uom
-            return full_servings + partial_servings
+            return full_servings + self.closing_partial_units
+        
+        # Spirits, Wine, Syrups, BIB, Bulk Juices:
+        # full + partial = total units (e.g., 10.5 bottles)
+        elif category in ['S', 'W'] or self.item.subcategory in [
+            'SYRUPS', 'BIB', 'BULK_JUICES'
+        ]:
+            total_units = (
+                self.closing_full_units + self.closing_partial_units
+            )
+            return total_units * self.item.uom
+        
+        # Juices and other Minerals: partial = servings
+        else:
+            full_servings = self.closing_full_units * self.item.uom
+            return full_servings + self.closing_partial_units
     
     @property
     def display_full_units(self):
