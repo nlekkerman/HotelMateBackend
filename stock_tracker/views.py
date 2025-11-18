@@ -2568,12 +2568,23 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
         line's calculations, allowing the UI to display both auto-calculated
         and manually entered movements together.
         """
+        from django.utils import timezone
+        from datetime import datetime, time
+        
         line = self.get_object()
+        
+        # Convert date to datetime for proper comparison
+        start_dt = timezone.make_aware(
+            datetime.combine(line.stocktake.period_start, time.min)
+        )
+        end_dt = timezone.make_aware(
+            datetime.combine(line.stocktake.period_end, time.max)
+        )
         
         movements = StockMovement.objects.filter(
             item=line.item,
-            timestamp__gte=line.stocktake.period_start,
-            timestamp__lte=line.stocktake.period_end
+            timestamp__gte=start_dt,
+            timestamp__lte=end_dt
         ).order_by('-timestamp')
         
         serializer = StockMovementSerializer(movements, many=True)
