@@ -2201,14 +2201,11 @@ class StocktakeLine(models.Model):
                 return (self.counted_full_units * self.item.uom) + self.counted_partial_units
             
             elif self.item.subcategory == 'SYRUPS':
-                # Individual bottles (decimal input)
-                # User enters total bottles as decimal (e.g., 10.5 bottles)
-                # Stored as: counted_full_units + counted_partial_units = total bottles
-                # Example: 10.5 bottles × 700ml = 7350ml ÷ 35ml = 210 servings
-                
-                total_bottles = self.counted_full_units + self.counted_partial_units
-                total_ml = total_bottles * self.item.uom
-                return total_ml / SYRUP_SERVING_SIZE  # ml → servings (35ml)
+                # UPDATED: Now that UOM=1 (bottles), just return total bottles
+                # No serving conversion needed - bottles are the base unit
+                # counted_full_units = total bottles (e.g., 2.21)
+                # counted_partial_units = 0 (always, due to UOM=1)
+                return self.counted_full_units + self.counted_partial_units
             
             elif self.item.subcategory == 'JUICES':
                 # Cases + Bottles (with decimals) → servings (200ml)
@@ -2262,11 +2259,11 @@ class StocktakeLine(models.Model):
             full_servings = self.counted_full_units * self.item.uom
             return full_servings + self.counted_partial_units
         
-        # Spirits, Wine: bottles + fractional (partial = fractional)
+        # Spirits, Wine: Now with UOM=1, just return total bottles
+        # counted_full_units = total bottles (e.g., 5.50)
+        # counted_partial_units = 0 (always, due to UOM=1)
         if category in ['S', 'W']:
-            full_servings = self.counted_full_units * self.item.uom
-            partial_servings = self.counted_partial_units * self.item.uom
-            return full_servings + partial_servings
+            return self.counted_full_units + self.counted_partial_units
         
         # Fallback for any uncategorized items
         full_servings = self.counted_full_units * self.item.uom
