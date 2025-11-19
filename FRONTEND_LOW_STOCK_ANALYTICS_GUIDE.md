@@ -46,6 +46,8 @@ The low-stock analytics endpoint uses **category-specific thresholds** and **uno
 3. ✅ Display whole numbers only (no decimals)
 4. ✅ Use `getUnitLabel()` helper to show correct units (kegs, bottles, boxes)
 5. ✅ Compare `unopened_units_count` with `low_stock_threshold` for status
+6. ✅ Implement period selector dropdown using `period_id` parameter
+7. ✅ Display which period is being analyzed (show `period_name` from response)
 
 **Example Analytics Display:**
 ```
@@ -64,15 +66,26 @@ GET /stock_tracker/{hotelSlug}/items/low-stock/
 ```
 
 ### Optional Query Parameters
+- `period_id` (integer): **Stock period ID to analyze** (optional)
+  - If provided: analyzes closing stock from that period's snapshots
+  - If omitted: analyzes current live stock
 - `threshold` (integer): Override all category-specific thresholds with a single value
 
-### Example Request
+### Example Requests
 ```javascript
-// Get low stock items with default category-specific thresholds
+// Get CURRENT low stock items (live data)
 const response = await fetch(`/stock_tracker/hotel-killarney/items/low-stock/`);
 
-// Or override with custom threshold (50 for all categories)
-const response = await fetch(`/stock_tracker/hotel-killarney/items/low-stock/?threshold=50`);
+// Get low stock items for a SPECIFIC PERIOD (historical analysis)
+const periodId = 42;
+const response = await fetch(
+  `/stock_tracker/hotel-killarney/items/low-stock/?period_id=${periodId}`
+);
+
+// Override threshold for a specific period
+const response = await fetch(
+  `/stock_tracker/hotel-killarney/items/low-stock/?period_id=${periodId}&threshold=100`
+);
 ```
 
 ---
@@ -98,7 +111,9 @@ Each low-stock item includes:
   "unopened_units_count": 2,
   "low_stock_threshold": "2.00",
   "unit_cost": "15.50",
-  "menu_price": "5.00"
+  "menu_price": "5.00",
+  "period_id": 42,
+  "period_name": "October 2024"
 }
 ```
 
@@ -212,11 +227,82 @@ The backend automatically applies these thresholds **in physical ordering units*
 
 ## Frontend Implementation Examples
 
-### 1. Basic Low Stock Display
+### 1. Period Selector Implementation
 
 ```javascript
-// Fetch low stock items
-async function fetchLowStock(hotelSlug) {
+// Fetch stock periods for dropdown
+async function fetchStockPeriods(hotelSlug) {
+  const response = await fetch(`/stock_tracker/${hotelSlug}/periods/`);
+  const periods = await response.json();
+  return periods;
+}
+
+// Fetch low stock items with optional period selection
+async function fetchLowStock(hotelSlug, periodId = null) {
+  let url = `/stock_tracker/${hotelSlug}/items/low-stock/`;
+  
+  if (periodId) {
+    url += `?period_id=${periodId}`;
+  }
+  
+  const response = await fetch(url);
+  const items = await response.json();
+  
+  return items;
+}
+
+// React/Vue component example
+function LowStockAnalytics({ hotelSlug }) {
+  const [periods, setPeriods] = useState([]);
+  const [selectedPeriod, setSelectedPeriod] = useState(null);
+  const [lowStockItems, setLowStockItems] = useState([]);
+  
+  useEffect(() => {
+    // Load periods on mount
+    fetchStockPeriods(hotelSlug).then(setPeriods);
+  }, [hotelSlug]);
+  
+  useEffect(() => {
+    // Load low stock when period changes
+    fetchLowStock(hotelSlug, selectedPeriod).then(setLowStockItems);
+  }, [hotelSlug, selectedPeriod]);
+  
+  return (
+    <div className="low-stock-analytics">
+      <div className="period-selector">
+        <label>Analyze Period:</label>
+        <select 
+          value={selectedPeriod || ''} 
+          onChange={(e) => setSelectedPeriod(e.target.value || null)}
+        >
+          <option value="">Current Stock</option>
+          {periods.map(period => (
+            <option key={period.id} value={period.id}>
+              {period.period_name}
+            </option>
+          ))}
+        </select>
+      </div>
+      
+      <div className="low-stock-list">
+        {lowStockItems.map(item => (
+          <div key={item.id} className="low-stock-item">
+            <span>{item.name}</span>
+            <span>{item.unopened_units_count} {getUnitLabel(item)}</span>
+            <span className="period-badge">{item.period_name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+```
+
+### 2. Basic Low Stock Display
+
+```javascript
+// Simple fetch without period selector
+async function fetchCurrentLowStock(hotelSlug) {
   const response = await fetch(`/stock_tracker/${hotelSlug}/items/low-stock/`);
   const items = await response.json();
   

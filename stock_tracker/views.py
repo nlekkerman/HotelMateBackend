@@ -1482,38 +1482,122 @@ class StockItemViewSet(viewsets.ModelViewSet):
         - Bottled Beer (B): 50 bottles
         - Soft Drinks: 50 bottles
         - Juices: 50 bottles
-        - Cordials: 50 bottles
-        - BIB: 50 boxes
-        - Bulk Juices: 50 bottles
+        - Cordials: 20 bottles
+        - BIB: 2 boxes
+        - Bulk Juices: 20 bottles
         
         Query params:
+        - period_id: Stock period ID to analyze (optional, defaults to current stock)
         - threshold: Override all thresholds with a single value (optional)
         
         Response includes:
-        - total_stock_in_physical_units: Current stock in ordering units
+        - unopened_units_count: Unopened units for analytics display
         - low_stock_threshold: Reorder level in same units
         - Both values are in physical units (bottles, kegs, boxes)
         """
-        # Get all items
-        all_items = self.get_queryset()
-        low_stock_items = []
+        from stock_tracker.models import StockSnapshot, StockPeriod
         
-        # Check if override threshold provided
+        # Check if analyzing a specific period
+        period_id = request.query_params.get('period_id')
         override_threshold = request.query_params.get('threshold')
         
-        for item in all_items:
-            # Use override or category-specific threshold
-            if override_threshold:
-                threshold = int(override_threshold)
-            else:
-                threshold = item.low_stock_threshold
-            
-            # Check if item is low stock using PHYSICAL UNITS
-            if item.total_stock_in_physical_units < threshold:
-                low_stock_items.append(item)
+        hotel = get_object_or_404(
+            Hotel,
+            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
+        )
         
-        serializer = self.get_serializer(low_stock_items, many=True)
-        return Response(serializer.data)
+        low_stock_data = []
+        
+        if period_id:
+            # Get snapshots for the specified period
+            period = get_object_or_404(StockPeriod, id=period_id, hotel=hotel)
+            snapshots = StockSnapshot.objects.filter(
+                hotel=hotel,
+                period=period
+            ).select_related('item', 'item__category')
+            
+            for snapshot in snapshots:
+                item = snapshot.item
+                
+                # Calculate unopened units from snapshot
+                unopened_count = self._calculate_unopened_from_snapshot(
+                    snapshot, item
+                )
+                
+                # Get threshold
+                threshold = (int(override_threshold) if override_threshold 
+                           else item.low_stock_threshold)
+                
+                # Check if low stock
+                if unopened_count < threshold:
+                    low_stock_data.append({
+                        'item': item,
+                        'unopened_units_count': unopened_count,
+                        'period_id': period.id,
+                        'period_name': period.period_name
+                    })
+        else:
+            # Use current stock from items
+            all_items = self.get_queryset()
+            
+            for item in all_items:
+                threshold = (int(override_threshold) if override_threshold 
+                           else item.low_stock_threshold)
+                
+                # Check if low stock using current unopened units
+                if item.unopened_units_count < threshold:
+                    low_stock_data.append({
+                        'item': item,
+                        'unopened_units_count': item.unopened_units_count,
+                        'period_id': None,
+                        'period_name': 'Current'
+                    })
+        
+        # Serialize items
+        items_to_serialize = [data['item'] for data in low_stock_data]
+        serializer = self.get_serializer(items_to_serialize, many=True)
+        
+        # Add period info to response
+        response_data = []
+        for idx, item_data in enumerate(serializer.data):
+            item_data['period_id'] = low_stock_data[idx]['period_id']
+            item_data['period_name'] = low_stock_data[idx]['period_name']
+            response_data.append(item_data)
+        
+        return Response(response_data)
+    
+    def _calculate_unopened_from_snapshot(self, snapshot, item):
+        """Calculate unopened units count from snapshot data"""
+        category = item.category_id
+        full = snapshot.closing_full_units
+        partial = snapshot.closing_partial_units
+        
+        # Draught: full kegs only
+        if category == 'D':
+            return int(full)
+        
+        # Minerals by subcategory
+        if category == 'M' and item.subcategory:
+            if item.subcategory in ['SOFT_DRINKS', 'CORDIALS']:
+                # Cases + loose bottles
+                return int(full * item.uom) + int(partial)
+            elif item.subcategory == 'JUICES':
+                # Cases + full bottles (ignore ml)
+                return int(full * 12) + int(partial)
+            elif item.subcategory in ['SYRUPS', 'BIB', 'BULK_JUICES']:
+                # Full units only
+                return int(full)
+        
+        # Bottled Beer: cases + loose
+        if category == 'B':
+            return int(full * item.uom) + int(partial)
+        
+        # Spirits, Wine: full bottles only
+        if category in ['S', 'W']:
+            return int(full)
+        
+        # Fallback
+        return int(full)
     
     @action(detail=True, methods=['get'])
     def history(self, request, pk=None, hotel_identifier=None):
