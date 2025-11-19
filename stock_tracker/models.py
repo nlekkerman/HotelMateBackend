@@ -854,6 +854,82 @@ class StockItem(models.Model):
         return self.current_full_units + self.current_partial_units
 
     @property
+    def unopened_units_count(self):
+        """
+        Get count of UNOPENED/FULL units only (for analytics display).
+        Returns whole numbers of unopened units per category.
+        
+        Partial unit handling by category:
+        - Draught (D): full kegs only (partial = opened keg pints, ignore)
+        - Bottled Beer (B): cases + loose bottles (partial = loose bottles, include)
+        - Soft Drinks: cases + loose bottles (partial = loose bottles, include)
+        - Cordials: cases + loose bottles (partial = loose bottles, include)
+        - Syrups: full bottles only (partial = opened bottle fraction, ignore)
+        - Juices: cases + full bottles (partial can have ml, take integer)
+        - BIB: full boxes only (partial = opened box fraction, ignore)
+        - Bulk Juices: full bottles only (partial = opened bottle, ignore)
+        - Spirits: full bottles only (partial = opened bottle fraction, ignore)
+        - Wine: full bottles only (partial = opened bottle fraction, ignore)
+        """
+        category = self.category_id
+        
+        # Draught: Return only full kegs (partial = pints in opened keg)
+        if category == 'D':
+            return int(self.current_full_units)
+        
+        # Minerals by subcategory
+        if category == 'M' and self.subcategory:
+            if self.subcategory == 'SOFT_DRINKS':
+                # Cases to bottles + loose bottles
+                # partial_units = loose bottles (e.g., 8 bottles)
+                bottles_from_cases = int(self.current_full_units * self.uom)
+                loose_bottles = int(self.current_partial_units)
+                return bottles_from_cases + loose_bottles
+            
+            elif self.subcategory == 'SYRUPS':
+                # Full bottles only (partial = 0.5 bottle opened)
+                return int(self.current_full_units)
+            
+            elif self.subcategory == 'JUICES':
+                # Cases to bottles + full bottles from partial
+                # partial_units can be 11.75 (11 bottles + 750ml)
+                bottles_from_cases = int(self.current_full_units * 12)
+                full_bottles_loose = int(self.current_partial_units)
+                return bottles_from_cases + full_bottles_loose
+            
+            elif self.subcategory == 'CORDIALS':
+                # Cases to bottles + loose bottles
+                bottles_from_cases = int(self.current_full_units * self.uom)
+                loose_bottles = int(self.current_partial_units)
+                return bottles_from_cases + loose_bottles
+            
+            elif self.subcategory == 'BIB':
+                # Full boxes only (partial = 0.5 box opened)
+                return int(self.current_full_units)
+            
+            elif self.subcategory == 'BULK_JUICES':
+                # Full bottles only (partial = 0.25 bottle opened)
+                return int(self.current_full_units)
+        
+        # Bottled Beer: Cases to bottles + loose bottles
+        # partial_units = loose bottles
+        if category == 'B':
+            bottles_from_cases = int(self.current_full_units * self.uom)
+            loose_bottles = int(self.current_partial_units)
+            return bottles_from_cases + loose_bottles
+        
+        # Spirits: Full bottles only (partial = 0.25 bottle opened)
+        if category == 'S':
+            return int(self.current_full_units)
+        
+        # Wine: Full bottles only (partial = 0.5 bottle opened)
+        if category == 'W':
+            return int(self.current_full_units)
+        
+        # Fallback: full units only
+        return int(self.current_full_units)
+
+    @property
     def low_stock_threshold(self):
         """
         Get category-specific low stock threshold in PHYSICAL UNITS.

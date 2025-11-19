@@ -557,6 +557,7 @@ class StockItemSerializer(serializers.ModelSerializer):
     total_stock_in_physical_units = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True
     )
+    unopened_units_count = serializers.IntegerField(read_only=True)
     low_stock_threshold = serializers.DecimalField(
         max_digits=10, decimal_places=2, read_only=True
     )
@@ -582,7 +583,8 @@ class StockItemSerializer(serializers.ModelSerializer):
             # Display helpers (deprecated - use snapshot data)
             'display_full_units', 'display_partial_units',
             # Low stock analysis (physical units for ordering)
-            'total_stock_in_physical_units', 'low_stock_threshold'
+            'total_stock_in_physical_units', 'unopened_units_count',
+            'low_stock_threshold'
         ]
         read_only_fields = ['hotel', 'created_at', 'updated_at']
 

@@ -1,7 +1,61 @@
 # Frontend Guide: Low Stock Analytics
 
+## 🚨 QUICK REFERENCE - Read This First!
+
+```javascript
+// ✅ CORRECT - Low Stock Analytics
+const currentStock = item.unopened_units_count;  // Whole numbers: 3 kegs, 50 bottles
+const threshold = item.low_stock_threshold;       // Reorder level: 2, 10, 50, etc.
+const isLowStock = currentStock < threshold;
+
+// ❌ WRONG - Don't use these for low stock!
+const wrong1 = item.total_stock_in_servings;      // This is for menu sales
+const wrong2 = item.total_stock_in_physical_units; // This has decimals (2.5)
+const wrong3 = item.current_full_units;            // This is raw stocktake data
+```
+
+**Three Fields, Three Purposes:**
+- `unopened_units_count` → **Low Stock Analytics** (this guide)
+- `total_stock_in_servings` → Menu/Sales Calculations
+- `current_full_units/partial_units` → Stocktake Entry
+
+---
+
+## ⚠️ IMPORTANT: Use This Guide ONLY for Low Stock Analytics
+
+**This guide is specifically for the low-stock analytics dashboard.**
+
+For other features, use different fields:
+- **Stocktake counting**: Use `current_full_units` and `current_partial_units`
+- **Menu sales calculations**: Use `total_stock_in_servings`
+- **Revenue analysis**: Use `total_stock_value`
+
+**Do NOT mix these fields!** Low stock analytics requires special handling to show clean unit counts.
+
+---
+
 ## Overview
-The low-stock analytics endpoint now uses **category-specific thresholds** that account for the unit conversions (servings → bottles, etc.) implemented during the migration.
+The low-stock analytics endpoint uses **category-specific thresholds** and **unopened unit counts** for clean, whole-number displays suitable for purchasing decisions.
+
+## ✅ Quick Implementation Checklist
+
+**For Low Stock Analytics Dashboard, you MUST:**
+
+1. ✅ Use `unopened_units_count` field (NOT `total_stock_in_servings`)
+2. ✅ Use `low_stock_threshold` field for reorder levels
+3. ✅ Display whole numbers only (no decimals)
+4. ✅ Use `getUnitLabel()` helper to show correct units (kegs, bottles, boxes)
+5. ✅ Compare `unopened_units_count` with `low_stock_threshold` for status
+
+**Example Analytics Display:**
+```
+Item: Guinness
+Current Stock: 3 kegs          ← unopened_units_count
+Threshold: 2 kegs              ← low_stock_threshold
+Status: OK ✅
+```
+
+---
 
 ## API Endpoint
 
@@ -40,20 +94,98 @@ Each low-stock item includes:
   "current_full_units": "2.00",
   "current_partial_units": "0.50",
   "total_stock_in_servings": "70.00",
-  "low_stock_threshold": "56.00",
+  "total_stock_in_physical_units": "2.50",
+  "unopened_units_count": 2,
+  "low_stock_threshold": "2.00",
   "unit_cost": "15.50",
   "menu_price": "5.00"
 }
 ```
 
-### Key Fields for Frontend
+### 🎯 Key Fields for Low Stock Analytics
 
-| Field | Description | Frontend Use |
-|-------|-------------|--------------|
-| `total_stock_in_servings` | Current stock in servings/units | Display as "Current Stock" |
-| `low_stock_threshold` | Category-specific threshold | Display as "Reorder Level" |
-| `category_code` | Category code (D, B, M, S, W) | Group items by category |
-| `subcategory` | Minerals subcategory (SYRUPS, JUICES, etc.) | Display subcategory badge |
+| Field | **Use for Low Stock?** | Description |
+|-------|:----------------------:|-------------|
+| `unopened_units_count` | ✅ **YES** | Unopened units only - shows clean whole numbers (2 kegs, 50 bottles) |
+| `low_stock_threshold` | ✅ **YES** | Reorder level in same units as unopened_units_count |
+| `category_code` | ✅ **YES** | Group items by category (D, B, M, S, W) |
+| `subcategory` | ✅ **YES** | Display Minerals subcategory badges |
+| `total_stock_in_physical_units` | ❌ **NO** | Don't use - includes decimals (2.5 bottles) |
+| `total_stock_in_servings` | ❌ **NO** | Don't use - this is for menu/sales, not ordering |
+| `current_full_units` | ❌ **NO** | Don't use - this is for stocktake entry |
+| `current_partial_units` | ❌ **NO** | Don't use - this is for stocktake entry |
+
+---
+
+## 📊 How `unopened_units_count` Works
+
+This field intelligently handles partial units based on category type:
+
+### Categories That IGNORE Partial (Opened Units):
+Items that are opened/in-use - we only count full, unopened units:
+
+| Category | What Partial Represents | Count for Analytics |
+|----------|-------------------------|---------------------|
+| **Draught (D)** | Pints in opened keg (e.g., 25 pints) | Full kegs only |
+| **Spirits (S)** | Fraction of opened bottle (e.g., 0.5) | Full bottles only |
+| **Wine (W)** | Fraction of opened bottle (e.g., 0.75) | Full bottles only |
+| **Syrups** | Fraction of opened bottle (e.g., 0.5) | Full bottles only |
+| **BIB** | Fraction of opened box (e.g., 0.5) | Full boxes only |
+| **Bulk Juices** | Fraction of opened bottle (e.g., 0.25) | Full bottles only |
+
+### Categories That INCLUDE Partial (Loose Unopened Units):
+Items where partial means loose but still unopened:
+
+| Category | What Partial Represents | Count for Analytics |
+|----------|-------------------------|---------------------|
+| **Bottled Beer (B)** | Loose bottles not in case (e.g., 8 bottles) | Cases + loose bottles |
+| **Soft Drinks** | Loose bottles not in case (e.g., 10 bottles) | Cases + loose bottles |
+| **Cordials** | Loose bottles not in case (e.g., 7 bottles) | Cases + loose bottles |
+| **Juices** | Bottles with ml (e.g., 11.75 = 11 + 750ml) | Full bottles only (integer) |
+
+### Real Examples:
+
+```javascript
+// Example 1: Draught Beer
+// Storage: 3 kegs + 25 pints (opened keg)
+{
+  current_full_units: "3.00",
+  current_partial_units: "25.00",
+  unopened_units_count: 3  // ✅ Only 3 full kegs
+}
+
+// Example 2: Bottled Beer
+// Storage: 4 cases + 8 loose bottles
+{
+  current_full_units: "4.00",
+  current_partial_units: "8.00",
+  unopened_units_count: 56  // ✅ (4×12) + 8 = 56 bottles
+}
+
+// Example 3: Spirits
+// Storage: 5 bottles + 0.25 (opened bottle)
+{
+  current_full_units: "5.00",
+  current_partial_units: "0.25",
+  unopened_units_count: 5  // ✅ Only 5 full bottles
+}
+
+// Example 4: Wine
+// Storage: 12 bottles + 0.5 (opened bottle)
+{
+  current_full_units: "12.00",
+  current_partial_units: "0.50",
+  unopened_units_count: 12  // ✅ Only 12 full bottles
+}
+
+// Example 5: Juices
+// Storage: 2 cases + 11.75 bottles (11 bottles + 750ml)
+{
+  current_full_units: "2.00",
+  current_partial_units: "11.75",
+  unopened_units_count: 35  // ✅ (2×12) + 11 = 35 bottles
+}
+```
 
 ---
 
@@ -115,7 +247,7 @@ function renderLowStockTable(items) {
               )}
             </td>
             <td>
-              {parseFloat(item.total_stock_in_servings).toFixed(2)}
+              {item.unopened_units_count}
               <span className="unit">{getUnitLabel(item)}</span>
             </td>
             <td>
@@ -203,7 +335,7 @@ function renderGroupedLowStock(items) {
                 <div className="item-name">{item.name}</div>
                 <div className="stock-info">
                   <span className="current">
-                    {parseFloat(item.total_stock_in_servings).toFixed(2)}
+                    {item.unopened_units_count}
                   </span>
                   <span className="separator">/</span>
                   <span className="threshold">
@@ -225,7 +357,7 @@ function renderGroupedLowStock(items) {
 
 ```javascript
 function getStockLevel(item) {
-  const current = parseFloat(item.total_stock_in_servings);
+  const current = item.unopened_units_count;
   const threshold = parseFloat(item.low_stock_threshold);
   const percentage = (current / threshold) * 100;
   
@@ -236,7 +368,7 @@ function getStockLevel(item) {
 
 function StockIndicator({ item }) {
   const { level, color } = getStockLevel(item);
-  const current = parseFloat(item.total_stock_in_servings);
+  const current = item.unopened_units_count;
   const threshold = parseFloat(item.low_stock_threshold);
   const percentage = Math.min((current / threshold) * 100, 100);
   
@@ -252,7 +384,7 @@ function StockIndicator({ item }) {
         />
       </div>
       <div className="stock-text">
-        {current.toFixed(2)} / {threshold.toFixed(0)} {getUnitLabel(item)}
+        {current} / {threshold.toFixed(0)} {getUnitLabel(item)}
       </div>
       <span className={`badge badge-${level}`}>
         {level.toUpperCase()}
@@ -276,7 +408,7 @@ function LowStockAlert({ hotelSlug }) {
       
       // Filter critical items (< 50% of threshold)
       const critical = items.filter(item => {
-        const current = parseFloat(item.total_stock_in_servings);
+        const current = item.unopened_units_count;
         const threshold = parseFloat(item.low_stock_threshold);
         return (current / threshold) < 0.5;
       });
@@ -311,7 +443,7 @@ function LowStockAlert({ hotelSlug }) {
                 <li key={item.id}>
                   <span className="item-name">{item.name}</span>
                   <span className="stock-level">
-                    {parseFloat(item.total_stock_in_servings).toFixed(2)} {getUnitLabel(item)}
+                    {item.unopened_units_count} {getUnitLabel(item)}
                   </span>
                 </li>
               ))}
@@ -338,8 +470,8 @@ The backend automatically applies appropriate thresholds based on category and u
 ### 2. **Display Units Correctly**
 Always show the appropriate unit label (pints, bottles, shots, glasses, servings) based on category using the `getUnitLabel()` helper.
 
-### 3. **Threshold is Already in Same Units as Current Stock**
-Both `total_stock_in_servings` and `low_stock_threshold` are in the same units, so they can be directly compared.
+### 3. **Use Unopened Units for Analytics Display**
+`unopened_units_count` shows only full/unopened units (no partials) and can be directly compared with `low_stock_threshold`. This gives clean whole numbers for analytics dashboards.
 
 ### 4. **Override Threshold (Optional)**
 If you want to let users temporarily override thresholds:
@@ -355,8 +487,8 @@ Note: This overrides ALL category-specific thresholds with a single value.
 Sort by urgency (lowest percentage first):
 ```javascript
 const sortedItems = items.sort((a, b) => {
-  const aPercent = parseFloat(a.total_stock_in_servings) / parseFloat(a.low_stock_threshold);
-  const bPercent = parseFloat(b.total_stock_in_servings) / parseFloat(b.low_stock_threshold);
+  const aPercent = a.unopened_units_count / parseFloat(a.low_stock_threshold);
+  const bPercent = b.unopened_units_count / parseFloat(b.low_stock_threshold);
   return aPercent - bPercent;
 });
 ```
@@ -476,10 +608,48 @@ curl http://localhost:8000/stock_tracker/hotel-killarney/items/low-stock/?thresh
 
 ---
 
-## Summary
+## 🎯 Final Summary: LOW STOCK ANALYTICS ONLY
+
+### What This Guide Is For:
+✅ **Low stock analytics dashboard ONLY**  
+✅ **Purchasing/ordering decisions**  
+✅ **Showing which items need reordering**  
+
+### What This Guide Is NOT For:
+❌ Stocktake data entry  
+❌ Menu/sales calculations  
+❌ Revenue analysis  
+❌ Inventory valuation  
+
+---
+
+## Key Implementation Rules
+
+### ✅ DO:
+- Use `unopened_units_count` for current stock display
+- Use `low_stock_threshold` for reorder levels
+- Show whole numbers only (no decimals)
+- Use category-specific unit labels (kegs, bottles, boxes)
+- Compare unopened units with threshold for status
+
+### ❌ DON'T:
+- Use `total_stock_in_servings` (wrong units for ordering)
+- Use `total_stock_in_physical_units` (has decimals)
+- Use `current_full_units` or `current_partial_units` (raw stocktake data)
+- Mix fields from different purposes
+- Show decimal values in analytics (2.5 kegs ❌ → 2 kegs ✅)
+
+---
+
+## Technical Summary
 
 ✅ **Backend automatically applies category-specific thresholds**  
-✅ **Each item includes its threshold in the response**  
-✅ **Units are consistent between current stock and threshold**  
-✅ **Frontend just needs to display the data with correct unit labels**  
-✅ **Hotel isolation is automatic (no cross-hotel data leaks)**
+✅ **Each item includes `unopened_units_count` and `low_stock_threshold`**  
+✅ **Units are consistent and whole numbers**  
+✅ **Partial units handled intelligently per category**  
+✅ **Hotel isolation automatic (no cross-hotel data leaks)**  
+
+**Questions?** Check the examples above or test with:
+```bash
+curl http://localhost:8000/stock_tracker/hotel-killarney/items/low-stock/
+```
