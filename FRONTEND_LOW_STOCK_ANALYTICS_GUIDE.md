@@ -134,47 +134,42 @@ Each low-stock item includes:
 
 ## 📊 How `unopened_units_count` Works
 
-This field intelligently handles partial units based on category type:
+**FOR LOW STOCK ANALYTICS: This field counts ONLY full/unopened units across ALL categories.**
 
-### Categories That IGNORE Partial (Opened Units):
-Items that are opened/in-use - we only count full, unopened units:
+**Partial units (decimals like 0.5, 0.25, etc.) represent opened/in-use items and are IGNORED for low stock analytics.**
 
-| Category | What Partial Represents | Count for Analytics |
-|----------|-------------------------|---------------------|
-| **Draught (D)** | Pints in opened keg (e.g., 25 pints) | Full kegs only |
-| **Spirits (S)** | Fraction of opened bottle (e.g., 0.5) | Full bottles only |
-| **Wine (W)** | Fraction of opened bottle (e.g., 0.75) | Full bottles only |
-| **Syrups** | Fraction of opened bottle (e.g., 0.5) | Full bottles only |
-| **BIB** | Fraction of opened box (e.g., 0.5) | Full boxes only |
-| **Bulk Juices** | Fraction of opened bottle (e.g., 0.25) | Full bottles only |
+### All Categories - Full Units Only:
 
-### Categories That INCLUDE Partial (Loose Unopened Units):
-Items where partial means loose but still unopened:
-
-| Category | What Partial Represents | Count for Analytics |
-|----------|-------------------------|---------------------|
-| **Bottled Beer (B)** | Loose bottles not in case (e.g., 8 bottles) | Cases + loose bottles |
-| **Soft Drinks** | Loose bottles not in case (e.g., 10 bottles) | Cases + loose bottles |
-| **Cordials** | Loose bottles not in case (e.g., 7 bottles) | Cases + loose bottles |
-| **Juices** | Bottles with ml (e.g., 11.75 = 11 + 750ml) | Full bottles only (integer) |
+| Category | What We Count | What Partial Represents (IGNORED) |
+|----------|---------------|-----------------------------------|
+| **Draught (D)** | Full kegs only | Opened keg pints (e.g., 25.00 pints) |
+| **Bottled Beer (B)** | Full cases converted to bottles | Opened case (e.g., 0.5 case) |
+| **Soft Drinks** | Full cases converted to bottles | Opened case (e.g., 0.3 case) |
+| **Cordials** | Full cases converted to bottles | Opened case (e.g., 0.6 case) |
+| **Juices** | Full cases converted to bottles | Opened bottles/ml (e.g., 11.75) |
+| **Syrups** | Full bottles only | Opened bottle (e.g., 0.5 bottle) |
+| **BIB** | Full boxes only | Opened box (e.g., 0.5 box) |
+| **Bulk Juices** | Full bottles only | Opened bottle (e.g., 0.25 bottle) |
+| **Spirits (S)** | Full bottles only | Opened bottle (e.g., 0.25 bottle) |
+| **Wine (W)** | Full bottles only | Opened bottle (e.g., 0.5 bottle) |
 
 ### Real Examples:
 
 ```javascript
 // Example 1: Draught Beer
-// Storage: 3 kegs + 25 pints (opened keg)
+// Storage: 3 kegs + 25.00 pints (opened keg)
 {
   current_full_units: "3.00",
   current_partial_units: "25.00",
-  unopened_units_count: 3  // ✅ Only 3 full kegs
+  unopened_units_count: 3  // ✅ Only 3 full kegs (partial ignored)
 }
 
 // Example 2: Bottled Beer
-// Storage: 4 cases + 8 loose bottles
+// Storage: 4 cases + 0.5 (opened case)
 {
   current_full_units: "4.00",
-  current_partial_units: "8.00",
-  unopened_units_count: 56  // ✅ (4×12) + 8 = 56 bottles
+  current_partial_units: "0.50",
+  unopened_units_count: 48  // ✅ 4×12 = 48 bottles (partial ignored)
 }
 
 // Example 3: Spirits
@@ -182,7 +177,7 @@ Items where partial means loose but still unopened:
 {
   current_full_units: "5.00",
   current_partial_units: "0.25",
-  unopened_units_count: 5  // ✅ Only 5 full bottles
+  unopened_units_count: 5  // ✅ Only 5 full bottles (partial ignored)
 }
 
 // Example 4: Wine
@@ -190,15 +185,23 @@ Items where partial means loose but still unopened:
 {
   current_full_units: "12.00",
   current_partial_units: "0.50",
-  unopened_units_count: 12  // ✅ Only 12 full bottles
+  unopened_units_count: 12  // ✅ Only 12 full bottles (partial ignored)
 }
 
 // Example 5: Juices
-// Storage: 2 cases + 11.75 bottles (11 bottles + 750ml)
+// Storage: 2 cases + 11.75 (opened bottles/ml)
 {
   current_full_units: "2.00",
   current_partial_units: "11.75",
-  unopened_units_count: 35  // ✅ (2×12) + 11 = 35 bottles
+  unopened_units_count: 24  // ✅ 2×12 = 24 bottles (partial ignored)
+}
+
+// Example 6: Soft Drinks
+// Storage: 5 cases + 0.3 (opened case)
+{
+  current_full_units: "5.00",
+  current_partial_units: "0.30",
+  unopened_units_count: 60  // ✅ 5×12 = 60 bottles (partial ignored)
 }
 ```
 

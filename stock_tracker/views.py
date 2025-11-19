@@ -1567,10 +1567,13 @@ class StockItemViewSet(viewsets.ModelViewSet):
         return Response(response_data)
     
     def _calculate_unopened_from_snapshot(self, snapshot, item):
-        """Calculate unopened units count from snapshot data"""
+        """
+        Calculate unopened units count from snapshot data.
+        FOR LOW STOCK ANALYTICS: Only counts full/unopened units.
+        Partial units represent opened items and are IGNORED.
+        """
         category = item.category_id
         full = snapshot.closing_full_units
-        partial = snapshot.closing_partial_units
         
         # Draught: full kegs only
         if category == 'D':
@@ -1579,18 +1582,18 @@ class StockItemViewSet(viewsets.ModelViewSet):
         # Minerals by subcategory
         if category == 'M' and item.subcategory:
             if item.subcategory in ['SOFT_DRINKS', 'CORDIALS']:
-                # Cases + loose bottles
-                return int(full * item.uom) + int(partial)
+                # Full cases only, converted to bottles
+                return int(full * item.uom)
             elif item.subcategory == 'JUICES':
-                # Cases + full bottles (ignore ml)
-                return int(full * 12) + int(partial)
+                # Full cases only, converted to bottles
+                return int(full * 12)
             elif item.subcategory in ['SYRUPS', 'BIB', 'BULK_JUICES']:
                 # Full units only
                 return int(full)
         
-        # Bottled Beer: cases + loose
+        # Bottled Beer: full cases only, converted to bottles
         if category == 'B':
-            return int(full * item.uom) + int(partial)
+            return int(full * item.uom)
         
         # Spirits, Wine: full bottles only
         if category in ['S', 'W']:
