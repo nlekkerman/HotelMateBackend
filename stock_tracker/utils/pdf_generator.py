@@ -177,6 +177,16 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
                 f"€{float(cat['variance_value']):,.2f}"
             ])
             
+            # Add red color for negative variance quantity
+            var_qty = float(cat['variance_qty'])
+            if var_qty < 0:
+                variance_styles.append(
+                    ('TEXTCOLOR', (5, row_num), (5, row_num), colors.red)
+                )
+                variance_styles.append(
+                    ('FONTNAME', (5, row_num), (5, row_num), 'Helvetica-Bold')
+                )
+            
             # Add red color for negative variance values
             var_value = float(cat['variance_value'])
             if var_value < 0:
@@ -265,6 +275,16 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
                 f"{float(line.variance_qty):,.1f}",
                 f"€{float(line.variance_value):,.2f}"
             ])
+            
+            # Apply red color to negative variance quantity
+            var_qty = float(line.variance_qty)
+            if var_qty < 0:
+                variance_styles.append(
+                    ('TEXTCOLOR', (6, row_num), (6, row_num), colors.red)
+                )
+                variance_styles.append(
+                    ('FONTNAME', (6, row_num), (6, row_num), 'Helvetica-Bold')
+                )
             
             # Apply red color to negative variance values
             var_value = float(line.variance_value)
