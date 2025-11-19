@@ -1468,12 +1468,17 @@ class StockSnapshot(models.Model):
     def calculate_opening_display_full(self, opening_servings):
         """
         Calculate display full units for opening stock
-        - Draught (D): kegs
-        - Dozen: cases
-        - BIB (LT): boxes
-        - Others (Spirits, Wine, Individual): full bottles/units
+        
+        For UOM=1 (bottles as base): Returns combined total
+          - Spirits, Wines, Syrups, BIB, Bulk Juices
+          - Returns full + fractional combined (e.g., 157.50)
+        
+        For UOM>1 (cases/kegs as base): Returns full units only
+          - Draught (D): kegs
+          - Bottled Beer with Doz: cases
+          - Soft Drinks: cases
         """
-        from decimal import Decimal
+        from decimal import Decimal, ROUND_HALF_UP
         
         if not opening_servings:
             return 0
@@ -1485,6 +1490,14 @@ class StockSnapshot(models.Model):
         if uom == 0:
             return 0
         
+        # SPECIAL CASE: UOM=1 means bottles/units are the base
+        # Return combined total (full + partial)
+        if uom == Decimal('1'):
+            total_units = (servings / uom).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            return total_units
+        
         # Draught: convert pints to kegs
         if category == 'D':
             kegs = int(servings / uom)
@@ -1495,22 +1508,21 @@ class StockSnapshot(models.Model):
             dozens = int(servings / uom)
             return dozens
         
-        # BIB (Bag in Box): convert liters to boxes
-        if self.item.size and 'LT' in self.item.size.upper():
-            boxes = int(servings / uom)
-            return boxes
-        
-        # Spirits, Wine, Individual Minerals (Syrups, etc): full bottles/units
-        # For these, closing_full_units represents the actual full bottles
-        return int(self.closing_full_units)
+        # Other cases/kegs: full units
+        return int(servings / uom)
     
     def calculate_opening_display_partial(self, opening_servings):
         """
         Calculate display partial units for opening stock
-        - Draught (D): remaining pints after full kegs
-        - Dozen: remaining bottles after full cases
-        - BIB (LT): remaining liters after full boxes
-        - Others (Spirits, Wine, Individual): fractional part (0.00-0.99)
+        
+        For UOM=1 (bottles as base): Returns 0
+          - Total is shown in full_units
+          - Spirits, Wines, Syrups, BIB, Bulk Juices
+        
+        For UOM>1 (cases/kegs as base): Returns partial units
+          - Draught (D): remaining pints after full kegs
+          - Bottled Beer with Doz: remaining bottles after full cases
+          - Soft Drinks: remaining bottles after full cases
         """
         from decimal import Decimal
         
@@ -1524,6 +1536,11 @@ class StockSnapshot(models.Model):
         if uom == 0:
             return servings
         
+        # SPECIAL CASE: UOM=1 means bottles/units are the base
+        # Return 0 (total is shown in full_units)
+        if uom == Decimal('1'):
+            return 0
+        
         # Draught: remaining pints after full kegs
         if category == 'D':
             remaining = servings % uom
@@ -1534,14 +1551,9 @@ class StockSnapshot(models.Model):
             remaining = servings % uom
             return remaining
         
-        # BIB (Bag in Box): remaining liters after full boxes
-        if self.item.size and 'LT' in self.item.size.upper():
-            remaining = servings % uom
-            return remaining
-        
-        # Spirits, Wine, Individual Minerals (Syrups, etc): fractional bottles
-        # For these, closing_partial_units represents the fractional part
-        return self.closing_partial_units
+        # Other cases: remaining units after full cases/kegs
+        remaining = servings % uom
+        return remaining
 
 
 class StockMovement(models.Model):

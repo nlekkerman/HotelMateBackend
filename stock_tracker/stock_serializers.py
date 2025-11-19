@@ -910,17 +910,27 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         Calculate display full and partial units from servings.
         Returns (full_units, partial_units) as strings.
         
+        For items with UOM=1 (bottles as base unit):
+          Shows combined total (e.g., "157.50") in full_units, partial_units="0"
+          Applies to: Spirits, Wines, Syrups, BIB, Bulk Juices
+        
+        For items with UOM>1 (cases, kegs as base unit):
+          Shows split (e.g., "13" cases + "6" bottles)
+          Applies to: Draught Beer, Bottled Beer, Soft Drinks
+        
         Minerals subcategories:
           SOFT_DRINKS: servings(bottles) → cases + bottles
-          SYRUPS: servings → bottles + ml
+          SYRUPS: servings → total bottles (UOM=1)
           JUICES: servings → bottles + ml
           CORDIALS: servings(bottles) → cases + bottles
-          BIB: servings → boxes + liters
+          BIB: servings → total boxes (UOM=1)
+          BULK_JUICES: servings → total bottles (UOM=1)
         
         Other categories:
           Draught: pints → kegs + pints
           Bottled: bottles → cases + bottles
-          Spirits/Wine: shots/glasses → bottles + fractional
+          Spirits: shots → total bottles (UOM=1)
+          Wine: glasses → total bottles (UOM=1)
         """
         from decimal import Decimal, ROUND_HALF_UP
         from stock_tracker.models import (
@@ -934,6 +944,17 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
         
         servings_decimal = Decimal(str(servings))
         category = item.category.code
+        uom = Decimal(str(item.uom))
+        
+        # SPECIAL CASE: If UOM=1, show total in full_units (no split)
+        # This applies to: Spirits, Wines, Syrups, BIB, Bulk Juices
+        if uom == Decimal('1'):
+            total_units = (servings_decimal / uom).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP
+            )
+            return str(total_units), "0"
+        
+        # Continue with split logic for UOM>1
         
         # Handle Minerals subcategories
         if category == 'M' and item.subcategory:
@@ -945,23 +966,19 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 return str(full), str(partial)
             
             elif item.subcategory == 'SYRUPS':
-                # servings → bottles (split into full + fractional)
-                # full_units = whole bottles, partial_units = decimal fraction
+                # SYRUPS now have UOM=1, handled by UOM=1 check above
+                # This code should not be reached, but keep for safety
                 total_ml = servings_decimal * SYRUP_SERVING_SIZE
-                uom = Decimal(str(item.uom))  # bottle size in ml
+                uom_ml = Decimal(str(item.uom))  # bottle size in ml
                 
                 # Calculate total bottles as decimal
-                bottles_decimal = total_ml / uom
-                
-                # Split into full bottles + fractional
-                full_bottles = int(bottles_decimal)
-                fractional = bottles_decimal - full_bottles
-                fractional_rounded = fractional.quantize(
-                    Decimal('0.001'), rounding=ROUND_HALF_UP
+                bottles_decimal = total_ml / uom_ml
+                bottles_rounded = bottles_decimal.quantize(
+                    Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
                 
-                # Return: full_units = whole bottles, partial_units = fraction
-                return str(full_bottles), str(fractional_rounded)
+                # Return total in full_units, 0 in partial
+                return str(bottles_rounded), "0"
             
             elif item.subcategory == 'JUICES':
                 # servings → cases + bottles (with decimal)
@@ -998,27 +1015,25 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
                 return str(full), str(partial)
             
             elif item.subcategory == 'BIB':
-                # BIB: Storage only (no serving conversion)
+                # BIB now has UOM=1, handled by UOM=1 check above
+                # This code should not be reached, but keep for safety
                 # servings_decimal = total boxes (e.g., 1.5)
-                full = int(servings_decimal)  # whole boxes
-                partial = servings_decimal - full  # fraction
-                partial_rounded = partial.quantize(
+                boxes_rounded = servings_decimal.quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
-                return str(full), str(partial_rounded)
+                return str(boxes_rounded), "0"
             
             elif item.subcategory == 'BULK_JUICES':
+                # BULK_JUICES now has UOM=1, handled by UOM=1 check above
+                # This code should not be reached, but keep for safety
                 # servings = bottles (already as bottles)
-                # Split into whole + fractional
-                full_bottles = int(servings_decimal)
-                partial_bottles = servings_decimal - full_bottles
-                partial_rounded = partial_bottles.quantize(
+                bottles_rounded = servings_decimal.quantize(
                     Decimal('0.01'), rounding=ROUND_HALF_UP
                 )
-                return str(full_bottles), str(partial_rounded)
+                return str(bottles_rounded), "0"
         
-        # Handle other categories
-        uom = Decimal(str(item.uom))
+        # Handle other categories (Draught, Bottled Beer with UOM>1)
+        # Note: Spirits/Wine with UOM=1 are handled above
         full = int(servings_decimal / uom)
         partial = servings_decimal % uom
         
@@ -1032,7 +1047,7 @@ class StocktakeLineSerializer(serializers.ModelSerializer):
             )
             partial_display = str(partial_rounded)
         else:
-            # Spirits/Wine: bottles + fractional (2 decimals)
+            # Other categories: show split (2 decimals)
             partial_rounded = partial.quantize(
                 Decimal('0.01'), rounding=ROUND_HALF_UP
             )
