@@ -125,10 +125,8 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
     
     summary_table = Table(summary_data, colWidths=[3*inch, 3*inch])
     
-    # Apply colors: green for positive variance, red for negative
-    variance_color = colors.green if total_variance_value >= 0 else colors.red
-    
-    summary_table.setStyle(TableStyle([
+    # Apply colors: red for negative values
+    summary_styles = [
         ('BACKGROUND', (0, 0), (0, -1), colors.HexColor('#e8f4f8')),
         ('TEXTCOLOR', (0, 0), (-1, -1), colors.black),
         ('ALIGN', (0, 0), (0, -1), 'RIGHT'),
@@ -139,10 +137,16 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
         ('LEFTPADDING', (0, 0), (-1, -1), 8),
         ('RIGHTPADDING', (0, 0), (-1, -1), 8),
-        # Apply color to variance row (row 3, index 3)
-        ('TEXTCOLOR', (1, 3), (1, 3), variance_color),
-        ('FONTNAME', (1, 3), (1, 3), 'Helvetica-Bold'),
-    ]))
+    ]
+    
+    # Apply red color to variance if negative
+    if total_variance_value < 0:
+        summary_styles.extend([
+            ('TEXTCOLOR', (1, 3), (1, 3), colors.red),
+            ('FONTNAME', (1, 3), (1, 3), 'Helvetica-Bold'),
+        ])
+    
+    summary_table.setStyle(TableStyle(summary_styles))
     elements.append(summary_table)
     elements.append(Spacer(1, 0.3*inch))
     
@@ -173,15 +177,15 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
                 f"€{float(cat['variance_value']):,.2f}"
             ])
             
-            # Add color for variance value (last column)
+            # Add red color for negative variance values
             var_value = float(cat['variance_value'])
-            var_color = colors.green if var_value >= 0 else colors.red
-            variance_styles.append(
-                ('TEXTCOLOR', (6, row_num), (6, row_num), var_color)
-            )
-            variance_styles.append(
-                ('FONTNAME', (6, row_num), (6, row_num), 'Helvetica-Bold')
-            )
+            if var_value < 0:
+                variance_styles.append(
+                    ('TEXTCOLOR', (6, row_num), (6, row_num), colors.red)
+                )
+                variance_styles.append(
+                    ('FONTNAME', (6, row_num), (6, row_num), 'Helvetica-Bold')
+                )
             row_num += 1
     
     category_table = Table(
@@ -262,15 +266,15 @@ def generate_stocktake_pdf(stocktake, include_variance=True):
                 f"€{float(line.variance_value):,.2f}"
             ])
             
-            # Color code variance values (last column)
+            # Apply red color to negative variance values
             var_value = float(line.variance_value)
-            var_color = colors.green if var_value >= 0 else colors.red
-            variance_styles.append(
-                ('TEXTCOLOR', (7, row_num), (7, row_num), var_color)
-            )
-            variance_styles.append(
-                ('FONTNAME', (7, row_num), (7, row_num), 'Helvetica-Bold')
-            )
+            if var_value < 0:
+                variance_styles.append(
+                    ('TEXTCOLOR', (7, row_num), (7, row_num), colors.red)
+                )
+                variance_styles.append(
+                    ('FONTNAME', (7, row_num), (7, row_num), 'Helvetica-Bold')
+                )
             row_num += 1
         
         items_table = Table(

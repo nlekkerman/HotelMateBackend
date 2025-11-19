@@ -37,6 +37,7 @@ def generate_stocktake_excel(stocktake):
     header_font = Font(bold=True, color="FFFFFF", size=11)
     title_font = Font(bold=True, size=14)
     bold_font = Font(bold=True)
+    red_font = Font(bold=True, color="FF0000")  # Red for negative values
     currency_format = '€#,##0.00'
     number_format = '#,##0.00'
     
@@ -107,10 +108,13 @@ def generate_stocktake_excel(stocktake):
     row += 1
     
     ws_summary[f'A{row}'] = "Variance"
-    ws_summary[f'B{row}'] = \
-        sum(line.variance_value for line in lines)
+    total_variance = sum(line.variance_value for line in lines)
+    ws_summary[f'B{row}'] = total_variance
     ws_summary[f'B{row}'].number_format = currency_format
     ws_summary[f'A{row}'].font = bold_font
+    # Apply red color if negative
+    if total_variance < 0:
+        ws_summary[f'B{row}'].font = red_font
     row += 2
     
     # Profitability metrics
@@ -198,12 +202,15 @@ def generate_stocktake_excel(stocktake):
             ws_summary.cell(
                 row=row, column=6
             ).border = thin_border
-            ws_summary.cell(
-                row=row, column=7, value=float(cat['variance_value'])
-            ).number_format = currency_format
-            ws_summary.cell(
-                row=row, column=7
-            ).border = thin_border
+            variance_val = float(cat['variance_value'])
+            variance_cell = ws_summary.cell(
+                row=row, column=7, value=variance_val
+            )
+            variance_cell.number_format = currency_format
+            variance_cell.border = thin_border
+            # Apply red color if negative
+            if variance_val < 0:
+                variance_cell.font = red_font
             
             row += 1
     
@@ -306,12 +313,15 @@ def generate_stocktake_excel(stocktake):
         ws_items.cell(
             row=row, column=12
         ).border = thin_border
-        ws_items.cell(
-            row=row, column=13, value=float(line.variance_value)
-        ).number_format = currency_format
-        ws_items.cell(
-            row=row, column=13
-        ).border = thin_border
+        variance_val = float(line.variance_value)
+        variance_cell = ws_items.cell(
+            row=row, column=13, value=variance_val
+        )
+        variance_cell.number_format = currency_format
+        variance_cell.border = thin_border
+        # Apply red color if negative
+        if variance_val < 0:
+            variance_cell.font = red_font
         
         row += 1
     
@@ -378,24 +388,35 @@ def generate_stocktake_excel(stocktake):
         ws_variance.cell(
             row=row, column=5
         ).border = thin_border
-        ws_variance.cell(
-            row=row, column=6, value=float(line.variance_qty)
-        ).number_format = number_format
-        ws_variance.cell(
-            row=row, column=6
-        ).border = thin_border
-        ws_variance.cell(
-            row=row, column=7, value=float(line.variance_value)
-        ).number_format = currency_format
-        ws_variance.cell(
-            row=row, column=7
-        ).border = thin_border
-        ws_variance.cell(
+        variance_qty = float(line.variance_qty)
+        variance_val = float(line.variance_value)
+        
+        variance_qty_cell = ws_variance.cell(
+            row=row, column=6, value=variance_qty
+        )
+        variance_qty_cell.number_format = number_format
+        variance_qty_cell.border = thin_border
+        # Apply red color if negative
+        if variance_qty < 0:
+            variance_qty_cell.font = red_font
+        
+        variance_val_cell = ws_variance.cell(
+            row=row, column=7, value=variance_val
+        )
+        variance_val_cell.number_format = currency_format
+        variance_val_cell.border = thin_border
+        # Apply red color if negative
+        if variance_val < 0:
+            variance_val_cell.font = red_font
+        
+        variance_pct_cell = ws_variance.cell(
             row=row, column=8, value=float(variance_pct)
-        ).number_format = '0.00"%"'
-        ws_variance.cell(
-            row=row, column=8
-        ).border = thin_border
+        )
+        variance_pct_cell.number_format = '0.00"%"'
+        variance_pct_cell.border = thin_border
+        # Apply red color if negative
+        if variance_pct < 0:
+            variance_pct_cell.font = red_font
         
         row += 1
     
@@ -443,6 +464,7 @@ def generate_period_excel(period, include_cocktails=True):
     header_font = Font(bold=True, color="FFFFFF", size=11)
     title_font = Font(bold=True, size=14)
     bold_font = Font(bold=True)
+    red_font = Font(bold=True, color="FF0000")  # Red for negative values
     currency_format = '€#,##0.00'
     number_format = '#,##0.00'
     
