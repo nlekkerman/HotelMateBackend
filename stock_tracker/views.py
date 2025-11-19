@@ -1471,21 +1471,46 @@ class StockItemViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def low_stock(self, request, hotel_identifier=None):
         """
-        Get items with low stock levels based on total servings.
-        Uses total_stock_in_servings property which accounts for both
-        full units and partial units.
+        Get items with low stock levels using category-specific thresholds.
+        Uses PHYSICAL UNITS (bottles, kegs, boxes) for ordering decisions.
+        
+        Category-specific thresholds (from item.low_stock_threshold):
+        - Draught (D): 2 kegs
+        - Syrups (M/SYRUPS): 2 bottles
+        - Spirits (S): 2 bottles
+        - Wine (W): 10 bottles
+        - Bottled Beer (B): 50 bottles
+        - Soft Drinks: 50 bottles
+        - Juices: 50 bottles
+        - Cordials: 50 bottles
+        - BIB: 50 boxes
+        - Bulk Juices: 50 bottles
         
         Query params:
-        - threshold: minimum servings (default: 50)
-        """
-        threshold = int(request.query_params.get('threshold', 50))
+        - threshold: Override all thresholds with a single value (optional)
         
-        # Get all items and filter by total servings
+        Response includes:
+        - total_stock_in_physical_units: Current stock in ordering units
+        - low_stock_threshold: Reorder level in same units
+        - Both values are in physical units (bottles, kegs, boxes)
+        """
+        # Get all items
         all_items = self.get_queryset()
-        low_stock_items = [
-            item for item in all_items
-            if item.total_stock_in_servings < threshold
-        ]
+        low_stock_items = []
+        
+        # Check if override threshold provided
+        override_threshold = request.query_params.get('threshold')
+        
+        for item in all_items:
+            # Use override or category-specific threshold
+            if override_threshold:
+                threshold = int(override_threshold)
+            else:
+                threshold = item.low_stock_threshold
+            
+            # Check if item is low stock using PHYSICAL UNITS
+            if item.total_stock_in_physical_units < threshold:
+                low_stock_items.append(item)
         
         serializer = self.get_serializer(low_stock_items, many=True)
         return Response(serializer.data)

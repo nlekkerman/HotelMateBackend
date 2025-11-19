@@ -552,6 +552,14 @@ class StockItemSerializer(serializers.ModelSerializer):
     display_partial_units = serializers.DecimalField(
         max_digits=10, decimal_places=4, read_only=True
     )
+    
+    # Low stock analysis (physical units for ordering)
+    total_stock_in_physical_units = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
+    low_stock_threshold = serializers.DecimalField(
+        max_digits=10, decimal_places=2, read_only=True
+    )
 
     class Meta:
         model = StockItem
@@ -572,7 +580,9 @@ class StockItemSerializer(serializers.ModelSerializer):
             'gross_profit_percentage', 'markup_percentage',
             'pour_cost_percentage',
             # Display helpers (deprecated - use snapshot data)
-            'display_full_units', 'display_partial_units'
+            'display_full_units', 'display_partial_units',
+            # Low stock analysis (physical units for ordering)
+            'total_stock_in_physical_units', 'low_stock_threshold'
         ]
         read_only_fields = ['hotel', 'created_at', 'updated_at']
 

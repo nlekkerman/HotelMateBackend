@@ -787,6 +787,126 @@ class StockItem(models.Model):
             return round(pour_cost, 2)
         return None
 
+    @property
+    def total_stock_in_physical_units(self):
+        """
+        Get total stock in PHYSICAL ORDERING UNITS (bottles, kegs, boxes).
+        This is what you use for purchasing/ordering decisions.
+        
+        Returns total quantity in the primary unit you order:
+        - Draught: total kegs (including partial)
+        - Bottled Beer: total bottles (cases converted)
+        - Soft Drinks: total bottles (cases converted)
+        - Syrups: total bottles
+        - Juices: total bottles (cases converted, partial as fraction)
+        - Cordials: total bottles (cases converted)
+        - BIB: total boxes
+        - Bulk Juices: total bottles
+        - Spirits: total bottles
+        - Wine: total bottles
+        """
+        category = self.category_id
+        
+        # Draught: Return total kegs
+        if category == 'D':
+            return self.current_full_units + (self.current_partial_units / self.uom if self.uom else 0)
+        
+        # Minerals by subcategory
+        if category == 'M' and self.subcategory:
+            if self.subcategory == 'SOFT_DRINKS':
+                # Cases to bottles: (cases × 12) + bottles
+                return (self.current_full_units * self.uom) + self.current_partial_units
+            
+            elif self.subcategory == 'SYRUPS':
+                # Total bottles (stored as full + partial)
+                return self.current_full_units + self.current_partial_units
+            
+            elif self.subcategory == 'JUICES':
+                # Cases to bottles + partial bottles
+                # partial_units can be 11.75 = 11 bottles + 750ml
+                return (self.current_full_units * 12) + self.current_partial_units
+            
+            elif self.subcategory == 'CORDIALS':
+                # Cases to bottles
+                return (self.current_full_units * self.uom) + self.current_partial_units
+            
+            elif self.subcategory == 'BIB':
+                # Total boxes
+                return self.current_full_units + self.current_partial_units
+            
+            elif self.subcategory == 'BULK_JUICES':
+                # Total bottles
+                return self.current_full_units + self.current_partial_units
+        
+        # Bottled Beer: Cases to bottles
+        if category == 'B':
+            return (self.current_full_units * self.uom) + self.current_partial_units
+        
+        # Spirits: Total bottles (full + fractional)
+        if category == 'S':
+            return self.current_full_units + self.current_partial_units
+        
+        # Wine: Total bottles (full + fractional)
+        if category == 'W':
+            return self.current_full_units + self.current_partial_units
+        
+        # Fallback: full + partial
+        return self.current_full_units + self.current_partial_units
+
+    @property
+    def low_stock_threshold(self):
+        """
+        Get category-specific low stock threshold in PHYSICAL UNITS.
+        Returns the minimum physical units (bottles, kegs, boxes) 
+        before item should be reordered.
+        
+        Thresholds based on ordering units:
+        - Draught: 2 kegs
+        - Syrups: 2 bottles
+        - Spirits: 2 bottles
+        - Wine: 10 bottles
+        - Bottled Beer: 50 bottles
+        - Soft Drinks: 50 bottles
+        - Juices: 50 bottles
+        - Cordials: 50 bottles
+        - BIB: 50 boxes
+        - Bulk Juices: 50 bottles
+        """
+        if self.category_id == 'D':
+            # Draught: 2 kegs
+            return 2
+            
+        elif self.category_id == 'M' and self.subcategory == 'SYRUPS':
+            # Syrups: 2 bottles
+            return 2
+            
+        elif self.category_id == 'S':
+            # Spirits: 2 bottles
+            return 2
+            
+        elif self.category_id == 'W':
+            # Wine: 10 bottles
+            return 10
+            
+        elif self.category_id == 'B':
+            # Bottled Beer: 50 bottles
+            return 50
+        
+        elif self.category_id == 'M':
+            # Minerals by subcategory
+            if self.subcategory == 'BIB':
+                return 2  # 2 boxes
+            elif self.subcategory == 'BULK_JUICES':
+                return 20  # 20 bottles
+            elif self.subcategory == 'CORDIALS':
+                return 20  # 20 bottles
+            else:
+                return 50  # 50 bottles (Soft Drinks, Juices)
+            
+        else:
+            # Default threshold
+            return 50
+
     # === DISPLAY HELPERS (for frontend) ===
 
     @property
