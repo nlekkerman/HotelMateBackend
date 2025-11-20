@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 # Action keywords (case-insensitive)
 ACTION_KEYWORDS = {
-    'count': ['count', 'counted', 'counting', 'total', 'have', 'got', 'stock'],
+    'count': ['count', 'counted', 'counting', 'total', 'have', 'got', 'stock', 'there are', 'there is'],
     'purchase': ['purchase', 'purchased', 'buy', 'bought', 'received', 'delivery', 'delivered'],
     'waste': ['waste', 'wasted', 'broken', 'spoiled', 'spilled', 'breakage', 'damaged']
 }
@@ -45,6 +45,15 @@ def convert_number_words(text):
         decimal = NUMBER_WORDS.get(match.group(2), match.group(2))
         return f"{whole}.{decimal}"
     result = re.sub(decimal_pattern, replace_decimal, result)
+    
+    # Handle compound numbers (e.g., "twenty four" -> "24")
+    # Match patterns like "twenty three", "thirty five", etc.
+    compound_pattern = r'\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(one|two|three|four|five|six|seven|eight|nine)\b'
+    def replace_compound(match):
+        tens = NUMBER_WORDS.get(match.group(1), 0)
+        ones = NUMBER_WORDS.get(match.group(2), 0)
+        return str(tens + ones)
+    result = re.sub(compound_pattern, replace_compound, result)
     
     # Replace individual number words
     for word, num in NUMBER_WORDS.items():
@@ -111,33 +120,44 @@ def parse_voice_command(transcription: str) -> Dict:
     logger.info(f"✓ Action: {action} (matched: {action_word})")
     
     # 2. Extract numeric values
-    # Pattern 1: Full + partial units "3 cases 6 bottles", "2 kegs 12 pints"
-    full_partial_pattern = r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?|bottles?)?\s+(?:and\s+)?(\d+(?:\.\d+)?)\s*(?:bottles?|pints?|cans?|ml)?'
+    # Pattern 1: Dozen format "3 dozen 6", "2 dozen"
+    dozen_pattern = r'(\d+)\s+dozen(?:\s+(\d+))?'
     
-    # Pattern 2: Single value with optional unit "5.5", "10 bottles", "3 kegs"
+    # Pattern 2: Full + partial units "3 cases 6 bottles", "2 kegs 12 pints"
+    full_partial_pattern = r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?)\s+(?:and\s+)?(\d+(?:\.\d+)?)\s*(?:bottles?|pints?|cans?|ml)?'
+    
+    # Pattern 3: Single value with optional unit "5.5", "10 bottles", "3 kegs"
     single_value_pattern = r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?|bottles?|pints?|cans?|liters?|ml)?(?:\s|$)'
     
     full_units = None
     partial_units = None
     value = None
     
-    # Try full + partial pattern first (more specific)
-    full_partial_match = re.search(full_partial_pattern, text)
-    if full_partial_match:
-        full_units = int(float(full_partial_match.group(1)))
-        partial_units = float(full_partial_match.group(2))
-        value = float(full_units) + partial_units
-        logger.info(f"✓ Parsed full+partial: {full_units} full, {partial_units} partial (combined: {value})")
+    # Try dozen pattern first (most specific)
+    dozen_match = re.search(dozen_pattern, text)
+    if dozen_match:
+        full_units = int(dozen_match.group(1))
+        partial_units = int(dozen_match.group(2)) if dozen_match.group(2) else 0
+        value = (full_units * 12) + partial_units
+        logger.info(f"✓ Parsed dozen: {full_units} dozen + {partial_units} = {value}")
     else:
-        # Try single value pattern
-        # Find all matches and take the last one (closest to end, likely the quantity)
-        single_matches = list(re.finditer(single_value_pattern, text))
-        if single_matches:
-            last_match = single_matches[-1]
-            value = float(last_match.group(1))
-            logger.info(f"✓ Parsed single value: {value}")
+        # Try full + partial pattern
+        full_partial_match = re.search(full_partial_pattern, text)
+        if full_partial_match:
+            full_units = int(float(full_partial_match.group(1)))
+            partial_units = float(full_partial_match.group(2))
+            value = float(full_units) + partial_units
+            logger.info(f"✓ Parsed full+partial: {full_units} full, {partial_units} partial (combined: {value})")
         else:
-            raise ValueError(f"No numeric value found in '{transcription}'")
+            # Try single value pattern
+            # Find all matches and take the last one (closest to end, likely the quantity)
+            single_matches = list(re.finditer(single_value_pattern, text))
+            if single_matches:
+                last_match = single_matches[-1]
+                value = float(last_match.group(1))
+                logger.info(f"✓ Parsed single value: {value}")
+            else:
+                raise ValueError(f"No numeric value found in '{transcription}'")
     
     # 3. Extract item identifier (everything between action and numbers)
     # Remove the action keyword from beginning
@@ -149,10 +169,16 @@ def parse_voice_command(transcription: str) -> Dict:
             item_text = item_text[action_pos + len(action_word):].strip()
     
     # Remove the numeric part at the end
-    if full_partial_match:
+    if dozen_match:
+        item_text = item_text[:dozen_match.start()].strip()
+    elif full_partial_match:
         item_text = item_text[:full_partial_match.start()].strip()
     elif single_matches:
         item_text = item_text[:single_matches[-1].start()].strip()
+    
+    # Remove any trailing numbers or dozen patterns that might have been left
+    item_text = re.sub(r'\s+\d+\s+dozen\s*$', '', item_text)
+    item_text = re.sub(r'\s+\d+(?:\.\d+)?\s*$', '', item_text)
     
     item_identifier = item_text.strip()
     

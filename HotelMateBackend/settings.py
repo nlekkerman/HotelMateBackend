@@ -76,6 +76,7 @@ INSTALLED_APPS = [
     'chat',
     'entertainment',
     'staff_chat',
+    'voice_recognition',
 ]
 
 MIDDLEWARE = [
