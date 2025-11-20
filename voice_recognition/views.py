@@ -244,8 +244,13 @@ class VoiceCommandConfirmView(APIView):
                 stocktake=stocktake,
                 item=stock_item,
                 defaults={
-                    'opening_qty': stock_item.total_stock_in_servings or 0,
-                    'valuation_cost': stock_item.current_cost or 0,
+                    'opening_qty': stock_item.total_stock_in_servings,
+                    'valuation_cost': stock_item.cost_per_serving,
+                    'purchases': 0,
+                    'waste': 0,
+                    'transfers_in': 0,
+                    'transfers_out': 0,
+                    'adjustments': 0,
                 }
             )
             
