@@ -2576,6 +2576,181 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Convert quantity to Decimal for validation
+        try:
+            quantity_decimal = Decimal(str(quantity))
+            if quantity_decimal <= 0:
+                return Response(
+                    {"error": "Quantity must be greater than 0"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        except (ValueError, InvalidOperation):
+            return Response(
+                {"error": "Invalid quantity format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # VALIDATE: Purchases must be FULL PHYSICAL UNITS only
+        # VALIDATE: Waste must be PARTIAL PHYSICAL UNITS only
+        # NOTE: StockMovement.quantity is stored in servings, but
+        # for stocktake we think in physical units (bottles, cases, etc)
+        item = line.item
+        category = item.category_id
+        uom = item.uom
+
+        if movement_type == 'PURCHASE':
+            # Purchases = full physical units
+            # Examples: 1 keg, 2 cases, 5 bottles, 3 boxes
+
+            if uom == Decimal('1'):
+                # UOM=1: Spirits, Wine, Syrups, BIB, Bulk Juices
+                # quantity in servings = bottles/boxes (1:1)
+                # Must be whole numbers (1, 2, 3... bottles/boxes)
+                if quantity_decimal % 1 != 0:
+                    if category == 'M' and item.subcategory == 'SYRUPS':
+                        unit_name = 'bottles'
+                    elif category == 'M':
+                        unit_name = 'boxes'
+                    elif category in ['S', 'W']:
+                        unit_name = 'bottles'
+                    else:
+                        unit_name = 'units'
+
+                    error_msg = (
+                        f"Purchases must be in full {unit_name} only "
+                        f"(whole numbers). Partial {unit_name} should "
+                        f"be recorded as waste."
+                    )
+                    return Response(
+                        {"error": error_msg},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                # UOM>1: Bottled Beer, Soft Drinks, Cordials
+                # Draught is DIFFERENT - quantity is in pints (servings)
+                # For bottles: quantity must be multiple of UOM
+                # (full cases only)
+                
+                if category == 'D':
+                    # Draught: quantity is in pints (servings)
+                    # Purchases should be in full kegs = multiple of UOM
+                    if quantity_decimal % uom != 0:
+                        error_msg = (
+                            f"Purchases must be in full kegs only "
+                            f"({int(uom)} pints per keg). "
+                            f"Partial kegs should be recorded as waste."
+                        )
+                        return Response(
+                            {"error": error_msg},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                else:
+                    # Bottled Beer, Soft Drinks, Cordials:
+                    # quantity is in bottles (servings)
+                    # Must be multiple of UOM (full cases only)
+                    if quantity_decimal % uom != 0:
+                        if category == 'B':
+                            unit_name = (
+                                f'full cases only '
+                                f'({int(uom)} bottles per case)'
+                            )
+                        elif (category == 'M' and
+                              item.subcategory == 'SOFT_DRINKS'):
+                            unit_name = (
+                                f'full cases only '
+                                f'({int(uom)} bottles per case)'
+                            )
+                        elif (category == 'M' and
+                              item.subcategory == 'CORDIALS'):
+                            unit_name = (
+                                f'full cases only '
+                                f'({int(uom)} bottles per case)'
+                            )
+                        else:
+                            unit_name = (
+                                f'full units ({int(uom)} per unit)'
+                            )
+
+                        error_msg = (
+                            f"Purchases must be {unit_name}. "
+                            f"Partial cases should be recorded as waste."
+                        )
+                        return Response(
+                            {"error": error_msg},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+
+        elif movement_type == 'WASTE':
+            # Waste = partial physical units only
+            # Examples: 0.5 bottle, 3 bottles from opened case,
+            # 15 pints from opened keg
+
+            if uom == Decimal('1'):
+                # UOM=1: Spirits, Wine, Syrups, BIB, Bulk Juices
+                # quantity = bottles/boxes (1:1)
+                # waste should be < 1 (partial bottle/box only)
+                if quantity_decimal >= 1:
+                    if category == 'M' and item.subcategory == 'SYRUPS':
+                        unit_name = 'bottle'
+                    elif category == 'M':
+                        unit_name = 'box'
+                    elif category in ['S', 'W']:
+                        unit_name = 'bottle'
+                    else:
+                        unit_name = 'unit'
+
+                    error_msg = (
+                        f"Waste must be partial {unit_name}s only "
+                        f"(less than 1 {unit_name}). "
+                        f"Full {unit_name}s should be recorded as "
+                        f"negative adjustments."
+                    )
+                    return Response(
+                        {"error": error_msg},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                # UOM>1: Draught, Bottled Beer, Soft Drinks, Cordials
+                # Draught: quantity in pints, waste < UOM pints
+                # Others: quantity in bottles, waste < UOM bottles
+                if quantity_decimal >= uom:
+                    if category == 'D':
+                        unit_name = (
+                            f'partial keg only '
+                            f'(less than {int(uom)} pints)'
+                        )
+                    elif category == 'B':
+                        unit_name = (
+                            f'partial case only '
+                            f'(less than {int(uom)} bottles)'
+                        )
+                    elif (category == 'M' and
+                          item.subcategory == 'SOFT_DRINKS'):
+                        unit_name = (
+                            f'partial case only '
+                            f'(less than {int(uom)} bottles)'
+                        )
+                    elif (category == 'M' and
+                          item.subcategory == 'CORDIALS'):
+                        unit_name = (
+                            f'partial case only '
+                            f'(less than {int(uom)} bottles)'
+                        )
+                    else:
+                        unit_name = (
+                            f'partial unit (less than {int(uom)})'
+                        )
+
+                    error_msg = (
+                        f"Waste must be {unit_name}. "
+                        f"Full kegs/cases should be recorded as "
+                        f"negative adjustments."
+                    )
+                    return Response(
+                        {"error": error_msg},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+        
         # Default reference if not provided
         default_ref = f'Stocktake-{line.stocktake.id}'
         
@@ -2596,7 +2771,8 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
         from django.utils import timezone
         from datetime import datetime, time
         
-        # Set timestamp to end of stocktake period (or current time if in period)
+        # Set timestamp to end of stocktake period
+        # (or current time if in period)
         movement_timestamp = timezone.now()
         period_end_dt = timezone.make_aware(
             datetime.combine(line.stocktake.period_end, time.max)
