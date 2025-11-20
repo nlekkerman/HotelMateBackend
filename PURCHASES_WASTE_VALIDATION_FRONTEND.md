@@ -25,14 +25,21 @@ Waste must be recorded from opened/partial items:
 }
 ```
 
-**CRITICAL:** Frontend sends quantity **EXACTLY** as entered by user:
-- Draught: pints (e.g., 88, 176)
-- Bottled Beer: bottles (e.g., 12, 24, 3)
-- Spirits/Wine: bottles (e.g., 6, 0.5)
-- Syrups: bottles (e.g., 5, 0.7)
-- BIB: boxes (e.g., 3, 0.5)
+**CRITICAL:** Frontend sends EXACTLY what user enters - Backend does conversion!
 
-**NO CONVERSION, NO CALCULATION - just validation!**
+**PURCHASES:**
+- Draught: User enters KEGS → send kegs (e.g., 2, 5, 10)
+- Bottled Beer: User enters CASES → send cases (e.g., 5, 10, 20)
+- Spirits/Wine/Syrups: User enters BOTTLES → send bottles (e.g., 6, 10)
+- BIB: User enters BOXES → send boxes (e.g., 3, 5)
+
+**WASTE:**
+- Draught: User enters PINTS → send pints (e.g., 25, 50)
+- Bottled Beer: User enters BOTTLES → send bottles (e.g., 3, 7)
+- Spirits/Wine/Syrups: User enters PARTIAL BOTTLES → send partial (e.g., 0.5, 0.7)
+- BIB: User enters PARTIAL BOXES → send partial (e.g., 0.25, 0.5)
+
+**Backend converts kegs→pints and cases→bottles automatically!**
 
 ### ✅ Success Response
 ```json
@@ -65,123 +72,119 @@ Waste must be recorded from opened/partial items:
 
 ## 🎯 Frontend Implementation by Category
 
-### 1️⃣ **DRAUGHT BEER** (User enters PINTS)
+### 1️⃣ **DRAUGHT BEER**
 
 #### Purchases Input
 ```typescript
-// User enters PINTS - send EXACTLY as entered
-function handleDraughtPurchase(pints: number, item: StockItem) {
-  const uom = item.item_uom; // e.g., 88 pints per keg
-  
-  // Validate: must be multiple of 88 (full kegs)
-  if (pints % uom !== 0) {
-    showError(`Purchases must be full kegs (multiples of ${uom} pints)`);
+// User enters KEGS → send KEGS (backend converts)
+function handleDraughtPurchase(kegs: number) {
+  // Validate: must be whole kegs
+  if (kegs % 1 !== 0) {
+    showError("Purchases must be full kegs only");
     return;
   }
   
   addMovement({
     movement_type: "PURCHASE",
-    quantity: pints  // Send EXACTLY as entered
+    quantity: kegs  // Send 2, 5, 10 (backend converts to pints)
   });
 }
 
 // Examples:
-// ✅ User enters 88 pints → send 88
-// ✅ User enters 176 pints → send 176
-// ❌ User enters 50 pints → rejected (not full keg)
+// ✅ User enters 2 kegs → send 2
+// ✅ User enters 5 kegs → send 5
+// ❌ User enters 1.5 kegs → rejected
 ```
 
 #### Waste Input
 ```typescript
-// User enters PINTS - send EXACTLY as entered
+// User enters PINTS → send PINTS
 function handleDraughtWaste(pints: number, item: StockItem) {
   const uom = item.item_uom; // e.g., 88 pints per keg
   
   // Validate: must be less than full keg
   if (pints >= uom) {
-    showError(`Waste must be partial keg only (less than ${uom} pints)`);
+    showError(`Waste must be less than ${uom} pints`);
     return;
   }
   
   addMovement({
     movement_type: "WASTE",
-    quantity: pints  // Send EXACTLY as entered
+    quantity: pints  // Send 25, 50.5
   });
 }
 
 // Examples:
 // ✅ User enters 25 pints → send 25
 // ✅ User enters 50.5 pints → send 50.5
-// ❌ User enters 88 pints → rejected (full keg)
+// ❌ User enters 88 pints → rejected
 
 ---
 
-### 2️⃣ **BOTTLED BEER** (User enters BOTTLES)
+### 2️⃣ **BOTTLED BEER**
 
 #### Purchases Input
 ```typescript
-// User enters BOTTLES - send EXACTLY as entered
-function handleBottledPurchase(bottles: number, item: StockItem) {
-  const uom = item.item_uom; // e.g., 12 bottles per case
-  
-  // Validate: must be multiple of 12 (full cases)
-  if (bottles % uom !== 0) {
-    showError(`Purchases must be full cases (multiples of ${uom} bottles)`);
+// User enters CASES → send CASES (backend converts)
+function handleBottledPurchase(cases: number) {
+  // Validate: must be whole cases
+  if (cases % 1 !== 0) {
+    showError("Purchases must be full cases only");
     return;
   }
   
   addMovement({
     movement_type: "PURCHASE",
-    quantity: bottles  // Send EXACTLY as entered
+    quantity: cases  // Send 5, 10, 20 (backend converts to bottles)
   });
 }
 
 // Examples:
-// ✅ User enters 12 bottles → send 12
-// ✅ User enters 24 bottles → send 24
-// ❌ User enters 7 bottles → rejected (not full case)
+// ✅ User enters 5 cases → send 5
+// ✅ User enters 10 cases → send 10
+// ❌ User enters 3.5 cases → rejected
 ```
 
 #### Waste Input
 ```typescript
-// User enters BOTTLES - send EXACTLY as entered
+// User enters BOTTLES → send BOTTLES
 function handleBottledWaste(bottles: number, item: StockItem) {
   const uom = item.item_uom; // e.g., 12 bottles per case
   
   // Validate: must be less than full case
   if (bottles >= uom) {
-    showError(`Waste must be partial case only (less than ${uom} bottles)`);
+    showError(`Waste must be less than ${uom} bottles`);
     return;
   }
   
   addMovement({
     movement_type: "WASTE",
-    quantity: bottles  // Send EXACTLY as entered
+    quantity: bottles  // Send 3, 7, 11
   });
 }
 
 // Examples:
 // ✅ User enters 3 bottles → send 3
 // ✅ User enters 7 bottles → send 7
-// ❌ User enters 12 bottles → rejected (full case)
+// ❌ User enters 12 bottles → rejected
 
 ---
 
-### 3️⃣ **SPIRITS & WINE** (User enters BOTTLES)
+### 3️⃣ **SPIRITS & WINE**
 
 #### Purchases Input
 ```typescript
-// User enters BOTTLES - send EXACTLY as entered
+// User enters BOTTLES → send BOTTLES
 function handleSpiritsPurchase(bottles: number) {
   // Validate: must be whole bottles
   if (bottles % 1 !== 0) {
-    showError("Purchases must be in full bottles only");
+    showError("Purchases must be full bottles only");
     return;
   }
   
   addMovement({
     movement_type: "PURCHASE",
-    quantity: bottles  // Send EXACTLY as entered
+    quantity: bottles  // Send 3, 6, 10
   });
 }
 
@@ -193,7 +196,7 @@ function handleSpiritsPurchase(bottles: number) {
 
 #### Waste Input
 ```typescript
-// User enters PARTIAL BOTTLES - send EXACTLY as entered
+// User enters PARTIAL BOTTLES → send PARTIAL
 function handleSpiritsWaste(partialBottle: number) {
   // Validate: must be less than 1 bottle
   if (partialBottle >= 1) {
@@ -203,79 +206,44 @@ function handleSpiritsWaste(partialBottle: number) {
   
   addMovement({
     movement_type: "WASTE",
-    quantity: partialBottle  // Send EXACTLY as entered
+    quantity: partialBottle  // Send 0.5, 0.7
   });
 }
 
 // Examples:
 // ✅ User enters 0.5 → send 0.5
 // ✅ User enters 0.7 → send 0.7
-// ❌ User enters 1.0 → rejected (full bottle)
+// ❌ User enters 1.0 → rejected
 
 ---
 
-### 4️⃣ **SOFT DRINKS** (User enters BOTTLES)
+### 4️⃣ **SOFT DRINKS**
 
-Same validation as **Bottled Beer** - must be multiples of UOM for purchases, less than UOM for waste.
-
----
-
-### 5️⃣ **CORDIALS** (User enters BOTTLES)
-
-Same validation as **Bottled Beer** - must be multiples of UOM for purchases, less than UOM for waste.
+**Same as Bottled Beer:** User enters CASES for purchases, BOTTLES for waste.
 
 ---
 
-### 6️⃣ **SYRUPS** (User enters BOTTLES)
+### 5️⃣ **CORDIALS**
 
-Same validation as **Spirits & Wine** - whole bottles for purchases, partial (< 1) for waste.
+**Same as Bottled Beer:** User enters CASES for purchases, BOTTLES for waste.
 
 ---
 
-### 7️⃣ **BIB (Bag-in-Box)** (User enters BOXES)
+### 6️⃣ **SYRUPS**
 
-#### Purchases Input
-```typescript
-// User enters BOXES - send EXACTLY as entered
-function handleBIBPurchase(boxes: number) {
-  // Validate: must be whole boxes
-  if (boxes % 1 !== 0) {
-    showError("Purchases must be in full boxes only");
-    return;
-  }
-  
-  addMovement({
-    movement_type: "PURCHASE",
-    quantity: boxes  // Send EXACTLY as entered
-  });
-}
+**Same as Spirits & Wine:** User enters BOTTLES for purchases (send as-is, must be whole), PARTIAL BOTTLES for waste (send as-is, must be < 1).
 
-// Examples:
-// ✅ User enters 3 boxes → send 3
-// ✅ User enters 5 boxes → send 5
-// ❌ User enters 2.5 boxes → rejected
-```
+---
 
-#### Waste Input
-```typescript
-// User enters PARTIAL BOXES - send EXACTLY as entered
-function handleBIBWaste(partialBox: number) {
-  // Validate: must be less than 1 box
-  if (partialBox >= 1) {
-    showError("Waste must be partial boxes only (less than 1)");
-    return;
-  }
-  
-  addMovement({
-    movement_type: "WASTE",
-    quantity: partialBox  // Send EXACTLY as entered
-  });
-}
+### 7️⃣ **BIB (Bag-in-Box)**
 
-// Examples:
-// ✅ User enters 0.5 → send 0.5
-// ✅ User enters 0.25 → send 0.25
-// ❌ User enters 1.0 → rejected (full box)
+**Same as Spirits & Wine:** User enters BOXES for purchases (send as-is, must be whole), PARTIAL BOXES for waste (send as-is, must be < 1).
+
+---
+
+### 8️⃣ **BULK JUICES**
+
+**Same as Spirits & Wine:** User enters CONTAINERS for purchases (send as-is, must be whole), PARTIAL for waste (send as-is, must be < 1).
 
 ---
 
@@ -425,19 +393,19 @@ export function WasteInput({ item, onAdd }: WasteInputProps) {
 
 ## 📊 Validation Summary Table
 
-| Category | User Enters | Purchases Validation | Waste Validation |
-|----------|-------------|---------------------|------------------|
-| **Draught (D)** | Pints | Must be multiples of 88<br>(88, 176, 264) | Must be < 88<br>(15, 25.5, 50) |
-| **Bottled Beer (B)** | Bottles | Must be multiples of 12<br>(12, 24, 36) | Must be < 12<br>(3, 7, 11) |
-| **Spirits (S)** | Bottles | Must be whole numbers<br>(1, 2, 6, 10) | Must be < 1<br>(0.5, 0.7, 0.25) |
-| **Wine (W)** | Bottles | Must be whole numbers<br>(1, 2, 4, 6) | Must be < 1<br>(0.3, 0.5, 0.6) |
-| **Soft Drinks (M)** | Bottles | Must be multiples of UOM<br>(12, 24) | Must be < UOM<br>(3, 7) |
-| **Syrups (M)** | Bottles | Must be whole numbers<br>(1, 5, 10) | Must be < 1<br>(0.5, 0.7) |
-| **Cordials (M)** | Bottles | Must be multiples of UOM<br>(12, 24) | Must be < UOM<br>(3, 7) |
-| **BIB (M)** | Boxes | Must be whole numbers<br>(1, 3, 5) | Must be < 1<br>(0.25, 0.5) |
-| **Bulk Juices (M)** | Boxes | Must be whole numbers<br>(1, 2, 3) | Must be < 1<br>(0.5, 0.75) |
+| Category | Purchases | Waste |
+|----------|-----------|-------|
+| **Draught (D)** | User enters: **KEGS**<br>Send: kegs (backend converts)<br>Example: 2 kegs → send 2 | User enters: **PINTS**<br>Send: pints (must be < 88)<br>Example: 25 pints → send 25 |
+| **Bottled Beer (B)** | User enters: **CASES**<br>Send: cases (backend converts)<br>Example: 5 cases → send 5 | User enters: **BOTTLES**<br>Send: bottles (must be < 12)<br>Example: 3 bottles → send 3 |
+| **Spirits (S)** | User enters: **BOTTLES**<br>Send: bottles (must be whole)<br>Example: 6 bottles → send 6 | User enters: **PARTIAL**<br>Send: partial (must be < 1)<br>Example: 0.7 → send 0.7 |
+| **Wine (W)** | User enters: **BOTTLES**<br>Send: bottles (must be whole)<br>Example: 4 bottles → send 4 | User enters: **PARTIAL**<br>Send: partial (must be < 1)<br>Example: 0.5 → send 0.5 |
+| **Soft Drinks (M)** | User enters: **CASES**<br>Send: cases (backend converts)<br>Example: 3 cases → send 3 | User enters: **BOTTLES**<br>Send: bottles (must be < UOM)<br>Example: 5 → send 5 |
+| **Syrups (M)** | User enters: **BOTTLES**<br>Send: bottles (must be whole)<br>Example: 10 bottles → send 10 | User enters: **PARTIAL**<br>Send: partial (must be < 1)<br>Example: 0.7 → send 0.7 |
+| **Cordials (M)** | User enters: **CASES**<br>Send: cases (backend converts)<br>Example: 2 cases → send 2 | User enters: **BOTTLES**<br>Send: bottles (must be < UOM)<br>Example: 7 → send 7 |
+| **BIB (M)** | User enters: **BOXES**<br>Send: boxes (must be whole)<br>Example: 3 boxes → send 3 | User enters: **PARTIAL**<br>Send: partial (must be < 1)<br>Example: 0.5 → send 0.5 |
+| **Bulk Juices (M)** | User enters: **CONTAINERS**<br>Send: containers (must be whole)<br>Example: 2 → send 2 | User enters: **PARTIAL**<br>Send: partial (must be < 1)<br>Example: 0.75 → send 0.75 |
 
-**CRITICAL:** Frontend sends **EXACTLY** what user enters - **NO CONVERSION OR CALCULATION!**
+**SIMPLE:** Frontend sends EXACTLY what user enters - Backend does ALL conversion!
 
 ---
 
@@ -546,9 +514,9 @@ async function addMovement(lineId: number, data: MovementData) {
 
 ## 📝 Notes
 
-- **NO CONVERSION OR CALCULATION** - send EXACTLY what user enters
-- **Backend handles all validation** - client-side is just for UX
-- **User enters the actual unit backend expects** (pints, bottles, boxes)
-- **Trust backend response** - don't calculate locally
-- **Display clear error messages** when validation fails
-- **Use appropriate input steps** (1 for whole numbers, 0.01 for decimals)
+- **NO CONVERSION ON FRONTEND** - send exactly what user enters
+- **Backend does ALL conversion** (kegs→pints, cases→bottles) and validation
+- **User-friendly input labels** (show "Cases" for purchases, "Bottles" for waste)
+- **Simple frontend validation** - just check whole numbers for purchases
+- **Display clear error messages** when backend validation fails
+- **Use appropriate input steps** (1 for cases/kegs/bottles, 0.01 for partials)

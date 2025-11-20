@@ -2590,21 +2590,21 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # VALIDATE: Purchases must be FULL PHYSICAL UNITS only
+        # VALIDATE & CONVERT: Purchases must be FULL PHYSICAL UNITS only
         # VALIDATE: Waste must be PARTIAL PHYSICAL UNITS only
-        # NOTE: StockMovement.quantity is stored in servings, but
-        # for stocktake we think in physical units (bottles, cases, etc)
+        # Frontend sends user-friendly units (kegs, cases, bottles, boxes)
+        # Backend converts to servings and validates
         item = line.item
         category = item.category_id
         uom = item.uom
 
         if movement_type == 'PURCHASE':
-            # Purchases = full physical units
-            # Examples: 1 keg, 2 cases, 5 bottles, 3 boxes
-
+            # Purchases = full physical units (kegs, cases, bottles, boxes)
+            # Frontend sends what user enters, backend converts to servings
+            
             if uom == Decimal('1'):
                 # UOM=1: Spirits, Wine, Syrups, BIB, Bulk Juices
-                # quantity in servings = bottles/boxes (1:1)
+                # User enters bottles/boxes, we store as-is (1:1)
                 # Must be whole numbers (1, 2, 3... bottles/boxes)
                 if quantity_decimal % 1 != 0:
                     if category == 'M' and item.subcategory == 'SYRUPS':
@@ -2625,60 +2625,29 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
                         {"error": error_msg},
                         status=status.HTTP_400_BAD_REQUEST
                     )
+                # No conversion needed for UOM=1
             else:
-                # UOM>1: Bottled Beer, Soft Drinks, Cordials
-                # Draught is DIFFERENT - quantity is in pints (servings)
-                # For bottles: quantity must be multiple of UOM
-                # (full cases only)
+                # UOM>1: Draught, Bottled Beer, Soft Drinks, Cordials
+                # User enters kegs/cases, backend converts to pints/bottles
                 
-                if category == 'D':
-                    # Draught: quantity is in pints (servings)
-                    # Purchases should be in full kegs = multiple of UOM
-                    if quantity_decimal % uom != 0:
-                        error_msg = (
-                            f"Purchases must be in full kegs only "
-                            f"({int(uom)} pints per keg). "
-                            f"Partial kegs should be recorded as waste."
-                        )
-                        return Response(
-                            {"error": error_msg},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                else:
-                    # Bottled Beer, Soft Drinks, Cordials:
-                    # quantity is in bottles (servings)
-                    # Must be multiple of UOM (full cases only)
-                    if quantity_decimal % uom != 0:
-                        if category == 'B':
-                            unit_name = (
-                                f'full cases only '
-                                f'({int(uom)} bottles per case)'
-                            )
-                        elif (category == 'M' and
-                              item.subcategory == 'SOFT_DRINKS'):
-                            unit_name = (
-                                f'full cases only '
-                                f'({int(uom)} bottles per case)'
-                            )
-                        elif (category == 'M' and
-                              item.subcategory == 'CORDIALS'):
-                            unit_name = (
-                                f'full cases only '
-                                f'({int(uom)} bottles per case)'
-                            )
-                        else:
-                            unit_name = (
-                                f'full units ({int(uom)} per unit)'
-                            )
-
-                        error_msg = (
-                            f"Purchases must be {unit_name}. "
-                            f"Partial cases should be recorded as waste."
-                        )
-                        return Response(
-                            {"error": error_msg},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
+                # Validate: must be whole number (full kegs/cases)
+                if quantity_decimal % 1 != 0:
+                    if category == 'D':
+                        unit_name = 'kegs'
+                    else:
+                        unit_name = 'cases'
+                    
+                    error_msg = (
+                        f"Purchases must be in full {unit_name} only. "
+                        f"Partial {unit_name} should be recorded as waste."
+                    )
+                    return Response(
+                        {"error": error_msg},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                # CONVERT: kegs/cases → pints/bottles
+                quantity_decimal = quantity_decimal * uom
 
         elif movement_type == 'WASTE':
             # Waste = partial physical units only
@@ -2787,7 +2756,7 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
             item=line.item,
             period=period,
             movement_type=movement_type,
-            quantity=quantity,
+            quantity=quantity_decimal,  # Use converted quantity
             unit_cost=request.data.get('unit_cost'),
             reference=request.data.get('reference', default_ref),
             notes=request.data.get('notes', ''),
