@@ -11,19 +11,77 @@ logger = logging.getLogger(__name__)
 
 # Action keywords (case-insensitive)
 ACTION_KEYWORDS = {
-    'count': ['count', 'counted', 'counting', 'total', 'have', 'got', 'stock', 'there are', 'there is'],
-    'purchase': ['purchase', 'purchased', 'buy', 'bought', 'received', 'delivery', 'delivered'],
-    'waste': ['waste', 'wasted', 'broken', 'spoiled', 'spilled', 'breakage', 'damaged']
+    'count': ['count', 'count this', 'count that', 'counted', 'counting', 'update count', 
+              'set count', 'add count', 'write count', 'record count', 'log count', 'mark count',
+              'total', 'have', 'got', 'stock', 'there are', 'there is', 'we have', 'i see',
+              'put here', 'add here', 'enter count', 'correct count', 'fix count',
+              'put five', 'put four', 'put three', 'make five', 'make three', 'stick five',
+              'stick three', 'throw five', 'put down', 'write five'],
+    'purchase': ['purchase', 'purchases', 'purchased', 'buy', 'bought', 'received', 'delivery', 
+                 'delivered', 'deliveries', 'add purchase', 'add delivery', 'incoming',
+                 'incoming stock', 'incoming delivery', 'new stock', 'restock', 'top up',
+                 'add new', 'add more', 'supplier delivered', 'we received', 'we got stock in',
+                 'stock arrived', 'delivery came', 'add three', 'add four', 'add six',
+                 'add two kegs', 'add two bottles', 'record delivery'],
+    'waste': ['waste', 'wasted', 'broken', 'spoiled', 'spilled', 'breakage', 'damaged',
+              'spill', 'spillage', 'dump', 'dumped', 'loss', 'lost', 'broke', 'smashed',
+              'minus', 'minus one', 'subtract one', 'remove one', 'take off', 'minus bottle',
+              'minus pint', 'bottle broke', 'one smashed', 'that\'s gone', 'that one\'s gone',
+              'one fell', 'that bottle\'s finished', 'throw away', 'bin that', 'waste pint',
+              'waste bottle']
 }
 
-# Number word conversions
+# Number word conversions (including common STT misrecognitions)
 NUMBER_WORDS = {
-    'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4, 'five': 5,
-    'six': 6, 'seven': 7, 'eight': 8, 'nine': 9, 'ten': 10,
-    'eleven': 11, 'twelve': 12, 'thirteen': 13, 'fourteen': 14, 'fifteen': 15,
-    'sixteen': 16, 'seventeen': 17, 'eighteen': 18, 'nineteen': 19, 'twenty': 20,
-    'thirty': 30, 'forty': 40, 'fifty': 50, 'sixty': 60, 'seventy': 70,
-    'eighty': 80, 'ninety': 90, 'hundred': 100
+    # 0
+    'zero': 0, 'zerro': 0, 'zaro': 0, 'zeroo': 0, 'oh': 0, 'o': 0, 'oo': 0, 
+    'none': 0, 'null': 0,
+    # 1
+    'one': 1, 'won': 1, 'wan': 1, 'wun': 1, 'on': 1, 'uhn': 1,
+    # 2
+    'two': 2, 'too': 2, 'tu': 2, 'to': 2, 'tew': 2,
+    # 3
+    'three': 3, 'tree': 3, 'thre': 3, 'tri': 3, 'tre': 3,
+    # 4
+    'four': 4, 'for': 4, 'foor': 4, 'foe': 4,
+    # 5
+    'five': 5, 'fife': 5, 'faiv': 5, 'fyve': 5, 'fiv': 5,
+    # 6
+    'six': 6, 'sex': 6, 'siks': 6, 'sixs': 6, 'sicks': 6,
+    # 7
+    'seven': 7, 'sevn': 7, 'sevan': 7, 'sevenn': 7,
+    # 8
+    'eight': 8, 'ate': 8, 'eit': 8, 'eete': 8, 'ayt': 8,
+    # 9
+    'nine': 9, 'nain': 9, 'nayn': 9, 'ninee': 9,
+    # 10
+    'ten': 10, 'tenn': 10, 'tan': 10,
+    # 11-19
+    'eleven': 11, 'elefen': 11, 'eleffin': 11, 'elevn': 11,
+    'twelve': 12, 'twelv': 12, 'twelf': 12,
+    'thirteen': 13, 'tirteen': 13, 'thurteen': 13, 'thirteee': 13,
+    'fourteen': 14, 'forteen': 14, 'fourtin': 14,
+    'fifteen': 15, 'fiffteen': 15, 'fiftean': 15,
+    'sixteen': 16, 'sixtin': 16, 'sextin': 16,
+    'seventeen': 17, 'sevnteen': 17, 'sevntean': 17,
+    'eighteen': 18, 'ateen': 18, 'eitin': 18,
+    'nineteen': 19, 'nainteen': 19, 'naintean': 19,
+    # Tens
+    'twenty': 20, 'twenny': 20, 'tweni': 20, 'twentie': 20,
+    'thirty': 30, 'tirty': 30, 'dirty': 30, 'thurty': 30,
+    'forty': 40, 'fourty': 40, 'fortee': 40,
+    'fifty': 50, 'fiftee': 50, 'fiftyy': 50,
+    'sixty': 60, 'sixti': 60, 'sixtie': 60,
+    'seventy': 70, 'sevnty': 70, 'seventee': 70,
+    'eighty': 80, 'eitee': 80, 'atey': 80,
+    'ninety': 90, 'ninetee': 90, 'ninty': 90,
+    # Large numbers
+    'hundred': 100, 'hunderd': 100, 'hunnert': 100,
+    'thousand': 1000, 'tausand': 1000, 'tausen': 1000,
+    # Fractions and partials
+    'half': 0.5, 'quarter': 0.25, 'three quarters': 0.75,
+    'point five': 0.5, 'point two': 0.2, 'point three': 0.3,
+    'dot five': 0.5, 'dot two': 0.2, 'dot three': 0.3
 }
 
 

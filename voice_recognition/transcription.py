@@ -26,19 +26,27 @@ def transcribe_audio(audio_file):
         "count guinness five point five"
     """
     try:
-        import openai
+        from openai import OpenAI
         
-        # Set API key from settings
-        openai.api_key = settings.OPENAI_API_KEY
+        # Initialize OpenAI client
+        client = OpenAI(api_key=settings.OPENAI_API_KEY)
         
         # Reset file pointer to beginning
         audio_file.seek(0)
         
+        # OpenAI expects a tuple: (filename, file_object, content_type)
+        # Create proper file tuple for the API
+        file_tuple = (
+            audio_file.name,
+            audio_file.read(),
+            audio_file.content_type
+        )
+        
         # Call Whisper API for transcription
         # Use prompt to hint at stocktake domain vocabulary
-        response = openai.audio.transcriptions.create(
+        response = client.audio.transcriptions.create(
             model="whisper-1",
-            file=audio_file,
+            file=file_tuple,
             language="en",
             prompt="Stocktake voice commands: count, purchase, waste, product names, SKU codes, numbers"
         )
