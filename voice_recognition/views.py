@@ -297,13 +297,26 @@ class VoiceCommandConfirmView(APIView):
                 f"✅ Applied voice command: {action} {stock_item.sku} = {value}"
             )
             
-            # Return updated line data
-            from stock_tracker.serializers import StocktakeLineSerializer
-            serializer = StocktakeLineSerializer(line)
+            # Refresh from DB to get calculated values
+            line.refresh_from_db()
             
+            # Return updated line data (simple dict, no serializer needed)
             return Response({
                 'success': True,
-                'line': serializer.data,
+                'line': {
+                    'id': line.id,
+                    'item': {
+                        'id': stock_item.id,
+                        'sku': stock_item.sku,
+                        'name': stock_item.name,
+                    },
+                    'counted_full_units': float(line.counted_full_units),
+                    'counted_partial_units': float(line.counted_partial_units),
+                    'counted_qty': float(line.counted_qty),
+                    'opening_qty': float(line.opening_qty),
+                    'purchases': float(line.purchases),
+                    'waste': float(line.waste),
+                },
                 'message': message,
                 'item_name': stock_item.name,
                 'item_sku': stock_item.sku
