@@ -28,7 +28,7 @@ from .comparison_views import (
     VarianceHeatmapView,
     PerformanceScorecardView
 )
-from voice_recognition.views import VoiceCommandView
+from voice_recognition.views import VoiceCommandView, VoiceCommandConfirmView
 
 # Ingredient endpoints
 ingredient_list = IngredientViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -583,6 +583,13 @@ urlpatterns = [
         '<str:hotel_identifier>/stocktake-lines/voice-command/',
         VoiceCommandView.as_view(),
         name='voice-command'
+    ),
+    
+    # Voice Command Confirm (Apply to Stocktake)
+    path(
+        '<str:hotel_identifier>/stocktake-lines/voice-command/confirm/',
+        VoiceCommandConfirmView.as_view(),
+        name='voice-command-confirm'
     ),
 
     # Sales

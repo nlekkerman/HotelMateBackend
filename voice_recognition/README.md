@@ -2,7 +2,7 @@
 
 ## Overview
 
-Voice recognition system for hands-free stocktake counting using OpenAI Whisper for speech-to-text and regex-based command parsing. Returns preview JSON only - frontend handles item matching and database updates.
+Voice recognition system for hands-free stocktake counting using OpenAI Whisper for speech-to-text and regex-based command parsing. Two-step workflow: preview command first, then confirm to update database.
 
 ## Architecture
 
@@ -12,10 +12,18 @@ voice_recognition/
 ├── apps.py               # Django app configuration
 ├── transcription.py      # OpenAI Whisper API integration
 ├── command_parser.py     # Regex-based command parsing
-└── views.py              # VoiceCommandView API endpoint
+└── views.py              # VoiceCommandView + VoiceCommandConfirmView
 ```
 
-## Endpoint
+## Workflow
+
+1. **Record & Parse** → Voice command is transcribed and parsed (preview only)
+2. **User Confirms** → Frontend shows preview, user reviews and confirms
+3. **Update Database** → Confirmed command updates the stocktake line
+
+## Endpoints
+
+### 1. Parse Voice Command (Preview)
 
 **POST** `/api/stock_tracker/<hotel_identifier>/stocktake-lines/voice-command/`
 
@@ -53,22 +61,100 @@ voice_recognition/
 }
 ```
 
+---
+
+### 2. Confirm Voice Command (Update Database)
+
+**POST** `/api/stock_tracker/<hotel_identifier>/stocktake-lines/voice-command/confirm/`
+
+After user reviews and confirms the preview, this endpoint applies the command to the database.
+
+#### Request
+
+```json
+{
+  "stocktake_id": 123,
+  "command": {
+    "action": "count",
+    "item_identifier": "guinness",
+    "value": 5.5,
+    "full_units": 3,
+    "partial_units": 2.5
+  }
+}
+```
+
+#### Response (Success)
+
+```json
+{
+  "success": true,
+  "line": {
+    "id": 456,
+    "item": {...},
+    "counted_full_units": 3,
+    "counted_partial_units": 2.5,
+    "counted_qty": 5.5,
+    ...
+  },
+  "message": "Counted 5.5 units of Guinness",
+  "item_name": "Guinness",
+  "item_sku": "GUIN-KEG"
+}
+```
+
+#### Response (Error)
+
+```json
+{
+  "success": false,
+  "error": "Stock item not found: unknown product"
+}
+```
+
+#### Item Matching
+
+The endpoint searches for stock items using fuzzy matching:
+- Exact match on SKU (case-insensitive)
+- Exact match on name (case-insensitive)
+- Contains match on SKU
+- Contains match on name
+
+Example: "budweiser" matches "Budweiser Bottle", "BUD-001", "budweiser draught", etc.
+
+#### Actions
+
+| Action | Database Update |
+|--------|-----------------|
+| `count` | Sets `counted_full_units` and `counted_partial_units` |
+| `purchase` | Adds to `purchases` field |
+| `waste` | Adds to `waste` field |
+
 ## Voice Commands
 
 ### Supported Actions
 
-- **Count**: count, counted, counting, total, have, got, stock
-- **Purchase**: purchase, purchased, buy, bought, received, delivery, delivered
-- **Waste**: waste, wasted, broken, spoiled, spilled, breakage, damaged
+- **Count**: count, counted, counting, total, have, got, stock, there are, there is, we have, i see
+- **Purchase**: purchase, purchased, buy, bought, received, delivery, delivered, add, incoming
+- **Waste**: waste, wasted, broken, spoiled, spilled, breakage, damaged, minus, subtract
 
 ### Examples
 
 | Voice Command | Parsed Result |
 |--------------|---------------|
 | "count guinness 5.5" | `{action: 'count', item_identifier: 'guinness', value: 5.5}` |
+| "count budweiser 7 cases 7 bottles" | `{action: 'count', item_identifier: 'budweiser', full_units: 7, partial_units: 7}` |
+| "I have coca cola 12" | `{action: 'count', item_identifier: 'coca cola', value: 12}` |
 | "purchase jack daniels 2 bottles" | `{action: 'purchase', item_identifier: 'jack daniels', value: 2}` |
 | "count heineken 3 cases 6 bottles" | `{action: 'count', item_identifier: 'heineken', full_units: 3, partial_units: 6}` |
 | "waste budweiser one point five" | `{action: 'waste', item_identifier: 'budweiser', value: 1.5}` |
+
+### Important Notes
+
+✅ **Action keyword is REQUIRED** - You must say "count", "purchase", "waste", etc.  
+✅ **Natural language works** - "I have Budweiser 7" or "There are 7 Budweiser"  
+✅ **Units are optional** - "7 cases 7 bottles" or just "7"  
+❌ **Don't start with product name** - "Budweiser 7 cases" won't work without action word
 
 ### Number Word Conversion
 
@@ -198,30 +284,102 @@ curl -X POST \
 
 ## Frontend Integration
 
-### Workflow
+### Complete Workflow
 
-1. User clicks mic → records audio
-2. Frontend sends audio blob + stocktake_id to voice endpoint
-3. Backend returns parsed command (preview only)
-4. Frontend shows confirmation modal with parsed data
-5. User confirms → frontend calls existing update API
-6. Pusher broadcasts update to all clients
+```
+1. User speaks into microphone
+   ↓
+2. Frontend sends audio → /voice-command/
+   ↓
+3. Backend returns parsed preview
+   ↓
+4. Frontend shows confirmation modal:
+   "Count Budweiser: 7 cases, 7 bottles?"
+   [Cancel] [Confirm]
+   ↓
+5. User clicks Confirm
+   ↓
+6. Frontend sends command → /voice-command/confirm/
+   ↓
+7. Backend updates stocktake line
+   ↓
+8. Pusher broadcasts update to all clients
+```
+
+### Frontend Code Example
+
+```typescript
+// Step 1: Record and parse
+const parseVoiceCommand = async (audioBlob: Blob, stocktakeId: number) => {
+  const formData = new FormData();
+  formData.append('audio', audioBlob);
+  formData.append('stocktake_id', stocktakeId.toString());
+  
+  const response = await fetch(
+    `/api/stock_tracker/${hotelId}/stocktake-lines/voice-command/`,
+    {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+      body: formData
+    }
+  );
+  
+  return await response.json();
+};
+
+// Step 2: Show confirmation modal
+const showConfirmation = (command: VoiceCommand) => {
+  // Display: "Count Budweiser: 7 units"
+  // User clicks Confirm → call confirmVoiceCommand()
+};
+
+// Step 3: Confirm and update database
+const confirmVoiceCommand = async (stocktakeId: number, command: VoiceCommand) => {
+  const response = await fetch(
+    `/api/stock_tracker/${hotelId}/stocktake-lines/voice-command/confirm/`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        stocktake_id: stocktakeId,
+        command: command
+      })
+    }
+  );
+  
+  const result = await response.json();
+  
+  if (result.success) {
+    // Show success message
+    toast.success(result.message);
+    // Line is updated, Pusher will broadcast to all clients
+  } else {
+    // Show error
+    toast.error(result.error);
+  }
+};
+```
 
 ### Frontend Responsibilities
 
 - Audio recording and blob creation
-- Item matching (SKU or fuzzy name search)
-- Validation and confirmation modal
-- Calling existing stocktake line update API
-- Handling Pusher events for real-time updates
+- Display preview confirmation modal
+- Handle user confirmation/cancellation
+- Call confirm endpoint when user approves
+- Handle success/error responses
+- Listen for Pusher events for real-time updates
 
 ### Backend Responsibilities
 
 - Audio transcription (Whisper)
 - Command parsing (regex)
 - Validation (auth, stocktake access, lock check)
-- Return preview JSON only
-- **Does NOT** update database directly
+- Item matching (fuzzy search)
+- Database updates (on confirm endpoint)
+- Pusher broadcasting (automatic via serializer)
 
 ## Logging
 
@@ -265,12 +423,32 @@ INFO: ✅ Voice command parsed successfully
 
 ## Troubleshooting
 
+### "No action keyword found"
+
+**Problem**: Voice command returns error: "No action keyword found in 'Budweiser 7 cases'"
+
+**Solution**: Always start with an action word:
+- ✅ "Count Budweiser 7 cases"
+- ✅ "I have 7 cases of Budweiser"
+- ❌ "Budweiser 7 cases" (missing action)
+
+### "Stock item not found"
+
+**Problem**: Confirm endpoint returns "Stock item not found: budwiser"
+
+**Solution**: 
+1. Check spelling in voice command
+2. Verify item exists in hotel's stock items
+3. Try using SKU code instead of name
+4. Check item is marked as `is_active=True`
+
 ### Transcription Accuracy Issues
 
 1. Check audio quality (background noise)
 2. Speak clearly and slowly
 3. Use product names as they appear in system
 4. Mention SKU codes when possible
+5. Avoid background music or conversations
 
 ### OpenAI API Errors
 
@@ -282,9 +460,18 @@ INFO: ✅ Voice command parsed successfully
 ### Parse Failures
 
 1. Check logs for transcription text
-2. Verify action keywords are present
+2. Verify action keywords are present (count, purchase, waste)
 3. Ensure numeric values are spoken clearly
 4. Review regex patterns in `command_parser.py`
+
+### Item Identifier Extraction Issues
+
+**Problem**: Item name has extra words like "budweiser bottle cas bo"
+
+**Solution**: This was fixed in latest version. Parser now:
+- Removes unit words (cases, bottles, kegs, etc.)
+- Removes filler words (i, we, the, a, etc.)
+- Cleans up whitespace properly
 
 ## Support
 

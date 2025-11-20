@@ -228,18 +228,14 @@ def parse_voice_command(transcription: str) -> Dict:
     if action_word:
         item_text = item_text.replace(action_word, ' ')
     
-    # Remove the numeric patterns
-    if dozen_match:
-        item_text = item_text[:dozen_match.start()] + item_text[dozen_match.end():]
-    if full_partial_match:
-        item_text = item_text[:full_partial_match.start()] + item_text[full_partial_match.end():]
-    if single_matches:
-        # Remove all numeric patterns found
-        for match in reversed(single_matches):
-            item_text = item_text[:match.start()] + item_text[match.end():]
+    # Remove common filler words that might be left over
+    item_text = re.sub(r'\b(i|we|the|a|an|this|that)\b', '', item_text)
     
-    # Remove any remaining numbers, commas, and clean up spaces
+    # Remove the numeric patterns but preserve the text between them
+    # For "budweiser 7 cases 7 bottles" -> keep "budweiser"
+    # Remove numbers and units (cases, bottles, kegs, pints, dozen, etc.)
     item_text = re.sub(r'\d+(?:\.\d+)?', '', item_text)
+    item_text = re.sub(r'\b(cases?|bottles?|kegs?|pints?|cans?|dozen|boxes?|liters?|ml)\b', '', item_text)
     item_text = re.sub(r'[,;]', '', item_text)
     item_text = re.sub(r'\s+', ' ', item_text)
     
