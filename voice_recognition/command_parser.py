@@ -228,18 +228,30 @@ def parse_voice_command(transcription: str) -> Dict:
     if action_word:
         item_text = item_text.replace(action_word, ' ')
     
-    # Remove common filler words that might be left over
-    item_text = re.sub(r'\b(i|we|the|a|an|this|that)\b', '', item_text)
+    # Remove common filler/question words
+    filler_pattern = (r'\b(i|we|the|a|an|this|that|but|why|is|it|what|how|'
+                      r'where|when|who|umm|uh|ok|so|many|think)\b')
+    item_text = re.sub(filler_pattern, ' ', item_text)
     
-    # Remove the numeric patterns but preserve the text between them
-    # For "budweiser 7 cases 7 bottles" -> keep "budweiser"
-    # Remove numbers and units (cases, bottles, kegs, pints, dozen, etc.)
-    item_text = re.sub(r'\d+(?:\.\d+)?', '', item_text)
-    item_text = re.sub(r'\b(cases?|bottles?|kegs?|pints?|cans?|dozen|boxes?|liters?|ml)\b', '', item_text)
-    item_text = re.sub(r'[,;]', '', item_text)
+    # Remove question marks and other punctuation (keep letters/spaces only)
+    item_text = re.sub(r'[?!.,;:]', ' ', item_text)
+    
+    # Remove numbers and units
+    item_text = re.sub(r'\d+(?:\.\d+)?', ' ', item_text)
+    item_text = re.sub(r'\b(cases?|bottles?|kegs?|pints?|cans?|dozen|boxes?|liters?|ml)\b', ' ', item_text)
+    
+    # Collapse multiple spaces
     item_text = re.sub(r'\s+', ' ', item_text)
     
-    item_identifier = item_text.strip()
+    # Split into tokens and keep only meaningful words (3+ chars or known brands)
+    tokens = item_text.strip().split()
+    known_short_words = ['bud', 'kbc', 'sol', 'wkd', 'ice']
+    meaningful_tokens = [
+        t for t in tokens 
+        if len(t) >= 3 or t in known_short_words
+    ]
+    
+    item_identifier = ' '.join(meaningful_tokens).strip()
     
     if not item_identifier or len(item_identifier) < 2:
         raise ValueError(f"No item identifier found in '{transcription}'")

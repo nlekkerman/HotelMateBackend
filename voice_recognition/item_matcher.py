@@ -170,7 +170,7 @@ def find_best_match_in_stocktake(
     stocktake_item_ids = stocktake.lines.values_list('item_id', flat=True)
     items = StockItem.objects.filter(
         id__in=stocktake_item_ids,
-        is_active=True
+        active=True
     )
     
     return find_best_match(search_phrase, items, min_score)

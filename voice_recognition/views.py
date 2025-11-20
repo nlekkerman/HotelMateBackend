@@ -223,7 +223,7 @@ class VoiceCommandConfirmView(APIView):
                 # Fallback: try exact/contains match in all hotel items
                 stock_item = StockItem.objects.filter(
                     hotel=hotel,
-                    is_active=True
+                    active=True
                 ).filter(
                     Q(sku__iexact=item_identifier) |
                     Q(name__iexact=item_identifier) |
