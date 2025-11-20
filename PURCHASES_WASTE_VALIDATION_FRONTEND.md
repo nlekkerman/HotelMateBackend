@@ -12,9 +12,27 @@ Waste must be recorded from opened/partial items:
 
 ---
 
-## 📋 API Response Format
+## 📋 API Endpoint & Payload
 
-When adding purchases or waste, the backend will validate and return:
+**Endpoint:** `POST /api/stocktake-lines/{line_id}/add_movement/`
+
+**Payload Structure:**
+```json
+{
+  "movement_type": "PURCHASE" | "WASTE",
+  "quantity": number,  // EXACTLY as user enters - NO CONVERSION
+  "notes": "optional string"
+}
+```
+
+**CRITICAL:** Frontend sends quantity **EXACTLY** as entered by user:
+- Draught: pints (e.g., 88, 176)
+- Bottled Beer: bottles (e.g., 12, 24, 3)
+- Spirits/Wine: bottles (e.g., 6, 0.5)
+- Syrups: bottles (e.g., 5, 0.7)
+- BIB: boxes (e.g., 3, 0.5)
+
+**NO CONVERSION, NO CALCULATION - just validation!**
 
 ### ✅ Success Response
 ```json
@@ -47,37 +65,35 @@ When adding purchases or waste, the backend will validate and return:
 
 ## 🎯 Frontend Implementation by Category
 
-### 1️⃣ **DRAUGHT BEER** (Quantity in Pints)
+### 1️⃣ **DRAUGHT BEER** (User enters PINTS)
 
 #### Purchases Input
 ```typescript
-// User enters KEGS, backend receives PINTS
-function handleDraughtPurchase(kegs: number, item: StockItem) {
+// User enters PINTS - send EXACTLY as entered
+function handleDraughtPurchase(pints: number, item: StockItem) {
   const uom = item.item_uom; // e.g., 88 pints per keg
-  const quantity = kegs * uom;  // Convert kegs to pints
   
-  // Validate: must be whole kegs
-  if (kegs % 1 !== 0) {
-    showError("Purchases must be in full kegs only");
+  // Validate: must be multiple of 88 (full kegs)
+  if (pints % uom !== 0) {
+    showError(`Purchases must be full kegs (multiples of ${uom} pints)`);
     return;
   }
   
   addMovement({
     movement_type: "PURCHASE",
-    quantity: quantity  // e.g., 88, 176, 264
+    quantity: pints  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 1 keg → 88 pints
-// ✅ 2 kegs → 176 pints
-// ❌ 1.5 kegs → rejected
-// ❌ 50 pints → rejected (not a full keg)
+// ✅ User enters 88 pints → send 88
+// ✅ User enters 176 pints → send 176
+// ❌ User enters 50 pints → rejected (not full keg)
 ```
 
 #### Waste Input
 ```typescript
-// User enters PINTS (from opened keg)
+// User enters PINTS - send EXACTLY as entered
 function handleDraughtWaste(pints: number, item: StockItem) {
   const uom = item.item_uom; // e.g., 88 pints per keg
   
@@ -89,49 +105,46 @@ function handleDraughtWaste(pints: number, item: StockItem) {
   
   addMovement({
     movement_type: "WASTE",
-    quantity: pints  // e.g., 15, 25.5, 50
+    quantity: pints  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 25 pints (partial keg)
-// ✅ 50.5 pints (partial keg)
-// ❌ 88 pints (full keg - use adjustment instead)
-```
+// ✅ User enters 25 pints → send 25
+// ✅ User enters 50.5 pints → send 50.5
+// ❌ User enters 88 pints → rejected (full keg)
 
 ---
 
-### 2️⃣ **BOTTLED BEER** (Quantity in Bottles)
+### 2️⃣ **BOTTLED BEER** (User enters BOTTLES)
 
 #### Purchases Input
 ```typescript
-// User enters CASES, backend receives BOTTLES
-function handleBottledPurchase(cases: number, item: StockItem) {
+// User enters BOTTLES - send EXACTLY as entered
+function handleBottledPurchase(bottles: number, item: StockItem) {
   const uom = item.item_uom; // e.g., 12 bottles per case
-  const quantity = cases * uom;  // Convert cases to bottles
   
-  // Validate: must be whole cases
-  if (cases % 1 !== 0) {
-    showError("Purchases must be in full cases only");
+  // Validate: must be multiple of 12 (full cases)
+  if (bottles % uom !== 0) {
+    showError(`Purchases must be full cases (multiples of ${uom} bottles)`);
     return;
   }
   
   addMovement({
     movement_type: "PURCHASE",
-    quantity: quantity  // e.g., 12, 24, 36
+    quantity: bottles  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 2 cases → 24 bottles
-// ✅ 5 cases → 60 bottles
-// ❌ 1.5 cases → rejected
-// ❌ 7 bottles → rejected (not full case)
+// ✅ User enters 12 bottles → send 12
+// ✅ User enters 24 bottles → send 24
+// ❌ User enters 7 bottles → rejected (not full case)
 ```
 
 #### Waste Input
 ```typescript
-// User enters BOTTLES (from opened case)
+// User enters BOTTLES - send EXACTLY as entered
 function handleBottledWaste(bottles: number, item: StockItem) {
   const uom = item.item_uom; // e.g., 12 bottles per case
   
@@ -143,23 +156,22 @@ function handleBottledWaste(bottles: number, item: StockItem) {
   
   addMovement({
     movement_type: "WASTE",
-    quantity: bottles  // e.g., 2, 5, 11
+    quantity: bottles  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 3 bottles (from opened case)
-// ✅ 7 bottles (from opened case)
-// ❌ 12 bottles (full case - use adjustment instead)
-```
+// ✅ User enters 3 bottles → send 3
+// ✅ User enters 7 bottles → send 7
+// ❌ User enters 12 bottles → rejected (full case)
 
 ---
 
-### 3️⃣ **SPIRITS & WINE** (Quantity = Bottles, UOM=1)
+### 3️⃣ **SPIRITS & WINE** (User enters BOTTLES)
 
 #### Purchases Input
 ```typescript
-// User enters BOTTLES, backend receives BOTTLES (1:1)
+// User enters BOTTLES - send EXACTLY as entered
 function handleSpiritsPurchase(bottles: number) {
   // Validate: must be whole bottles
   if (bottles % 1 !== 0) {
@@ -169,20 +181,19 @@ function handleSpiritsPurchase(bottles: number) {
   
   addMovement({
     movement_type: "PURCHASE",
-    quantity: bottles  // e.g., 1, 5, 10
+    quantity: bottles  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 3 bottles
-// ✅ 10 bottles
-// ❌ 2.5 bottles → rejected
-// ❌ 5.75 bottles → rejected
+// ✅ User enters 3 bottles → send 3
+// ✅ User enters 10 bottles → send 10
+// ❌ User enters 2.5 bottles → rejected
 ```
 
 #### Waste Input
 ```typescript
-// User enters PARTIAL BOTTLE (0.00 - 0.99)
+// User enters PARTIAL BOTTLES - send EXACTLY as entered
 function handleSpiritsWaste(partialBottle: number) {
   // Validate: must be less than 1 bottle
   if (partialBottle >= 1) {
@@ -192,78 +203,40 @@ function handleSpiritsWaste(partialBottle: number) {
   
   addMovement({
     movement_type: "WASTE",
-    quantity: partialBottle  // e.g., 0.25, 0.50, 0.75
+    quantity: partialBottle  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 0.5 bottle
-// ✅ 0.25 bottle
-// ✅ 0.99 bottle
-// ❌ 1.0 bottle (full bottle - use adjustment instead)
-```
+// ✅ User enters 0.5 → send 0.5
+// ✅ User enters 0.7 → send 0.7
+// ❌ User enters 1.0 → rejected (full bottle)
 
 ---
 
-### 4️⃣ **SOFT DRINKS** (Quantity in Bottles)
+### 4️⃣ **SOFT DRINKS** (User enters BOTTLES)
+
+Same validation as **Bottled Beer** - must be multiples of UOM for purchases, less than UOM for waste.
+
+---
+
+### 5️⃣ **CORDIALS** (User enters BOTTLES)
+
+Same validation as **Bottled Beer** - must be multiples of UOM for purchases, less than UOM for waste.
+
+---
+
+### 6️⃣ **SYRUPS** (User enters BOTTLES)
+
+Same validation as **Spirits & Wine** - whole bottles for purchases, partial (< 1) for waste.
+
+---
+
+### 7️⃣ **BIB (Bag-in-Box)** (User enters BOXES)
 
 #### Purchases Input
 ```typescript
-// User enters CASES, backend receives BOTTLES
-function handleSoftDrinksPurchase(cases: number, item: StockItem) {
-  const uom = item.item_uom; // e.g., 12 bottles per case
-  const quantity = cases * uom;
-  
-  // Validate: must be whole cases
-  if (cases % 1 !== 0) {
-    showError("Purchases must be in full cases only");
-    return;
-  }
-  
-  addMovement({
-    movement_type: "PURCHASE",
-    quantity: quantity  // e.g., 12, 24, 36
-  });
-}
-```
-
-#### Waste Input
-```typescript
-// User enters BOTTLES (from opened case)
-function handleSoftDrinksWaste(bottles: number, item: StockItem) {
-  const uom = item.item_uom; // e.g., 12 bottles per case
-  
-  if (bottles >= uom) {
-    showError(`Waste must be partial case only (less than ${uom} bottles)`);
-    return;
-  }
-  
-  addMovement({
-    movement_type: "WASTE",
-    quantity: bottles
-  });
-}
-```
-
----
-
-### 5️⃣ **CORDIALS** (Quantity in Bottles)
-
-Same logic as **Soft Drinks** above.
-
----
-
-### 6️⃣ **SYRUPS** (Quantity = Bottles, UOM=1)
-
-Same logic as **Spirits & Wine** above.
-
----
-
-### 7️⃣ **BIB (Bag-in-Box)** (Quantity = Boxes, UOM=1)
-
-#### Purchases Input
-```typescript
-// User enters BOXES, backend receives BOXES (1:1)
+// User enters BOXES - send EXACTLY as entered
 function handleBIBPurchase(boxes: number) {
   // Validate: must be whole boxes
   if (boxes % 1 !== 0) {
@@ -273,19 +246,19 @@ function handleBIBPurchase(boxes: number) {
   
   addMovement({
     movement_type: "PURCHASE",
-    quantity: boxes  // e.g., 2, 5, 10
+    quantity: boxes  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 3 boxes
-// ✅ 5 boxes
-// ❌ 2.5 boxes → rejected
+// ✅ User enters 3 boxes → send 3
+// ✅ User enters 5 boxes → send 5
+// ❌ User enters 2.5 boxes → rejected
 ```
 
 #### Waste Input
 ```typescript
-// User enters PARTIAL BOX (0.00 - 0.99)
+// User enters PARTIAL BOXES - send EXACTLY as entered
 function handleBIBWaste(partialBox: number) {
   // Validate: must be less than 1 box
   if (partialBox >= 1) {
@@ -295,15 +268,14 @@ function handleBIBWaste(partialBox: number) {
   
   addMovement({
     movement_type: "WASTE",
-    quantity: partialBox  // e.g., 0.25, 0.50
+    quantity: partialBox  // Send EXACTLY as entered
   });
 }
 
 // Examples:
-// ✅ 0.5 box (half empty)
-// ✅ 0.25 box
-// ❌ 1.0 box (use adjustment instead)
-```
+// ✅ User enters 0.5 → send 0.5
+// ✅ User enters 0.25 → send 0.25
+// ❌ User enters 1.0 → rejected (full box)
 
 ---
 
@@ -322,20 +294,23 @@ export function PurchasesInput({ item, onAdd }: PurchasesInputProps) {
   const category = item.category_code;
   const uom = item.item_uom;
   
-  // Determine input label and conversion
+  // Determine input label (NO CONVERSION!)
   const getInputConfig = () => {
     if (category === 'D') {
-      return { label: 'Kegs', convert: (v: number) => v * uom };
+      return { label: 'Pints', placeholder: 'e.g., 88, 176' };
     }
     if (category === 'B' || 
         (category === 'M' && ['SOFT_DRINKS', 'CORDIALS'].includes(item.subcategory))) {
-      return { label: 'Cases', convert: (v: number) => v * uom };
+      return { label: 'Bottles', placeholder: 'e.g., 12, 24' };
     }
     if (category === 'S' || category === 'W' || 
-        (category === 'M' && ['SYRUPS', 'BIB', 'BULK_JUICES'].includes(item.subcategory))) {
-      return { label: 'Bottles/Boxes', convert: (v: number) => v };
+        (category === 'M' && ['SYRUPS'].includes(item.subcategory))) {
+      return { label: 'Bottles', placeholder: 'e.g., 6, 10' };
     }
-    return { label: 'Units', convert: (v: number) => v };
+    if (category === 'M' && ['BIB', 'BULK_JUICES'].includes(item.subcategory)) {
+      return { label: 'Boxes', placeholder: 'e.g., 3, 5' };
+    }
+    return { label: 'Units', placeholder: '0' };
   };
   
   const config = getInputConfig();
@@ -343,14 +318,23 @@ export function PurchasesInput({ item, onAdd }: PurchasesInputProps) {
   const handleSubmit = () => {
     const numValue = parseFloat(value);
     
-    // Validation: must be whole number
-    if (numValue % 1 !== 0) {
-      showError(`Purchases must be in full ${config.label.toLowerCase()} only`);
-      return;
+    // Validate based on UOM
+    if (uom === 1) {
+      // Must be whole numbers
+      if (numValue % 1 !== 0) {
+        showError(`Purchases must be whole ${config.label.toLowerCase()}`);
+        return;
+      }
+    } else {
+      // Must be multiples of UOM
+      if (numValue % uom !== 0) {
+        showError(`Purchases must be multiples of ${uom} ${config.label.toLowerCase()}`);
+        return;
+      }
     }
     
-    const quantity = config.convert(numValue);
-    onAdd(quantity);
+    // Send EXACTLY as entered - NO CONVERSION!
+    onAdd(numValue);
     setValue("");
   };
   
@@ -361,7 +345,7 @@ export function PurchasesInput({ item, onAdd }: PurchasesInputProps) {
         type="number"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="0"
+        placeholder={config.placeholder}
         step="1"
         min="1"
       />
@@ -384,20 +368,23 @@ export function WasteInput({ item, onAdd }: WasteInputProps) {
   const category = item.category_code;
   const uom = item.item_uom;
   
-  // Determine input label and validation
+  // Determine input label (NO CONVERSION!)
   const getInputConfig = () => {
     if (category === 'D') {
-      return { label: 'Pints (from opened keg)', max: uom - 0.01, step: 0.5 };
+      return { label: 'Pints', max: uom - 0.01, step: 0.5, placeholder: 'e.g., 15, 25.5' };
     }
     if (category === 'B' || 
         (category === 'M' && ['SOFT_DRINKS', 'CORDIALS'].includes(item.subcategory))) {
-      return { label: 'Bottles (from opened case)', max: uom - 1, step: 1 };
+      return { label: 'Bottles', max: uom - 1, step: 1, placeholder: 'e.g., 3, 7' };
     }
     if (category === 'S' || category === 'W' || 
-        (category === 'M' && ['SYRUPS', 'BIB', 'BULK_JUICES'].includes(item.subcategory))) {
-      return { label: 'Partial bottle/box', max: 0.99, step: 0.01 };
+        (category === 'M' && ['SYRUPS'].includes(item.subcategory))) {
+      return { label: 'Partial Bottles', max: 0.99, step: 0.01, placeholder: 'e.g., 0.5, 0.7' };
     }
-    return { label: 'Partial units', max: uom - 0.01, step: 0.01 };
+    if (category === 'M' && ['BIB', 'BULK_JUICES'].includes(item.subcategory)) {
+      return { label: 'Partial Boxes', max: 0.99, step: 0.01, placeholder: 'e.g., 0.5, 0.25' };
+    }
+    return { label: 'Partial units', max: uom - 0.01, step: 0.01, placeholder: '0' };
   };
   
   const config = getInputConfig();
@@ -405,12 +392,13 @@ export function WasteInput({ item, onAdd }: WasteInputProps) {
   const handleSubmit = () => {
     const numValue = parseFloat(value);
     
-    // Validation: must be less than max
-    if (numValue > config.max) {
-      showError(`Waste must be less than full unit (max: ${config.max})`);
+    // Validate: must be less than threshold
+    if (numValue >= (uom === 1 ? 1 : uom)) {
+      showError(`Waste must be partial only (less than ${uom === 1 ? '1' : uom})`);
       return;
     }
     
+    // Send EXACTLY as entered - NO CONVERSION!
     onAdd(numValue);
     setValue("");
   };
@@ -422,7 +410,7 @@ export function WasteInput({ item, onAdd }: WasteInputProps) {
         type="number"
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="0"
+        placeholder={config.placeholder}
         step={config.step}
         max={config.max}
         min="0.01"
@@ -437,17 +425,19 @@ export function WasteInput({ item, onAdd }: WasteInputProps) {
 
 ## 📊 Validation Summary Table
 
-| Category | Purchases | Waste |
-|----------|-----------|-------|
-| **Draught (D)** | Full kegs only<br>(88, 176, 264 pints) | Partial keg only<br>(< 88 pints) |
-| **Bottled Beer (B)** | Full cases only<br>(12, 24, 36 bottles) | Partial case only<br>(< 12 bottles) |
-| **Spirits (S)** | Full bottles only<br>(1, 2, 3... bottles) | Partial bottle only<br>(< 1 bottle) |
-| **Wine (W)** | Full bottles only<br>(1, 2, 3... bottles) | Partial bottle only<br>(< 1 bottle) |
-| **Soft Drinks (M)** | Full cases only<br>(12, 24 bottles) | Partial case only<br>(< 12 bottles) |
-| **Syrups (M)** | Full bottles only<br>(1, 2, 3... bottles) | Partial bottle only<br>(< 1 bottle) |
-| **Cordials (M)** | Full cases only<br>(12, 24 bottles) | Partial case only<br>(< 12 bottles) |
-| **BIB (M)** | Full boxes only<br>(1, 2, 3... boxes) | Partial box only<br>(< 1 box) |
-| **Bulk Juices (M)** | Full bottles only<br>(1, 2, 3... bottles) | Partial bottle only<br>(< 1 bottle) |
+| Category | User Enters | Purchases Validation | Waste Validation |
+|----------|-------------|---------------------|------------------|
+| **Draught (D)** | Pints | Must be multiples of 88<br>(88, 176, 264) | Must be < 88<br>(15, 25.5, 50) |
+| **Bottled Beer (B)** | Bottles | Must be multiples of 12<br>(12, 24, 36) | Must be < 12<br>(3, 7, 11) |
+| **Spirits (S)** | Bottles | Must be whole numbers<br>(1, 2, 6, 10) | Must be < 1<br>(0.5, 0.7, 0.25) |
+| **Wine (W)** | Bottles | Must be whole numbers<br>(1, 2, 4, 6) | Must be < 1<br>(0.3, 0.5, 0.6) |
+| **Soft Drinks (M)** | Bottles | Must be multiples of UOM<br>(12, 24) | Must be < UOM<br>(3, 7) |
+| **Syrups (M)** | Bottles | Must be whole numbers<br>(1, 5, 10) | Must be < 1<br>(0.5, 0.7) |
+| **Cordials (M)** | Bottles | Must be multiples of UOM<br>(12, 24) | Must be < UOM<br>(3, 7) |
+| **BIB (M)** | Boxes | Must be whole numbers<br>(1, 3, 5) | Must be < 1<br>(0.25, 0.5) |
+| **Bulk Juices (M)** | Boxes | Must be whole numbers<br>(1, 2, 3) | Must be < 1<br>(0.5, 0.75) |
+
+**CRITICAL:** Frontend sends **EXACTLY** what user enters - **NO CONVERSION OR CALCULATION!**
 
 ---
 
@@ -547,7 +537,7 @@ async function addMovement(lineId: number, data: MovementData) {
 
 1. **Add client-side validation** to input fields (prevent invalid submissions)
 2. **Handle backend error responses** (display validation errors)
-3. **Update input labels** based on category (kegs vs cases vs bottles)
+3. **Update input labels** based on category (pints vs bottles vs boxes)
 4. **Set appropriate step values** (1 for whole numbers, 0.01 for decimals)
 5. **Test all categories** with both valid and invalid values
 6. **Ensure error messages** are user-friendly and actionable
@@ -556,8 +546,9 @@ async function addMovement(lineId: number, data: MovementData) {
 
 ## 📝 Notes
 
+- **NO CONVERSION OR CALCULATION** - send EXACTLY what user enters
 - **Backend handles all validation** - client-side is just for UX
-- **Always convert to base units** before sending to backend
+- **User enters the actual unit backend expects** (pints, bottles, boxes)
 - **Trust backend response** - don't calculate locally
 - **Display clear error messages** when validation fails
-- **Use appropriate input steps** (whole numbers vs decimals)
+- **Use appropriate input steps** (1 for whole numbers, 0.01 for decimals)
