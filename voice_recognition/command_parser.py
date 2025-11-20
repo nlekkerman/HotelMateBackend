@@ -208,8 +208,14 @@ def parse_voice_command(transcription: str) -> Dict:
         if full_partial_match:
             full_units = int(float(full_partial_match.group(1)))
             partial_units = float(full_partial_match.group(2))
+            
+            # IMPORTANT: value represents the TOTAL COUNT in appropriate units
+            # For "3 cases 6 bottles" we keep full=3, partial=6
+            # The value is just for display/logging - the stocktake line
+            # uses full_units and partial_units to calculate correctly
             value = float(full_units) + partial_units
-            logger.info(f"✓ Parsed full+partial: {full_units} full, {partial_units} partial (combined: {value})")
+            
+            logger.info(f"✓ Parsed full+partial: {full_units} full, {partial_units} partial")
         else:
             # Try single value pattern
             # Find all matches and take the last one (closest to end, likely the quantity)

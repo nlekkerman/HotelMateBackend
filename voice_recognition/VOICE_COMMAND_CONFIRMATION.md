@@ -21,6 +21,9 @@ When confirmed, voice commands follow the **exact same path** as manual edits:
 - Sets `counted_full_units` and `counted_partial_units` directly on the line
 - Model's `counted_qty` property calculates total in base units
 - Example: "3 cases, 5 bottles" → `full=3`, `partial=5`
+- **CRITICAL**: For bottled beer, `full=3` means 3 CASES, `partial=5` means 5 BOTTLES
+- The model calculates: `(3 × 12) + 5 = 41 bottles total`
+- Frontend must NOT recalculate - just display what backend sends
 
 #### Purchase Action  
 - Creates a `StockMovement` record with type `PURCHASE`
@@ -92,6 +95,26 @@ When Staff Member A confirms: "Count Budweiser 3 cases 5 bottles"
 ✅ **Same as manual** - Uses identical code path as typing in UI  
 ✅ **Real-time sync** - Pusher broadcasts to all connected users  
 ✅ **No preview mode** - Confirmed = Applied immediately  
+✅ **full_units + partial_units** - Backend sends these separately, model calculates total  
+
+## Common Mistake to Avoid
+
+❌ **DON'T** use the `value` field from command for bottled beer counts  
+✅ **DO** use `full_units` (cases) and `partial_units` (bottles) separately  
+
+**Example**: "Count Budweiser 3 cases 6 bottles"
+
+Backend sends:
+```json
+{
+  "full_units": 3,
+  "partial_units": 6,
+  "value": 9  // ⚠️ DON'T USE THIS for bottled beer!
+}
+```
+
+Frontend should show: **"3 cases + 6 bottles"**  
+Model calculates: **(3 × 12) + 6 = 42 bottles total**  
 
 ---
 

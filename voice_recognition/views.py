@@ -12,7 +12,9 @@ from django.shortcuts import get_object_or_404
 from django.db.models import Q
 
 from hotel.models import Hotel
-from stock_tracker.models import Stocktake, StocktakeLine, StockItem
+from stock_tracker.models import (
+    Stocktake, StocktakeLine, StockItem, StockPeriod, StockMovement
+)
 from .transcription import transcribe_audio
 from .command_parser import parse_voice_command
 
@@ -282,45 +284,122 @@ class VoiceCommandConfirmView(APIView):
                     message = f"Counted {value} of {stock_item.name}"
                 
             elif action == 'purchase':
-                # PURCHASE ACTION: Create StockMovement (same as add_movement)
-                # Backend has already calculated the correct base unit quantity
-                # Just create the movement record
+                # PURCHASE ACTION: Create StockMovement & recalculate
+                # Use same logic as add_movement action
                 
                 from decimal import Decimal
                 from stock_tracker.models import StockMovement
+                from django.utils import timezone
+                from datetime import datetime, time
                 
+                # Find the matching StockPeriod
+                period = StockPeriod.objects.filter(
+                    hotel=stocktake.hotel,
+                    start_date=stocktake.period_start,
+                    end_date=stocktake.period_end
+                ).first()
+                
+                # Set timestamp to period end (or now if in period)
+                movement_timestamp = timezone.now()
+                period_end_dt = timezone.make_aware(
+                    datetime.combine(stocktake.period_end, time.max)
+                )
+                if movement_timestamp > period_end_dt:
+                    movement_timestamp = period_end_dt
+                
+                # Get staff if available
+                staff_user = None
+                if hasattr(request.user, 'staff'):
+                    staff_user = request.user.staff
+                
+                # Create movement
                 movement = StockMovement.objects.create(
+                    hotel=stocktake.hotel,
                     item=stock_item,
+                    period=period,
                     movement_type='PURCHASE',
                     quantity=Decimal(str(value)),
-                    date=stocktake.period_end,  # Use stocktake period end
+                    unit_cost=stock_item.unit_cost,
+                    reference=f'Stocktake-{stocktake.id}',
                     notes=f'Voice command: purchase {value} units',
-                    unit_cost=stock_item.unit_cost if stock_item.unit_cost else None
+                    staff=staff_user
                 )
                 
-                # Update line's purchases field (aggregated from movements)
-                line.purchases += Decimal(str(value))
+                # Override timestamp to be within period
+                movement.timestamp = movement_timestamp
+                movement.save(update_fields=['timestamp'])
+                
+                # Recalculate line from movements
+                from stock_tracker.stocktake_service import _calculate_period_movements
+                
+                movements = _calculate_period_movements(
+                    stock_item,
+                    stocktake.period_start,
+                    stocktake.period_end
+                )
+                
+                line.purchases = movements['purchases']
+                line.waste = movements['waste']
                 line.save()
                 
                 message = f"Added purchase of {value} units of {stock_item.name}"
                 
             elif action == 'waste':
-                # WASTE ACTION: Create StockMovement (same as add_movement)
-                # Backend has already calculated the correct base unit quantity
+                # WASTE ACTION: Create StockMovement & recalculate
+                # Use same logic as add_movement action
                 
                 from decimal import Decimal
                 from stock_tracker.models import StockMovement
+                from django.utils import timezone
+                from datetime import datetime, time
                 
+                # Find the matching StockPeriod
+                period = StockPeriod.objects.filter(
+                    hotel=stocktake.hotel,
+                    start_date=stocktake.period_start,
+                    end_date=stocktake.period_end
+                ).first()
+                
+                # Set timestamp to period end (or now if in period)
+                movement_timestamp = timezone.now()
+                period_end_dt = timezone.make_aware(
+                    datetime.combine(stocktake.period_end, time.max)
+                )
+                if movement_timestamp > period_end_dt:
+                    movement_timestamp = period_end_dt
+                
+                # Get staff if available
+                staff_user = None
+                if hasattr(request.user, 'staff'):
+                    staff_user = request.user.staff
+                
+                # Create movement
                 movement = StockMovement.objects.create(
+                    hotel=stocktake.hotel,
                     item=stock_item,
+                    period=period,
                     movement_type='WASTE',
                     quantity=Decimal(str(value)),
-                    date=stocktake.period_end,
-                    notes=f'Voice command: waste {value} units'
+                    reference=f'Stocktake-{stocktake.id}',
+                    notes=f'Voice command: waste {value} units',
+                    staff=staff_user
                 )
                 
-                # Update line's waste field (aggregated from movements)
-                line.waste += Decimal(str(value))
+                # Override timestamp to be within period
+                movement.timestamp = movement_timestamp
+                movement.save(update_fields=['timestamp'])
+                
+                # Recalculate line from movements
+                from stock_tracker.stocktake_service import _calculate_period_movements
+                
+                movements = _calculate_period_movements(
+                    stock_item,
+                    stocktake.period_start,
+                    stocktake.period_end
+                )
+                
+                line.purchases = movements['purchases']
+                line.waste = movements['waste']
                 line.save()
                 
                 message = f"Added waste of {value} units of {stock_item.name}"
