@@ -109,3 +109,29 @@ Possible causes:
 5. Audio format not supported
 
 Check OpenAI status: https://status.openai.com/
+
+### Error: "insufficient_quota" (429)
+
+**Your OpenAI API key has exceeded its quota.**
+
+**Solutions:**
+
+1. **Add credits to your OpenAI account:**
+   - Go to https://platform.openai.com/settings/organization/billing
+   - Add payment method
+   - Add credits ($5-$10 minimum)
+
+2. **Check usage:**
+   - Go to https://platform.openai.com/usage
+   - View current usage and limits
+
+3. **Use a different API key:**
+   - Create a new project key at https://platform.openai.com/api-keys
+   - Update `.env` with new key
+   - Restart server (on Heroku: `heroku restart`)
+
+4. **Upgrade plan:**
+   - Free tier has very limited quota
+   - Pay-as-you-go tier recommended for production
+
+**Note:** Voice recognition costs ~$0.001 per command (very affordable once credits are added)

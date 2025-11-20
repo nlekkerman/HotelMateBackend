@@ -160,14 +160,18 @@ def parse_voice_command(transcription: str) -> Dict:
     
     logger.info(f"🔍 Parsing: '{text}' (from '{transcription}')")
     
-    # 1. Detect action
+    # 1. Detect action (can be at beginning OR end)
     action = None
     action_word = None
+    action_position = -1
+    
     for action_type, keywords in ACTION_KEYWORDS.items():
         for keyword in keywords:
             if keyword in text:
                 action = action_type
                 action_word = keyword
+                # Find position of action word
+                action_position = text.find(keyword)
                 break
         if action:
             break
@@ -217,30 +221,31 @@ def parse_voice_command(transcription: str) -> Dict:
             else:
                 raise ValueError(f"No numeric value found in '{transcription}'")
     
-    # 3. Extract item identifier (everything between action and numbers)
-    # Remove the action keyword from beginning
+    # 3. Extract item identifier (remove action words and numbers)
     item_text = text
+    
+    # Remove the action keyword from anywhere in the text
     if action_word:
-        # Find where action word ends
-        action_pos = item_text.find(action_word)
-        if action_pos != -1:
-            item_text = item_text[action_pos + len(action_word):].strip()
+        item_text = item_text.replace(action_word, ' ')
     
-    # Remove the numeric part at the end
+    # Remove the numeric patterns
     if dozen_match:
-        item_text = item_text[:dozen_match.start()].strip()
-    elif full_partial_match:
-        item_text = item_text[:full_partial_match.start()].strip()
-    elif single_matches:
-        item_text = item_text[:single_matches[-1].start()].strip()
+        item_text = item_text[:dozen_match.start()] + item_text[dozen_match.end():]
+    if full_partial_match:
+        item_text = item_text[:full_partial_match.start()] + item_text[full_partial_match.end():]
+    if single_matches:
+        # Remove all numeric patterns found
+        for match in reversed(single_matches):
+            item_text = item_text[:match.start()] + item_text[match.end():]
     
-    # Remove any trailing numbers or dozen patterns that might have been left
-    item_text = re.sub(r'\s+\d+\s+dozen\s*$', '', item_text)
-    item_text = re.sub(r'\s+\d+(?:\.\d+)?\s*$', '', item_text)
+    # Remove any remaining numbers, commas, and clean up spaces
+    item_text = re.sub(r'\d+(?:\.\d+)?', '', item_text)
+    item_text = re.sub(r'[,;]', '', item_text)
+    item_text = re.sub(r'\s+', ' ', item_text)
     
     item_identifier = item_text.strip()
     
-    if not item_identifier:
+    if not item_identifier or len(item_identifier) < 2:
         raise ValueError(f"No item identifier found in '{transcription}'")
     
     logger.info(f"✓ Item identifier: '{item_identifier}'")
