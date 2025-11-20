@@ -146,7 +146,14 @@ class VoiceCommandView(APIView):
 
 class VoiceCommandConfirmView(APIView):
     """
-    Confirm and apply a voice command to update stocktake line
+    Confirm and apply a voice command to update stocktake line.
+    
+    CRITICAL: This applies commands EXACTLY like manual edits.
+    - Count: Sets counted_full_units and counted_partial_units (same as typing in UI)
+    - Purchase/Waste: Creates StockMovement records (same as add_movement action)
+    
+    The backend has already parsed, validated, and calculated the quantities.
+    Frontend just needs to confirm and apply them.
     
     POST /api/stock_tracker/{hotel_identifier}/stocktake-lines/voice-command/confirm/
     
@@ -156,29 +163,23 @@ class VoiceCommandConfirmView(APIView):
             "command": {
                 "action": "count|purchase|waste",
                 "item_identifier": "guinness",
-                "value": 5.5,
-                "full_units": 3,      // Optional
-                "partial_units": 2.5  // Optional
+                "value": 7.5,           // Total in base units
+                "full_units": 3,        // For count: main containers
+                "partial_units": 5      // For count: loose units
             }
         }
     
     Response (Success):
         {
             "success": true,
-            "line": {...},  // Updated StocktakeLine data
-            "message": "Counted 5.5 units of Guinness"
-        }
-    
-    Response (Error):
-        {
-            "success": false,
-            "error": "Error message"
+            "line": {...},  // Full updated StocktakeLine data
+            "message": "Counted 3 cases and 5 bottles of Guinness"
         }
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request, hotel_identifier):
-        """Apply confirmed voice command to stocktake line"""
+        """Apply confirmed voice command exactly like manual edit"""
         try:
             stocktake_id = request.data.get('stocktake_id')
             command = request.data.get('command')
@@ -210,7 +211,6 @@ class VoiceCommandConfirmView(APIView):
             # Find the stock item using fuzzy matching
             item_identifier = command.get('item_identifier', '').strip()
             
-            # Use fuzzy matching to find best item match
             from .item_matcher import find_best_match_in_stocktake
             
             match_result = find_best_match_in_stocktake(
@@ -261,30 +261,68 @@ class VoiceCommandConfirmView(APIView):
             partial_units = command.get('partial_units')
             
             if action == 'count':
-                # Update counted values
+                # COUNT ACTION: Apply exactly like manual entry
+                # Trust the backend's split into full_units and partial_units
+                # Set them directly on the line - model's counted_qty property handles conversion
+                
                 if full_units is not None and partial_units is not None:
                     line.counted_full_units = full_units
                     line.counted_partial_units = partial_units
                 else:
-                    # Single value - put it in full_units
+                    # Fallback: put everything in full_units
                     line.counted_full_units = value
                     line.counted_partial_units = 0
                 
                 line.save()
-                message = f"Counted {value} units of {stock_item.name}"
+                
+                # Build descriptive message
+                if full_units is not None and partial_units is not None:
+                    message = f"Counted {int(full_units)} and {int(partial_units)} of {stock_item.name}"
+                else:
+                    message = f"Counted {value} of {stock_item.name}"
                 
             elif action == 'purchase':
-                # Add to purchases
+                # PURCHASE ACTION: Create StockMovement (same as add_movement)
+                # Backend has already calculated the correct base unit quantity
+                # Just create the movement record
+                
                 from decimal import Decimal
+                from stock_tracker.models import StockMovement
+                
+                movement = StockMovement.objects.create(
+                    item=stock_item,
+                    movement_type='PURCHASE',
+                    quantity=Decimal(str(value)),
+                    date=stocktake.period_end,  # Use stocktake period end
+                    notes=f'Voice command: purchase {value} units',
+                    unit_cost=stock_item.unit_cost if stock_item.unit_cost else None
+                )
+                
+                # Update line's purchases field (aggregated from movements)
                 line.purchases += Decimal(str(value))
                 line.save()
+                
                 message = f"Added purchase of {value} units of {stock_item.name}"
                 
             elif action == 'waste':
-                # Add to waste
+                # WASTE ACTION: Create StockMovement (same as add_movement)
+                # Backend has already calculated the correct base unit quantity
+                
                 from decimal import Decimal
+                from stock_tracker.models import StockMovement
+                
+                movement = StockMovement.objects.create(
+                    item=stock_item,
+                    movement_type='WASTE',
+                    quantity=Decimal(str(value)),
+                    date=stocktake.period_end,
+                    notes=f'Voice command: waste {value} units'
+                )
+                
+                # Update line's waste field (aggregated from movements)
                 line.waste += Decimal(str(value))
                 line.save()
+                
                 message = f"Added waste of {value} units of {stock_item.name}"
                 
             else:
@@ -294,36 +332,43 @@ class VoiceCommandConfirmView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             logger.info(
-                f"✅ Applied voice command: {action} {stock_item.sku} = {value}"
+                f"✅ Voice command applied: {action} | "
+                f"Item: {stock_item.sku} | "
+                f"Full: {full_units} | Partial: {partial_units} | Total: {value}"
             )
             
-            # Refresh from DB to get calculated values
+            # Refresh from DB to get all calculated values
             line.refresh_from_db()
             
-            # Return updated line data (simple dict, no serializer needed)
+            # Import serializer to return proper full response
+            from stock_tracker.stock_serializers import StocktakeLineSerializer
+            serializer = StocktakeLineSerializer(line)
+            
+            # Broadcast the update via Pusher (same as manual edit)
+            from stock_tracker.pusher_utils import broadcast_line_counted_updated
+            try:
+                broadcast_line_counted_updated(
+                    hotel_identifier,
+                    stocktake.id,
+                    {
+                        "line_id": line.id,
+                        "item_sku": stock_item.sku,
+                        "line": serializer.data
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Failed to broadcast voice command update: {e}")
+            
             return Response({
                 'success': True,
-                'line': {
-                    'id': line.id,
-                    'item': {
-                        'id': stock_item.id,
-                        'sku': stock_item.sku,
-                        'name': stock_item.name,
-                    },
-                    'counted_full_units': float(line.counted_full_units),
-                    'counted_partial_units': float(line.counted_partial_units),
-                    'counted_qty': float(line.counted_qty),
-                    'opening_qty': float(line.opening_qty),
-                    'purchases': float(line.purchases),
-                    'waste': float(line.waste),
-                },
+                'line': serializer.data,
                 'message': message,
                 'item_name': stock_item.name,
                 'item_sku': stock_item.sku
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
-            logger.error(f"❌ Confirm failed: {str(e)}", exc_info=True)
+            logger.error(f"❌ Voice command confirm failed: {str(e)}", exc_info=True)
             return Response({
                 'success': False,
                 'error': 'Failed to apply command',
