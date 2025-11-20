@@ -2123,7 +2123,7 @@ class Stocktake(models.Model):
             return categories.get(category_code, None)
         
         return categories
-
+    
 
 class Sale(models.Model):
     """

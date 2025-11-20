@@ -28,6 +28,7 @@ from .comparison_views import (
     VarianceHeatmapView,
     PerformanceScorecardView
 )
+from voice_recognition.views import VoiceCommandView
 
 # Ingredient endpoints
 ingredient_list = IngredientViewSet.as_view({'get': 'list', 'post': 'create'})
@@ -575,6 +576,13 @@ urlpatterns = [
         ),
         stocktake_line_merge_cocktails,
         name='line-merge-cocktails'
+    ),
+    
+    # Voice Command (Preview Only)
+    path(
+        '<str:hotel_identifier>/stocktake-lines/voice-command/',
+        VoiceCommandView.as_view(),
+        name='voice-command'
     ),
 
     # Sales

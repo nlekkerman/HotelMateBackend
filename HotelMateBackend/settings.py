@@ -148,6 +148,9 @@ PUSHER_KEY = env('PUSHER_KEY')
 PUSHER_SECRET = env('PUSHER_SECRET')
 PUSHER_CLUSTER = env('PUSHER_CLUSTER')
 
+# OpenAI configuration for Voice Recognition (Whisper)
+OPENAI_API_KEY = env('OPENAI_API_KEY')
+
 # Firebase Cloud Messaging configuration
 FIREBASE_CRED_PATH = os.path.join(BASE_DIR, 'firebase-service-account.json')
 
