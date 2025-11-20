@@ -284,13 +284,55 @@ class VoiceCommandConfirmView(APIView):
                     message = f"Counted {value} of {stock_item.name}"
                 
             elif action == 'purchase':
-                # PURCHASE ACTION: Create StockMovement & recalculate
-                # Use same logic as add_movement action
+                # PURCHASE ACTION: Apply SAME validation & conversion as add_movement
                 
                 from decimal import Decimal
                 from stock_tracker.models import StockMovement
                 from django.utils import timezone
                 from datetime import datetime, time
+                
+                quantity_decimal = Decimal(str(value))
+                category = stock_item.category_id
+                uom = stock_item.uom
+                
+                # VALIDATE & CONVERT: Purchases must be FULL PHYSICAL UNITS only
+                # This matches add_movement logic exactly
+                if uom == Decimal('1'):
+                    # UOM=1: Spirits, Wine, Syrups, BIB, Bulk Juices
+                    # Must be whole numbers (1, 2, 3... bottles/boxes)
+                    if quantity_decimal % 1 != 0:
+                        if category == 'M' and stock_item.subcategory == 'SYRUPS':
+                            unit_name = 'bottles'
+                        elif category == 'M':
+                            unit_name = 'boxes'
+                        elif category in ['S', 'W']:
+                            unit_name = 'bottles'
+                        else:
+                            unit_name = 'units'
+                        
+                        return Response({
+                            'success': False,
+                            'error': f"Purchases must be in full {unit_name} only (whole numbers). Partial {unit_name} should be recorded as waste."
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    # No conversion needed for UOM=1
+                else:
+                    # UOM>1: Draught, Bottled Beer, Soft Drinks, Cordials
+                    # User enters kegs/cases, backend converts to pints/bottles
+                    
+                    # Validate: must be whole number (full kegs/cases)
+                    if quantity_decimal % 1 != 0:
+                        if category == 'D':
+                            unit_name = 'kegs'
+                        else:
+                            unit_name = 'cases'
+                        
+                        return Response({
+                            'success': False,
+                            'error': f"Purchases must be in full {unit_name} only. Partial {unit_name} should be recorded as waste."
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # CONVERT: kegs/cases → pints/bottles
+                    quantity_decimal = quantity_decimal * uom
                 
                 # Find the matching StockPeriod
                 period = StockPeriod.objects.filter(
@@ -312,15 +354,15 @@ class VoiceCommandConfirmView(APIView):
                 if hasattr(request.user, 'staff'):
                     staff_user = request.user.staff
                 
-                # Create movement
+                # Create movement with CONVERTED quantity
                 movement = StockMovement.objects.create(
                     hotel=stocktake.hotel,
                     item=stock_item,
                     period=period,
                     movement_type='PURCHASE',
-                    quantity=Decimal(str(value)),
+                    quantity=quantity_decimal,  # Now properly converted
                     unit_cost=stock_item.unit_cost,
-                    reference=f'Stocktake-{stocktake.id}',
+                    reference=f'Voice-Stocktake-{stocktake.id}',
                     notes=f'Voice command: purchase {value} units',
                     staff=staff_user
                 )
@@ -342,16 +384,67 @@ class VoiceCommandConfirmView(APIView):
                 line.waste = movements['waste']
                 line.save()
                 
-                message = f"Added purchase of {value} units of {stock_item.name}"
+                # Build descriptive message with user-friendly units
+                if uom == Decimal('1'):
+                    message = f"Added purchase of {value} units of {stock_item.name}"
+                else:
+                    if category == 'D':
+                        message = f"Added purchase of {int(value)} kegs ({int(quantity_decimal)} pints) of {stock_item.name}"
+                    else:
+                        message = f"Added purchase of {int(value)} cases ({int(quantity_decimal)} bottles) of {stock_item.name}"
                 
             elif action == 'waste':
-                # WASTE ACTION: Create StockMovement & recalculate
-                # Use same logic as add_movement action
+                # WASTE ACTION: Apply SAME validation as add_movement
                 
                 from decimal import Decimal
                 from stock_tracker.models import StockMovement
                 from django.utils import timezone
                 from datetime import datetime, time
+                
+                quantity_decimal = Decimal(str(value))
+                category = stock_item.category_id
+                uom = stock_item.uom
+                
+                # VALIDATE: Waste must be PARTIAL PHYSICAL UNITS only
+                # This matches add_movement logic exactly
+                if uom == Decimal('1'):
+                    # UOM=1: Spirits, Wine, Syrups, BIB, Bulk Juices
+                    # waste should be < 1 (partial bottle/box only)
+                    if quantity_decimal >= 1:
+                        if category == 'M' and stock_item.subcategory == 'SYRUPS':
+                            unit_name = 'bottle'
+                        elif category == 'M':
+                            unit_name = 'box'
+                        elif category in ['S', 'W']:
+                            unit_name = 'bottle'
+                        else:
+                            unit_name = 'unit'
+                        
+                        return Response({
+                            'success': False,
+                            'error': f"Waste must be partial {unit_name}s only (less than 1 {unit_name}). Full {unit_name}s should be recorded as negative adjustments."
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    # UOM>1: Draught, Bottled Beer, Soft Drinks, Cordials
+                    # Waste must be less than full unit
+                    if quantity_decimal >= uom:
+                        if category == 'D':
+                            unit_name = f'partial keg only (less than {int(uom)} pints)'
+                        elif category == 'B':
+                            unit_name = f'partial case only (less than {int(uom)} bottles)'
+                        elif category == 'M' and stock_item.subcategory == 'SOFT_DRINKS':
+                            unit_name = f'partial case only (less than {int(uom)} bottles)'
+                        elif category == 'M' and stock_item.subcategory == 'CORDIALS':
+                            unit_name = f'partial case only (less than {int(uom)} bottles)'
+                        else:
+                            unit_name = f'partial unit (less than {int(uom)})'
+                        
+                        return Response({
+                            'success': False,
+                            'error': f"Waste must be {unit_name}. Full kegs/cases should be recorded as negative adjustments."
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # No conversion for waste - quantity stays as-is in base units
                 
                 # Find the matching StockPeriod
                 period = StockPeriod.objects.filter(
@@ -373,14 +466,14 @@ class VoiceCommandConfirmView(APIView):
                 if hasattr(request.user, 'staff'):
                     staff_user = request.user.staff
                 
-                # Create movement
+                # Create movement (no conversion for waste)
                 movement = StockMovement.objects.create(
                     hotel=stocktake.hotel,
                     item=stock_item,
                     period=period,
                     movement_type='WASTE',
-                    quantity=Decimal(str(value)),
-                    reference=f'Stocktake-{stocktake.id}',
+                    quantity=quantity_decimal,
+                    reference=f'Voice-Stocktake-{stocktake.id}',
                     notes=f'Voice command: waste {value} units',
                     staff=staff_user
                 )
