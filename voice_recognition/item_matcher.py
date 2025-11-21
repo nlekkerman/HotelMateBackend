@@ -1,15 +1,35 @@
 """
 Fuzzy Item Matching for Voice Commands
+=====================================
+
 Uses rapidfuzz for intelligent matching of partial/misspelled product names
+from voice recognition (e.g. Whisper).
+
+Key features:
+- Brand synonyms (Bud → Budweiser, Smithix → Smithwicks, etc.)
+- Multi-word synonym support (e.g. "west coast cooler")
+- Normalisation of spoken numbers ("seven" -> "7", "half" -> "0.5")
+- Fuzzy matching on SKU + item name
+- Package awareness (bottle vs draught vs can)
+
+Public API:
+    find_best_match(search_phrase, items, min_score=0.55)
+    find_best_match_in_stocktake(search_phrase, stocktake, min_score=0.55)
 """
-from rapidfuzz import fuzz, process
-from typing import List, Optional, Dict
+
 import logging
+from typing import List, Optional, Dict
+
+from rapidfuzz import fuzz
 
 logger = logging.getLogger(__name__)
 
+# ─────────────────────────────────────────────────────────────
+# 1) CONFIG: synonyms & helpers
+# ─────────────────────────────────────────────────────────────
 
 # Brand synonyms for common misspellings/variations
+# NOTE: Keep ONLY real brands / product-family words here.
 BRAND_SYNONYMS = {
     # BEERS
     "budweiser": [
@@ -35,7 +55,9 @@ BRAND_SYNONYMS = {
     "corona": ["carona", "coronna", "corono"],
     "carlsberg": ["carlsbrg", "carlsburg"],
     "kbc": ["k b c", "killarney brewing", "kbc brewery"],
-    "kronenbourg": ["cronin", "cronins", "kronen", "cronenberg"],
+    # FIXED: cronins is its own brand, not kronenbourg
+    "cronins": ["cronin", "cronins"],
+    "kronenbourg": ["kronenbourg", "kronen"],
     "kopparberg": ["copper", "copperberg", "kopper", "koppar"],
     "erdinger": ["airding"],
     "smirnoff ice": ["smirnoff", "smirnof", "smernoff", "smirnov"],
@@ -46,7 +68,7 @@ BRAND_SYNONYMS = {
     "beamish": ["beemish"],
     "murphys": ["murphy", "murphies", "murfy"],
     "sol": ["sol beer", "sol bottle"],
-    
+
     # SPIRITS - VODKA
     "absolut": ["absolute", "absoloot"],
     "smirnoff vodka": ["smirnof", "smernoff", "smirnov"],
@@ -55,7 +77,7 @@ BRAND_SYNONYMS = {
     "ketel one": ["kettle one", "kettle", "ketel"],
     "titos": ["tito", "teetos", "tito's"],
     "dingle vodka": ["dingle"],
-    
+
     # SPIRITS - GIN
     "gordons": ["gordon", "gordans", "gordan", "gordon's"],
     "bombay": ["bombay sapphire", "bombay dry", "bumbay"],
@@ -69,7 +91,7 @@ BRAND_SYNONYMS = {
     "ring of kerry": ["ring of carry"],
     "silver spear": ["silverspear"],
     "method and madness": ["method madness", "method & madness"],
-    
+
     # SPIRITS - WHISKEY/WHISKY
     "jameson": ["jamesom", "jamison", "jameson's"],
     "bushmills": ["bushmils", "bush mills"],
@@ -94,7 +116,7 @@ BRAND_SYNONYMS = {
     "black bush": ["blackbush"],
     "crested": ["crested ten", "crested 10"],
     "teachers": ["teacher"],
-    
+
     # SPIRITS - RUM
     "bacardi": ["baccardi", "bakardi"],
     "havana": ["havana club", "havanna"],
@@ -103,7 +125,7 @@ BRAND_SYNONYMS = {
     "kraken": ["krackan", "cracken"],
     "matusalem": ["matuselem"],
     "sea dog": ["seadog"],
-    
+
     # SPIRITS - TEQUILA
     "patron": ["patron silver"],
     "el jimador": ["jimador", "el jimador blanco"],
@@ -113,7 +135,7 @@ BRAND_SYNONYMS = {
     "ghost": ["ghost tequila", "ghost spicy"],
     "tequila rose": ["tequila rosa"],
     "tequila bianca": ["bianca", "tequila blanco"],
-    
+
     # SPIRITS - COGNAC/BRANDY
     "hennessy": ["hennesy", "henesy"],
     "courvoisier": [
@@ -124,7 +146,7 @@ BRAND_SYNONYMS = {
     "martell": ["martel", "martell vs"],
     "buffalo trace": ["buffalo", "trace"],
     "canadian club": ["canadian", "cc"],
-    
+
     # SPIRITS - LIQUEURS
     "baileys": ["bailey", "bailies"],
     "kahlua": ["kalua", "kahlúa"],
@@ -147,21 +169,22 @@ BRAND_SYNONYMS = {
     "irish mist": ["irishmist"],
     "benedictine": ["benidictine"],
     "pimms": ["pims", "pimm's"],
-    
+
     # SPIRITS - SCHNAPPS/SYRUPS
-    "peach schnapps": ["peach"],
+    # slightly safer: don't map plain "peach" alone
+    "peach schnapps": ["peach schnapps", "peach snaps"],
     "apple sourz": ["apple souz", "apple sours", "sourz"],
-    
+
     # BOLS LIQUEURS
     "bols": ["bolls"],
-    
+
     # VOLARE
     "volare": ["volari"],
     "triple sec": ["triple", "sec"],
     "limoncello": ["lemoncello", "limoncello"],
     "butterscotch": ["butter scotch", "butterscotch"],
     "passionfruit": ["passion fruit", "passion"],
-    
+
     # PORTS & SHERRIES
     "osborne": ["osborne port"],
     "sandeman": ["sandeman port"],
@@ -171,7 +194,7 @@ BRAND_SYNONYMS = {
     "port": ["port wine", "porto"],
     "sherry": ["sherry wine"],
     "martini": ["martini vermouth", "vermouth"],
-    
+
     # WINE BRANDS (Common foreign pronunciations)
     "chablis": ["shabli", "shably"],
     "merlot": ["merlo", "merloe"],
@@ -188,7 +211,7 @@ BRAND_SYNONYMS = {
     "barbera": ["barberà"],
     "albarino": ["albariño"],
     "verdejo": ["verdejo", "verdayo"],
-    
+
     # SPECIFIC WINE BRANDS
     "chateau": ["chateau", "chateaux", "shato"],
     "domaine": ["domaine", "domiane"],
@@ -212,7 +235,7 @@ BRAND_SYNONYMS = {
     "chevaliere": ["chevalier", "chevaliere"],
     "jamelles": ["jamelles", "jamelle"],
     "giola": ["giola colle", "giola"],
-    
+
     # MINERALS/SOFT DRINKS
     "coca cola": ["coke", "coca", "cola", "cocacola"],
     "seven up": ["7up", "7 up"],
@@ -228,17 +251,20 @@ BRAND_SYNONYMS = {
     "ginger beer": ["ginger"],
     "lemonade": ["lemonade nashs", "nashs"],
     "miwadi": ["miwadi cordial"],
-    
+
     # SYRUPS
     "monin": ["monin syrup"],
     "grenadine": ["grenadene"],
-    
+
     # JUICE BRANDS
     "kulana": ["kulana juice"],
     "splash": ["splash juice"],
     "britvic": ["britvick"],
-    
-    # COMMON MODIFIERS/DESCRIPTORS
+}
+
+# Modifiers / descriptors (NOT brands; not used in fuzzy match, but
+# can be used later if you want to interpret style like zero/diet/white).
+MODIFIER_SYNONYMS = {
     "zero": ["0", "zero alcohol", "non alcoholic", "alcohol free"],
     "diet": ["diet", "lite", "light"],
     "gluten free": ["gf", "gluten free", "celiac"],
@@ -257,7 +283,6 @@ BRAND_SYNONYMS = {
     "dozen": ["doz", "12"],
 }
 
-# Packaging type synonyms
 PACKAGE_SYNONYMS = {
     "bottle": ["bot", "botle", "botl", "bott", "btl", "bottl"],
     "draught": ["draft", "tap", "on tap", "keg", "kegs"],
@@ -269,174 +294,211 @@ PACKAGE_SYNONYMS = {
 
 # Number/Quantity words for voice recognition
 QUANTITY_WORDS = {
-    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-    "half": 0.5, "quarter": 0.25,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "half": 0.5,
+    "quarter": 0.25,
 }
+
+# Filler words we want to drop from STT text
+FILLER_WORDS = {"please", "and", "eh", "uh", "um", "a", "the"}
+
+
+# ─────────────────────────────────────────────────────────────
+# 2) Normalisation helpers
+# ─────────────────────────────────────────────────────────────
+
+def normalize_phrase(raw: str) -> str:
+    """
+    Clean STT output:
+    - lowercases
+    - removes filler words
+    - converts quantity words to digits ("seven" -> "7", "half" -> "0.5")
+    """
+    tokens = raw.lower().split()
+    normalized: List[str] = []
+
+    for t in tokens:
+        if t in FILLER_WORDS:
+            continue
+        if t in QUANTITY_WORDS:
+            normalized.append(str(QUANTITY_WORDS[t]))
+        else:
+            normalized.append(t)
+
+    return " ".join(normalized)
 
 
 def expand_search_tokens(phrase: str) -> List[str]:
     """
-    Expand a search phrase with synonyms
-    
+    Expand a search phrase with brand and package synonyms.
+
     Example:
-        "bud botle" -> ["bud", "budweiser", "botle", "bottle"]
+        "bud botle" -> ["bud", "botle", "budweiser", "bottle", ...]
     """
-    tokens = phrase.lower().split()
+    phrase_lower = phrase.lower()
+    tokens = phrase_lower.split()
     expanded = set(tokens)
-    
+
+    # 1) Multi-word brand variants (e.g. "west coast cooler")
+    for brand, variants in BRAND_SYNONYMS.items():
+        for v in variants:
+            if " " in v and v in phrase_lower:
+                expanded.add(brand)
+                expanded.update(v.split())
+
+    # 2) Per-token brand + package expansion
     for token in tokens:
-        # Add brand synonyms
+        # Brand synonyms
         for brand, variants in BRAND_SYNONYMS.items():
-            if token in variants or token == brand:
+            if token == brand or token in variants:
                 expanded.add(brand)
                 expanded.update(variants)
-        
-        # Add package synonyms
+
+        # Packaging synonyms
         for package, variants in PACKAGE_SYNONYMS.items():
-            if token in variants or token == package:
+            if token == package or token in variants:
                 expanded.add(package)
                 expanded.update(variants)
-    
+
     return list(expanded)
 
 
-def score_item(item_name: str, search_phrase: str) -> float:
+# ─────────────────────────────────────────────────────────────
+# 3) Scoring
+# ─────────────────────────────────────────────────────────────
+
+def score_item(item_name: str, sku: str, search_phrase: str) -> float:
     """
-    Score how well an item matches a search phrase
-    
+    Score how well an item matches a search phrase.
+
     Uses multiple fuzzy matching strategies:
     1. Token set ratio (ignores order, duplicates)
     2. Partial ratio (substring matching)
     3. Simple ratio (overall similarity)
     4. Synonym expansion
     5. Package type matching (draught vs bottle)
-    
+
     Returns: Score from 0.0 to 1.0
     """
-    item_lower = item_name.lower()
     phrase_lower = search_phrase.lower()
-    
+    full_label = f"{sku} {item_name}".strip().lower()
+
     # Get expanded tokens with synonyms
     search_tokens = expand_search_tokens(phrase_lower)
-    
-    scores = []
-    
-    # 1. Direct fuzzy matching
-    scores.append(fuzz.token_set_ratio(phrase_lower, item_lower) / 100.0)
-    scores.append(fuzz.partial_ratio(phrase_lower, item_lower) / 100.0)
-    scores.append(fuzz.ratio(phrase_lower, item_lower) / 100.0)
-    
-    # 2. Match expanded tokens against item name
+
+    scores: List[float] = []
+
+    # 1. Direct fuzzy matching against full label (SKU + name)
+    scores.append(fuzz.token_set_ratio(phrase_lower, full_label) / 100.0)
+    scores.append(fuzz.partial_ratio(phrase_lower, full_label) / 100.0)
+    scores.append(fuzz.ratio(phrase_lower, full_label) / 100.0)
+
+    # 2. Match expanded tokens against full label
     for token in search_tokens:
         if len(token) >= 3:  # Skip very short tokens
-            scores.append(fuzz.partial_ratio(token, item_lower) / 100.0)
-    
-    # 3. SKU partial match bonus (if phrase looks like SKU)
-    if any(c.isdigit() for c in phrase_lower):
-        # Phrase contains numbers, might be SKU
-        scores.append(fuzz.partial_ratio(phrase_lower, item_lower) / 100.0)
-    
-    # 4. Package type penalty/bonus
-    # If search mentions "draught/draft/keg" but item has "bottle", penalize
-    # If search mentions "bottle" but item has "draught/keg", penalize
-    # Use all synonyms from PACKAGE_SYNONYMS
+            scores.append(fuzz.partial_ratio(token, full_label) / 100.0)
+
+    # 3. Package type penalty/bonus
     draught_words = ["draught"] + PACKAGE_SYNONYMS["draught"]
     bottle_words = ["bottle"] + PACKAGE_SYNONYMS["bottle"]
-    
+
     search_has_draught = any(word in phrase_lower for word in draught_words)
     search_has_bottle = any(word in phrase_lower for word in bottle_words)
-    item_has_draught = any(word in item_lower for word in draught_words)
-    item_has_bottle = any(word in item_lower for word in bottle_words)
-    
-    # Apply penalty if package types conflict
+    item_has_draught = any(word in full_label for word in draught_words)
+    item_has_bottle = any(word in full_label for word in bottle_words)
+
+    # Apply penalty/bonus
     if search_has_draught and item_has_bottle:
-        # User said "draft" but item is "bottle" - kill the match
-        scores = [s * 0.1 for s in scores]
+        # User said "draft" but item is "bottle" - heavy penalty
+        scores = [s * 0.3 for s in scores]
     elif search_has_bottle and item_has_draught:
-        # User said "bottle" but item is "draught" - kill the match
-        scores = [s * 0.1 for s in scores]
+        scores = [s * 0.3 for s in scores]
     elif search_has_draught and item_has_draught:
-        # Both mention draught - massive boost
         scores.append(0.98)
         scores.append(0.97)
     elif search_has_bottle and item_has_bottle:
-        # Both mention bottle - massive boost
         scores.append(0.98)
         scores.append(0.97)
-    
+
     # Return weighted average of top 3 scores
     scores.sort(reverse=True)
     top_scores = scores[:3]
-    
+
     return sum(top_scores) / len(top_scores) if top_scores else 0.0
 
+
+# ─────────────────────────────────────────────────────────────
+# 4) Public matching API
+# ─────────────────────────────────────────────────────────────
 
 def find_best_match(
     search_phrase: str,
     items: List,
-    min_score: float = 0.55
+    min_score: float = 0.55,
 ) -> Optional[Dict]:
     """
-    Find the best matching item from a list
-    
+    Find the best matching item from a list.
+
     Args:
         search_phrase: The phrase to search for (e.g., "bud botle")
-        items: List of StockItem objects
+        items: List of StockItem objects (or queryset)
         min_score: Minimum confidence score (0.0-1.0)
-    
+
     Returns:
         Dict with match info or None if no good match
     """
     if not search_phrase or not items:
         return None
-    
-    # Score all items and keep track of top candidates
+
+    normalized = normalize_phrase(search_phrase)
+
     candidates = []
-    
     for item in items:
-        score = score_item(item.name, search_phrase)
-        
-        # Bonus for SKU match
-        if item.sku.lower() in search_phrase.lower():
-            score = max(score, 0.9)
-        
+        score = score_item(item.name, item.sku, normalized)
         candidates.append({
-            'item': item,
-            'score': score,
-            'name': item.name,
-            'sku': item.sku
+            "item": item,
+            "score": score,
+            "name": item.name,
+            "sku": item.sku,
         })
-    
-    # Sort by score descending
-    candidates.sort(key=lambda x: x['score'], reverse=True)
-    
-    # Log top 5 candidates for debugging
-    logger.info(f"Search: '{search_phrase}' - Top candidates:")
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+
+    logger.info(
+        f"Search: '{search_phrase}' (normalized: '{normalized}') - Top candidates:"
+    )
     for i, candidate in enumerate(candidates[:5], 1):
         logger.info(
             f"  {i}. [{candidate['score']:.4f}] "
             f"{candidate['sku']}: {candidate['name']}"
         )
-    
-    # Get best match
-    best_candidate = candidates[0] if candidates else None
-    
-    if best_candidate and best_candidate['score'] >= min_score:
+
+    best = candidates[0] if candidates else None
+    if best and best["score"] >= min_score:
         logger.info(
-            f"✓ SELECTED: '{search_phrase}' → '{best_candidate['name']}' "
-            f"(SKU: {best_candidate['sku']}, confidence: {best_candidate['score']:.2f})"
+            f"✓ SELECTED: '{search_phrase}' → '{best['name']}' "
+            f"(SKU: {best['sku']}, confidence: {best['score']:.2f})"
         )
         return {
-            'item': best_candidate['item'],
-            'confidence': best_candidate['score'],
-            'search_phrase': search_phrase
+            "item": best["item"],
+            "confidence": best["score"],
+            "search_phrase": search_phrase,
         }
-    
+
     logger.warning(
         f"✗ NO MATCH: '{search_phrase}' "
-        f"(best: {best_candidate['name'] if best_candidate else 'none'}, "
-        f"score: {best_candidate['score']:.2f}, threshold: {min_score})"
+        f"(best: {best['name'] if best else 'none'}, "
+        f"score: {best['score']:.2f if best else 0.0}, "
+        f"threshold: {min_score})"
     )
     return None
 
@@ -444,21 +506,20 @@ def find_best_match(
 def find_best_match_in_stocktake(
     search_phrase: str,
     stocktake,
-    min_score: float = 0.55
+    min_score: float = 0.55,
 ) -> Optional[Dict]:
     """
-    Find best match among items in a specific stocktake
-    
+    Find best match among items in a specific stocktake.
+
     This limits the search to only items that are part of the stocktake,
     improving accuracy and speed.
     """
-    # Get all items in this stocktake
     from stock_tracker.models import StockItem
-    
-    stocktake_item_ids = stocktake.lines.values_list('item_id', flat=True)
+
+    stocktake_item_ids = stocktake.lines.values_list("item_id", flat=True)
     items = StockItem.objects.filter(
         id__in=stocktake_item_ids,
-        active=True
+        active=True,
     )
-    
-    return find_best_match(search_phrase, items, min_score)
+
+    return find_best_match(search_phrase, list(items), min_score)
