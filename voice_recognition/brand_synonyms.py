@@ -48,7 +48,7 @@ BRAND_SYNONYMS = {
         "blonde",
     ],
     "cronins": ["cronin", "cronins", "kronin", "kronins"],
-    "kopparberg": ["copper", "copperberg", "kopper", "koppar"],
+    "kopparberg": ["copper", "copperberg", "kopper", "koppar", "kappaberg", "kappenberg"],
     "erdinger": ["airding"],
     "smirnoff ice": ["smirnoff", "smirnof", "smernoff", "smirnov"],
     "wkd": ["wicked", "w k d"],

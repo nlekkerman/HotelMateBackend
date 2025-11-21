@@ -98,47 +98,44 @@ def score_item(item_name: str, sku: str, search_phrase: str) -> float:
     # PRIMARY: Whole-phrase fuzzy matching using multiple algorithms
     primary_scores: List[float] = []
     
-    # Token set ratio - ignores word order, focuses on content
+    # Direct fuzzy matching against item name
     primary_scores.append(fuzz.token_set_ratio(phrase_lower, item_name_lower) / 100.0)
-    
-    # Token sort ratio - considers word order similarity
     primary_scores.append(fuzz.token_sort_ratio(phrase_lower, item_name_lower) / 100.0)
-    
-    # Partial ratio - finds best matching substring
     primary_scores.append(fuzz.partial_ratio(phrase_lower, item_name_lower) / 100.0)
-    
-    # WRatio - weighted ratio, best overall fuzzy match
     primary_scores.append(fuzz.WRatio(phrase_lower, item_name_lower) / 100.0)
 
-    # CRITICAL: Check for exact phrase matches FIRST
+    # CRITICAL: Check for exact phrase matches ANYWHERE in sentence
     semantic_boost = 1.0
     exact_phrase_match = False
+    best_match_length = 0
     
     phrase_tokens = phrase_lower.split()
     
-    # Check ALL 2-word combinations (not just 8+ chars)
-    if len(phrase_tokens) >= 2:
-        for i in range(len(phrase_tokens) - 1):
-            two_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]}"
-            if two_word in item_name_lower and len(two_word) > 5:
-                semantic_boost = 2.5  # MASSIVE boost for exact phrase
-                exact_phrase_match = True
-                logger.info(
-                    f"✅ EXACT PHRASE MATCH: '{two_word}' found in '{item_name}'"
-                )
-                break
-    
-    # Check 3-word combinations
-    if len(phrase_tokens) >= 3 and not exact_phrase_match:
-        for i in range(len(phrase_tokens) - 2):
+    # Check ALL possible 2-word and 3-word combinations
+    # This handles ANY word order: "arnie full circle" OR "full circle arnie"
+    for i in range(len(phrase_tokens)):
+        # Check 3-word phrases first (longer = better)
+        if i + 2 < len(phrase_tokens):
             three_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]} {phrase_tokens[i+2]}"
             if three_word in item_name_lower and len(three_word) > 8:
-                semantic_boost = 3.0  # Even bigger boost for 3-word match
+                semantic_boost = 5.0  # HUGE boost for 3-word match
                 exact_phrase_match = True
+                best_match_length = 3
                 logger.info(
-                    f"✅ EXACT 3-WORD MATCH: '{three_word}' found in '{item_name}'"
+                    f"✅ 3-WORD MATCH: '{three_word}' in '{item_name}'"
                 )
                 break
+        
+        # Check 2-word phrases
+        if i + 1 < len(phrase_tokens) and best_match_length < 2:
+            two_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]}"
+            if two_word in item_name_lower and len(two_word) > 5:
+                semantic_boost = 3.5  # BIG boost for 2-word match
+                exact_phrase_match = True
+                best_match_length = 2
+                logger.info(
+                    f"✅ 2-WORD MATCH: '{two_word}' in '{item_name}'"
+                )
     
     # Modifier alignment (zero, blonde, etc.)
     modifier_factor = 1.0
