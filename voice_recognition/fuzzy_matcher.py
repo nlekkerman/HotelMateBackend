@@ -85,71 +85,73 @@ def _package_alignment_score(phrase_lower: str, item_label: str) -> float:
 
 
 def score_item(item_name: str, sku: str, search_phrase: str) -> float:
-    """Compute a fuzzy score between 0.0 and 1.0 for a stock item."""
+    """Compute a fuzzy score between 0.0 and 1.0 for a stock item.
+    
+    Uses WHOLE SENTENCE analysis, not word-by-word matching.
+    Prioritizes overall semantic similarity over exact token matches.
+    """
 
     phrase_lower = search_phrase.lower()
     item_label = f"{sku} {item_name}".strip().lower()
+    item_name_lower = item_name.lower()
 
-    scores: List[float] = []
+    # PRIMARY: Whole-phrase fuzzy matching using multiple algorithms
+    primary_scores: List[float] = []
     
-    # CRITICAL: Check for exact multi-word phrase matches (e.g., "full circle")
-    # Split phrase into 2-word and 3-word combinations
+    # Token set ratio - ignores word order, focuses on content
+    primary_scores.append(fuzz.token_set_ratio(phrase_lower, item_name_lower) / 100.0)
+    
+    # Token sort ratio - considers word order similarity
+    primary_scores.append(fuzz.token_sort_ratio(phrase_lower, item_name_lower) / 100.0)
+    
+    # Partial ratio - finds best matching substring
+    primary_scores.append(fuzz.partial_ratio(phrase_lower, item_name_lower) / 100.0)
+    
+    # WRatio - weighted ratio, best overall fuzzy match
+    primary_scores.append(fuzz.WRatio(phrase_lower, item_name_lower) / 100.0)
+
+    # SECONDARY: Check for important semantic components
+    semantic_boost = 1.0
+    
+    # Extract key product identifiers (2-3 word phrases from middle of sentence)
     phrase_tokens = phrase_lower.split()
-    exact_phrase_found = False
+    if len(phrase_tokens) >= 2:
+        # Check if any 2-word combination appears in item name
+        for i in range(len(phrase_tokens) - 1):
+            two_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]}"
+            if len(two_word) > 8 and two_word in item_name_lower:
+                semantic_boost = 1.4  # Strong boost for phrase match
+                break
     
-    # Check 2-word phrases
-    for i in range(len(phrase_tokens) - 1):
-        two_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]}"
-        if two_word in item_label:
-            scores.append(1.0)  # Perfect match for phrase
-            exact_phrase_found = True
-            break
+    # Modifier alignment (zero, blonde, etc.)
+    modifier_factor = 1.0
+    key_modifiers = ["zero", "diet", "light", "lite", "free", "blonde", "panther", "fuascal"]
     
-    # Check 3-word phrases
-    for i in range(len(phrase_tokens) - 2):
-        three_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]} {phrase_tokens[i+2]}"
-        if three_word in item_label:
-            scores.append(1.0)  # Perfect match for phrase
-            exact_phrase_found = True
-            break
+    phrase_has_modifier = any(mod in phrase_lower for mod in key_modifiers)
+    item_has_modifier = any(mod in item_name_lower for mod in key_modifiers)
     
-    # Token matching - individual words
-    matching_tokens = sum(1 for token in phrase_tokens if token in item_label)
-    token_match_ratio = matching_tokens / len(phrase_tokens) if phrase_tokens else 0
-    
-    # Boost if most tokens match OR exact phrase found
-    if token_match_ratio >= 0.6 or exact_phrase_found:
-        scores.append(0.85)
-    
-    scores.append(fuzz.token_set_ratio(phrase_lower, item_label) / 100.0)
-    scores.append(fuzz.partial_ratio(phrase_lower, item_label) / 100.0)
-    scores.append(fuzz.ratio(phrase_lower, item_label) / 100.0)
+    if phrase_has_modifier and item_has_modifier:
+        # Check if SAME modifier
+        for mod in key_modifiers:
+            if mod in phrase_lower and mod in item_name_lower:
+                modifier_factor = 1.3
+                break
+        # Different modifiers = penalty
+        if modifier_factor == 1.0:
+            modifier_factor = 0.15
+    elif phrase_has_modifier and not item_has_modifier:
+        modifier_factor = 0.15  # Said modifier but item doesn't have it
+    elif not phrase_has_modifier and item_has_modifier:
+        modifier_factor = 0.7  # Item has modifier but not mentioned
 
-    for token in expand_search_tokens(phrase_lower):
-        if len(token) >= 3:
-            scores.append(fuzz.partial_ratio(token, item_label) / 100.0)
-
-    # Check for modifier matches (zero, diet, etc.)
-    modifier_boost = 1.0
-    for modifier in ["zero", "diet", "light", "lite", "free", "blonde"]:
-        if modifier in phrase_lower and modifier in item_label:
-            modifier_boost = 1.3
-            break
-        elif modifier in phrase_lower and modifier not in item_label:
-            # Strong penalty if modifier is said but item doesn't have it
-            modifier_boost = 0.2
-            break
-        elif modifier not in phrase_lower and modifier in item_label:
-            # Slight penalty if item has modifier but user didn't say it
-            modifier_boost = 0.8
-            break
-
+    # Package type alignment
     package_factor = _package_alignment_score(phrase_lower, item_label)
-    scores = [score * package_factor * modifier_boost for score in scores]
 
-    scores.sort(reverse=True)
-    top_scores = scores[:3]
-    return sum(top_scores) / len(top_scores) if top_scores else 0.0
+    # FINAL SCORE: Average of primary scores with boosts applied
+    base_score = sum(primary_scores) / len(primary_scores)
+    final_score = base_score * semantic_boost * modifier_factor * package_factor
+    
+    return min(final_score, 1.0)  # Cap at 1.0
 
 
 def find_best_match(
