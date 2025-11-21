@@ -96,10 +96,13 @@ class VoiceCommandView(APIView):
             audio_file.size,
         )
 
+        # Get all active items in hotel (not just stocktake items)
+        hotel_items = StockItem.objects.filter(hotel=hotel, active=True)
+        
         try:
             result = process_audio_command(
                 audio_file,
-                stocktake=stocktake,
+                items=hotel_items,  # Search all hotel items, not just stocktake
                 min_match_score=getattr(
                     settings,
                     "VOICE_COMMAND_MIN_SCORE",

@@ -71,14 +71,16 @@ def _package_alignment_score(phrase_lower: str, item_label: str) -> float:
     item_has_draught = any(word in item_label for word in draught_words)
     item_has_bottle = any(word in item_label for word in bottle_words)
 
+    # Strong penalty for package type mismatch
     if search_has_draught and item_has_bottle:
-        return 0.3
+        return 0.1
     if search_has_bottle and item_has_draught:
-        return 0.3
+        return 0.1
+    # Strong boost for package type match
     if search_has_draught and item_has_draught:
-        return 0.98
+        return 1.2
     if search_has_bottle and item_has_bottle:
-        return 0.98
+        return 1.2
     return 1.0
 
 
@@ -97,8 +99,23 @@ def score_item(item_name: str, sku: str, search_phrase: str) -> float:
         if len(token) >= 3:
             scores.append(fuzz.partial_ratio(token, item_label) / 100.0)
 
+    # Check for modifier matches (zero, diet, etc.)
+    modifier_boost = 1.0
+    for modifier in ["zero", "diet", "light", "lite", "free"]:
+        if modifier in phrase_lower and modifier in item_label:
+            modifier_boost = 1.3
+            break
+        elif modifier in phrase_lower and modifier not in item_label:
+            # Strong penalty if modifier is said but item doesn't have it
+            modifier_boost = 0.2
+            break
+        elif modifier not in phrase_lower and modifier in item_label:
+            # Slight penalty if item has modifier but user didn't say it
+            modifier_boost = 0.8
+            break
+
     package_factor = _package_alignment_score(phrase_lower, item_label)
-    scores = [score * package_factor for score in scores]
+    scores = [score * package_factor * modifier_boost for score in scores]
 
     scores.sort(reverse=True)
     top_scores = scores[:3]
