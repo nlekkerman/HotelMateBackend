@@ -15,7 +15,10 @@ BRAND_SYNONYMS = {
     "budweiser": [
         "bud", "budwiser", "budweisser", "bude", "boodviser", "budwieser"
     ],
-    "bulmers": ["bulmer", "bulmars", "bulmr", "bulmur", "boomers", "boomer's"],
+    "bulmers": [
+        "bulmer", "bulmars", "bulmr", "bulmur", "boomer", "boomers",
+        "boomer's", "bulmur's"
+    ],
     "smithwicks": [
         "smithix", "smidix", "smithicks", "smithwix", "smiddicks"
     ],
