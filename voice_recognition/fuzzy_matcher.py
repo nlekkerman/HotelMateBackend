@@ -110,17 +110,34 @@ def score_item(item_name: str, sku: str, search_phrase: str) -> float:
     # WRatio - weighted ratio, best overall fuzzy match
     primary_scores.append(fuzz.WRatio(phrase_lower, item_name_lower) / 100.0)
 
-    # SECONDARY: Check for important semantic components
+    # CRITICAL: Check for exact phrase matches FIRST
     semantic_boost = 1.0
+    exact_phrase_match = False
     
-    # Extract key product identifiers (2-3 word phrases from middle of sentence)
     phrase_tokens = phrase_lower.split()
+    
+    # Check ALL 2-word combinations (not just 8+ chars)
     if len(phrase_tokens) >= 2:
-        # Check if any 2-word combination appears in item name
         for i in range(len(phrase_tokens) - 1):
             two_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]}"
-            if len(two_word) > 8 and two_word in item_name_lower:
-                semantic_boost = 1.4  # Strong boost for phrase match
+            if two_word in item_name_lower and len(two_word) > 5:
+                semantic_boost = 2.5  # MASSIVE boost for exact phrase
+                exact_phrase_match = True
+                logger.info(
+                    f"✅ EXACT PHRASE MATCH: '{two_word}' found in '{item_name}'"
+                )
+                break
+    
+    # Check 3-word combinations
+    if len(phrase_tokens) >= 3 and not exact_phrase_match:
+        for i in range(len(phrase_tokens) - 2):
+            three_word = f"{phrase_tokens[i]} {phrase_tokens[i+1]} {phrase_tokens[i+2]}"
+            if three_word in item_name_lower and len(three_word) > 8:
+                semantic_boost = 3.0  # Even bigger boost for 3-word match
+                exact_phrase_match = True
+                logger.info(
+                    f"✅ EXACT 3-WORD MATCH: '{three_word}' found in '{item_name}'"
+                )
                 break
     
     # Modifier alignment (zero, blonde, etc.)
