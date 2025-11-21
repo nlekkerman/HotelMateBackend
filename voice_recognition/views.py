@@ -129,7 +129,15 @@ class VoiceCommandView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # 7. Return success response
-            logger.info(f"✅ Voice command parsed successfully")
+            logger.info(
+                f"✅ PARSED COMMAND SUCCESSFULLY\n"
+                f"   Transcription: {transcription}\n"
+                f"   Action: {command.get('action')}\n"
+                f"   Item: {command.get('item_identifier')}\n"
+                f"   Value: {command.get('value')}\n"
+                f"   Full Units: {command.get('full_units')}\n"
+                f"   Partial Units: {command.get('partial_units')}"
+            )
             
             return Response({
                 'success': True,
@@ -186,7 +194,17 @@ class VoiceCommandConfirmView(APIView):
             stocktake_id = request.data.get('stocktake_id')
             command = request.data.get('command')
             
+            # 🐛 DEBUG: Log incoming request payload
+            logger.info(
+                f"📥 VOICE CONFIRM REQUEST\n"
+                f"   Hotel: {hotel_identifier}\n"
+                f"   User: {request.user.username}\n"
+                f"   Stocktake ID: {stocktake_id}\n"
+                f"   Command: {command}"
+            )
+            
             if not stocktake_id or not command:
+                logger.error("❌ Missing stocktake_id or command")
                 return Response({
                     'success': False,
                     'error': 'Missing stocktake_id or command'
@@ -262,24 +280,49 @@ class VoiceCommandConfirmView(APIView):
             full_units = command.get('full_units')
             partial_units = command.get('partial_units')
             
+            # 🐛 DEBUG: Log command details and matched item
+            logger.info(
+                f"🔍 COMMAND PROCESSING\n"
+                f"   Action: {action}\n"
+                f"   Item Matched: {stock_item.sku} - {stock_item.name}\n"
+                f"   Category: {stock_item.category_id}\n"
+                f"   UOM: {stock_item.uom}\n"
+                f"   Value: {value}\n"
+                f"   Full Units: {full_units}\n"
+                f"   Partial Units: {partial_units}\n"
+                f"   Line Created: {created}"
+            )
+            
             if action == 'count':
                 # COUNT ACTION: Apply exactly like manual entry
                 # Trust the backend's split into full_units and partial_units
-                # Set them directly on the line - model's counted_qty property handles conversion
+                # Set them directly on the line
+                # Model's counted_qty property handles conversion
                 
                 if full_units is not None and partial_units is not None:
                     line.counted_full_units = full_units
                     line.counted_partial_units = partial_units
+                    logger.info(
+                        f"✅ COUNT: Setting full={full_units}, "
+                        f"partial={partial_units}"
+                    )
                 else:
                     # Fallback: put everything in full_units
                     line.counted_full_units = value
                     line.counted_partial_units = 0
+                    logger.info(
+                        f"✅ COUNT: Setting full={value}, partial=0 "
+                        f"(fallback)"
+                    )
                 
                 line.save()
                 
                 # Build descriptive message
                 if full_units is not None and partial_units is not None:
-                    message = f"Counted {int(full_units)} and {int(partial_units)} of {stock_item.name}"
+                    message = (
+                        f"Counted {int(full_units)} and "
+                        f"{int(partial_units)} of {stock_item.name}"
+                    )
                 else:
                     message = f"Counted {value} of {stock_item.name}"
                 
@@ -516,6 +559,17 @@ class VoiceCommandConfirmView(APIView):
             from stock_tracker.stock_serializers import StocktakeLineSerializer
             serializer = StocktakeLineSerializer(line)
             
+            # 🐛 DEBUG: Log final calculated values
+            logger.info(
+                f"💾 FINAL LINE VALUES\n"
+                f"   Line ID: {line.id}\n"
+                f"   counted_full_units: {line.counted_full_units}\n"
+                f"   counted_partial_units: {line.counted_partial_units}\n"
+                f"   counted_qty (calculated): {line.counted_qty}\n"
+                f"   expected_qty: {line.expected_qty}\n"
+                f"   variance_qty: {line.variance_qty}"
+            )
+            
             # Broadcast the update via Pusher (same as manual edit)
             from stock_tracker.pusher_utils import broadcast_line_counted_updated
             try:
@@ -531,13 +585,30 @@ class VoiceCommandConfirmView(APIView):
             except Exception as e:
                 logger.error(f"Failed to broadcast voice command update: {e}")
             
-            return Response({
+            response_data = {
                 'success': True,
                 'line': serializer.data,
                 'message': message,
                 'item_name': stock_item.name,
                 'item_sku': stock_item.sku
-            }, status=status.HTTP_200_OK)
+            }
+            
+            # 🐛 DEBUG: Log response being sent to frontend
+            logger.info(
+                f"📤 RESPONSE TO FRONTEND\n"
+                f"   Success: True\n"
+                f"   Message: {message}\n"
+                f"   Item: {stock_item.sku} - {stock_item.name}\n"
+                f"   Line data keys: {list(serializer.data.keys())}\n"
+                f"   counted_full_units in response: "
+                f"{serializer.data.get('counted_full_units')}\n"
+                f"   counted_partial_units in response: "
+                f"{serializer.data.get('counted_partial_units')}\n"
+                f"   counted_qty in response: "
+                f"{serializer.data.get('counted_qty')}"
+            )
+            
+            return Response(response_data, status=status.HTTP_200_OK)
             
         except Exception as e:
             logger.error(f"❌ Voice command confirm failed: {str(e)}", exc_info=True)

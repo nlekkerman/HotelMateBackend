@@ -185,26 +185,62 @@ def parse_voice_command(transcription: str) -> Dict:
     # Pattern 1: Dozen format "3 dozen 6", "2 dozen"
     dozen_pattern = r'(\d+)\s+dozen(?:\s+(\d+))?'
     
-    # Pattern 2: Full + partial units "3 cases 6 bottles", "2 kegs 12 pints"
-    full_partial_pattern = r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?)\s+(?:and\s+)?(\d+(?:\.\d+)?)\s*(?:bottles?|pints?|cans?|ml)?'
+    # Pattern 2: Full + partial units
+    # Matches: "3 cases 6 bottles", "2 kegs, 12 pints", "5 cases and 3 bottles"
+    # The key change: allow optional comma and/or "and" between units
+    full_partial_pattern = (
+        r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?)\s*'
+        r'(?:,?\s*(?:and\s+)?)(\d+(?:\.\d+)?)\s*'
+        r'(?:bottles?|pints?|cans?|ml)?'
+    )
     
     # Pattern 3: Single value with optional unit "5.5", "10 bottles", "3 kegs"
-    single_value_pattern = r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?|bottles?|pints?|cans?|liters?|ml)?(?:\s|$)'
+    single_value_pattern = (
+        r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?|bottles?|'
+        r'pints?|cans?|liters?|ml)?(?:\s|$)'
+    )
     
     full_units = None
     partial_units = None
     value = None
     
+    # 🐛 DEBUG: Log patterns being tested
+    logger.info(
+        f"🔍 TESTING REGEX PATTERNS\n"
+        f"   Text: '{text}'\n"
+        f"   Dozen pattern: {dozen_pattern}\n"
+        f"   Full+Partial pattern: {full_partial_pattern}"
+    )
+    
     # Try dozen pattern first (most specific)
     dozen_match = re.search(dozen_pattern, text)
     if dozen_match:
         full_units = int(dozen_match.group(1))
-        partial_units = int(dozen_match.group(2)) if dozen_match.group(2) else 0
+        partial_units = (
+            int(dozen_match.group(2)) if dozen_match.group(2) else 0
+        )
         value = (full_units * 12) + partial_units
-        logger.info(f"✓ Parsed dozen: {full_units} dozen + {partial_units} = {value}")
+        logger.info(
+            f"✓ Parsed dozen: {full_units} dozen + "
+            f"{partial_units} = {value}"
+        )
     else:
         # Try full + partial pattern
         full_partial_match = re.search(full_partial_pattern, text)
+        
+        # 🐛 DEBUG: Log pattern matching attempt
+        if full_partial_match:
+            logger.info(
+                f"✅ MATCHED full+partial pattern!\n"
+                f"   Full match: '{full_partial_match.group(0)}'\n"
+                f"   Group 1 (full): '{full_partial_match.group(1)}'\n"
+                f"   Group 2 (partial): '{full_partial_match.group(2)}'"
+            )
+        else:
+            logger.info(
+                f"❌ No match for full+partial pattern in: '{text}'"
+            )
+        
         if full_partial_match:
             full_units = int(float(full_partial_match.group(1)))
             partial_units = float(full_partial_match.group(2))
