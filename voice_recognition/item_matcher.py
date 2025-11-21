@@ -27,7 +27,7 @@ BRAND_SYNONYMS = {
 # Packaging type synonyms
 PACKAGE_SYNONYMS = {
     "bottle": ["bot", "botle", "botl", "bott", "btl", "bottl"],
-    "draught": ["draft", "tap", "on tap", "keg"],
+    "draught": ["draft", "drft", "tap", "on tap", "keg", "kegs", "draft beer"],
     "pint": ["pt", "pnt"],
     "can": ["cn", "tin"],
 }
@@ -68,6 +68,7 @@ def score_item(item_name: str, search_phrase: str) -> float:
     2. Partial ratio (substring matching)
     3. Simple ratio (overall similarity)
     4. Synonym expansion
+    5. Package type matching (draught vs bottle)
     
     Returns: Score from 0.0 to 1.0
     """
@@ -93,6 +94,31 @@ def score_item(item_name: str, search_phrase: str) -> float:
     if any(c.isdigit() for c in phrase_lower):
         # Phrase contains numbers, might be SKU
         scores.append(fuzz.partial_ratio(phrase_lower, item_lower) / 100.0)
+    
+    # 4. Package type penalty/bonus
+    # If search mentions "draught/draft/keg" but item has "bottle", penalize
+    # If search mentions "bottle" but item has "draught/keg", penalize
+    draught_words = ["draught", "draft", "keg", "tap"]
+    bottle_words = ["bottle", "bottled"]
+    
+    search_has_draught = any(word in phrase_lower for word in draught_words)
+    search_has_bottle = any(word in phrase_lower for word in bottle_words)
+    item_has_draught = any(word in item_lower for word in draught_words)
+    item_has_bottle = any(word in item_lower for word in bottle_words)
+    
+    # Apply penalty if package types conflict
+    if search_has_draught and item_has_bottle:
+        # User said "draft" but item is "bottle" - penalize heavily
+        scores = [s * 0.3 for s in scores]
+    elif search_has_bottle and item_has_draught:
+        # User said "bottle" but item is "draught" - penalize heavily
+        scores = [s * 0.3 for s in scores]
+    elif search_has_draught and item_has_draught:
+        # Both mention draught - boost score
+        scores.append(0.95)
+    elif search_has_bottle and item_has_bottle:
+        # Both mention bottle - boost score
+        scores.append(0.95)
     
     # Return weighted average of top 3 scores
     scores.sort(reverse=True)

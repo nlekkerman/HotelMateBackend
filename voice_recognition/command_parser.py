@@ -93,8 +93,29 @@ def convert_number_words(text):
         "five point five" -> "5.5"
         "twenty three" -> "23"
         "three cases" -> "3 cases"
+        "five and a half" -> "5.5"
     """
     result = text.lower()
+    
+    # Handle "X and a half" pattern (e.g., "five and a half" -> "5.5")
+    and_half_pattern = r'(\w+)\s+and\s+a\s+half'
+    def replace_and_half(match):
+        whole = NUMBER_WORDS.get(match.group(1), match.group(1))
+        try:
+            return str(float(whole) + 0.5)
+        except:
+            return match.group(0)
+    result = re.sub(and_half_pattern, replace_and_half, result)
+    
+    # Handle "X and a quarter" pattern
+    and_quarter_pattern = r'(\w+)\s+and\s+a\s+quarter'
+    def replace_and_quarter(match):
+        whole = NUMBER_WORDS.get(match.group(1), match.group(1))
+        try:
+            return str(float(whole) + 0.25)
+        except:
+            return match.group(0)
+    result = re.sub(and_quarter_pattern, replace_and_quarter, result)
     
     # Handle decimal points (e.g., "five point five")
     decimal_pattern = r'(\w+)\s+point\s+(\w+)'
@@ -105,7 +126,6 @@ def convert_number_words(text):
     result = re.sub(decimal_pattern, replace_decimal, result)
     
     # Handle compound numbers (e.g., "twenty four" -> "24")
-    # Match patterns like "twenty three", "thirty five", etc.
     compound_pattern = r'\b(twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\s+(one|two|three|four|five|six|seven|eight|nine)\b'
     def replace_compound(match):
         tens = NUMBER_WORDS.get(match.group(1), 0)
@@ -186,15 +206,18 @@ def parse_voice_command(transcription: str) -> Dict:
     dozen_pattern = r'(\d+)\s+dozen(?:\s+(\d+))?'
     
     # Pattern 2: Full + partial units
-    # Matches: "3 cases 6 bottles", "2 kegs, 12 pints", "5 cases and 3 bottles"
-    # The key change: allow optional comma and/or "and" between units
+    # Matches: "3 cases 6 bottles", "2 kegs 12 pints", "5 cases and 3 bottles"
+    # Does NOT match: "5.5 bottles" (no container word before number)
+    # KEGS: "3 kegs 12 pints" means 3 full kegs + 12 pints remaining
+    # CASES: "3 cases 5 bottles" means 3 full cases + 5 loose bottles
     full_partial_pattern = (
-        r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?)\s*'
-        r'(?:,?\s*(?:and\s+)?)(\d+(?:\.\d+)?)\s*'
+        r'(\d+)\s+(?:cases?|kegs?|boxes?)\s+'
+        r'(?:,?\s*)?(?:and\s+)?(\d+(?:\.\d+)?)\s*'
         r'(?:bottles?|pints?|cans?|ml)?'
     )
     
     # Pattern 3: Single value with optional unit "5.5", "10 bottles", "3 kegs"
+    # This should match "5.5 bottles" or "7 bottles" when there's no container word before
     single_value_pattern = (
         r'(\d+(?:\.\d+)?)\s*(?:cases?|kegs?|boxes?|bottles?|'
         r'pints?|cans?|liters?|ml)?(?:\s|$)'
@@ -266,9 +289,8 @@ def parse_voice_command(transcription: str) -> Dict:
             #    (full_units × item.uom) + partial_units
             # 3. Display: "Total: X bottles" or "Total servings: X"
             #
-            # The 'value' field is set to partial_units for backwards
-            # compatibility with simple displays that only show one number
-            value = partial_units
+            # Set 'value' to the sum for preview (frontend will recalculate based on UOM)
+            value = full_units + partial_units
             
             logger.info(
                 f"✓ Parsed full+partial: {full_units} full, "

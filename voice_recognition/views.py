@@ -236,7 +236,7 @@ class VoiceCommandConfirmView(APIView):
             match_result = find_best_match_in_stocktake(
                 item_identifier,
                 stocktake,
-                min_score=0.55
+                min_score=0.70
             )
             
             if not match_result:
@@ -256,7 +256,7 @@ class VoiceCommandConfirmView(APIView):
             if not stock_item:
                 return Response({
                     'success': False,
-                    'error': f'Stock item not found: {item_identifier}'
+                    'error': f'No matching item found for "{item_identifier}". Please try again or add the item manually.'
                 }, status=status.HTTP_404_NOT_FOUND)
             
             # Get or create stocktake line
