@@ -111,9 +111,16 @@ def transcribe_audio(audio_file) -> str:
 
         with open(temp_path, "rb") as file_handle:
             response = client.audio.transcriptions.create(
-                model="gpt-4o-mini-transcribe",
+                model="whisper-1",
                 file=file_handle,
                 language="en",
+                prompt=(
+                    "Count Killarney Full Circle Panther Fuascal "
+                    "Heineken Guinness Budweiser Coors Bulmers Smithwicks "
+                    "Beamish Carlsberg Peroni Corona Moretti bottles kegs "
+                    "cases pints count purchase waste"
+                ),
+                temperature=0.0,
             )
 
         text = (

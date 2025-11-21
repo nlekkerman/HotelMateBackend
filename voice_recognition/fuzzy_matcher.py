@@ -153,9 +153,28 @@ def find_best_match(
     candidates.sort(key=lambda candidate: candidate["score"], reverse=True)
 
     logger.info(
-        "Search '%s' -> top candidates: %s",
+        "🔍 Search '%s' -> TOP 5 candidates:\n"
+        "  1. %s (SKU: %s) - Score: %.3f\n"
+        "  2. %s (SKU: %s) - Score: %.3f\n"
+        "  3. %s (SKU: %s) - Score: %.3f\n"
+        "  4. %s (SKU: %s) - Score: %.3f\n"
+        "  5. %s (SKU: %s) - Score: %.3f",
         search_phrase,
-        candidates[:3],
+        candidates[0]["name"] if len(candidates) > 0 else "N/A",
+        candidates[0]["sku"] if len(candidates) > 0 else "N/A",
+        candidates[0]["score"] if len(candidates) > 0 else 0,
+        candidates[1]["name"] if len(candidates) > 1 else "N/A",
+        candidates[1]["sku"] if len(candidates) > 1 else "N/A",
+        candidates[1]["score"] if len(candidates) > 1 else 0,
+        candidates[2]["name"] if len(candidates) > 2 else "N/A",
+        candidates[2]["sku"] if len(candidates) > 2 else "N/A",
+        candidates[2]["score"] if len(candidates) > 2 else 0,
+        candidates[3]["name"] if len(candidates) > 3 else "N/A",
+        candidates[3]["sku"] if len(candidates) > 3 else "N/A",
+        candidates[3]["score"] if len(candidates) > 3 else 0,
+        candidates[4]["name"] if len(candidates) > 4 else "N/A",
+        candidates[4]["sku"] if len(candidates) > 4 else "N/A",
+        candidates[4]["score"] if len(candidates) > 4 else 0,
     )
 
     best = candidates[0] if candidates else None
