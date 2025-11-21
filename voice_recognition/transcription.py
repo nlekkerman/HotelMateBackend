@@ -2,6 +2,7 @@
 Audio Transcription Service using OpenAI Speech-to-Text
 Modern API for gpt-4o-transcribe
 """
+import io
 import logging
 from django.conf import settings
 from openai import OpenAI
@@ -16,19 +17,26 @@ def transcribe_audio(audio_file):
     Transcribe audio using latest OpenAI STT (gpt-4o-transcribe).
 
     Args:
-        audio_file: Django UploadedFile object
+        audio_file: Django UploadedFile object (InMemoryUploadedFile or TemporaryUploadedFile)
 
     Returns:
         str: transcription text
     """
 
     try:
+        # Always rewind
         audio_file.seek(0)
+
+        # ✅ Convert Django UploadedFile -> bytes -> BytesIO
+        audio_bytes = audio_file.read()
+        file_obj = io.BytesIO(audio_bytes)
+        # Give it a name so OpenAI can infer extension if needed
+        file_obj.name = getattr(audio_file, "name", "audio.webm")
 
         response = client.audio.transcriptions.create(
             model="gpt-4o-mini-transcribe",
-            file=audio_file,        # <-- pass raw file object, not tuple
-            language="en",          # Helps for Irish accents too
+            file=file_obj,   # <-- now it's a proper file-like object
+            language="en",
         )
 
         text = (
@@ -37,7 +45,7 @@ def transcribe_audio(audio_file):
             or ""
         ).strip()
 
-        logger.info(f"🎤 Whisper transcription: {text}")
+        logger.info(f"🎤 STT transcription: {text!r}")
 
         if not text:
             raise Exception("Transcription returned empty string")
