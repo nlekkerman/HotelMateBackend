@@ -206,13 +206,13 @@ def parse_voice_command(transcription: str) -> Dict:
     dozen_pattern = r'(\d+)\s+dozen(?:\s+(\d+))?'
     
     # Pattern 2: Full + partial units
-    # Matches: "3 cases 6 bottles", "2 kegs 12 pints", "5 cases and 3 bottles"
+    # Matches: "3 cases 6 bottles", "2 kegs 12 pints", "3 kegs, 3 pints"
     # Does NOT match: "5.5 bottles" (no container word before number)
     # KEGS: "3 kegs 12 pints" means 3 full kegs + 12 pints remaining
     # CASES: "3 cases 5 bottles" means 3 full cases + 5 loose bottles
     full_partial_pattern = (
-        r'(\d+)\s+(?:cases?|kegs?|boxes?)\s+'
-        r'(?:,?\s*)?(?:and\s+)?(\d+(?:\.\d+)?)\s*'
+        r'(\d+)\s+(?:cases?|kegs?|boxes?)\s*'
+        r'(?:,\s*|\s+)(?:and\s+)?(\d+(?:\.\d+)?)\s*'
         r'(?:bottles?|pints?|cans?|ml)?'
     )
     
