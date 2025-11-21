@@ -27,7 +27,7 @@ BRAND_SYNONYMS = {
 # Packaging type synonyms
 PACKAGE_SYNONYMS = {
     "bottle": ["bot", "botle", "botl", "bott", "btl", "bottl"],
-    "draught": ["draft", "drft", "tap", "on tap", "keg", "kegs", "draft beer"],
+    "draught": ["draft", "tap", "on tap", "keg", "kegs"],
     "pint": ["pt", "pnt"],
     "can": ["cn", "tin"],
 }
@@ -98,8 +98,9 @@ def score_item(item_name: str, search_phrase: str) -> float:
     # 4. Package type penalty/bonus
     # If search mentions "draught/draft/keg" but item has "bottle", penalize
     # If search mentions "bottle" but item has "draught/keg", penalize
-    draught_words = ["draught", "draft", "keg", "tap"]
-    bottle_words = ["bottle", "bottled"]
+    # Use all synonyms from PACKAGE_SYNONYMS
+    draught_words = ["draught"] + PACKAGE_SYNONYMS["draught"]
+    bottle_words = ["bottle"] + PACKAGE_SYNONYMS["bottle"]
     
     search_has_draught = any(word in phrase_lower for word in draught_words)
     search_has_bottle = any(word in phrase_lower for word in bottle_words)
