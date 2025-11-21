@@ -219,15 +219,25 @@ def parse_voice_command(transcription: str) -> Dict:
                     f"Partial units should be recorded as waste."
                 )
             
-            # For COUNT action, full_units and partial_units are passed
-            # separately to the backend. The backend calculates:
-            # counted_qty = (full_units × uom) + partial_units
-            # 
-            # Example: "5 cases 5 bottles" with uom=12
-            # Backend calculates: (5 × 12) + 5 = 65 bottles
-            value = float(full_units)  # Store full units in value
+            # For COUNT with full+partial units:
+            # Backend saves: counted_full_units and counted_partial_units
+            # Backend calculates: counted_qty = (full_units × uom) + partial
+            #
+            # FRONTEND RESPONSIBILITY:
+            # When displaying parsed command preview, frontend should:
+            # 1. Show: "Count {full_units} cases and {partial_units} bottles"
+            # 2. When item is matched, calculate:
+            #    (full_units × item.uom) + partial_units
+            # 3. Display: "Total: X bottles" or "Total servings: X"
+            #
+            # The 'value' field is set to partial_units for backwards
+            # compatibility with simple displays that only show one number
+            value = partial_units
             
-            logger.info(f"✓ Parsed full+partial: {full_units} full, {partial_units} partial")
+            logger.info(
+                f"✓ Parsed full+partial: {full_units} full, "
+                f"{partial_units} partial"
+            )
         else:
             # Try single value pattern
             # Find all matches and take the last one (closest to end, likely the quantity)
