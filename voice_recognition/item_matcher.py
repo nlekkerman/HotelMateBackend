@@ -26,7 +26,10 @@ BRAND_SYNONYMS = {
         "heiny", "heinie", "heinikn", "heine", "heinkin", "hieneken"
     ],
     "peroni": ["perony", "perori", "perni", "perroni", "perrone"],
-    "coors": ["course", "cores", "cooors", "cors", "core"],
+    "coors": [
+        "course", "cores", "cooors", "cors", "core", "coors light",
+        "coors beer", "koors", "kors"
+    ],
     "guinness": ["guiness", "ginnes", "ginis", "guinnes", "guines"],
     "moretti": ["morety", "moreti", "moretty"],
     "corona": ["carona", "coronna", "corono"],
@@ -113,7 +116,10 @@ BRAND_SYNONYMS = {
     
     # SPIRITS - COGNAC/BRANDY
     "hennessy": ["hennesy", "henesy"],
-    "courvoisier": ["cdc"],
+    "courvoisier": [
+        "cdc", "courvoisier", "couvoisier", "corvoisier",
+        "courvosier", "cognac cdc"
+    ],
     "remy martin": ["remy", "remy vsop"],
     "martell": ["martel", "martell vs"],
     "buffalo trace": ["buffalo", "trace"],
@@ -345,17 +351,19 @@ def score_item(item_name: str, search_phrase: str) -> float:
     
     # Apply penalty if package types conflict
     if search_has_draught and item_has_bottle:
-        # User said "draft" but item is "bottle" - penalize heavily
-        scores = [s * 0.3 for s in scores]
+        # User said "draft" but item is "bottle" - kill the match
+        scores = [s * 0.1 for s in scores]
     elif search_has_bottle and item_has_draught:
-        # User said "bottle" but item is "draught" - penalize heavily
-        scores = [s * 0.3 for s in scores]
+        # User said "bottle" but item is "draught" - kill the match
+        scores = [s * 0.1 for s in scores]
     elif search_has_draught and item_has_draught:
-        # Both mention draught - boost score
-        scores.append(0.95)
+        # Both mention draught - massive boost
+        scores.append(0.98)
+        scores.append(0.97)
     elif search_has_bottle and item_has_bottle:
-        # Both mention bottle - boost score
-        scores.append(0.95)
+        # Both mention bottle - massive boost
+        scores.append(0.98)
+        scores.append(0.97)
     
     # Return weighted average of top 3 scores
     scores.sort(reverse=True)
@@ -383,8 +391,8 @@ def find_best_match(
     if not search_phrase or not items:
         return None
     
-    best_item = None
-    best_score = 0.0
+    # Score all items and keep track of top candidates
+    candidates = []
     
     for item in items:
         score = score_item(item.name, search_phrase)
@@ -393,25 +401,42 @@ def find_best_match(
         if item.sku.lower() in search_phrase.lower():
             score = max(score, 0.9)
         
-        if score > best_score:
-            best_score = score
-            best_item = item
+        candidates.append({
+            'item': item,
+            'score': score,
+            'name': item.name,
+            'sku': item.sku
+        })
     
-    if best_item and best_score >= min_score:
+    # Sort by score descending
+    candidates.sort(key=lambda x: x['score'], reverse=True)
+    
+    # Log top 5 candidates for debugging
+    logger.info(f"Search: '{search_phrase}' - Top candidates:")
+    for i, candidate in enumerate(candidates[:5], 1):
         logger.info(
-            f"✓ Matched '{search_phrase}' to '{best_item.name}' "
-            f"(SKU: {best_item.sku}, confidence: {best_score:.2f})"
+            f"  {i}. [{candidate['score']:.4f}] "
+            f"{candidate['sku']}: {candidate['name']}"
+        )
+    
+    # Get best match
+    best_candidate = candidates[0] if candidates else None
+    
+    if best_candidate and best_candidate['score'] >= min_score:
+        logger.info(
+            f"✓ SELECTED: '{search_phrase}' → '{best_candidate['name']}' "
+            f"(SKU: {best_candidate['sku']}, confidence: {best_candidate['score']:.2f})"
         )
         return {
-            'item': best_item,
-            'confidence': best_score,
+            'item': best_candidate['item'],
+            'confidence': best_candidate['score'],
             'search_phrase': search_phrase
         }
     
     logger.warning(
-        f"✗ No match for '{search_phrase}' "
-        f"(best: {best_item.name if best_item else 'none'}, "
-        f"score: {best_score:.2f}, threshold: {min_score})"
+        f"✗ NO MATCH: '{search_phrase}' "
+        f"(best: {best_candidate['name'] if best_candidate else 'none'}, "
+        f"score: {best_candidate['score']:.2f}, threshold: {min_score})"
     )
     return None
 
