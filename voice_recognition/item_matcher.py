@@ -46,17 +46,35 @@ BRAND_SYNONYMS = {
         "heiny", "heinie", "heinikn", "heine", "heinkin", "hieneken"
     ],
     "peroni": ["perony", "perori", "perni", "perroni", "perrone"],
+
+    # 🔥 COORS – with C/K variants
     "coors": [
-        "course", "cores", "cooors", "cors", "core", "coors light",
-        "coors beer", "koors", "kors"
+        # correct
+        "coors", "coors light", "coors beer",
+        # classic STT / accent shit
+        "course", "cores", "cooors", "cors", "core",
+        # C↔K confusion
+        "kors", "koors", "korse", "corse", "corz", "kors light"
     ],
+
     "guinness": ["guiness", "ginnes", "ginis", "guinnes", "guines"],
     "moretti": ["morety", "moreti", "moretty"],
-    "corona": ["carona", "coronna", "corono"],
+
+    # C↔K for Corona
+    "corona": [
+        "corona", "carona", "coronna", "corono",
+        "korona", "korona beer"
+    ],
+
     "carlsberg": ["carlsbrg", "carlsburg"],
     "kbc": ["k b c", "killarney brewing", "kbc brewery"],
-    # FIXED: cronins is its own brand, not kronenbourg
-    "cronins": ["cronin", "cronins"],
+
+    # Cronins as its own brand + K variants
+    "cronins": [
+        "cronin", "cronins",
+        "kronin", "kronins"  # C↔K at start
+    ],
+
     "kronenbourg": ["kronenbourg", "kronen"],
     "kopparberg": ["copper", "copperberg", "kopper", "koppar"],
     "erdinger": ["airding"],
@@ -120,7 +138,11 @@ BRAND_SYNONYMS = {
     # SPIRITS - RUM
     "bacardi": ["baccardi", "bakardi"],
     "havana": ["havana club", "havanna"],
-    "captain morgan": ["captain", "captain morgans", "cap morgan"],
+    # captain – add kaptain / captn
+    "captain morgan": [
+        "captain", "captain morgans", "cap morgan",
+        "captn morgan", "kaptain morgan"
+    ],
     "malibu": ["maliboo"],
     "kraken": ["krackan", "cracken"],
     "matusalem": ["matuselem"],
@@ -144,8 +166,9 @@ BRAND_SYNONYMS = {
     ],
     "remy martin": ["remy", "remy vsop"],
     "martell": ["martel", "martell vs"],
+    # canadian – add kanadian
     "buffalo trace": ["buffalo", "trace"],
-    "canadian club": ["canadian", "cc"],
+    "canadian club": ["canadian", "cc", "kanadian club"],
 
     # SPIRITS - LIQUEURS
     "baileys": ["bailey", "bailies"],
@@ -171,7 +194,6 @@ BRAND_SYNONYMS = {
     "pimms": ["pims", "pimm's"],
 
     # SPIRITS - SCHNAPPS/SYRUPS
-    # slightly safer: don't map plain "peach" alone
     "peach schnapps": ["peach schnapps", "peach snaps"],
     "apple sourz": ["apple souz", "apple sours", "sourz"],
 
