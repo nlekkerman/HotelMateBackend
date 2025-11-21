@@ -11,25 +11,258 @@ logger = logging.getLogger(__name__)
 
 # Brand synonyms for common misspellings/variations
 BRAND_SYNONYMS = {
-    "budweiser": ["bud", "budwiser", "budweisser", "bude", "boodviser", "budwieser"],
-    "bulmers": ["bulmer", "bulmars", "bulmr"],
-    "smithwicks": ["smithix", "smidix", "smithicks", "smithwix", "smiddicks"],
-    "heineken": ["heiny", "heinie", "heinikn", "heine", "heinkin"],
-    "peroni": ["perony", "perori", "perni", "peroni"],
-    "coors": ["course", "cores", "cooors", "cors"],
-    "guinness": ["guiness", "ginnes", "ginis", "guinnes"],
-    "moretti": ["morety", "moreti", "moretti"],
-    "corona": ["carona", "coronna"],
+    # BEERS
+    "budweiser": [
+        "bud", "budwiser", "budweisser", "bude", "boodviser", "budwieser"
+    ],
+    "bulmers": ["bulmer", "bulmars", "bulmr", "bulmur", "boomers", "boomer's"],
+    "smithwicks": [
+        "smithix", "smidix", "smithicks", "smithwix", "smiddicks"
+    ],
+    "heineken": [
+        "heiny", "heinie", "heinikn", "heine", "heinkin", "hieneken"
+    ],
+    "peroni": ["perony", "perori", "perni", "perroni", "perrone"],
+    "coors": ["course", "cores", "cooors", "cors", "core"],
+    "guinness": ["guiness", "ginnes", "ginis", "guinnes", "guines"],
+    "moretti": ["morety", "moreti", "moretty"],
+    "corona": ["carona", "coronna", "corono"],
     "carlsberg": ["carlsbrg", "carlsburg"],
     "kbc": ["k b c", "killarney brewing", "kbc brewery"],
+    "kronenbourg": ["cronin", "cronins", "kronen", "cronenberg"],
+    "kopparberg": ["copper", "copperberg", "kopper", "koppar"],
+    "erdinger": ["airding"],
+    "smirnoff ice": ["smirnoff", "smirnof", "smernoff", "smirnov"],
+    "wkd": ["wicked", "w k d"],
+    "west coast": ["westcoast", "west coast cooler"],
+    "orchard thieves": ["orchard", "orchards"],
+    "lagunitas": ["lagunita", "lagunitos"],
+    "beamish": ["beemish"],
+    "murphys": ["murphy", "murphies", "murfy"],
+    "sol": ["sol beer", "sol bottle"],
+    
+    # SPIRITS - VODKA
+    "absolut": ["absolute", "absoloot"],
+    "smirnoff vodka": ["smirnof", "smernoff", "smirnov"],
+    "grey goose": ["gray goose", "greygoose", "graygoose"],
+    "belvedere": ["belvidere", "belvedeer"],
+    "ketel one": ["kettle one", "kettle", "ketel"],
+    "titos": ["tito", "teetos", "tito's"],
+    "dingle vodka": ["dingle"],
+    
+    # SPIRITS - GIN
+    "gordons": ["gordon", "gordans", "gordan", "gordon's"],
+    "bombay": ["bombay sapphire", "bombay dry", "bumbay"],
+    "tanqueray": ["tanquery", "tankery"],
+    "hendricks": ["hendrick", "hendrix"],
+    "beefeater": ["beefeeter", "beef eater", "beafeater"],
+    "dingle gin": ["dingle"],
+    "berthas revenge": ["bertha", "berthas", "bertha's revenge"],
+    "boatyard": ["boat yard", "boatyard sloe"],
+    "muckross": ["muckros", "muckross wild"],
+    "ring of kerry": ["ring of carry"],
+    "silver spear": ["silverspear"],
+    "method and madness": ["method madness", "method & madness"],
+    
+    # SPIRITS - WHISKEY/WHISKY
+    "jameson": ["jamesom", "jamison", "jameson's"],
+    "bushmills": ["bushmils", "bush mills"],
+    "powers": ["power", "powers whiskey"],
+    "tullamore": ["tullamore dew"],
+    "redbreast": ["red breast", "redbrest"],
+    "green spot": ["greenspot"],
+    "yellow spot": ["yellowspot"],
+    "paddy": ["paddy whiskey", "paddys"],
+    "killarney whiskey": ["killarney"],
+    "dingle whiskey": ["dingle"],
+    "skellig": ["skellig six18"],
+    "roe and co": ["roe", "roe & co"],
+    "west cork": ["westcork"],
+    "jack daniels": ["jack daniel", "jack", "jd"],
+    "johnnie walker": ["johnny walker", "jonny walker", "walker"],
+    "famous grouse": ["grouse"],
+    "glenfiddich": ["glenfidich", "glen fiddich"],
+    "glenmorangie": ["glen morangie"],
+    "laphroaig": ["lafroyg", "laphroig"],
+    "talisker": ["taliska"],
+    "black bush": ["blackbush"],
+    "crested": ["crested ten", "crested 10"],
+    "teachers": ["teacher"],
+    
+    # SPIRITS - RUM
+    "bacardi": ["baccardi", "bakardi"],
+    "havana": ["havana club", "havanna"],
+    "captain morgan": ["captain", "captain morgans", "cap morgan"],
+    "malibu": ["maliboo"],
+    "kraken": ["krackan", "cracken"],
+    "matusalem": ["matuselem"],
+    "sea dog": ["seadog"],
+    
+    # SPIRITS - TEQUILA
+    "patron": ["patron silver"],
+    "el jimador": ["jimador", "el jimador blanco"],
+    "jose cuervo": ["cuervo", "j.c", "jc"],
+    "olmeca": ["olmeca gold"],
+    "corazon": ["corazon anejo"],
+    "ghost": ["ghost tequila", "ghost spicy"],
+    "tequila rose": ["tequila rosa"],
+    "tequila bianca": ["bianca", "tequila blanco"],
+    
+    # SPIRITS - COGNAC/BRANDY
+    "hennessy": ["hennesy", "henesy"],
+    "courvoisier": ["cdc"],
+    "remy martin": ["remy", "remy vsop"],
+    "martell": ["martel", "martell vs"],
+    "buffalo trace": ["buffalo", "trace"],
+    "canadian club": ["canadian", "cc"],
+    
+    # SPIRITS - LIQUEURS
+    "baileys": ["bailey", "bailies"],
+    "kahlua": ["kalua", "kahlúa"],
+    "tia maria": ["tiamaria"],
+    "disaronno": ["disarono", "amaretto"],
+    "cointreau": ["cointrau"],
+    "grand marnier": ["grandmarnier"],
+    "drambuie": ["drambuey"],
+    "southern comfort": ["southern"],
+    "aperol": ["apparel"],
+    "campari": ["campary"],
+    "chambord": ["shambor"],
+    "luxardo": ["luxardo limoncello"],
+    "passoa": ["pasoa", "passion fruit"],
+    "midori": ["midori green"],
+    "galliano": ["galianos"],
+    "sambuca": ["antica sambuca", "sambucca"],
+    "pernod": ["perno"],
+    "jagermeister": ["jager", "yager"],
+    "irish mist": ["irishmist"],
+    "benedictine": ["benidictine"],
+    "pimms": ["pims", "pimm's"],
+    
+    # SPIRITS - SCHNAPPS/SYRUPS
+    "peach schnapps": ["peach"],
+    "apple sourz": ["apple souz", "apple sours", "sourz"],
+    
+    # BOLS LIQUEURS
+    "bols": ["bolls"],
+    
+    # VOLARE
+    "volare": ["volari"],
+    "triple sec": ["triple", "sec"],
+    "limoncello": ["lemoncello", "limoncello"],
+    "butterscotch": ["butter scotch", "butterscotch"],
+    "passionfruit": ["passion fruit", "passion"],
+    
+    # PORTS & SHERRIES
+    "osborne": ["osborne port"],
+    "sandeman": ["sandeman port"],
+    "tio pepe": ["tio pepe sherry"],
+    "harveys": ["harveys bristol cream"],
+    "bristol cream": ["bristol", "cream sherry"],
+    "port": ["port wine", "porto"],
+    "sherry": ["sherry wine"],
+    "martini": ["martini vermouth", "vermouth"],
+    
+    # WINE BRANDS (Common foreign pronunciations)
+    "chablis": ["shabli", "shably"],
+    "merlot": ["merlo", "merloe"],
+    "pinot": ["pino", "pinot grigio", "pinot gris"],
+    "sauvignon": ["sovignon", "sauvignon blanc", "sauv blanc"],
+    "chardonnay": ["chardonny", "chardonay", "shardonnay"],
+    "cabernet": ["cab sauv", "cabernet sauvignon"],
+    "rioja": ["ryoja", "rio ha"],
+    "malbec": ["malbeck"],
+    "prosecco": ["proseco"],
+    "champagne": ["shampain"],
+    "tempranillo": ["temp"],
+    "primitivo": ["primativo"],
+    "barbera": ["barberà"],
+    "albarino": ["albariño"],
+    "verdejo": ["verdejo", "verdayo"],
+    
+    # SPECIFIC WINE BRANDS
+    "chateau": ["chateau", "chateaux", "shato"],
+    "domaine": ["domaine", "domiane"],
+    "marquess": ["marques", "marquess plata"],
+    "santa ana": ["santa ana", "santana"],
+    "jack rabbit": ["jackrabbit", "jack rabbit"],
+    "sonnetti": ["sonnetti", "sonetti"],
+    "pascaud": ["pacsaud", "pascaud bordeaux"],
+    "pouilly": ["pouilly fume", "poilly", "pwilly"],
+    "fleurie": ["fleurie", "fleuri"],
+    "equino": ["equino malbec"],
+    "roquende": ["roquende", "rokende"],
+    "fuego": ["fuego blanco", "fuego"],
+    "rialto": ["rialto prosecco"],
+    "pannier": ["pannier champagne"],
+    "collie": ["collie prosecco", "colli"],
+    "reina": ["reina wine", "reyna"],
+    "pazo": ["pazo albarino", "paso"],
+    "tenuta": ["tenuta barbera"],
+    "moilard": ["moilard macon", "macon village"],
+    "chevaliere": ["chevalier", "chevaliere"],
+    "jamelles": ["jamelles", "jamelle"],
+    "giola": ["giola colle", "giola"],
+    
+    # MINERALS/SOFT DRINKS
+    "coca cola": ["coke", "coca", "cola", "cocacola"],
+    "seven up": ["7up", "7 up"],
+    "sprite": ["sprit"],
+    "fanta": ["fanter"],
+    "lucozade": ["lucozaid"],
+    "schweppes": ["schweps", "schwepps", "elderflower"],
+    "fevertree": ["fever tree", "fever-tree"],
+    "red bull": ["redbull"],
+    "riverrock": ["river rock"],
+    "appletiser": ["appletisier", "appletizer"],
+    "three cents": ["3 cents"],
+    "ginger beer": ["ginger"],
+    "lemonade": ["lemonade nashs", "nashs"],
+    "miwadi": ["miwadi cordial"],
+    
+    # SYRUPS
+    "monin": ["monin syrup"],
+    "grenadine": ["grenadene"],
+    
+    # JUICE BRANDS
+    "kulana": ["kulana juice"],
+    "splash": ["splash juice"],
+    "britvic": ["britvick"],
+    
+    # COMMON MODIFIERS/DESCRIPTORS
+    "zero": ["0", "zero alcohol", "non alcoholic", "alcohol free"],
+    "diet": ["diet", "lite", "light"],
+    "gluten free": ["gf", "gluten free", "celiac"],
+    "free": ["free", "0.0", "zero percent"],
+    "wild": ["wild berry", "wild fruit"],
+    "blonde": ["blond", "blonde ale"],
+    "red": ["red ale", "rouge"],
+    "white": ["blanc", "blanco", "bianco"],
+    "rose": ["rosé", "rosa", "rosato"],
+    "sparkling": ["spark", "fizzy", "bubbles"],
+    "still": ["still water", "flat"],
+    "mini": ["miniature", "baby", "small"],
+    "litre": ["ltr", "liter", "l"],
+    "millilitre": ["ml", "milliliter"],
+    "centilitre": ["cl"],
+    "dozen": ["doz", "12"],
 }
 
 # Packaging type synonyms
 PACKAGE_SYNONYMS = {
     "bottle": ["bot", "botle", "botl", "bott", "btl", "bottl"],
     "draught": ["draft", "tap", "on tap", "keg", "kegs"],
-    "pint": ["pt", "pnt"],
+    "pint": ["pt", "pnt", "pint bottle"],
     "can": ["cn", "tin"],
+    "case": ["case", "box"],
+    "split": ["split", "small bottle", "mini"],
+}
+
+# Number/Quantity words for voice recognition
+QUANTITY_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+    "half": 0.5, "quarter": 0.25,
 }
 
 
