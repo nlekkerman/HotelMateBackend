@@ -1,5 +1,5 @@
 """
-Audio Transcription Service using OpenAI Speech-to-Text (gpt-4o-mini-transcribe)
+Audio Transcription Service using OpenAI STT (gpt-4o-mini-transcribe)
 
 Responsible ONLY for:
     - Taking a Django UploadedFile (in-memory or temp file)
@@ -67,7 +67,7 @@ def _save_uploaded_to_temp(uploaded_file) -> str:
 
 def _cleanup_temp(path: Optional[str]) -> None:
     """Best-effort cleanup of temp files."""
-        - Taking a Django UploadedFile (in-memory or temporary)
+
     if not path:
         return
     try:
