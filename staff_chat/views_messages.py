@@ -254,6 +254,11 @@ def send_message(request, hotel_slug, conversation_id):
         json.dumps(message_serializer.data, cls=DjangoJSONEncoder)
     )
     
+    # Remove sender-specific field before broadcasting
+    # Recipients will calculate this themselves based on their own ID
+    if 'is_read_by_current_user' in message_data:
+        del message_data['is_read_by_current_user']
+    
     # Broadcast via Pusher to all participants
     try:
         broadcast_new_message(
@@ -431,6 +436,10 @@ def edit_message(request, hotel_slug, message_id):
     message_data = json.loads(
         json.dumps(message_serializer.data, cls=DjangoJSONEncoder)
     )
+    
+    # Remove sender-specific field before broadcasting
+    if 'is_read_by_current_user' in message_data:
+        del message_data['is_read_by_current_user']
     
     try:
         broadcast_message_edited(
@@ -925,6 +934,10 @@ def forward_message(request, hotel_slug, message_id):
                 )
             )
             
+            # Remove sender-specific field before broadcasting
+            if 'is_read_by_current_user' in message_data:
+                del message_data['is_read_by_current_user']
+            
             try:
                 broadcast_new_message(
                     hotel_slug,
@@ -1033,6 +1046,10 @@ def forward_message(request, hotel_slug, message_id):
                     cls=DjangoJSONEncoder
                 )
             )
+            
+            # Remove sender-specific field before broadcasting
+            if 'is_read_by_current_user' in message_data:
+                del message_data['is_read_by_current_user']
             
             try:
                 broadcast_new_message(

@@ -185,6 +185,10 @@ def upload_attachments(request, hotel_slug, conversation_id):
         json.dumps(message_serializer.data, cls=DjangoJSONEncoder)
     )
     
+    # Remove sender-specific field before broadcasting
+    if 'is_read_by_current_user' in message_data:
+        del message_data['is_read_by_current_user']
+    
     logger.info(
         f"📎 Uploaded {len(attachments)} file(s) to message "
         f"{message.id} by staff {staff.id}"
