@@ -17,6 +17,12 @@ from .serializers import (
     NavigationItemSerializer, RegistrationCodeSerializer,
 )
 from rest_framework.decorators import action
+from .pusher_utils import (
+    trigger_staff_profile_update,
+    trigger_registration_update,
+    trigger_navigation_permission_update,
+    trigger_department_role_update
+)
 
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -141,14 +147,60 @@ class StaffViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
         if not instance.user or instance.user != request.user:
-            return Response({"detail": "You can only update your own staff profile."}, status=status.HTTP_403_FORBIDDEN)
-        return super().update(request, *args, **kwargs)
+            return Response(
+                {"detail": "You can only update your own staff profile."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        response = super().update(request, *args, **kwargs)
+        
+        # Trigger Pusher event for staff profile update
+        instance.refresh_from_db()
+        trigger_staff_profile_update(
+            instance.hotel.slug,
+            instance,
+            action='updated'
+        )
+        
+        return response
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
         if not instance.user or instance.user != request.user:
-            return Response({"detail": "You can only update your own staff profile."}, status=status.HTTP_403_FORBIDDEN)
-        return super().partial_update(request, *args, **kwargs)
+            return Response(
+                {"detail": "You can only update your own staff profile."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        response = super().partial_update(request, *args, **kwargs)
+        
+        # Trigger Pusher event for staff profile update
+        instance.refresh_from_db()
+        trigger_staff_profile_update(
+            instance.hotel.slug,
+            instance,
+            action='updated'
+        )
+        
+        return response
+    
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        hotel_slug = instance.hotel.slug
+        staff_id = instance.id
+        
+        response = super().destroy(request, *args, **kwargs)
+        
+        # Trigger Pusher event for staff deletion
+        trigger_staff_profile_update(
+            hotel_slug,
+            {
+                'id': staff_id,
+                'first_name': instance.first_name,
+                'last_name': instance.last_name,
+            },
+            action='deleted'
+        )
+        
+        return response
 
     serializer_class = StaffSerializer
     pagination_class = StandardResultsSetPagination
@@ -392,6 +444,17 @@ class StaffRegisterAPIView(APIView):
 
         # Create authentication token
         token, _ = Token.objects.get_or_create(user=user)
+
+        # Trigger Pusher event for pending registration
+        trigger_registration_update(
+            hotel.slug,
+            {
+                'user_id': user.id,
+                'username': user.username,
+                'registration_code': reg_code.code,
+            },
+            action='pending'
+        )
 
         return Response({
             'user_id': user.id,
@@ -821,6 +884,19 @@ class CreateStaffFromUserAPIView(APIView):
         # Serialize the created staff
         serializer = StaffSerializer(staff)
 
+        # Trigger Pusher event for new staff profile
+        trigger_staff_profile_update(hotel_slug, staff, action='created')
+        trigger_registration_update(
+            hotel_slug,
+            {
+                'user_id': user.id,
+                'username': user.username,
+                'staff_id': staff.id,
+                'registration_code': deleted_code,
+            },
+            action='approved'
+        )
+
         return Response({
             'message': 'Staff profile created successfully.',
             'staff': serializer.data,
@@ -1017,6 +1093,14 @@ class StaffNavigationPermissionsView(APIView):
         
         # Return updated data
         serializer = NavigationItemSerializer(navigation_items, many=True)
+        
+        # Trigger Pusher event for navigation permission update
+        nav_slugs = [item.slug for item in navigation_items]
+        trigger_navigation_permission_update(
+            staff.hotel.slug,
+            staff.id,
+            nav_slugs
+        )
         
         return Response({
             'staff_id': staff.id,

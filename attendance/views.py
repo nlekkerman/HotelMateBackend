@@ -29,6 +29,11 @@ from .serializers import (
 )
 
 from hotel.models import Hotel
+from staff.pusher_utils import (
+    trigger_clock_status_update,
+    trigger_attendance_log,
+    trigger_roster_update
+)
 
 # attendance/filters.py
 import django_filters
@@ -169,6 +174,7 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                 existing_log.time_out = now()
                 existing_log.save()
                 action_message = "Clock‑out"
+                action_type = "clock_out"
                 log = existing_log
                 staff.is_on_duty = False
             else:
@@ -178,9 +184,30 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                     verified_by_face=True
                 )
                 action_message = "Clock‑in"
+                action_type = "clock_in"
                 staff.is_on_duty = True
 
             staff.save(update_fields=["is_on_duty"])
+
+            # Trigger Pusher events for real-time updates
+            trigger_clock_status_update(hotel_slug, staff, action_type)
+            trigger_attendance_log(
+                hotel_slug,
+                {
+                    'id': log.id,
+                    'staff_id': staff.id,
+                    'staff_name': f"{staff.first_name} {staff.last_name}",
+                    'department': (
+                        staff.department.name if staff.department else None
+                    ),
+                    'time': (
+                        log.time_out if action_type == 'clock_out'
+                        else log.time_in
+                    ),
+                    'verified_by_face': True,
+                },
+                action_type
+            )
 
             return Response({
                 "message": f"{action_message} successful for {staff.first_name}",
