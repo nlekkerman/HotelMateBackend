@@ -47,8 +47,13 @@ handler404 = 'common.views.custom_404'
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', home),  # root URL shows home page
+    # Phase 1: New STAFF zone - /api/staff/hotels/<hotel_slug>/<app>/
+    path('api/staff/', include('staff_urls')),
+    # Phase 1: New GUEST zone - /api/guest/hotels/<hotel_slug>/site/
+    path('api/guest/', include('guest_urls')),
 ]
 
+# Legacy routes - kept for backward compatibility
 urlpatterns += [path(f'api/{app}/', include(f'{app}.urls')) for app in apps]
 
 # Serve media files in development
