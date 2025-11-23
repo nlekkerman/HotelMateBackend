@@ -38,10 +38,21 @@ class HotelAdmin(admin.ModelAdmin):
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('name', 'slug', 'subdomain', 'logo')
+            'fields': ('name', 'slug', 'subdomain', 'logo', 'hero_image')
         }),
-        ('Location & Description', {
-            'fields': ('city', 'country', 'short_description')
+        ('Marketing Content', {
+            'fields': ('tagline', 'short_description', 'long_description'),
+            'description': 'Public-facing marketing content'
+        }),
+        ('Location', {
+            'fields': (
+                'city', 'country',
+                'address_line_1', 'address_line_2', 'postal_code',
+                ('latitude', 'longitude')
+            )
+        }),
+        ('Contact Information', {
+            'fields': ('phone', 'email', 'website_url', 'booking_url')
         }),
         ('Visibility & Ordering', {
             'fields': ('is_active', 'sort_order'),

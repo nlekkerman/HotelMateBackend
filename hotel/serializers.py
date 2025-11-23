@@ -1,5 +1,12 @@
 from rest_framework import serializers
-from .models import Hotel, HotelAccessConfig
+from .models import (
+    Hotel,
+    HotelAccessConfig,
+    BookingOptions,
+    Offer,
+    LeisureActivity
+)
+from rooms.models import RoomType
 
 
 class HotelAccessConfigSerializer(serializers.ModelSerializer):
@@ -60,3 +67,162 @@ class HotelSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'slug': {'required': True}
         }
+
+
+class BookingOptionsSerializer(serializers.ModelSerializer):
+    """Serializer for booking call-to-action options"""
+    class Meta:
+        model = BookingOptions
+        fields = [
+            'primary_cta_label',
+            'primary_cta_url',
+            'secondary_cta_label',
+            'secondary_cta_phone',
+            'terms_url',
+            'policies_url'
+        ]
+
+
+class RoomTypeSerializer(serializers.ModelSerializer):
+    """Serializer for room type marketing information"""
+    photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoomType
+        fields = [
+            'code',
+            'name',
+            'short_description',
+            'max_occupancy',
+            'bed_setup',
+            'photo_url',
+            'starting_price_from',
+            'currency',
+            'booking_code',
+            'booking_url',
+            'availability_message'
+        ]
+
+    def get_photo_url(self, obj):
+        """Return photo URL or None"""
+        if obj.photo:
+            return obj.photo.url
+        return None
+
+
+class OfferSerializer(serializers.ModelSerializer):
+    """Serializer for hotel offers and packages"""
+    photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Offer
+        fields = [
+            'title',
+            'short_description',
+            'details_html',
+            'valid_from',
+            'valid_to',
+            'tag',
+            'book_now_url',
+            'photo_url'
+        ]
+
+    def get_photo_url(self, obj):
+        """Return photo URL or None"""
+        if obj.photo:
+            return obj.photo.url
+        return None
+
+
+class LeisureActivitySerializer(serializers.ModelSerializer):
+    """Serializer for leisure activities and facilities"""
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = LeisureActivity
+        fields = [
+            'name',
+            'category',
+            'short_description',
+            'details_html',
+            'icon',
+            'image_url'
+        ]
+
+    def get_image_url(self, obj):
+        """Return image URL or None"""
+        if obj.image:
+            return obj.image.url
+        return None
+
+
+class HotelPublicDetailSerializer(serializers.ModelSerializer):
+    """
+    Comprehensive serializer for public hotel page.
+    Includes all marketing content, location, contact info,
+    and nested booking options, room types, offers, activities.
+    """
+    logo_url = serializers.SerializerMethodField()
+    hero_image_url = serializers.SerializerMethodField()
+    booking_options = BookingOptionsSerializer(read_only=True)
+    room_types = serializers.SerializerMethodField()
+    offers = serializers.SerializerMethodField()
+    leisure_activities = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Hotel
+        fields = [
+            # Basic info
+            'slug',
+            'name',
+            'tagline',
+            'hero_image_url',
+            'logo_url',
+            'short_description',
+            'long_description',
+            # Location
+            'city',
+            'country',
+            'address_line_1',
+            'address_line_2',
+            'postal_code',
+            'latitude',
+            'longitude',
+            # Contact
+            'phone',
+            'email',
+            'website_url',
+            'booking_url',
+            # Nested objects
+            'booking_options',
+            'room_types',
+            'offers',
+            'leisure_activities',
+        ]
+
+    def get_logo_url(self, obj):
+        """Return logo URL or None"""
+        if obj.logo:
+            return obj.logo.url
+        return None
+
+    def get_hero_image_url(self, obj):
+        """Return hero image URL or None"""
+        if obj.hero_image:
+            return obj.hero_image.url
+        return None
+
+    def get_room_types(self, obj):
+        """Return only active room types"""
+        active_room_types = obj.room_types.filter(is_active=True)
+        return RoomTypeSerializer(active_room_types, many=True).data
+
+    def get_offers(self, obj):
+        """Return only active offers"""
+        active_offers = obj.offers.filter(is_active=True)
+        return OfferSerializer(active_offers, many=True).data
+
+    def get_leisure_activities(self, obj):
+        """Return only active leisure activities"""
+        active_activities = obj.leisure_activities.filter(is_active=True)
+        return LeisureActivitySerializer(active_activities, many=True).data

@@ -46,6 +46,73 @@ class Hotel(models.Model):
         help_text="Short marketing blurb for the hotel."
     )
 
+    # Public page marketing fields (Issue #9)
+    tagline = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Catchy tagline for hotel marketing (e.g., 'Luxury in the heart of the city')"
+    )
+    hero_image = CloudinaryField(
+        "hero_image",
+        blank=True,
+        null=True,
+        help_text="Hero/banner image for public hotel page"
+    )
+    long_description = models.TextField(
+        blank=True,
+        help_text="Detailed description for the hotel public page"
+    )
+
+    # Location fields (Issue #9)
+    address_line_1 = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Street address line 1"
+    )
+    address_line_2 = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Street address line 2 (optional)"
+    )
+    postal_code = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Postal/ZIP code"
+    )
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Latitude coordinate for map display"
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Longitude coordinate for map display"
+    )
+
+    # Contact fields (Issue #9)
+    phone = models.CharField(
+        max_length=30,
+        blank=True,
+        help_text="Main contact phone number"
+    )
+    email = models.EmailField(
+        blank=True,
+        help_text="Main contact email address"
+    )
+    website_url = models.URLField(
+        blank=True,
+        help_text="Hotel's official website URL"
+    )
+    booking_url = models.URLField(
+        blank=True,
+        help_text="Primary booking URL (external or internal)"
+    )
+
     def __str__(self):
         return self.name
 
@@ -141,3 +208,191 @@ class HotelAccessConfig(models.Model):
 
     def __str__(self):
         return f"Access config for {self.hotel.name}"
+
+
+class BookingOptions(models.Model):
+    """
+    Booking call-to-action configuration for hotel public pages.
+    """
+    hotel = models.OneToOneField(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name="booking_options"
+    )
+    primary_cta_label = models.CharField(
+        max_length=100,
+        default="Book a Room",
+        help_text="Label for primary booking button"
+    )
+    primary_cta_url = models.URLField(
+        blank=True,
+        help_text="URL for primary booking action"
+    )
+    secondary_cta_label = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Label for secondary action (e.g., 'Call to Book')"
+    )
+    secondary_cta_phone = models.CharField(
+        max_length=30,
+        blank=True,
+        help_text="Phone number for secondary CTA"
+    )
+    terms_url = models.URLField(
+        blank=True,
+        help_text="URL to terms and conditions"
+    )
+    policies_url = models.URLField(
+        blank=True,
+        help_text="URL to booking policies"
+    )
+
+    class Meta:
+        verbose_name = "Booking Options"
+        verbose_name_plural = "Booking Options"
+
+    def __str__(self):
+        return f"Booking options for {self.hotel.name}"
+
+
+class Offer(models.Model):
+    """
+    Marketing offers, packages, and deals for hotel public pages.
+    """
+    hotel = models.ForeignKey(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name="offers"
+    )
+    title = models.CharField(
+        max_length=200,
+        help_text="e.g., 'Weekend Getaway Package'"
+    )
+    short_description = models.TextField(
+        help_text="Brief description of the offer"
+    )
+    details_text = models.TextField(
+        blank=True,
+        help_text="Plain text details"
+    )
+    details_html = models.TextField(
+        blank=True,
+        help_text="Rich HTML for detailed description"
+    )
+    valid_from = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Offer valid from this date"
+    )
+    valid_to = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Offer valid until this date"
+    )
+    tag = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="e.g., 'Family Deal', 'Weekend Offer'"
+    )
+    book_now_url = models.URLField(
+        blank=True,
+        help_text="Direct link to book this offer"
+    )
+    photo = CloudinaryField(
+        "offer_photo",
+        blank=True,
+        null=True,
+        help_text="Promotional image for the offer"
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order (lower numbers first)"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this offer is currently active"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['sort_order', '-created_at']
+        verbose_name = "Offer"
+        verbose_name_plural = "Offers"
+
+    def __str__(self):
+        return f"{self.hotel.name} - {self.title}"
+
+    def is_valid(self):
+        """Check if offer is currently valid based on dates."""
+        from django.utils import timezone
+        today = timezone.now().date()
+        
+        if self.valid_from and today < self.valid_from:
+            return False
+        if self.valid_to and today > self.valid_to:
+            return False
+        return True
+
+
+class LeisureActivity(models.Model):
+    """
+    Hotel facilities, amenities, and activities for public pages.
+    """
+    CATEGORY_CHOICES = [
+        ('Wellness', 'Wellness'),
+        ('Family', 'Family'),
+        ('Dining', 'Dining'),
+        ('Sports', 'Sports'),
+        ('Entertainment', 'Entertainment'),
+        ('Business', 'Business'),
+        ('Other', 'Other'),
+    ]
+
+    hotel = models.ForeignKey(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name="leisure_activities"
+    )
+    name = models.CharField(
+        max_length=200,
+        help_text="e.g., 'Indoor Pool', 'Spa & Wellness'"
+    )
+    category = models.CharField(
+        max_length=50,
+        choices=CATEGORY_CHOICES,
+        help_text="Activity category"
+    )
+    short_description = models.TextField(
+        help_text="Brief description of the activity/facility"
+    )
+    details_html = models.TextField(
+        blank=True,
+        help_text="Detailed HTML description"
+    )
+    icon = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Icon name or CSS class"
+    )
+    image = CloudinaryField(
+        "activity_image",
+        blank=True,
+        null=True,
+        help_text="Image for the activity/facility"
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order within category"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this activity is currently available"
+    )
+
+    class Meta:
+        ordering = ['category', 'sort_order', 'name']
+        verbose_name = "Leisure Activity"
+        verbose_name_plural = "Leisure Activities"
+
+    def __str__(self):
+        return f"{self.hotel.name} - {self.name}"

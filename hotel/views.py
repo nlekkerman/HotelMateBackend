@@ -3,7 +3,11 @@ from rest_framework.permissions import AllowAny
 from django.shortcuts import get_object_or_404
 
 from .models import Hotel
-from .serializers import HotelSerializer, HotelPublicSerializer
+from .serializers import (
+    HotelSerializer,
+    HotelPublicSerializer,
+    HotelPublicDetailSerializer
+)
 
 
 class HotelViewSet(viewsets.ModelViewSet):
@@ -57,3 +61,27 @@ class HotelPublicDetailView(generics.RetrieveAPIView):
         return Hotel.objects.filter(
             is_active=True
         ).select_related('access_config')
+
+
+class HotelPublicPageView(generics.RetrieveAPIView):
+    """
+    Public API endpoint for complete hotel page content.
+    Returns full hotel details including booking options,
+    room types, offers, and leisure activities.
+    For non-authenticated public users browsing hotels.
+    """
+    serializer_class = HotelPublicDetailSerializer
+    permission_classes = [AllowAny]
+    lookup_field = "slug"
+
+    def get_queryset(self):
+        """Optimized query with all related objects"""
+        return Hotel.objects.filter(
+            is_active=True
+        ).select_related(
+            'booking_options'
+        ).prefetch_related(
+            'room_types',
+            'offers',
+            'leisure_activities'
+        )

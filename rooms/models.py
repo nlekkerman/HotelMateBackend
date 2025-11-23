@@ -1,4 +1,5 @@
 from django.db import models
+from cloudinary.models import CloudinaryField
 import cloudinary.uploader
 import random
 import string
@@ -131,3 +132,83 @@ class Room(models.Model):
         self.save()
 
         return qr_url
+
+
+class RoomType(models.Model):
+    """
+    Marketing information about room categories (not live inventory).
+    Used for public hotel pages to display available room types.
+    """
+    hotel = models.ForeignKey(
+        'hotel.Hotel',
+        on_delete=models.CASCADE,
+        related_name='room_types'
+    )
+    code = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Optional identifier (e.g., 'STD', 'DLX')"
+    )
+    name = models.CharField(
+        max_length=200,
+        help_text="e.g., 'Deluxe Suite', 'Standard Room'"
+    )
+    short_description = models.TextField(
+        blank=True,
+        help_text="Brief marketing description"
+    )
+    max_occupancy = models.PositiveSmallIntegerField(
+        default=2,
+        help_text="Maximum number of guests"
+    )
+    bed_setup = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="e.g., 'King Bed', '2 Queen Beds'"
+    )
+    photo = CloudinaryField(
+        "room_type_photo",
+        blank=True,
+        null=True,
+        help_text="Room type photo"
+    )
+    starting_price_from = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Marketing 'from' price per night"
+    )
+    currency = models.CharField(
+        max_length=3,
+        default="EUR",
+        help_text="Currency code (e.g., EUR, USD, GBP)"
+    )
+    booking_code = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Code for booking system integration"
+    )
+    booking_url = models.URLField(
+        blank=True,
+        help_text="Deep link to book this room type"
+    )
+    availability_message = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="e.g., 'High demand', 'Last rooms available'"
+    )
+    sort_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Display order (lower numbers first)"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this room type is shown publicly"
+    )
+
+    class Meta:
+        ordering = ['sort_order', 'name']
+        verbose_name = "Room Type"
+        verbose_name_plural = "Room Types"
+
+    def __str__(self):
+        return f"{self.hotel.name} - {self.name}"
