@@ -82,7 +82,7 @@ This should be called after availability is checked and before the booking is co
 - [ ] Pricing respects dates / length of stay logic.
 - [ ] API is ready to be consumed by booking confirmation screen.
 """,
-        "labels": ["booking", "backend", "api", "pricing", "enhancement"]
+        "labels": ["backend", "enhancement"]
     },
     {
         "title": "Booking Creation Endpoint (Reservations)",
@@ -129,7 +129,7 @@ This is where the reservation is actually stored in our system.
 - [ ] Invalid payload returns 400 with clear error messages.
 - [ ] Booking is persisted and can be retrieved in later endpoints.
 """,
-        "labels": ["booking", "backend", "api", "database", "enhancement"]
+        "labels": ["backend", "enhancement"]
     },
     {
         "title": "Payment Processing for Booking (Stripe/PayPal Integration)",
@@ -161,7 +161,7 @@ This sits between **booking creation** and **final booking confirmation**.
 - [ ] Webhook or callback correctly updates booking status to CONFIRMED on success.
 - [ ] Failed or cancelled payments do not incorrectly confirm bookings.
 """,
-        "labels": ["booking", "backend", "payment", "integration", "stripe", "enhancement"]
+        "labels": ["backend", "enhancement"]
     },
     {
         "title": "Email Confirmation for Bookings",
@@ -195,7 +195,7 @@ Triggered after payment success OR after booking is set to `CONFIRMED` status in
 - [ ] Hotel/internal mailbox receives a notification if configured.
 - [ ] Email logic is idempotent or guarded so the same confirmation is not spammed multiple times by accident.
 """,
-        "labels": ["booking", "backend", "email", "notifications", "enhancement"]
+        "labels": ["backend", "enhancement"]
     }
 ]
 
