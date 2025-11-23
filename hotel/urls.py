@@ -25,7 +25,7 @@ urlpatterns = [
         name="hotel-public-detail"
     ),
     path(
-        "<slug:slug>/public/",
+        "public/page/<slug:slug>/",
         HotelPublicPageView.as_view(),
         name="hotel-public-page"
     ),

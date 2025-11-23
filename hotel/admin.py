@@ -1,7 +1,13 @@
 # admin.py
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Hotel, HotelAccessConfig
+from .models import (
+    Hotel,
+    HotelAccessConfig,
+    BookingOptions,
+    Offer,
+    LeisureActivity
+)
 
 
 class HotelAccessConfigInline(admin.StackedInline):
@@ -14,6 +20,18 @@ class HotelAccessConfigInline(admin.StackedInline):
         ('requires_room_pin', 'room_pin_length'),
         'rotate_pin_on_checkout',
         ('allow_multiple_guest_sessions', 'max_active_guest_devices_per_room'),
+    )
+
+
+class BookingOptionsInline(admin.StackedInline):
+    """Inline editor for BookingOptions"""
+    model = BookingOptions
+    can_delete = False
+    verbose_name_plural = 'Booking Options'
+    fields = (
+        ('primary_cta_label', 'primary_cta_url'),
+        ('secondary_cta_label', 'secondary_cta_phone'),
+        ('terms_url', 'policies_url'),
     )
 
 
@@ -60,7 +78,7 @@ class HotelAdmin(admin.ModelAdmin):
         }),
     )
     
-    inlines = [HotelAccessConfigInline]
+    inlines = [HotelAccessConfigInline, BookingOptionsInline]
 
     def logo_preview(self, obj):
         if obj.logo:
@@ -105,3 +123,88 @@ class HotelAccessConfigAdmin(admin.ModelAdmin):
             )
         }),
     )
+
+
+@admin.register(Offer)
+class OfferAdmin(admin.ModelAdmin):
+    list_display = (
+        'title',
+        'hotel',
+        'tag',
+        'valid_from',
+        'valid_to',
+        'is_active',
+        'sort_order',
+        'photo_preview'
+    )
+    list_filter = ('hotel', 'is_active', 'tag', 'valid_from')
+    search_fields = ('title', 'short_description', 'hotel__name')
+    list_editable = ('is_active', 'sort_order')
+    ordering = ('sort_order', '-created_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('hotel', 'title', 'tag', 'photo')
+        }),
+        ('Description', {
+            'fields': ('short_description', 'details_text', 'details_html')
+        }),
+        ('Validity Period', {
+            'fields': ('valid_from', 'valid_to')
+        }),
+        ('Booking', {
+            'fields': ('book_now_url',)
+        }),
+        ('Display Settings', {
+            'fields': ('is_active', 'sort_order')
+        }),
+    )
+
+    def photo_preview(self, obj):
+        if obj.photo:
+            return format_html(
+                '<img src="{}" style="max-height: 50px;"/>',
+                obj.photo.url
+            )
+        return "-"
+    photo_preview.short_description = "Photo"
+
+
+@admin.register(LeisureActivity)
+class LeisureActivityAdmin(admin.ModelAdmin):
+    list_display = (
+        'name',
+        'hotel',
+        'category',
+        'is_active',
+        'sort_order',
+        'image_preview'
+    )
+    list_filter = ('hotel', 'category', 'is_active')
+    search_fields = ('name', 'short_description', 'hotel__name')
+    list_editable = ('is_active', 'sort_order')
+    ordering = ('category', 'sort_order', 'name')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('hotel', 'name', 'category', 'icon')
+        }),
+        ('Description', {
+            'fields': ('short_description', 'details_html')
+        }),
+        ('Media', {
+            'fields': ('image',)
+        }),
+        ('Display Settings', {
+            'fields': ('is_active', 'sort_order')
+        }),
+    )
+
+    def image_preview(self, obj):
+        if obj.image:
+            return format_html(
+                '<img src="{}" style="max-height: 50px;"/>',
+                obj.image.url
+            )
+        return "-"
+    image_preview.short_description = "Image"
