@@ -7,7 +7,7 @@ The Hotel Public API provides comprehensive marketing and booking information fo
 **Purpose:** Power public hotel marketing pages  
 **Authentication:** None required (anonymous)  
 **Target Users:** Non-staying guests browsing hotels  
-**Base URL:** `/api/hotels/`
+**Base URL:** `/api/hotel/`
 
 ---
 
@@ -70,7 +70,7 @@ Returns basic hotel information with portal configuration.
 
 ### 3. Get Complete Hotel Public Page 🌟 **NEW**
 
-**GET** `/api/hotels/<slug>/public/`
+**GET** `/api/hotel/public/page/<slug>/`
 
 Returns complete hotel page content including marketing information, location, contact details, booking options, room types, offers, and leisure activities. This is the main endpoint for building hotel public pages.
 
@@ -220,12 +220,12 @@ Returns complete hotel page content including marketing information, location, c
 
 ### Building a Hotel Public Page
 
-Use the complete endpoint `/api/hotels/<slug>/public/` to build the entire hotel public page:
+Use the complete endpoint `/api/hotel/public/page/<slug>/` to build the entire hotel public page:
 
 ```javascript
 // Example: Fetch hotel data
 const hotelSlug = 'grand-hotel-dublin';
-const response = await fetch(`/api/hotels/${hotelSlug}/public/`);
+const response = await fetch(`/api/hotel/public/page/${hotelSlug}`);
 const hotel = await response.json();
 
 // Now you have access to:
@@ -384,7 +384,7 @@ curl -X GET https://api.hotelsmates.com/api/hotel/public/
 curl -X GET https://api.hotelsmates.com/api/hotel/public/grand-hotel-dublin/
 
 # Get complete hotel page (NEW)
-curl -X GET https://api.hotelsmates.com/api/hotels/grand-hotel-dublin/public/
+curl -X GET https://api.hotelsmates.com/api/hotel/public/page/grand-hotel-dublin/
 ```
 
 ### Using JavaScript
@@ -393,7 +393,7 @@ curl -X GET https://api.hotelsmates.com/api/hotels/grand-hotel-dublin/public/
 // Fetch complete hotel data
 const fetchHotelPage = async (slug) => {
   try {
-    const response = await fetch(`/api/hotels/${slug}/public/`);
+    const response = await fetch(`/api/hotel/public/page/${slug}`);
     if (!response.ok) {
       throw new Error('Hotel not found');
     }
@@ -425,7 +425,7 @@ GET /api/hotel/public/grand-hotel-dublin/
 
 ### After (Complete Page)
 ```javascript
-GET /api/hotels/grand-hotel-dublin/public/
+GET /api/hotel/public/page/grand-hotel-dublin/
 // Returns: everything above + room_types + offers + leisure_activities
 ```
 
@@ -444,7 +444,7 @@ For API support or questions:
 ## Changelog
 
 ### v1.1.0 (November 2025)
-- ✨ NEW: Complete hotel public page endpoint `/api/hotels/<slug>/public/`
+- ✨ NEW: Complete hotel public page endpoint `/api/hotel/public/page/<slug>/`
 - ✨ NEW: BookingOptions model for CTA configuration
 - ✨ NEW: RoomType model for room marketing
 - ✨ NEW: Offer model for packages and deals
