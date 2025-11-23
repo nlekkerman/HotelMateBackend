@@ -12,9 +12,10 @@ hotel_theme = ThemePreferenceViewSet.as_view({
 })
 
 urlpatterns = [
-    # Matches: /api/hotels/{hotel_slug}/theme/
+    # Matches: /api/staff/hotels/{hotel_slug}/common/theme/
+    # hotel_slug is already captured by staff_urls.py
     path(
-        "<str:hotel_slug>/theme/",
+        "theme/",
         hotel_theme,
         name="hotel-theme"
     ),
