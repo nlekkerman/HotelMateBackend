@@ -7,10 +7,10 @@ from datetime import date, timedelta
 def populate_public_hotel_data(apps, schema_editor):
     """Populate BookingOptions, RoomTypes, Offers, and LeisureActivities."""
     Hotel = apps.get_model('hotel', 'Hotel')
-    BookingOptions = apps.get_model('hotel_info', 'BookingOptions')
-    RoomType = apps.get_model('hotel_info', 'RoomType')
-    Offer = apps.get_model('hotel_info', 'Offer')
-    LeisureActivity = apps.get_model('hotel_info', 'LeisureActivity')
+    BookingOptions = apps.get_model('hotel', 'BookingOptions')
+    RoomType = apps.get_model('rooms', 'RoomType')
+    Offer = apps.get_model('hotel', 'Offer')
+    LeisureActivity = apps.get_model('hotel', 'LeisureActivity')
     
     # Get all hotels
     hotels = Hotel.objects.all()
@@ -177,10 +177,10 @@ def populate_public_hotel_data(apps, schema_editor):
 
 def reverse_populate(apps, schema_editor):
     """Remove populated data."""
-    BookingOptions = apps.get_model('hotel_info', 'BookingOptions')
-    RoomType = apps.get_model('hotel_info', 'RoomType')
-    Offer = apps.get_model('hotel_info', 'Offer')
-    LeisureActivity = apps.get_model('hotel_info', 'LeisureActivity')
+    BookingOptions = apps.get_model('hotel', 'BookingOptions')
+    RoomType = apps.get_model('rooms', 'RoomType')
+    Offer = apps.get_model('hotel', 'Offer')
+    LeisureActivity = apps.get_model('hotel', 'LeisureActivity')
     
     # Delete all created data
     BookingOptions.objects.all().delete()
@@ -193,7 +193,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('hotel', '0009_pricingquote_roombooking'),
-        ('hotel_info', '0001_initial'),
+        ('rooms', '0009_add_room_type_model'),
     ]
 
     operations = [
