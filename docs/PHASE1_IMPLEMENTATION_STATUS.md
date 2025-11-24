@@ -45,7 +45,7 @@ All 9 backend issues (excluding tests) have been successfully implemented for Ph
 **Status:** COMPLETE
 
 **Requirements:**
-- ✅ Endpoints: `GET`, `PUT` and `PATCH /api/staff/hotels/<hotel_slug>/settings/`
+- ✅ Endpoints: `GET`, `PUT` and `PATCH /api/staff/hotel/<hotel_slug>/settings/`
 - ✅ Uses IsAuthenticated, IsStaffMember, IsSameHotel permissions
 - ✅ GET retrieves current settings for staff's hotel
 - ✅ Validates staff.hotel.slug matches hotel_slug
@@ -95,7 +95,7 @@ All 9 backend issues (excluding tests) have been successfully implemented for Ph
 **Status:** COMPLETE
 
 **Requirements:**
-- ✅ Endpoint: `GET /api/staff/hotels/<hotel_slug>/bookings/`
+- ✅ Endpoint: `GET /api/staff/hotel/<hotel_slug>/bookings/`
 - ✅ Uses IsAuthenticated, IsStaffMember, IsSameHotel permissions
 - ✅ Filters bookings by staff.hotel
 - ✅ Query param filtering by status (PENDING_PAYMENT, CONFIRMED, etc.)
@@ -112,7 +112,7 @@ All 9 backend issues (excluding tests) have been successfully implemented for Ph
 **Status:** COMPLETE
 
 **Requirements:**
-- ✅ Endpoint: `POST /api/staff/hotels/<hotel_slug>/bookings/<booking_id>/confirm/`
+- ✅ Endpoint: `POST /api/staff/hotel/<hotel_slug>/bookings/<booking_id>/confirm/`
 - ✅ Uses IsAuthenticated, IsStaffMember, IsSameHotel permissions
 - ✅ Validates staff belongs to hotel
 - ✅ Optional role-based restrictions ready (commented out)
@@ -208,11 +208,11 @@ All 9 backend issues (excluding tests) have been successfully implemented for Ph
 
 ### Staff Endpoints (Authenticated)
 | Method | Endpoint | Purpose |
-|--------|----------|---------|
-| GET | `/api/staff/hotels/{hotel_slug}/settings/` | Retrieve hotel settings |
-| PUT/PATCH | `/api/staff/hotels/{hotel_slug}/settings/` | Update hotel settings |
-| GET | `/api/staff/hotels/{hotel_slug}/bookings/` | List hotel bookings (with filters) |
-| POST | `/api/staff/hotels/{hotel_slug}/bookings/{booking_id}/confirm/` | Confirm a booking |
+|--------|----------|---------||
+| GET | `/api/staff/hotel/{hotel_slug}/settings/` | Retrieve hotel settings |
+| PUT/PATCH | `/api/staff/hotel/{hotel_slug}/settings/` | Update hotel settings |
+| GET | `/api/staff/hotel/{hotel_slug}/bookings/` | List hotel bookings (with filters) |
+| POST | `/api/staff/hotel/{hotel_slug}/bookings/{booking_id}/confirm/` | Confirm a booking |
 
 ### Updated Endpoints
 | Method | Endpoint | Changes |

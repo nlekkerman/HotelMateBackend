@@ -194,9 +194,9 @@ function applyHotelTheme(settings) {
 Retrieve and update hotel public settings. Only authenticated staff belonging to the hotel can access.
 
 **Endpoints:**
-- `GET /api/staff/hotels/{hotel_slug}/settings/` - Retrieve current settings
-- `PUT /api/staff/hotels/{hotel_slug}/settings/` - Full update
-- `PATCH /api/staff/hotels/{hotel_slug}/settings/` - Partial update
+- `GET /api/staff/hotel/{hotel_slug}/settings/` - Retrieve current settings
+- `PUT /api/staff/hotel/{hotel_slug}/settings/` - Full update
+- `PATCH /api/staff/hotel/{hotel_slug}/settings/` - Partial update
 
 **Authentication:** Required (Token)
 
@@ -277,7 +277,7 @@ Content-Type: application/json  (not needed for GET)
 ```javascript
 // GET - Retrieve current settings
 async function getHotelSettings(hotelSlug, authToken) {
-  const response = await fetch(`/api/staff/hotels/${hotelSlug}/settings/`, {
+  const response = await fetch(`/api/staff/hotel/${hotelSlug}/settings/`, {
     method: 'GET',
     headers: {
       'Authorization': `Token ${authToken}`
@@ -294,7 +294,7 @@ async function getHotelSettings(hotelSlug, authToken) {
 
 // PUT - Full update
 async function updateHotelSettings(hotelSlug, settings, authToken) {
-  const response = await fetch(`/api/staff/hotels/${hotelSlug}/settings/`, {
+  const response = await fetch(`/api/staff/hotel/${hotelSlug}/settings/`, {
     method: 'PUT',
     headers: {
       'Authorization': `Token ${authToken}`,
@@ -313,7 +313,7 @@ async function updateHotelSettings(hotelSlug, settings, authToken) {
 
 // Example: Update only colors
 async function updateColors(hotelSlug, colors, authToken) {
-  const response = await fetch(`/api/staff/hotels/${hotelSlug}/settings/`, {
+  const response = await fetch(`/api/staff/hotel/${hotelSlug}/settings/`, {
     method: 'PATCH',
     headers: {
       'Authorization': `Token ${authToken}`,
@@ -444,7 +444,7 @@ const decemberBookings = await getHotelBookings('grand-hotel', {
 
 Confirm a pending booking and trigger confirmation email to guest.
 
-**Endpoint:** `POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/confirm/`
+**Endpoint:** `POST /api/staff/hotel/{hotel_slug}/bookings/{booking_id}/confirm/`
 
 **Authentication:** Required (Token)
 
@@ -510,7 +510,7 @@ Content-Type: application/json
 ```javascript
 async function confirmBooking(hotelSlug, bookingId, authToken) {
   const response = await fetch(
-    `/api/staff/hotels/${hotelSlug}/bookings/${bookingId}/confirm/`,
+    `/api/staff/hotel/${hotelSlug}/bookings/${bookingId}/confirm/`,
     {
       method: 'POST',
       headers: {
