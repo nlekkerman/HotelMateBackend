@@ -7,6 +7,7 @@ from .views import (
     HotelPublicDetailView,
     HotelPublicPageView,
     HotelAvailabilityView,
+    HotelPricingQuoteView,
 )
 
 # Default router for the main HotelViewSet
@@ -36,6 +37,13 @@ urlpatterns = [
         "<slug:slug>/availability/",
         HotelAvailabilityView.as_view(),
         name="hotel-availability"
+    ),
+    
+    # Pricing quote endpoint
+    path(
+        "<slug:slug>/pricing/quote/",
+        HotelPricingQuoteView.as_view(),
+        name="hotel-pricing-quote"
     ),
     
     # Internal/admin endpoints
