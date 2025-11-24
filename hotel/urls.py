@@ -59,7 +59,14 @@ urlpatterns = [
         name="hotel-booking-create"
     ),
     
-    # Payment endpoints (moved to bookings namespace)
+    # Payment endpoint under hotel slug (for frontend compatibility)
+    path(
+        "<slug:slug>/bookings/<str:booking_id>/payment/session/",
+        CreatePaymentSessionView.as_view(),
+        name="hotel-booking-payment-session"
+    ),
+    
+    # Payment endpoints (generic namespace)
     path(
         "bookings/<str:booking_id>/payment/session/",
         CreatePaymentSessionView.as_view(),
