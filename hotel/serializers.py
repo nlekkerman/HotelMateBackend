@@ -483,6 +483,10 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     Includes validation for colors and data formats (B4).
     Shows current values from Hotel model with override capability.
     """
+    # Explicit URL fields for CloudinaryField objects
+    hero_image = serializers.SerializerMethodField()
+    landing_page_image = serializers.SerializerMethodField()
+    
     # Display fields showing current effective values
     name_display = serializers.SerializerMethodField()
     tagline_display = serializers.SerializerMethodField()
@@ -626,12 +630,24 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             )
         return value
     
+    def get_hero_image(self, obj):
+        """Return hero_image URL from HotelPublicSettings"""
+        if obj.hero_image:
+            return obj.hero_image.url
+        return None
+    
+    def get_landing_page_image(self, obj):
+        """Return landing_page_image URL from HotelPublicSettings"""
+        if obj.landing_page_image:
+            return obj.landing_page_image.url
+        return None
+    
     def get_hero_image_display(self, obj):
         """
         Return current hero_image or Hotel model fallback
         """
         if obj.hero_image:
-            return obj.hero_image
+            return obj.hero_image.url
         # Fallback to Hotel model
         if obj.hotel.hero_image:
             return obj.hotel.hero_image.url
