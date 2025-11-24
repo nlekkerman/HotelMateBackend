@@ -6,6 +6,7 @@ from .views import (
     HotelPublicListView,
     HotelPublicDetailView,
     HotelPublicPageView,
+    HotelAvailabilityView,
 )
 
 # Default router for the main HotelViewSet
@@ -28,6 +29,13 @@ urlpatterns = [
         "public/page/<slug:slug>/",
         HotelPublicPageView.as_view(),
         name="hotel-public-page"
+    ),
+    
+    # Availability check endpoint
+    path(
+        "<slug:slug>/availability/",
+        HotelAvailabilityView.as_view(),
+        name="hotel-availability"
     ),
     
     # Internal/admin endpoints
