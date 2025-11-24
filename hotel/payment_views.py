@@ -38,7 +38,14 @@ class CreatePaymentSessionView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def post(self, request, booking_id):
+    def post(self, request, booking_id, slug):
+        # Validate hotel slug is provided
+        if not slug:
+            return Response(
+                {"detail": "Hotel slug is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         # For Phase 1, we'll accept booking data in the request
         # In Phase 2, this would load from database
         booking_data = request.data.get('booking', {})
@@ -112,6 +119,19 @@ class CreatePaymentSessionView(APIView):
             room = booking_data.get('room', {})
             dates = booking_data.get('dates', {})
             guest = booking_data.get('guest', {})
+            
+            # Verify hotel slug matches booking data
+            hotel_slug = hotel.get('slug')
+            if hotel_slug and hotel_slug != slug:
+                return Response(
+                    {
+                        "detail": (
+                            f"Hotel slug mismatch. URL slug '{slug}' "
+                            f"does not match booking hotel '{hotel_slug}'"
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
             # Create line items for Stripe
             line_items = [{
@@ -305,7 +325,14 @@ class VerifyPaymentView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def get(self, request, booking_id):
+    def get(self, request, booking_id, slug):
+        # Validate hotel slug is provided
+        if not slug:
+            return Response(
+                {"detail": "Hotel slug is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
         session_id = request.query_params.get('session_id')
         
         if not session_id:
