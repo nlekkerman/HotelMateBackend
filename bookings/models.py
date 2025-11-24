@@ -3,6 +3,8 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from cloudinary.models import CloudinaryField
 from django.db.models import Q
+import uuid
+from decimal import Decimal
 class BookingSubcategory(models.Model):
     name = models.CharField(max_length=100)
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='subcategories')

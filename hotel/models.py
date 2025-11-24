@@ -396,3 +396,280 @@ class LeisureActivity(models.Model):
 
     def __str__(self):
         return f"{self.hotel.name} - {self.name}"
+
+
+class RoomBooking(models.Model):
+    """
+    Guest room reservations/bookings for hotels.
+    """
+    STATUS_CHOICES = [
+        ('PENDING_PAYMENT', 'Pending Payment'),
+        ('CONFIRMED', 'Confirmed'),
+        ('CANCELLED', 'Cancelled'),
+        ('COMPLETED', 'Completed'),
+        ('NO_SHOW', 'No Show'),
+    ]
+
+    # Unique identifiers
+    booking_id = models.CharField(
+        max_length=50,
+        unique=True,
+        editable=False,
+        help_text="Auto-generated booking ID (e.g., BK-2025-5678)"
+    )
+    confirmation_number = models.CharField(
+        max_length=50,
+        unique=True,
+        editable=False,
+        help_text="Guest-facing confirmation number"
+    )
+
+    # Hotel and room
+    hotel = models.ForeignKey(
+        Hotel,
+        on_delete=models.PROTECT,
+        related_name='room_bookings'
+    )
+    room_type = models.ForeignKey(
+        'rooms.RoomType',
+        on_delete=models.PROTECT,
+        related_name='bookings'
+    )
+
+    # Dates
+    check_in = models.DateField(
+        help_text="Check-in date"
+    )
+    check_out = models.DateField(
+        help_text="Check-out date"
+    )
+
+    # Guest information
+    guest_first_name = models.CharField(
+        max_length=100,
+        help_text="Guest first name"
+    )
+    guest_last_name = models.CharField(
+        max_length=100,
+        help_text="Guest last name"
+    )
+    guest_email = models.EmailField(
+        help_text="Guest email for confirmation"
+    )
+    guest_phone = models.CharField(
+        max_length=30,
+        blank=True,
+        help_text="Guest contact phone"
+    )
+
+    # Occupancy
+    adults = models.PositiveIntegerField(
+        default=1,
+        help_text="Number of adults"
+    )
+    children = models.PositiveIntegerField(
+        default=0,
+        help_text="Number of children"
+    )
+
+    # Pricing
+    total_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Total amount charged"
+    )
+    currency = models.CharField(
+        max_length=3,
+        default='EUR',
+        help_text="Currency code (ISO 4217)"
+    )
+
+    # Status
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='PENDING_PAYMENT'
+    )
+
+    # Optional fields
+    special_requests = models.TextField(
+        blank=True,
+        help_text="Guest special requests"
+    )
+    promo_code = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Applied promotional code"
+    )
+
+    # Payment information
+    payment_reference = models.CharField(
+        max_length=200,
+        blank=True,
+        help_text="Payment processor reference ID"
+    )
+    payment_provider = models.CharField(
+        max_length=50,
+        blank=True,
+        help_text="Payment provider (stripe, paypal, etc.)"
+    )
+    paid_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp of successful payment"
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Booking creation timestamp"
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        help_text="Last update timestamp"
+    )
+
+    # Admin notes
+    internal_notes = models.TextField(
+        blank=True,
+        help_text="Internal staff notes (not visible to guest)"
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Room Booking"
+        verbose_name_plural = "Room Bookings"
+        indexes = [
+            models.Index(fields=['hotel', 'check_in', 'check_out']),
+            models.Index(fields=['booking_id']),
+            models.Index(fields=['guest_email']),
+            models.Index(fields=['status']),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.booking_id:
+            from datetime import datetime
+            year = datetime.now().year
+            count = RoomBooking.objects.filter(
+                booking_id__startswith=f'BK-{year}-'
+            ).count()
+            self.booking_id = f'BK-{year}-{count + 1:04d}'
+
+        if not self.confirmation_number:
+            hotel_code = self.hotel.slug.upper()[:3]
+            from datetime import datetime
+            year = datetime.now().year
+            count = RoomBooking.objects.filter(
+                hotel=self.hotel,
+                confirmation_number__startswith=f'{hotel_code}-{year}-'
+            ).count()
+            self.confirmation_number = f'{hotel_code}-{year}-{count + 1:04d}'
+
+        super().save(*args, **kwargs)
+
+    @property
+    def nights(self):
+        """Calculate number of nights"""
+        return (self.check_out - self.check_in).days
+
+    @property
+    def guest_name(self):
+        """Full guest name"""
+        return f"{self.guest_first_name} {self.guest_last_name}"
+
+    def __str__(self):
+        return f"{self.booking_id} - {self.guest_name} @ {self.hotel.name}"
+
+
+class PricingQuote(models.Model):
+    """
+    Temporary pricing quotes for booking flow.
+    Expires after a set time to prevent stale pricing.
+    """
+    quote_id = models.CharField(
+        max_length=50,
+        unique=True,
+        editable=False
+    )
+    hotel = models.ForeignKey(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name='pricing_quotes'
+    )
+    room_type = models.ForeignKey(
+        'rooms.RoomType',
+        on_delete=models.CASCADE
+    )
+    check_in = models.DateField()
+    check_out = models.DateField()
+    adults = models.PositiveIntegerField()
+    children = models.PositiveIntegerField(default=0)
+
+    # Pricing breakdown
+    base_price_per_night = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    number_of_nights = models.PositiveIntegerField()
+    subtotal = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    taxes = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+    fees = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+    discount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0
+    )
+    total = models.DecimalField(
+        max_digits=10,
+        decimal_places=2
+    )
+    currency = models.CharField(
+        max_length=3,
+        default='EUR'
+    )
+
+    # Promo/offer info
+    promo_code = models.CharField(
+        max_length=50,
+        blank=True
+    )
+    applied_offer = models.ForeignKey(
+        'hotel.Offer',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    # Validity
+    created_at = models.DateTimeField(auto_now_add=True)
+    valid_until = models.DateTimeField(
+        help_text="Quote expiration timestamp"
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if not self.quote_id:
+            import uuid
+            self.quote_id = f'QT-{uuid.uuid4().hex[:10].upper()}'
+        super().save(*args, **kwargs)
+
+    def is_valid(self):
+        """Check if quote is still valid"""
+        from django.utils import timezone
+        return timezone.now() < self.valid_until
+
+    def __str__(self):
+        return f"{self.quote_id} - €{self.total}"

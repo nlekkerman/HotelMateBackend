@@ -6,7 +6,9 @@ from .models import (
     HotelAccessConfig,
     BookingOptions,
     Offer,
-    LeisureActivity
+    LeisureActivity,
+    RoomBooking,
+    PricingQuote
 )
 
 
@@ -206,5 +208,125 @@ class LeisureActivityAdmin(admin.ModelAdmin):
                 '<img src="{}" style="max-height: 50px;"/>',
                 obj.image.url
             )
-        return "-"
-    image_preview.short_description = "Image"
+        return '-'
+    image_preview.short_description = 'Image'
+
+
+@admin.register(RoomBooking)
+class RoomBookingAdmin(admin.ModelAdmin):
+    list_display = (
+        'booking_id',
+        'confirmation_number',
+        'guest_name',
+        'hotel',
+        'room_type',
+        'check_in',
+        'check_out',
+        'status',
+        'total_amount',
+        'created_at'
+    )
+    list_filter = ('status', 'hotel', 'check_in', 'created_at')
+    search_fields = (
+        'booking_id',
+        'confirmation_number',
+        'guest_email',
+        'guest_first_name',
+        'guest_last_name'
+    )
+    readonly_fields = (
+        'booking_id',
+        'confirmation_number',
+        'created_at',
+        'updated_at',
+        'nights'
+    )
+    
+    fieldsets = (
+        ('Booking Information', {
+            'fields': (
+                'booking_id',
+                'confirmation_number',
+                'status',
+                'created_at',
+                'updated_at'
+            )
+        }),
+        ('Hotel & Room', {
+            'fields': ('hotel', 'room_type', 'check_in', 'check_out')
+        }),
+        ('Guest Information', {
+            'fields': (
+                'guest_first_name',
+                'guest_last_name',
+                'guest_email',
+                'guest_phone'
+            )
+        }),
+        ('Occupancy', {
+            'fields': ('adults', 'children')
+        }),
+        ('Pricing', {
+            'fields': ('total_amount', 'currency', 'promo_code')
+        }),
+        ('Payment', {
+            'fields': (
+                'payment_provider',
+                'payment_reference',
+                'paid_at'
+            )
+        }),
+        ('Additional Information', {
+            'fields': ('special_requests', 'internal_notes')
+        }),
+    )
+
+
+@admin.register(PricingQuote)
+class PricingQuoteAdmin(admin.ModelAdmin):
+    list_display = (
+        'quote_id',
+        'hotel',
+        'room_type',
+        'check_in',
+        'check_out',
+        'total',
+        'created_at',
+        'valid_until',
+        'is_valid'
+    )
+    list_filter = ('hotel', 'created_at')
+    search_fields = ('quote_id',)
+    readonly_fields = ('quote_id', 'created_at', 'is_valid')
+    
+    fieldsets = (
+        ('Quote Information', {
+            'fields': ('quote_id', 'hotel', 'room_type')
+        }),
+        ('Dates & Occupancy', {
+            'fields': (
+                'check_in',
+                'check_out',
+                'adults',
+                'children'
+            )
+        }),
+        ('Pricing Breakdown', {
+            'fields': (
+                'base_price_per_night',
+                'number_of_nights',
+                'subtotal',
+                'taxes',
+                'fees',
+                'discount',
+                'total',
+                'currency'
+            )
+        }),
+        ('Promotions', {
+            'fields': ('promo_code', 'applied_offer')
+        }),
+        ('Validity', {
+            'fields': ('created_at', 'valid_until')
+        }),
+    )
