@@ -323,8 +323,34 @@ class HotelPublicSettings(models.Model):
         default='',
         help_text="Full contact address"
     )
+    website = models.URLField(
+        blank=True,
+        default='',
+        help_text="Hotel website URL"
+    )
+    google_maps_link = models.URLField(
+        blank=True,
+        default='',
+        help_text="Google Maps embed/link URL"
+    )
 
     # Branding fields
+    logo = models.URLField(
+        blank=True,
+        default='',
+        help_text="Hotel logo URL"
+    )
+    favicon = models.URLField(
+        blank=True,
+        default='',
+        help_text="Favicon URL (16x16 or 32x32px)"
+    )
+    slogan = models.CharField(
+        max_length=200,
+        blank=True,
+        default='',
+        help_text="Hotel slogan/tagline"
+    )
     primary_color = models.CharField(
         max_length=7,
         blank=True,
@@ -354,6 +380,42 @@ class HotelPublicSettings(models.Model):
         blank=True,
         default='#3B82F6',
         help_text="Button color (HEX format)"
+    )
+    button_text_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#FFFFFF',
+        help_text="Button text color (HEX format)"
+    )
+    button_hover_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#0066CC',
+        help_text="Button hover state color (HEX format)"
+    )
+    text_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#333333',
+        help_text="Main text color (HEX format)"
+    )
+    border_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#E5E7EB',
+        help_text="Border color (HEX format)"
+    )
+    link_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#007BFF',
+        help_text="Link color (HEX format)"
+    )
+    link_hover_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#0056B3',
+        help_text="Link hover color (HEX format)"
     )
     theme_mode = models.CharField(
         max_length=10,

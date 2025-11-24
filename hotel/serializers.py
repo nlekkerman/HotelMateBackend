@@ -260,11 +260,22 @@ class HotelPublicSettingsPublicSerializer(serializers.ModelSerializer):
             'contact_email',
             'contact_phone',
             'contact_address',
+            'website',
+            'google_maps_link',
+            'logo',
+            'favicon',
+            'slogan',
             'primary_color',
             'secondary_color',
             'accent_color',
             'background_color',
             'button_color',
+            'button_text_color',
+            'button_hover_color',
+            'text_color',
+            'border_color',
+            'link_color',
+            'link_hover_color',
             'theme_mode',
         ]
         read_only_fields = fields
@@ -287,11 +298,22 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'contact_email',
             'contact_phone',
             'contact_address',
+            'website',
+            'google_maps_link',
+            'logo',
+            'favicon',
+            'slogan',
             'primary_color',
             'secondary_color',
             'accent_color',
             'background_color',
             'button_color',
+            'button_text_color',
+            'button_hover_color',
+            'text_color',
+            'border_color',
+            'link_color',
+            'link_hover_color',
             'theme_mode',
             'updated_at',
         ]
@@ -311,6 +333,24 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     
     def validate_button_color(self, value):
         return self._validate_hex_color(value, 'button_color')
+    
+    def validate_button_text_color(self, value):
+        return self._validate_hex_color(value, 'button_text_color')
+    
+    def validate_button_hover_color(self, value):
+        return self._validate_hex_color(value, 'button_hover_color')
+    
+    def validate_text_color(self, value):
+        return self._validate_hex_color(value, 'text_color')
+    
+    def validate_border_color(self, value):
+        return self._validate_hex_color(value, 'border_color')
+    
+    def validate_link_color(self, value):
+        return self._validate_hex_color(value, 'link_color')
+    
+    def validate_link_hover_color(self, value):
+        return self._validate_hex_color(value, 'link_hover_color')
     
     def _validate_hex_color(self, value, field_name):
         """Validate HEX color format"""
