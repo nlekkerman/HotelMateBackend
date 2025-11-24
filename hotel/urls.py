@@ -43,6 +43,7 @@ urlpatterns = [
     ),
     
     # Public hotel settings endpoint
+    # Accessed via: /api/public/hotels/<slug>/settings/
     path(
         "public/<slug:hotel_slug>/settings/",
         HotelPublicSettingsView.as_view(),
@@ -50,20 +51,22 @@ urlpatterns = [
     ),
     
     # Staff hotel settings endpoint
+    # Accessed via: /api/staff/hotels/<slug>/hotel/settings/
     path(
-        "staff/<slug:hotel_slug>/settings/",
+        "settings/",
         HotelPublicSettingsStaffView.as_view(),
         name="hotel-staff-settings"
     ),
     
     # Staff bookings endpoints
+    # Accessed via: /api/staff/hotels/<slug>/hotel/bookings/
     path(
-        "staff/<slug:hotel_slug>/bookings/",
+        "bookings/",
         StaffBookingsListView.as_view(),
         name="hotel-staff-bookings-list"
     ),
     path(
-        "staff/<slug:hotel_slug>/bookings/<str:booking_id>/confirm/",
+        "bookings/<str:booking_id>/confirm/",
         StaffBookingConfirmView.as_view(),
         name="hotel-staff-booking-confirm"
     ),
