@@ -149,6 +149,11 @@ PUSHER_KEY = env('PUSHER_KEY')
 PUSHER_SECRET = env('PUSHER_SECRET')
 PUSHER_CLUSTER = env('PUSHER_CLUSTER')
 
+# Stripe configuration
+STRIPE_SECRET_KEY = env('STRIPE_SECRET_KEY', default='')
+STRIPE_PUBLISHABLE_KEY = env('STRIPE_PUBLISHABLE_KEY', default='')
+STRIPE_WEBHOOK_SECRET = env('STRIPE_WEBHOOK_SECRET', default='')
+
 # OpenAI configuration for Voice Recognition (Whisper)
 OPENAI_API_KEY = env('OPENAI_API_KEY')
 

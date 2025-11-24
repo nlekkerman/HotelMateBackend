@@ -10,6 +10,11 @@ from .views import (
     HotelPricingQuoteView,
     HotelBookingCreateView,
 )
+from .payment_views import (
+    CreatePaymentSessionView,
+    StripeWebhookView,
+    VerifyPaymentView,
+)
 
 # Default router for the main HotelViewSet
 router = DefaultRouter()
@@ -52,6 +57,23 @@ urlpatterns = [
         "<slug:slug>/bookings/",
         HotelBookingCreateView.as_view(),
         name="hotel-booking-create"
+    ),
+    
+    # Payment endpoints (moved to bookings namespace)
+    path(
+        "bookings/<str:booking_id>/payment/session/",
+        CreatePaymentSessionView.as_view(),
+        name="booking-payment-session"
+    ),
+    path(
+        "bookings/<str:booking_id>/payment/verify/",
+        VerifyPaymentView.as_view(),
+        name="booking-payment-verify"
+    ),
+    path(
+        "bookings/stripe-webhook/",
+        StripeWebhookView.as_view(),
+        name="stripe-webhook"
     ),
     
     # Internal/admin endpoints

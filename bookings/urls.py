@@ -15,6 +15,7 @@ from .views import (
     UnseatBookingAPIView,
     mark_bookings_seen
 )
+from .booking_views import BookingDetailView
 
 # Register viewsets to the router
 router = DefaultRouter()
@@ -133,6 +134,13 @@ urlpatterns = [
         'delete/<str:hotel_slug>/<str:restaurant_slug>/<int:booking_id>/',
         DeleteBookingAPIView.as_view(),
         name='delete-booking'
+    ),
+    
+    # Room booking endpoints (external booking system)
+    path(
+        '<str:booking_id>/',
+        BookingDetailView.as_view(),
+        name='room-booking-detail'
     ),
 
 ]
