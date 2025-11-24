@@ -534,8 +534,9 @@ class HotelPublicSettingsView(APIView):
 
 class HotelPublicSettingsStaffView(APIView):
     """
-    Staff-only endpoint to update hotel public settings.
-    PUT/PATCH /api/staff/hotels/<hotel_slug>/settings/
+    Staff-only endpoint to retrieve and update hotel public settings.
+    GET /api/staff/hotels/<hotel_slug>/settings/ - Retrieve settings
+    PUT/PATCH /api/staff/hotels/<hotel_slug>/settings/ - Update settings
     
     Requires:
     - User is authenticated
@@ -549,6 +550,34 @@ class HotelPublicSettingsStaffView(APIView):
         from rest_framework.permissions import IsAuthenticated
         from staff_chat.permissions import IsStaffMember, IsSameHotel
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def get(self, request, hotel_slug):
+        """Retrieve hotel public settings"""
+        # Get staff profile
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Verify hotel access
+        if staff.hotel.slug != hotel_slug:
+            return Response(
+                {'error': 'You can only view settings for your hotel'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get or create settings
+        settings, created = HotelPublicSettings.objects.get_or_create(
+            hotel=staff.hotel
+        )
+
+        # Return settings
+        from .serializers import HotelPublicSettingsStaffSerializer
+        serializer = HotelPublicSettingsStaffSerializer(settings)
+        return Response(serializer.data)
 
     def put(self, request, hotel_slug):
         return self._update_settings(request, hotel_slug, partial=False)
