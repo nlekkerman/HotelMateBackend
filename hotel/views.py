@@ -340,3 +340,167 @@ class HotelPricingQuoteView(APIView):
         }
         
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class HotelBookingCreateView(APIView):
+    """
+    Create a new room booking.
+    Phase 1 implementation: Creates booking record in pending state.
+    
+    POST body:
+    - quote_id: optional quote reference
+    - room_type_code: code or name of room type
+    - check_in: YYYY-MM-DD
+    - check_out: YYYY-MM-DD
+    - adults: number of adults
+    - children: number of children
+    - guest: {first_name, last_name, email, phone}
+    - special_requests: optional text
+    - promo_code: optional promo code
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request, slug):
+        from decimal import Decimal
+        import uuid
+        from django.utils import timezone
+        
+        # Get hotel
+        hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
+        
+        # Parse request data
+        quote_id = request.data.get('quote_id', '')
+        room_type_code = request.data.get('room_type_code')
+        check_in_str = request.data.get('check_in')
+        check_out_str = request.data.get('check_out')
+        adults = int(request.data.get('adults', 2))
+        children = int(request.data.get('children', 0))
+        guest_data = request.data.get('guest', {})
+        special_requests = request.data.get('special_requests', '')
+        promo_code = request.data.get('promo_code', '')
+        
+        # Validate required fields
+        required_fields = [room_type_code, check_in_str, check_out_str]
+        if not all(required_fields):
+            return Response(
+                {
+                    "detail": "room_type_code, check_in, and check_out "
+                    "are required"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate guest data
+        required_guest = ['first_name', 'last_name', 'email', 'phone']
+        if not all(guest_data.get(field) for field in required_guest):
+            return Response(
+                {
+                    "detail": "Guest first_name, last_name, email, and "
+                    "phone are required"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse dates
+        try:
+            check_in = datetime.strptime(check_in_str, '%Y-%m-%d').date()
+            check_out = datetime.strptime(check_out_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {"detail": "Invalid date format. Use YYYY-MM-DD"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate dates
+        if check_out <= check_in:
+            return Response(
+                {"detail": "check_out must be after check_in"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Find room type
+        room_type = hotel.room_types.filter(
+            is_active=True
+        ).filter(
+            models.Q(code=room_type_code) | models.Q(name=room_type_code)
+        ).first()
+        
+        if not room_type:
+            return Response(
+                {"detail": f"Room type '{room_type_code}' not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Calculate pricing (reuse pricing logic)
+        nights = (check_out - check_in).days
+        base_price = Decimal(str(room_type.starting_price_from))
+        subtotal = base_price * nights
+        tax_rate = Decimal('0.09')
+        taxes = subtotal * tax_rate
+        
+        discount = Decimal('0')
+        if promo_code:
+            promo_code_upper = promo_code.upper()
+            if promo_code_upper == 'WINTER20':
+                discount = subtotal * Decimal('0.20')
+            elif promo_code_upper == 'SAVE10':
+                discount = subtotal * Decimal('0.10')
+        
+        total = subtotal + taxes - discount
+        
+        # Generate booking ID and confirmation number
+        year = timezone.now().year
+        booking_id = f"BK-{year}-{uuid.uuid4().hex[:6].upper()}"
+        hotel_code = hotel.slug.upper()[:3]
+        confirmation = f"{hotel_code}-{year}-{uuid.uuid4().hex[:4].upper()}"
+        
+        # Create booking data structure (no DB model yet in Phase 1)
+        booking_data = {
+            "booking_id": booking_id,
+            "confirmation_number": confirmation,
+            "status": "PENDING_PAYMENT",
+            "created_at": timezone.now().isoformat(),
+            "hotel": {
+                "name": hotel.name,
+                "slug": hotel.slug,
+                "phone": hotel.phone if hasattr(hotel, 'phone') else None,
+                "email": hotel.email if hasattr(hotel, 'email') else None
+            },
+            "room": {
+                "type": room_type.name,
+                "code": room_type.code or room_type.name,
+                "photo": room_type.photo.url if room_type.photo else None
+            },
+            "dates": {
+                "check_in": check_in_str,
+                "check_out": check_out_str,
+                "nights": nights
+            },
+            "guests": {
+                "adults": adults,
+                "children": children,
+                "total": adults + children
+            },
+            "guest": {
+                "name": (
+                    f"{guest_data['first_name']} "
+                    f"{guest_data['last_name']}"
+                ),
+                "email": guest_data['email'],
+                "phone": guest_data['phone']
+            },
+            "special_requests": special_requests,
+            "pricing": {
+                "subtotal": f"{subtotal:.2f}",
+                "taxes": f"{taxes:.2f}",
+                "discount": f"{discount:.2f}",
+                "total": f"{total:.2f}",
+                "currency": room_type.currency
+            },
+            "promo_code": promo_code if promo_code else None,
+            "quote_id": quote_id if quote_id else None,
+            "payment_required": True,
+            "payment_url": f"/api/bookings/{booking_id}/payment/session/"
+        }
+        
+        return Response(booking_data, status=status.HTTP_201_CREATED)
