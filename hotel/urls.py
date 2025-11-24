@@ -14,6 +14,13 @@ from .views import (
     StaffBookingsListView,
     StaffBookingConfirmView,
 )
+from .staff_views import (
+    StaffOfferViewSet,
+    StaffLeisureActivityViewSet,
+    StaffRoomTypeViewSet,
+    StaffRoomViewSet,
+    StaffAccessConfigViewSet,
+)
 from .payment_views import (
     CreatePaymentSessionView,
     StripeWebhookView,
@@ -23,6 +30,34 @@ from .payment_views import (
 # Default router for the main HotelViewSet
 router = DefaultRouter()
 router.register(r'hotels', HotelViewSet)
+
+# Staff router for CRUD views (B5)
+staff_router = DefaultRouter()
+staff_router.register(
+    r'offers',
+    StaffOfferViewSet,
+    basename='staff-offers'
+)
+staff_router.register(
+    r'leisure-activities',
+    StaffLeisureActivityViewSet,
+    basename='staff-leisure'
+)
+staff_router.register(
+    r'room-types',
+    StaffRoomTypeViewSet,
+    basename='staff-room-types'
+)
+staff_router.register(
+    r'rooms',
+    StaffRoomViewSet,
+    basename='staff-rooms'
+)
+staff_router.register(
+    r'access-config',
+    StaffAccessConfigViewSet,
+    basename='staff-access-config'
+)
 
 urlpatterns = [
     # Public API endpoints for hotel discovery
@@ -69,6 +104,13 @@ urlpatterns = [
         "bookings/<str:booking_id>/confirm/",
         StaffBookingConfirmView.as_view(),
         name="hotel-staff-booking-confirm"
+    ),
+    
+    # Staff CRUD endpoints (B5)
+    # Accessed via: /api/staff/hotels/<slug>/hotel/offers/, etc.
+    path(
+        "staff/",
+        include(staff_router.urls),
     ),
     
     # Availability check endpoint

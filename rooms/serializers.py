@@ -3,9 +3,13 @@ from .models import Room
 from hotel.models import Hotel
 from guests.serializers import GuestSerializer
 
+
 class RoomSerializer(serializers.ModelSerializer):
     guests_in_room = GuestSerializer(many=True, read_only=True)
-    hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())  # or use a nested serializer if you want details
+    # or use a nested serializer if you want details
+    hotel = serializers.PrimaryKeyRelatedField(
+        queryset=Hotel.objects.all()
+    )
     hotel_slug = serializers.SlugRelatedField(
         source='hotel',
         read_only=True,
@@ -25,6 +29,30 @@ class RoomSerializer(serializers.ModelSerializer):
             'guest_id_pin',
             'guests',
             'is_occupied',
+            'room_service_qr_code',
+            'in_room_breakfast_qr_code',
+            'dinner_booking_qr_code',
+            'chat_pin_qr_code',
+        ]
+
+
+class RoomStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD for rooms (inventory management) - B1"""
+    class Meta:
+        model = Room
+        fields = [
+            'id',
+            'room_number',
+            'is_occupied',
+            'guest_id_pin',
+            'room_service_qr_code',
+            'in_room_breakfast_qr_code',
+            'dinner_booking_qr_code',
+            'chat_pin_qr_code',
+        ]
+        read_only_fields = [
+            'id',
+            'guest_id_pin',
             'room_service_qr_code',
             'in_room_breakfast_qr_code',
             'dinner_booking_qr_code',

@@ -6,9 +6,11 @@ from .models import (
     HotelPublicSettings,
     Offer,
     LeisureActivity,
-    RoomBooking
+    RoomBooking,
+    PricingQuote
 )
 from rooms.models import RoomType
+import re
 
 
 class HotelAccessConfigSerializer(serializers.ModelSerializer):
@@ -163,10 +165,12 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
     Comprehensive serializer for public hotel page.
     Includes all marketing content, location, contact info,
     and nested booking options, room types, offers, activities.
+    Now includes public_settings for branding (B2).
     """
     logo_url = serializers.SerializerMethodField()
     hero_image_url = serializers.SerializerMethodField()
     booking_options = BookingOptionsSerializer(read_only=True)
+    public_settings = serializers.SerializerMethodField()
     room_types = serializers.SerializerMethodField()
     offers = serializers.SerializerMethodField()
     leisure_activities = serializers.SerializerMethodField()
@@ -197,6 +201,7 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
             'booking_url',
             # Nested objects
             'booking_options',
+            'public_settings',
             'room_types',
             'offers',
             'leisure_activities',
@@ -213,6 +218,14 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
         if obj.hero_image:
             return obj.hero_image.url
         return None
+    
+    def get_public_settings(self, obj):
+        """Return public settings if they exist (B2)"""
+        try:
+            settings = obj.public_settings
+            return HotelPublicSettingsPublicSerializer(settings).data
+        except HotelPublicSettings.DoesNotExist:
+            return None
 
     def get_room_types(self, obj):
         """Return only active room types"""
@@ -260,7 +273,7 @@ class HotelPublicSettingsPublicSerializer(serializers.ModelSerializer):
 class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     """
     Write-enabled serializer for staff to update hotel settings.
-    Used by the staff-only endpoint.
+    Includes validation for colors and data formats (B4).
     """
     class Meta:
         model = HotelPublicSettings
@@ -283,6 +296,45 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['updated_at']
+    
+    def validate_primary_color(self, value):
+        return self._validate_hex_color(value, 'primary_color')
+    
+    def validate_secondary_color(self, value):
+        return self._validate_hex_color(value, 'secondary_color')
+    
+    def validate_accent_color(self, value):
+        return self._validate_hex_color(value, 'accent_color')
+    
+    def validate_background_color(self, value):
+        return self._validate_hex_color(value, 'background_color')
+    
+    def validate_button_color(self, value):
+        return self._validate_hex_color(value, 'button_color')
+    
+    def _validate_hex_color(self, value, field_name):
+        """Validate HEX color format"""
+        if value and not re.match(r'^#[0-9A-Fa-f]{6}$', value):
+            raise serializers.ValidationError(
+                f'{field_name} must be a valid HEX color (e.g., #3B82F6)'
+            )
+        return value
+    
+    def validate_gallery(self, value):
+        """Ensure gallery is a list"""
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                'gallery must be a list of URLs'
+            )
+        return value
+    
+    def validate_amenities(self, value):
+        """Ensure amenities is a list"""
+        if not isinstance(value, list):
+            raise serializers.ValidationError(
+                'amenities must be a list of strings'
+            )
+        return value
 
 
 class RoomBookingListSerializer(serializers.ModelSerializer):
@@ -384,3 +436,137 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
 
     def get_nights(self, obj):
         return obj.nights
+
+
+# ============================================================================
+# STAFF CRUD SERIALIZERS (B1)
+# ============================================================================
+
+class HotelAccessConfigStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD for access configuration"""
+    class Meta:
+        model = HotelAccessConfig
+        fields = [
+            'guest_portal_enabled',
+            'staff_portal_enabled',
+            'requires_room_pin',
+            'room_pin_length',
+            'rotate_pin_on_checkout',
+            'allow_multiple_guest_sessions',
+            'max_active_guest_devices_per_room',
+        ]
+
+
+class OfferStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD for offers - includes all fields"""
+    photo_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Offer
+        fields = [
+            'id',
+            'title',
+            'short_description',
+            'details_text',
+            'details_html',
+            'valid_from',
+            'valid_to',
+            'tag',
+            'book_now_url',
+            'photo',
+            'photo_url',
+            'sort_order',
+            'is_active',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+    
+    def get_photo_url(self, obj):
+        return obj.photo.url if obj.photo else None
+
+
+class LeisureActivityStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD for leisure activities"""
+    image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = LeisureActivity
+        fields = [
+            'id',
+            'name',
+            'category',
+            'short_description',
+            'details_html',
+            'icon',
+            'image',
+            'image_url',
+            'sort_order',
+            'is_active',
+        ]
+        read_only_fields = ['id']
+    
+    def get_image_url(self, obj):
+        return obj.image.url if obj.image else None
+
+
+class RoomTypeStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD for room types"""
+    photo_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = RoomType
+        fields = [
+            'id',
+            'code',
+            'name',
+            'short_description',
+            'max_occupancy',
+            'bed_setup',
+            'photo',
+            'photo_url',
+            'starting_price_from',
+            'currency',
+            'booking_code',
+            'booking_url',
+            'availability_message',
+            'sort_order',
+            'is_active',
+        ]
+        read_only_fields = ['id']
+    
+    def get_photo_url(self, obj):
+        return obj.photo.url if obj.photo else None
+
+
+class PricingQuoteSerializer(serializers.ModelSerializer):
+    """Serializer for PricingQuote model"""
+    room_type_name = serializers.CharField(
+        source='room_type.name',
+        read_only=True
+    )
+    
+    class Meta:
+        model = PricingQuote
+        fields = [
+            'quote_id',
+            'hotel',
+            'room_type',
+            'room_type_name',
+            'check_in',
+            'check_out',
+            'adults',
+            'children',
+            'base_price_per_night',
+            'number_of_nights',
+            'subtotal',
+            'taxes',
+            'fees',
+            'discount',
+            'total',
+            'currency',
+            'promo_code',
+            'applied_offer',
+            'created_at',
+            'valid_until',
+        ]
+        read_only_fields = ['quote_id', 'created_at']
