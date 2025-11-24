@@ -43,7 +43,7 @@ class HotelPublicListView(generics.ListAPIView):
     Returns active hotels with branding and portal configuration.
     
     Query params:
-    - q: text search in name, city, country
+    - q: text search in name, city, country, descriptions, tagline
     - city: filter by city (exact match)
     - country: filter by country (exact match)
     - tags: comma-separated list of tags
@@ -65,7 +65,10 @@ class HotelPublicListView(generics.ListAPIView):
             queryset = queryset.filter(
                 models.Q(name__icontains=q) |
                 models.Q(city__icontains=q) |
-                models.Q(country__icontains=q)
+                models.Q(country__icontains=q) |
+                models.Q(short_description__icontains=q) |
+                models.Q(long_description__icontains=q) |
+                models.Q(tagline__icontains=q)
             )
         
         # City filter

@@ -19,10 +19,11 @@ Context:
 **Endpoint:** `GET /api/hotel/public/`
 
 **Supported query params:**
-- `q` (optional): search in name, city, country (case-insensitive)
+- `q` (optional): search in name, city, country, descriptions, tagline (case-insensitive)
 - `city` (optional): exact city match (case-insensitive)
 - `country` (optional): exact country match (case-insensitive)
 - `tags` (optional): comma-separated list (e.g., "Family,Spa")
+- `hotel_type` (optional): filter by hotel type (e.g., "FamilyHotel", "Resort")
 - `sort` (optional): `name_asc` or `featured` (default)
 
 **Example requests:**
