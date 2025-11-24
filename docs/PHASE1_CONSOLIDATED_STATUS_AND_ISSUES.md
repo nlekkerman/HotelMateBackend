@@ -38,7 +38,7 @@
 
 ## Backend Issues Status
 
-### ✅ COMPLETED - Backend Issues B1-B8
+### ✅ COMPLETED - Backend Issues B1-B8 + Issue #46
 
 All backend issues from `issues_for_pase_on_pt_3.MD` are **COMPLETE** and production-ready.
 
@@ -52,10 +52,18 @@ All backend issues from `issues_for_pase_on_pt_3.MD` are **COMPLETE** and produc
 | **B6** | Wire HotelPricingQuoteView to Model | ✅ Complete | Persists to `PricingQuote` model |
 | **B7** | Refactor HotelBookingCreateView | ✅ Complete | Persists to `RoomBooking` model |
 | **B8** | Improve Staff Booking Views | ✅ Complete | Enhanced filters and validation |
+| **#46** | Hotel Customization System with Override Fields | ✅ Complete | Override pattern + landing_page_image + auto-slug |
 
 **Documentation:** 
 - Full details in `docs/PHASE1_IMPLEMENTATION_COMPLETE.md`
 - API examples in `docs/PHASE1_IMPLEMENTATION_PLAN.md`
+
+**Latest Enhancement (Issue #46):**
+- Added `landing_page_image` CloudinaryField to Hotel and HotelPublicSettings
+- Implemented complete override system for all Hotel fields (name, tagline, location, contact, etc.)
+- Updated serializers with display fields showing effective values (override → fallback)
+- Auto-slug generation from hotel name
+- Settings now control public page display with Hotel as fallback
 
 ---
 

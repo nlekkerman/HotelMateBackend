@@ -58,6 +58,12 @@ class Hotel(models.Model):
         null=True,
         help_text="Hero/banner image for public hotel page"
     )
+    landing_page_image = CloudinaryField(
+        "landing_page_image",
+        blank=True,
+        null=True,
+        help_text="Image displayed on landing page hotel card"
+    )
     long_description = models.TextField(
         blank=True,
         help_text="Detailed description for the hotel public page"
@@ -112,9 +118,23 @@ class Hotel(models.Model):
         blank=True,
         help_text="Primary booking URL (external or internal)"
     )
+    
+    # Tags for filtering (Issue #46 enhancement)
+    tags = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of tags for filtering (e.g., ['Family', 'Spa', 'Business'])"
+    )
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        """Auto-generate slug from name if not provided"""
+        if not self.slug:
+            from django.utils.text import slugify
+            self.slug = slugify(self.name)
+        super().save(*args, **kwargs)
 
     # ----- Helper paths / URLs -----
 
@@ -274,6 +294,89 @@ class HotelPublicSettings(models.Model):
         help_text="Hotel this settings configuration belongs to"
     )
 
+    # Hotel model override fields - customize what appears on public page
+    name_override = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Custom hotel name for public display"
+    )
+    tagline_override = models.CharField(
+        max_length=200,
+        blank=True,
+        null=True,
+        help_text="Custom tagline for public display"
+    )
+    city_override = models.CharField(
+        max_length=120,
+        blank=True,
+        null=True,
+        help_text="Custom city for public display"
+    )
+    country_override = models.CharField(
+        max_length=120,
+        blank=True,
+        null=True,
+        help_text="Custom country for public display"
+    )
+    
+    # Location overrides
+    address_line_1_override = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Custom address line 1"
+    )
+    address_line_2_override = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        help_text="Custom address line 2"
+    )
+    postal_code_override = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Custom postal code"
+    )
+    latitude_override = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Custom latitude"
+    )
+    longitude_override = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Custom longitude"
+    )
+    
+    # Contact overrides
+    phone_override = models.CharField(
+        max_length=30,
+        blank=True,
+        null=True,
+        help_text="Custom phone number"
+    )
+    email_override = models.EmailField(
+        blank=True,
+        null=True,
+        help_text="Custom email address"
+    )
+    website_url_override = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Custom website URL"
+    )
+    booking_url_override = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Custom booking URL"
+    )
+
     # Content fields
     short_description = models.TextField(
         blank=True,
@@ -290,10 +393,17 @@ class HotelPublicSettings(models.Model):
         default='',
         help_text="Welcome message for guests (optional)"
     )
-    hero_image = models.URLField(
+    hero_image = CloudinaryField(
+        "settings_hero_image",
         blank=True,
-        default='',
-        help_text="URL for hero/banner image"
+        null=True,
+        help_text="Hero/banner image for public page (customizable)"
+    )
+    landing_page_image = CloudinaryField(
+        "settings_landing_page_image",
+        blank=True,
+        null=True,
+        help_text="Image for hotel card on landing page (customizable)"
     )
     gallery = models.JSONField(
         default=list,

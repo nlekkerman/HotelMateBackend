@@ -1,5 +1,7 @@
 # HotelMate – CRUD & Public Page Phase 1 (Using Existing Models & Views)
 
+**Last Updated:** November 24, 2025
+
 ## Context
 
 We already have:
@@ -30,7 +32,7 @@ Use these models + views to provide **clean CRUD for staff** and **structured da
 
 # BACKEND ISSUES
 
-## B1 – Make sure serializers exist for all public content models
+## ✅ B1 – Make sure serializers exist for all public content models (COMPLETED)
 
 **Goal**  
 We need DRF serializers for all content that will be shown/edited via settings and public page.
@@ -73,7 +75,7 @@ We need DRF serializers for all content that will be shown/edited via settings a
 
 ---
 
-## B2 – Extend `HotelPublicDetailSerializer` for full public page content
+## ✅ B2 – Extend `HotelPublicDetailSerializer` for full public page content (COMPLETED)
 
 **Goal**  
 `HotelPublicPageView` already prefetches `room_types`, `offers`, `leisure_activities`, and selects `booking_options`. We now need `HotelPublicDetailSerializer` to serialize a **full hotel public page payload**.
@@ -125,7 +127,7 @@ We need DRF serializers for all content that will be shown/edited via settings a
 
 ---
 
-## B3 – Ensure `HotelPublicSettingsView` (public) returns correct subset
+## ✅ B3 – Ensure `HotelPublicSettingsView` (public) returns correct subset (COMPLETED)
 
 **Goal**  
 For public consumers that only need public settings (without full page), `HotelPublicSettingsView` must return the **public-safe subset** of `HotelPublicSettings`.
@@ -147,7 +149,7 @@ For public consumers that only need public settings (without full page), `HotelP
 
 ---
 
-## B4 – Extend `HotelPublicSettingsStaffView` for full settings CRUD
+## ✅ B4 – Extend `HotelPublicSettingsStaffView` for full settings CRUD (COMPLETED)
 
 **Goal**  
 Staff should be able to fully manage `HotelPublicSettings` via this view.
@@ -172,7 +174,7 @@ Staff should be able to fully manage `HotelPublicSettings` via this view.
 
 ---
 
-## B5 – Add staff CRUD API logic for `Offer`, `LeisureActivity`, `RoomType`, `Room`
+## ✅ B5 – Add staff CRUD API logic for `Offer`, `LeisureActivity`, `RoomType`, `Room` (COMPLETED)
 
 **Goal**  
 Expose staff-only CRUD operations for the main public content entities (offers, leisure activities, marketing room types, and rooms), reusing **existing staff permission patterns**.
@@ -217,7 +219,7 @@ No URL design in this issue. Just the views & logic; routing will use the existi
 
 ---
 
-## B6 – Wire `HotelPricingQuoteView` to `PricingQuote` model (optional Phase)
+## ✅ B6 – Wire `HotelPricingQuoteView` to `PricingQuote` model (COMPLETED)
 
 **Goal**  
 Currently `HotelPricingQuoteView` calculates a quote in-memory only. We have a `PricingQuote` model; we should optionally persist quotes.
@@ -241,7 +243,7 @@ Currently `HotelPricingQuoteView` calculates a quote in-memory only. We have a `
 
 ---
 
-## B7 – Refactor `HotelBookingCreateView` to use `RoomBooking` model
+## ✅ B7 – Refactor `HotelBookingCreateView` to use `RoomBooking` model (COMPLETED)
 
 **Goal**  
 `HotelBookingCreateView` currently returns booking data without saving to DB. We already have `RoomBooking` model; we should persist the booking.
@@ -273,7 +275,7 @@ Currently `HotelPricingQuoteView` calculates a quote in-memory only. We have a `
 
 ---
 
-## B8 – Improve `StaffBookingsListView` & `StaffBookingConfirmView` robustness
+## ✅ B8 – Improve `StaffBookingsListView` & `StaffBookingConfirmView` robustness (COMPLETED)
 
 **Goal**  
 Tighten staff booking management using existing views.

@@ -41,17 +41,102 @@ class HotelPublicListView(generics.ListAPIView):
     """
     Public API endpoint for hotel discovery.
     Returns active hotels with branding and portal configuration.
+    
+    Query params:
+    - q: text search in name, city, country
+    - city: filter by city (exact match)
+    - country: filter by country (exact match)
+    - tags: comma-separated list of tags
+    - sort: 'name_asc' or default 'featured'
     """
     serializer_class = HotelPublicSerializer
     permission_classes = [AllowAny]
 
     def get_queryset(self):
-        """Only return active hotels with access_config"""
-        return Hotel.objects.filter(
+        """Filter and sort active hotels based on query params"""
+        queryset = Hotel.objects.filter(
             is_active=True
-        ).select_related(
-            'access_config'
-        ).order_by('sort_order', 'name')
+        ).select_related('access_config')
+        
+        # Text search (q parameter)
+        q = self.request.query_params.get('q')
+        if q:
+            queryset = queryset.filter(
+                models.Q(name__icontains=q) |
+                models.Q(city__icontains=q) |
+                models.Q(country__icontains=q)
+            )
+        
+        # City filter
+        city = self.request.query_params.get('city')
+        if city:
+            queryset = queryset.filter(city__iexact=city)
+        
+        # Country filter
+        country = self.request.query_params.get('country')
+        if country:
+            queryset = queryset.filter(country__iexact=country)
+        
+        # Tags filter (comma-separated)
+        tags = self.request.query_params.get('tags')
+        if tags:
+            tag_list = [tag.strip() for tag in tags.split(',')]
+            # Filter hotels that have any of the specified tags
+            for tag in tag_list:
+                queryset = queryset.filter(tags__contains=[tag])
+        
+        # Sorting
+        sort = self.request.query_params.get('sort', 'featured')
+        if sort == 'name_asc':
+            queryset = queryset.order_by('name')
+        else:
+            # Default: featured (sort_order, then name)
+            queryset = queryset.order_by('sort_order', 'name')
+        
+        return queryset
+
+
+class HotelFilterOptionsView(APIView):
+    """
+    Public API endpoint to get available filter options.
+    Returns distinct cities, countries, and all tags from active hotels.
+    
+    GET /api/public/hotels/filters/
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        # Get distinct cities from active hotels
+        cities = Hotel.objects.filter(
+            is_active=True,
+            city__isnull=False
+        ).exclude(
+            city=''
+        ).values_list('city', flat=True).distinct().order_by('city')
+        
+        # Get distinct countries from active hotels
+        countries = Hotel.objects.filter(
+            is_active=True,
+            country__isnull=False
+        ).exclude(
+            country=''
+        ).values_list('country', flat=True).distinct().order_by('country')
+        
+        # Get all unique tags from active hotels
+        all_tags = set()
+        hotels_with_tags = Hotel.objects.filter(
+            is_active=True
+        ).exclude(tags=[]).values_list('tags', flat=True)
+        
+        for tag_list in hotels_with_tags:
+            if tag_list:
+                all_tags.update(tag_list)
+        
+        return Response({
+            'cities': list(cities),
+            'countries': list(countries),
+            'tags': sorted(list(all_tags))
+        })
 
 
 class HotelPublicDetailView(generics.RetrieveAPIView):

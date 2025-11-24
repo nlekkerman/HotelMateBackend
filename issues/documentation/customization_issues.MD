@@ -1,7 +1,34 @@
 # Public Website Content Management – Cards
 
+**Date:** November 24, 2025  
+**Status:** ✅ MOSTLY IMPLEMENTED | 📋 Minor Enhancements Needed
+
 Goal:  
 Allow hotel admin to manage all public "cards" (blocks) on the public hotel website from the backend, **per hotel**, without changing code.
+
+---
+
+## Implementation Status Summary
+
+### ✅ **IMPLEMENTED**
+- RoomType model (rooms & suites cards)
+- Offer model (special offers/packages cards)
+- LeisureActivity model (leisure & facilities cards)
+- Staff CRUD ViewSets for all three models
+- Public and Staff API endpoints
+- Django Admin interfaces
+- Permissions (IsAuthenticated, IsStaffMember, IsSameHotel)
+
+### 📋 **MINOR GAPS** (Optional enhancements)
+1. **RoomType** - Missing fields: `subtitle`, `badge_label`, `full_description`
+2. **Offer** - Missing fields: `subtitle`, `badge_label`, `price`/`from_price`, `promo_code` exposure, `cta_label` (using book_now_url)
+3. **LeisureActivity** - Missing fields: `subtitle`, `badge_label`, `full_description`, `opening_hours`, `location_note`
+
+### ✅ **API ENDPOINTS EXIST**
+- Public: `/api/public/hotels/<slug>/page/` (includes all cards)
+- Staff CRUD: `/api/staff/hotels/<slug>/hotel/staff/room-types/`
+- Staff CRUD: `/api/staff/hotels/<slug>/hotel/staff/offers/`
+- Staff CRUD: `/api/staff/hotels/<slug>/hotel/staff/leisure-activities/`
 
 ---
 

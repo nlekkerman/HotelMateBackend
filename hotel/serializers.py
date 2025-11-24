@@ -165,10 +165,28 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
     Comprehensive serializer for public hotel page.
     Includes all marketing content, location, contact info,
     and nested booking options, room types, offers, activities.
-    Now includes public_settings for branding (B2).
+    Prioritizes customizable public_settings over Hotel model fields.
     """
+    # Override all Hotel fields to check public_settings first
+    name = serializers.SerializerMethodField()
+    tagline = serializers.SerializerMethodField()
     logo_url = serializers.SerializerMethodField()
     hero_image_url = serializers.SerializerMethodField()
+    landing_page_image_url = serializers.SerializerMethodField()
+    short_description = serializers.SerializerMethodField()
+    long_description = serializers.SerializerMethodField()
+    city = serializers.SerializerMethodField()
+    country = serializers.SerializerMethodField()
+    address_line_1 = serializers.SerializerMethodField()
+    address_line_2 = serializers.SerializerMethodField()
+    postal_code = serializers.SerializerMethodField()
+    latitude = serializers.SerializerMethodField()
+    longitude = serializers.SerializerMethodField()
+    phone = serializers.SerializerMethodField()
+    email = serializers.SerializerMethodField()
+    website_url = serializers.SerializerMethodField()
+    booking_url = serializers.SerializerMethodField()
+    # Nested objects
     booking_options = BookingOptionsSerializer(read_only=True)
     public_settings = serializers.SerializerMethodField()
     room_types = serializers.SerializerMethodField()
@@ -183,6 +201,7 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
             'name',
             'tagline',
             'hero_image_url',
+            'landing_page_image_url',
             'logo_url',
             'short_description',
             'long_description',
@@ -208,16 +227,193 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
         ]
 
     def get_logo_url(self, obj):
-        """Return logo URL or None"""
+        """
+        Return logo from public_settings (customizable) or Hotel model
+        """
+        try:
+            settings = obj.public_settings
+            if settings.logo:
+                return settings.logo
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        # Fallback to Hotel model logo
         if obj.logo:
             return obj.logo.url
         return None
 
     def get_hero_image_url(self, obj):
-        """Return hero image URL or None"""
+        """Return hero image from public_settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.hero_image:
+                return settings.hero_image.url
+        except HotelPublicSettings.DoesNotExist:
+            pass
         if obj.hero_image:
             return obj.hero_image.url
         return None
+    
+    def get_landing_page_image_url(self, obj):
+        """Return landing page image from public_settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.landing_page_image:
+                return settings.landing_page_image.url
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        if obj.landing_page_image:
+            return obj.landing_page_image.url
+        return None
+    
+    def get_name(self, obj):
+        """Return custom name from settings or Hotel name"""
+        try:
+            settings = obj.public_settings
+            if settings.name_override:
+                return settings.name_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.name
+    
+    def get_tagline(self, obj):
+        """Return custom tagline from settings or Hotel tagline"""
+        try:
+            settings = obj.public_settings
+            if settings.tagline_override:
+                return settings.tagline_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.tagline
+    
+    def get_short_description(self, obj):
+        """Return description from settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.short_description:
+                return settings.short_description
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.short_description
+    
+    def get_long_description(self, obj):
+        """Return long description from settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.long_description:
+                return settings.long_description
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.long_description
+    
+    def get_city(self, obj):
+        """Return custom city from settings or Hotel city"""
+        try:
+            settings = obj.public_settings
+            if settings.city_override:
+                return settings.city_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.city
+    
+    def get_country(self, obj):
+        """Return custom country from settings or Hotel country"""
+        try:
+            settings = obj.public_settings
+            if settings.country_override:
+                return settings.country_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.country
+    
+    def get_address_line_1(self, obj):
+        """Return custom address from settings or Hotel address"""
+        try:
+            settings = obj.public_settings
+            if settings.address_line_1_override:
+                return settings.address_line_1_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.address_line_1
+    
+    def get_address_line_2(self, obj):
+        """Return custom address from settings or Hotel address"""
+        try:
+            settings = obj.public_settings
+            if settings.address_line_2_override:
+                return settings.address_line_2_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.address_line_2
+    
+    def get_postal_code(self, obj):
+        """Return custom postal code from settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.postal_code_override:
+                return settings.postal_code_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.postal_code
+    
+    def get_latitude(self, obj):
+        """Return custom latitude from settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.latitude_override is not None:
+                return settings.latitude_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.latitude
+    
+    def get_longitude(self, obj):
+        """Return custom longitude from settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.longitude_override is not None:
+                return settings.longitude_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.longitude
+    
+    def get_phone(self, obj):
+        """Return custom phone from settings or Hotel phone"""
+        try:
+            settings = obj.public_settings
+            if settings.phone_override:
+                return settings.phone_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.phone
+    
+    def get_email(self, obj):
+        """Return custom email from settings or Hotel email"""
+        try:
+            settings = obj.public_settings
+            if settings.email_override:
+                return settings.email_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.email
+    
+    def get_website_url(self, obj):
+        """Return custom website from settings or Hotel website"""
+        try:
+            settings = obj.public_settings
+            if settings.website_url_override:
+                return settings.website_url_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.website_url
+    
+    def get_booking_url(self, obj):
+        """Return custom booking URL from settings or Hotel"""
+        try:
+            settings = obj.public_settings
+            if settings.booking_url_override:
+                return settings.booking_url_override
+        except HotelPublicSettings.DoesNotExist:
+            pass
+        return obj.booking_url
     
     def get_public_settings(self, obj):
         """Return public settings if they exist (B2)"""
@@ -285,24 +481,78 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     """
     Write-enabled serializer for staff to update hotel settings.
     Includes validation for colors and data formats (B4).
+    Shows current values from Hotel model with override capability.
     """
+    # Display fields showing current effective values
+    name_display = serializers.SerializerMethodField()
+    tagline_display = serializers.SerializerMethodField()
+    hero_image_display = serializers.SerializerMethodField()
+    landing_page_image_display = serializers.SerializerMethodField()
+    logo_display = serializers.SerializerMethodField()
+    city_display = serializers.SerializerMethodField()
+    country_display = serializers.SerializerMethodField()
+    address_line_1_display = serializers.SerializerMethodField()
+    address_line_2_display = serializers.SerializerMethodField()
+    postal_code_display = serializers.SerializerMethodField()
+    latitude_display = serializers.SerializerMethodField()
+    longitude_display = serializers.SerializerMethodField()
+    phone_display = serializers.SerializerMethodField()
+    email_display = serializers.SerializerMethodField()
+    website_url_display = serializers.SerializerMethodField()
+    booking_url_display = serializers.SerializerMethodField()
+    
     class Meta:
         model = HotelPublicSettings
         fields = [
+            # Hotel model override fields (editable)
+            'name_override',
+            'name_display',
+            'tagline_override',
+            'tagline_display',
+            'city_override',
+            'city_display',
+            'country_override',
+            'country_display',
+            'address_line_1_override',
+            'address_line_1_display',
+            'address_line_2_override',
+            'address_line_2_display',
+            'postal_code_override',
+            'postal_code_display',
+            'latitude_override',
+            'latitude_display',
+            'longitude_override',
+            'longitude_display',
+            'phone_override',
+            'phone_display',
+            'email_override',
+            'email_display',
+            'website_url_override',
+            'website_url_display',
+            'booking_url_override',
+            'booking_url_display',
+            # Content fields
             'short_description',
             'long_description',
             'welcome_message',
+            # Images
             'hero_image',
+            'hero_image_display',
+            'landing_page_image',
+            'landing_page_image_display',
+            'logo',
+            'logo_display',
             'gallery',
             'amenities',
+            # Contact (legacy fields)
             'contact_email',
             'contact_phone',
             'contact_address',
             'website',
             'google_maps_link',
-            'logo',
             'favicon',
             'slogan',
+            # Branding colors
             'primary_color',
             'secondary_color',
             'accent_color',
@@ -375,6 +625,89 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
                 'amenities must be a list of strings'
             )
         return value
+    
+    def get_hero_image_display(self, obj):
+        """
+        Return current hero_image or Hotel model fallback
+        """
+        if obj.hero_image:
+            return obj.hero_image
+        # Fallback to Hotel model
+        if obj.hotel.hero_image:
+            return obj.hotel.hero_image.url
+        return None
+    
+    def get_logo_display(self, obj):
+        """Return current logo or Hotel model fallback"""
+        if obj.logo:
+            return obj.logo
+        if obj.hotel.logo:
+            return obj.hotel.logo.url
+        return None
+    
+    def get_name_display(self, obj):
+        """Return custom name or Hotel model name"""
+        return obj.name_override or obj.hotel.name
+    
+    def get_tagline_display(self, obj):
+        """Return custom tagline or Hotel model tagline"""
+        return obj.tagline_override or obj.hotel.tagline
+    
+    def get_landing_page_image_display(self, obj):
+        """Return custom landing image or Hotel model fallback"""
+        if obj.landing_page_image:
+            return obj.landing_page_image.url
+        if obj.hotel.landing_page_image:
+            return obj.hotel.landing_page_image.url
+        return None
+    
+    def get_city_display(self, obj):
+        """Return custom city or Hotel model city"""
+        return obj.city_override or obj.hotel.city
+    
+    def get_country_display(self, obj):
+        """Return custom country or Hotel model country"""
+        return obj.country_override or obj.hotel.country
+    
+    def get_address_line_1_display(self, obj):
+        """Return custom address or Hotel model address"""
+        return obj.address_line_1_override or obj.hotel.address_line_1
+    
+    def get_address_line_2_display(self, obj):
+        """Return custom address or Hotel model address"""
+        return obj.address_line_2_override or obj.hotel.address_line_2
+    
+    def get_postal_code_display(self, obj):
+        """Return custom postal code or Hotel model postal code"""
+        return obj.postal_code_override or obj.hotel.postal_code
+    
+    def get_latitude_display(self, obj):
+        """Return custom latitude or Hotel model latitude"""
+        if obj.latitude_override is not None:
+            return obj.latitude_override
+        return obj.hotel.latitude
+    
+    def get_longitude_display(self, obj):
+        """Return custom longitude or Hotel model longitude"""
+        if obj.longitude_override is not None:
+            return obj.longitude_override
+        return obj.hotel.longitude
+    
+    def get_phone_display(self, obj):
+        """Return custom phone or Hotel model phone"""
+        return obj.phone_override or obj.hotel.phone
+    
+    def get_email_display(self, obj):
+        """Return custom email or Hotel model email"""
+        return obj.email_override or obj.hotel.email
+    
+    def get_website_url_display(self, obj):
+        """Return custom website or Hotel model website"""
+        return obj.website_url_override or obj.hotel.website_url
+    
+    def get_booking_url_display(self, obj):
+        """Return custom booking URL or Hotel model booking URL"""
+        return obj.booking_url_override or obj.hotel.booking_url
 
 
 class RoomBookingListSerializer(serializers.ModelSerializer):

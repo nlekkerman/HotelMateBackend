@@ -4,6 +4,7 @@ from .views import (
     HotelViewSet,
     HotelBySlugView,
     HotelPublicListView,
+    HotelFilterOptionsView,
     HotelPublicDetailView,
     HotelPublicPageView,
     HotelAvailabilityView,
@@ -65,6 +66,11 @@ urlpatterns = [
         "public/",
         HotelPublicListView.as_view(),
         name="hotel-public-list"
+    ),
+    path(
+        "public/filters/",
+        HotelFilterOptionsView.as_view(),
+        name="hotel-filter-options"
     ),
     path(
         "public/<slug:slug>/",
