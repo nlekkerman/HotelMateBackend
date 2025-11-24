@@ -125,6 +125,38 @@ class Hotel(models.Model):
         blank=True,
         help_text="List of tags for filtering (e.g., ['Family', 'Spa', 'Business'])"
     )
+    
+    # Hotel type classification (Issue #47 enhancement)
+    HOTEL_TYPE_CHOICES = [
+        ('Resort', 'Resort'),
+        ('SpaHotel', 'Spa Hotel'),
+        ('WellnessHotel', 'Wellness Hotel'),
+        ('FamilyHotel', 'Family Hotel'),
+        ('BusinessHotel', 'Business Hotel'),
+        ('LuxuryHotel', 'Luxury Hotel'),
+        ('BoutiqueHotel', 'Boutique Hotel'),
+        ('BudgetHotel', 'Budget Hotel'),
+        ('Hostel', 'Hostel'),
+        ('Aparthotel', 'Aparthotel'),
+        ('EcoHotel', 'Eco Hotel'),
+        ('ConferenceHotel', 'Conference Hotel'),
+        ('BeachHotel', 'Beach Hotel'),
+        ('MountainHotel', 'Mountain Hotel'),
+        ('CasinoHotel', 'Casino Hotel'),
+        ('GolfHotel', 'Golf Hotel'),
+        ('AirportHotel', 'Airport Hotel'),
+        ('AdventureHotel', 'Adventure Hotel'),
+        ('CityHotel', 'City Hotel'),
+        ('HistoricHotel', 'Historic Hotel'),
+    ]
+    
+    hotel_type = models.CharField(
+        max_length=50,
+        choices=HOTEL_TYPE_CHOICES,
+        blank=True,
+        default='',
+        help_text="Primary hotel type classification"
+    )
 
     def __str__(self):
         return self.name

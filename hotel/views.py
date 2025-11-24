@@ -47,6 +47,7 @@ class HotelPublicListView(generics.ListAPIView):
     - city: filter by city (exact match)
     - country: filter by country (exact match)
     - tags: comma-separated list of tags
+    - hotel_type: filter by hotel type (e.g., FamilyHotel, Resort)
     - sort: 'name_asc' or default 'featured'
     """
     serializer_class = HotelPublicSerializer
@@ -84,6 +85,11 @@ class HotelPublicListView(generics.ListAPIView):
             # Filter hotels that have any of the specified tags
             for tag in tag_list:
                 queryset = queryset.filter(tags__contains=[tag])
+        
+        # Hotel type filter
+        hotel_type = self.request.query_params.get('hotel_type')
+        if hotel_type:
+            queryset = queryset.filter(hotel_type=hotel_type)
         
         # Sorting
         sort = self.request.query_params.get('sort', 'featured')
@@ -132,10 +138,19 @@ class HotelFilterOptionsView(APIView):
             if tag_list:
                 all_tags.update(tag_list)
         
+        # Get distinct hotel types from active hotels
+        hotel_types = Hotel.objects.filter(
+            is_active=True,
+            hotel_type__isnull=False
+        ).exclude(
+            hotel_type=''
+        ).values_list('hotel_type', flat=True).distinct().order_by('hotel_type')
+        
         return Response({
             'cities': list(cities),
             'countries': list(countries),
-            'tags': sorted(list(all_tags))
+            'tags': sorted(list(all_tags)),
+            'hotel_types': list(hotel_types)
         })
 
 

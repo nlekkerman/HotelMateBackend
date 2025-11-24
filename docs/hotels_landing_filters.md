@@ -16,7 +16,7 @@ Context:
 ### 2. Backend API ✅ IMPLEMENTED
 
 #### Hotels List with Filters
-**Endpoint:** `GET /api/hotels/public/`
+**Endpoint:** `GET /api/hotel/public/`
 
 **Supported query params:**
 - `q` (optional): search in name, city, country (case-insensitive)
@@ -27,16 +27,16 @@ Context:
 
 **Example requests:**
 ```
-GET /api/hotels/public/?q=killarney
-GET /api/hotels/public/?city=Dublin&sort=name_asc
-GET /api/hotels/public/?tags=Family,Spa
-GET /api/hotels/public/?q=luxury&city=Cork&tags=Spa
+GET /api/hotel/public/?q=killarney
+GET /api/hotel/public/?city=Dublin&sort=name_asc
+GET /api/hotel/public/?tags=Family,Spa
+GET /api/hotel/public/?q=luxury&city=Cork&tags=Spa
 ```
 
 **Response:** Array of hotel objects with basic info (see `HotelPublicSerializer`)
 
 #### Filter Options Endpoint
-**Endpoint:** `GET /api/hotels/public/filters/`
+**Endpoint:** `GET /api/hotel/public/filters/`
 
 **Purpose:** Get all available filter options to populate dropdowns/chips
 
@@ -62,7 +62,7 @@ const [filterOptions, setFilterOptions] = useState({
 });
 
 useEffect(() => {
-  fetch('/api/hotels/public/filters/')
+  fetch('/api/hotel/public/filters/')
     .then(res => res.json())
     .then(data => setFilterOptions(data));
 }, []);
@@ -90,7 +90,7 @@ const fetchHotels = async () => {
   if (filters.tags.length) params.append('tags', filters.tags.join(','));
   if (filters.sort) params.append('sort', filters.sort);
   
-  const response = await fetch(`/api/hotels/public/?${params}`);
+  const response = await fetch(`/api/hotel/public/?${params}`);
   const hotels = await response.json();
   setHotels(hotels);
 };
@@ -184,9 +184,48 @@ useEffect(() => {
 )}
 ```
 
-### 4. Hotel Model Tags Field
+### 4. Hotel Model Fields for Filtering
 
-Hotels now support a `tags` JSON field for filtering:
+#### Hotel Type Classification
+Hotels now have a `hotel_type` field with predefined choices:
+
+**Available hotel types:**
+- Resort
+- Spa Hotel
+- Wellness Hotel
+- Family Hotel
+- Business Hotel
+- Luxury Hotel
+- Boutique Hotel
+- Budget Hotel
+- Hostel
+- Aparthotel
+- Eco Hotel
+- Conference Hotel
+- Beach Hotel
+- Mountain Hotel
+- Casino Hotel
+- Golf Hotel
+- Airport Hotel
+- Adventure Hotel
+- City Hotel
+- Historic Hotel
+
+**Usage in API:**
+```
+GET /api/hotel/public/?hotel_type=FamilyHotel
+GET /api/hotel/public/?hotel_type=Resort&city=Dublin
+```
+
+**Filter options endpoint returns:**
+```json
+{
+  "hotel_types": ["FamilyHotel", "Resort", "SpaHotel", ...]
+}
+```
+
+#### Tags Field
+Hotels also support a `tags` JSON field for flexible filtering:
 
 ```python
 # In Django admin or via API:
