@@ -7,7 +7,20 @@ from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.conf import settings
+from django.core.mail import send_mail
 import stripe
+
+from .payment_cache import (
+    generate_idempotency_key,
+    store_payment_session,
+    get_payment_session,
+    store_booking_metadata,
+    get_booking_metadata,
+    get_idempotency_session,
+    store_idempotency_session,
+    is_webhook_processed,
+    mark_webhook_processed,
+)
 
 # Configure Stripe
 stripe.api_key = settings.STRIPE_SECRET_KEY
@@ -26,16 +39,6 @@ class CreatePaymentSessionView(APIView):
     permission_classes = [AllowAny]
     
     def post(self, request, booking_id):
-        # Get URLs from request
-        success_url = request.data.get(
-            'success_url',
-            'https://hotelsmates.com/booking/success'
-        )
-        cancel_url = request.data.get(
-            'cancel_url',
-            'https://hotelsmates.com/booking/cancelled'
-        )
-        
         # For Phase 1, we'll accept booking data in the request
         # In Phase 2, this would load from database
         booking_data = request.data.get('booking', {})
@@ -45,6 +48,55 @@ class CreatePaymentSessionView(APIView):
                 {"detail": "Booking data is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
+        
+        guest = booking_data.get('guest', {})
+        guest_email = guest.get('email')
+        
+        if not guest_email:
+            return Response(
+                {"detail": "Guest email is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Generate idempotency key
+        idempotency_key = generate_idempotency_key(
+            booking_id,
+            guest_email
+        )
+        
+        # Check if session already exists for this idempotency key
+        existing_session_id = get_idempotency_session(idempotency_key)
+        
+        if existing_session_id:
+            try:
+                # Return existing session
+                existing_session = stripe.checkout.Session.retrieve(
+                    existing_session_id
+                )
+                
+                # Check if session is still valid (not expired)
+                if existing_session.status in ['open', 'complete']:
+                    return Response({
+                        'session_id': existing_session.id,
+                        'payment_url': existing_session.url,
+                        'status': 'existing',
+                        'amount': existing_session.amount_total / 100,
+                        'currency': existing_session.currency.upper(),
+                        'message': 'Returning existing payment session'
+                    }, status=status.HTTP_200_OK)
+            except stripe.error.StripeError:
+                # If session doesn't exist anymore, create new one
+                pass
+        
+        # Get URLs from request
+        success_url = request.data.get(
+            'success_url',
+            'https://hotelsmates.com/booking/success'
+        )
+        cancel_url = request.data.get(
+            'cancel_url',
+            'https://hotelsmates.com/booking/cancelled'
+        )
         
         try:
             # Extract pricing info
@@ -98,6 +150,23 @@ class CreatePaymentSessionView(APIView):
                     'description': f"Booking {booking_id} at {hotel.get('name')}",
                 },
             )
+            
+            # Store session in cache with idempotency key
+            store_idempotency_session(idempotency_key, session.id)
+            
+            # Store payment session data
+            session_data = {
+                'session_id': session.id,
+                'booking_id': booking_id,
+                'idempotency_key': idempotency_key,
+                'amount': total,
+                'currency': currency,
+                'status': 'created',
+            }
+            store_payment_session(booking_id, session_data)
+            
+            # Store booking metadata for webhook retrieval
+            store_booking_metadata(booking_id, booking_data)
             
             return Response({
                 'session_id': session.id,
@@ -154,19 +223,76 @@ class StripeWebhookView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Check if this webhook event has already been processed
+        event_id = event['id']
+        
+        if is_webhook_processed(event_id):
+            print(f"Webhook event {event_id} already processed, skipping")
+            return Response({
+                'status': 'success',
+                'message': 'Event already processed'
+            }, status=status.HTTP_200_OK)
+        
+        # Mark event as processed
+        mark_webhook_processed(event_id)
+        
         # Handle the event
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             
             # Extract booking info from metadata
             booking_id = session['metadata'].get('booking_id')
+            hotel_slug = session['metadata'].get('hotel_slug')
+            guest_name = session['metadata'].get('guest_name')
+            check_in = session['metadata'].get('check_in')
+            check_out = session['metadata'].get('check_out')
+            customer_email = session.get('customer_email')
+            amount_total = session.get('amount_total', 0) / 100
+            currency = session.get('currency', 'eur').upper()
             
-            # TODO: Update booking status in database to CONFIRMED
-            # TODO: Send confirmation email to guest
-            # TODO: Notify hotel staff
+            # Send confirmation email to guest
+            if customer_email:
+                try:
+                    email_subject = f"Booking Confirmation - {booking_id}"
+                    email_message = f"""
+Dear {guest_name},
+
+Your booking has been confirmed!
+
+Booking Details:
+- Booking ID: {booking_id}
+- Check-in: {check_in}
+- Check-out: {check_out}
+- Total Paid: {currency} {amount_total:.2f}
+
+Your payment has been successfully processed.
+
+You can view your booking details at:
+https://hotelsmates.com/booking/confirmation/{booking_id}
+
+If you have any questions, please contact the hotel directly.
+
+Best regards,
+HotelsMates Team
+"""
+                    
+                    send_mail(
+                        subject=email_subject,
+                        message=email_message,
+                        from_email=f"HotelsMates <{settings.EMAIL_HOST_USER}>",
+                        recipient_list=[customer_email],
+                        fail_silently=False,
+                    )
+                    
+                    print(f"Confirmation email sent to {customer_email}")
+                    
+                except Exception as e:
+                    print(f"Failed to send email: {e}")
+            
+            # TODO: Update booking status in database to CONFIRMED (Phase 2)
+            # TODO: Notify hotel staff (Phase 2)
             
             print(f"Payment successful for booking {booking_id}")
-            print(f"Session: {session}")
         
         return Response({'status': 'success'}, status=status.HTTP_200_OK)
 

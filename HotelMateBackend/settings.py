@@ -243,6 +243,18 @@ else:
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Cache configuration for payment idempotency and session storage
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'payment_cache_table',
+        'TIMEOUT': 1800,  # 30 minutes default timeout
+        'OPTIONS': {
+            'MAX_ENTRIES': 10000
+        }
+    }
+}
+
 # File upload settings
 # Allow files up to 50MB (matches backend validation in chat/views.py)
 DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB in bytes
