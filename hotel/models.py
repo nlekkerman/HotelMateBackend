@@ -255,6 +255,125 @@ class BookingOptions(models.Model):
         return f"Booking options for {self.hotel.name}"
 
 
+class HotelPublicSettings(models.Model):
+    """
+    Public page settings for each hotel including content, branding,
+    and contact info. OneToOne relationship ensures one settings
+    row per hotel.
+    """
+    THEME_MODE_CHOICES = [
+        ('light', 'Light'),
+        ('dark', 'Dark'),
+        ('custom', 'Custom'),
+    ]
+
+    hotel = models.OneToOneField(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name="public_settings",
+        help_text="Hotel this settings configuration belongs to"
+    )
+
+    # Content fields
+    short_description = models.TextField(
+        blank=True,
+        default='',
+        help_text="Brief description for the hotel"
+    )
+    long_description = models.TextField(
+        blank=True,
+        default='',
+        help_text="Detailed description for the public page"
+    )
+    welcome_message = models.TextField(
+        blank=True,
+        default='',
+        help_text="Welcome message for guests (optional)"
+    )
+    hero_image = models.URLField(
+        blank=True,
+        default='',
+        help_text="URL for hero/banner image"
+    )
+    gallery = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of image URLs for gallery"
+    )
+    amenities = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of amenity strings"
+    )
+
+    # Contact information
+    contact_email = models.EmailField(
+        blank=True,
+        default='',
+        help_text="Public contact email"
+    )
+    contact_phone = models.CharField(
+        max_length=30,
+        blank=True,
+        default='',
+        help_text="Public contact phone number"
+    )
+    contact_address = models.TextField(
+        blank=True,
+        default='',
+        help_text="Full contact address"
+    )
+
+    # Branding fields
+    primary_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#3B82F6',
+        help_text="Primary brand color (HEX format)"
+    )
+    secondary_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#10B981',
+        help_text="Secondary brand color (HEX format)"
+    )
+    accent_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#F59E0B',
+        help_text="Accent color (HEX format)"
+    )
+    background_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#FFFFFF',
+        help_text="Background color (HEX format)"
+    )
+    button_color = models.CharField(
+        max_length=7,
+        blank=True,
+        default='#3B82F6',
+        help_text="Button color (HEX format)"
+    )
+    theme_mode = models.CharField(
+        max_length=10,
+        choices=THEME_MODE_CHOICES,
+        default='light',
+        help_text="Theme mode for the public page"
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Hotel Public Settings"
+        verbose_name_plural = "Hotel Public Settings"
+
+    def __str__(self):
+        return f"Public settings for {self.hotel.name}"
+
+
 class Offer(models.Model):
     """
     Marketing offers, packages, and deals for hotel public pages.

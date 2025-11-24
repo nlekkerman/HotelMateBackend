@@ -5,6 +5,7 @@ from .models import (
     Hotel,
     HotelAccessConfig,
     BookingOptions,
+    HotelPublicSettings,
     Offer,
     LeisureActivity,
     RoomBooking,
@@ -328,5 +329,59 @@ class PricingQuoteAdmin(admin.ModelAdmin):
         }),
         ('Validity', {
             'fields': ('created_at', 'valid_until')
+        }),
+    )
+
+
+@admin.register(HotelPublicSettings)
+class HotelPublicSettingsAdmin(admin.ModelAdmin):
+    """
+    Admin interface for HotelPublicSettings.
+    Allows quick inspection and manual adjustments.
+    """
+    list_display = (
+        'hotel',
+        'contact_email',
+        'contact_phone',
+        'theme_mode',
+        'updated_at'
+    )
+    list_filter = ('hotel', 'theme_mode', 'updated_at')
+    search_fields = ('hotel__name', 'hotel__slug', 'contact_email')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Hotel', {
+            'fields': ('hotel',)
+        }),
+        ('Content', {
+            'fields': (
+                'short_description',
+                'long_description',
+                'welcome_message',
+                'hero_image',
+                'gallery',
+                'amenities'
+            )
+        }),
+        ('Contact Information', {
+            'fields': (
+                'contact_email',
+                'contact_phone',
+                'contact_address'
+            )
+        }),
+        ('Branding', {
+            'fields': (
+                'primary_color',
+                'secondary_color',
+                'accent_color',
+                'background_color',
+                'button_color',
+                'theme_mode'
+            )
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at')
         }),
     )

@@ -9,6 +9,10 @@ from .views import (
     HotelAvailabilityView,
     HotelPricingQuoteView,
     HotelBookingCreateView,
+    HotelPublicSettingsView,
+    HotelPublicSettingsStaffView,
+    StaffBookingsListView,
+    StaffBookingConfirmView,
 )
 from .payment_views import (
     CreatePaymentSessionView,
@@ -36,6 +40,32 @@ urlpatterns = [
         "public/page/<slug:slug>/",
         HotelPublicPageView.as_view(),
         name="hotel-public-page"
+    ),
+    
+    # Public hotel settings endpoint
+    path(
+        "public/<slug:hotel_slug>/settings/",
+        HotelPublicSettingsView.as_view(),
+        name="hotel-public-settings"
+    ),
+    
+    # Staff hotel settings endpoint
+    path(
+        "staff/<slug:hotel_slug>/settings/",
+        HotelPublicSettingsStaffView.as_view(),
+        name="hotel-staff-settings"
+    ),
+    
+    # Staff bookings endpoints
+    path(
+        "staff/<slug:hotel_slug>/bookings/",
+        StaffBookingsListView.as_view(),
+        name="hotel-staff-bookings-list"
+    ),
+    path(
+        "staff/<slug:hotel_slug>/bookings/<str:booking_id>/confirm/",
+        StaffBookingConfirmView.as_view(),
+        name="hotel-staff-booking-confirm"
     ),
     
     # Availability check endpoint

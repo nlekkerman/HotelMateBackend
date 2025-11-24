@@ -7,11 +7,13 @@ from django.shortcuts import get_object_or_404
 from django.db import models
 from datetime import datetime
 
-from .models import Hotel
+from .models import Hotel, HotelPublicSettings, RoomBooking
 from .serializers import (
     HotelSerializer,
     HotelPublicSerializer,
-    HotelPublicDetailSerializer
+    HotelPublicDetailSerializer,
+    RoomBookingListSerializer,
+    RoomBookingDetailSerializer
 )
 
 
@@ -504,3 +506,293 @@ class HotelBookingCreateView(APIView):
         }
         
         return Response(booking_data, status=status.HTTP_201_CREATED)
+
+
+# Hotel Public Settings Views
+
+class HotelPublicSettingsView(APIView):
+    """
+    Public read-only endpoint for hotel public settings.
+    GET /api/public/hotels/<hotel_slug>/settings/
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, hotel_slug):
+        # Get hotel by slug
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Get or create settings for this hotel
+        settings, created = HotelPublicSettings.objects.get_or_create(
+            hotel=hotel
+        )
+        
+        # Serialize and return
+        from .serializers import HotelPublicSettingsPublicSerializer
+        serializer = HotelPublicSettingsPublicSerializer(settings)
+        return Response(serializer.data)
+
+
+class HotelPublicSettingsStaffView(APIView):
+    """
+    Staff-only endpoint to update hotel public settings.
+    PUT/PATCH /api/staff/hotels/<hotel_slug>/settings/
+    
+    Requires:
+    - User is authenticated
+    - User has staff_profile
+    - Staff belongs to the specified hotel
+    - Optionally: Staff has admin/manager access level
+    """
+    permission_classes = []  # Will be added in next step
+    
+    def get_permissions(self):
+        from rest_framework.permissions import IsAuthenticated
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def put(self, request, hotel_slug):
+        return self._update_settings(request, hotel_slug, partial=False)
+
+    def patch(self, request, hotel_slug):
+        return self._update_settings(request, hotel_slug, partial=True)
+
+    def _update_settings(self, request, hotel_slug, partial=False):
+        # Get staff profile
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Verify hotel access
+        if staff.hotel.slug != hotel_slug:
+            return Response(
+                {'error': 'You can only update settings for your hotel'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Optional: Restrict to admin/manager roles
+        # Uncomment to enable role restriction
+        # if staff.access_level not in ['super_staff_admin', 'staff_admin']:
+        #     if not (staff.role and staff.role.slug in ['manager', 'admin']):
+        #         return Response(
+        #             {'error': 'Insufficient permissions'},
+        #             status=status.HTTP_403_FORBIDDEN
+        #         )
+
+        # Get or create settings
+        settings, created = HotelPublicSettings.objects.get_or_create(
+            hotel=staff.hotel
+        )
+
+        # Update settings
+        from .serializers import HotelPublicSettingsStaffSerializer
+        serializer = HotelPublicSettingsStaffSerializer(
+            settings,
+            data=request.data,
+            partial=partial
+        )
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+
+        return Response(
+            serializer.errors,
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+
+# Staff Bookings Management Views
+
+class StaffBookingsListView(APIView):
+    """
+    Staff endpoint to list room bookings for their hotel.
+    GET /api/staff/hotels/<hotel_slug>/bookings/
+    
+    Supports filtering by:
+    - status (pending, confirmed, cancelled, completed)
+    - start_date / end_date (for check-in/check-out range)
+    
+    Requires:
+    - User is authenticated
+    - User has staff_profile
+    - Staff belongs to the specified hotel
+    """
+    permission_classes = []
+    
+    def get_permissions(self):
+        from rest_framework.permissions import IsAuthenticated
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def get(self, request, hotel_slug):
+        # Get staff profile
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Verify hotel access
+        if staff.hotel.slug != hotel_slug:
+            return Response(
+                {'error': 'You can only view bookings for your hotel'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get bookings for staff's hotel
+        bookings = RoomBooking.objects.filter(
+            hotel=staff.hotel
+        ).select_related('hotel', 'room_type').order_by('-created_at')
+
+        # Apply filters
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            bookings = bookings.filter(
+                status=status_filter.upper()
+            )
+
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        if start_date:
+            from datetime import datetime
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                bookings = bookings.filter(check_in__gte=start)
+            except ValueError:
+                return Response(
+                    {'error': 'Invalid start_date format. Use YYYY-MM-DD'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        if end_date:
+            from datetime import datetime
+            try:
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+                bookings = bookings.filter(check_out__lte=end)
+            except ValueError:
+                return Response(
+                    {'error': 'Invalid end_date format. Use YYYY-MM-DD'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Serialize and return
+        serializer = RoomBookingListSerializer(bookings, many=True)
+        return Response(serializer.data)
+
+
+class StaffBookingConfirmView(APIView):
+    """
+    Staff endpoint to confirm a booking.
+    POST /api/staff/hotels/<hotel_slug>/bookings/<booking_id>/confirm/
+    
+    Updates booking status from PENDING_PAYMENT to CONFIRMED.
+    Optionally stores confirmed_by and confirmed_at (if fields added).
+    
+    Requires:
+    - User is authenticated
+    - User has staff_profile
+    - Staff belongs to the specified hotel
+    - Optional: Staff has admin/manager access level
+    """
+    permission_classes = []
+    
+    def get_permissions(self):
+        from rest_framework.permissions import IsAuthenticated
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def post(self, request, hotel_slug, booking_id):
+        # Get staff profile
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Verify hotel access
+        if staff.hotel.slug != hotel_slug:
+            return Response(
+                {'error': 'You can only confirm bookings for your hotel'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Optional: Restrict to admin/manager roles
+        # Uncomment to enable role restriction
+        # if staff.access_level not in ['super_staff_admin', 'staff_admin']:
+        #     if not (staff.role and staff.role.slug in ['manager', 'admin']):
+        #         return Response(
+        #             {'error': 'Insufficient permissions'},
+        #             status=status.HTTP_403_FORBIDDEN
+        #         )
+
+        # Get booking
+        try:
+            booking = RoomBooking.objects.get(
+                booking_id=booking_id,
+                hotel=staff.hotel
+            )
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': 'Booking not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Check if booking can be confirmed
+        if booking.status == 'CANCELLED':
+            return Response(
+                {'error': 'Cannot confirm a cancelled booking'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if booking.status == 'CONFIRMED':
+            return Response(
+                {'message': 'Booking is already confirmed'},
+                status=status.HTTP_200_OK
+            )
+
+        # Update booking status
+        booking.status = 'CONFIRMED'
+        
+        # Store confirmation details if fields exist
+        # (These fields would need to be added to model)
+        # booking.confirmed_by = staff
+        # booking.confirmed_at = timezone.now()
+        
+        booking.save()
+
+        # Send confirmation email
+        from .email_utils import send_booking_confirmation_email
+        try:
+            email_sent = send_booking_confirmation_email(booking)
+            if not email_sent:
+                # Log warning but don't fail the request
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    f"Booking confirmed but email failed for "
+                    f"{booking.booking_id}"
+                )
+        except Exception as e:
+            # Log error but don't crash the request
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(
+                f"Exception sending confirmation email for "
+                f"{booking.booking_id}: {str(e)}"
+            )
+
+        # Serialize and return
+        serializer = RoomBookingDetailSerializer(booking)
+        return Response({
+            'message': 'Booking confirmed successfully',
+            'booking': serializer.data
+        })

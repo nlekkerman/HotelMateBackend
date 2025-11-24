@@ -3,8 +3,10 @@ from .models import (
     Hotel,
     HotelAccessConfig,
     BookingOptions,
+    HotelPublicSettings,
     Offer,
-    LeisureActivity
+    LeisureActivity,
+    RoomBooking
 )
 from rooms.models import RoomType
 
@@ -226,3 +228,159 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
         """Return only active leisure activities"""
         active_activities = obj.leisure_activities.filter(is_active=True)
         return LeisureActivitySerializer(active_activities, many=True).data
+
+
+class HotelPublicSettingsPublicSerializer(serializers.ModelSerializer):
+    """
+    Read-only serializer for public hotel settings.
+    Used by the public endpoint for rendering hotel pages.
+    """
+    class Meta:
+        model = HotelPublicSettings
+        fields = [
+            'short_description',
+            'long_description',
+            'welcome_message',
+            'hero_image',
+            'gallery',
+            'amenities',
+            'contact_email',
+            'contact_phone',
+            'contact_address',
+            'primary_color',
+            'secondary_color',
+            'accent_color',
+            'background_color',
+            'button_color',
+            'theme_mode',
+        ]
+        read_only_fields = fields
+
+
+class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
+    """
+    Write-enabled serializer for staff to update hotel settings.
+    Used by the staff-only endpoint.
+    """
+    class Meta:
+        model = HotelPublicSettings
+        fields = [
+            'short_description',
+            'long_description',
+            'welcome_message',
+            'hero_image',
+            'gallery',
+            'amenities',
+            'contact_email',
+            'contact_phone',
+            'contact_address',
+            'primary_color',
+            'secondary_color',
+            'accent_color',
+            'background_color',
+            'button_color',
+            'theme_mode',
+            'updated_at',
+        ]
+        read_only_fields = ['updated_at']
+
+
+class RoomBookingListSerializer(serializers.ModelSerializer):
+    """
+    Serializer for listing room bookings for staff.
+    Returns key booking information for list views.
+    """
+    guest_name = serializers.SerializerMethodField()
+    room_type_name = serializers.CharField(
+        source='room_type.name',
+        read_only=True
+    )
+    hotel_name = serializers.CharField(source='hotel.name', read_only=True)
+    nights = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoomBooking
+        fields = [
+            'id',
+            'booking_id',
+            'confirmation_number',
+            'hotel_name',
+            'room_type_name',
+            'guest_name',
+            'guest_email',
+            'guest_phone',
+            'check_in',
+            'check_out',
+            'nights',
+            'adults',
+            'children',
+            'total_amount',
+            'currency',
+            'status',
+            'created_at',
+            'paid_at',
+        ]
+        read_only_fields = fields
+
+    def get_guest_name(self, obj):
+        return obj.guest_name
+
+    def get_nights(self, obj):
+        return obj.nights
+
+
+class RoomBookingDetailSerializer(serializers.ModelSerializer):
+    """
+    Detailed serializer for individual booking views.
+    Includes all booking information including special requests
+    and internal notes.
+    """
+    guest_name = serializers.SerializerMethodField()
+    room_type_name = serializers.CharField(
+        source='room_type.name',
+        read_only=True
+    )
+    hotel_name = serializers.CharField(source='hotel.name', read_only=True)
+    nights = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoomBooking
+        fields = [
+            'id',
+            'booking_id',
+            'confirmation_number',
+            'hotel_name',
+            'room_type_name',
+            'guest_name',
+            'guest_first_name',
+            'guest_last_name',
+            'guest_email',
+            'guest_phone',
+            'check_in',
+            'check_out',
+            'nights',
+            'adults',
+            'children',
+            'total_amount',
+            'currency',
+            'status',
+            'special_requests',
+            'promo_code',
+            'payment_reference',
+            'payment_provider',
+            'paid_at',
+            'created_at',
+            'updated_at',
+            'internal_notes',
+        ]
+        read_only_fields = [
+            'id', 'booking_id', 'confirmation_number', 'hotel_name',
+            'room_type_name', 'guest_name', 'created_at', 'updated_at',
+            'nights'
+        ]
+
+    def get_guest_name(self, obj):
+        return obj.guest_name
+
+    def get_nights(self, obj):
+        return obj.nights

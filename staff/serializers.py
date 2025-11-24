@@ -164,6 +164,11 @@ class StaffSerializer(serializers.ModelSerializer):
     has_registered_face = serializers.BooleanField()
     profile_image = serializers.ImageField(required=False, allow_null=True, use_url=True)
     profile_image_url = serializers.CharField(source='profile_image.url', read_only=True)
+    
+    # New fields for frontend permission checks
+    is_staff_member = serializers.SerializerMethodField()
+    hotel_slug = serializers.CharField(source='hotel.slug', read_only=True)
+    role_slug = serializers.SerializerMethodField()
 
     class Meta:
         model = Staff
@@ -173,12 +178,16 @@ class StaffSerializer(serializers.ModelSerializer):
             'role', 'role_detail',
             'email', 'phone_number',
             'is_active', 'is_on_duty',
-            'hotel', 'access_level', 'hotel_name',
+            'hotel', 'access_level', 'hotel_name', 'hotel_slug',
             'profile_image', 'profile_image_url',
             'has_registered_face', 'allowed_navs',
-            'has_fcm_token',
+            'has_fcm_token', 'is_staff_member', 'role_slug',
         ]
-        read_only_fields = ['user', 'allowed_navs', 'hotel_name', 'profile_image_url', 'department_detail', 'role_detail', 'has_fcm_token']
+        read_only_fields = [
+            'user', 'allowed_navs', 'hotel_name', 'hotel_slug',
+            'profile_image_url', 'department_detail', 'role_detail',
+            'has_fcm_token', 'is_staff_member', 'role_slug'
+        ]
 
     def get_has_fcm_token(self, obj):
         """
@@ -199,6 +208,19 @@ class StaffSerializer(serializers.ModelSerializer):
                 is_active=True
             )
         ]
+    
+    def get_is_staff_member(self, obj):
+        """
+        Returns True if user has a staff profile.
+        Always True for this serializer since it serializes Staff objects.
+        """
+        return True
+    
+    def get_role_slug(self, obj):
+        """
+        Returns role slug if role exists, otherwise None.
+        """
+        return obj.role.slug if obj.role else None
 
     def create(self, validated_data):
         user_data = validated_data.pop('user', None)
