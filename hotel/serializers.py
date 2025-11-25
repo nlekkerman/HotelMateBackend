@@ -359,3 +359,69 @@ class PublicSectionSerializer(serializers.ModelSerializer):
             'element',
         ]
         read_only_fields = ['id']
+
+
+# ============================================================================
+# STAFF BUILDER SERIALIZERS (for Super Staff Admin)
+# ============================================================================
+
+class PublicElementItemStaffSerializer(serializers.ModelSerializer):
+    """Staff serializer for individual items - includes timestamps"""
+    class Meta:
+        model = PublicElementItem
+        fields = [
+            'id',
+            'title',
+            'subtitle',
+            'body',
+            'image_url',
+            'badge',
+            'cta_label',
+            'cta_url',
+            'sort_order',
+            'is_active',
+            'meta',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class PublicElementStaffSerializer(serializers.ModelSerializer):
+    """Staff serializer for elements - includes timestamps and all items"""
+    items = PublicElementItemStaffSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = PublicElement
+        fields = [
+            'id',
+            'element_type',
+            'title',
+            'subtitle',
+            'body',
+            'image_url',
+            'settings',
+            'items',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+class PublicSectionStaffSerializer(serializers.ModelSerializer):
+    """Staff serializer for sections - includes timestamps"""
+    element = PublicElementStaffSerializer(read_only=True)
+    
+    class Meta:
+        model = PublicSection
+        fields = [
+            'id',
+            'hotel',
+            'position',
+            'is_active',
+            'name',
+            'element',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

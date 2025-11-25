@@ -1,5 +1,5 @@
 from rest_framework import viewsets, generics
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
@@ -7,13 +7,22 @@ from django.shortcuts import get_object_or_404
 from django.db import models
 from datetime import datetime
 
-from .models import Hotel, RoomBooking, PricingQuote
+from .models import (
+    Hotel,
+    RoomBooking,
+    PricingQuote,
+    PublicSection,
+    PublicElement,
+    PublicElementItem
+)
 from .serializers import (
     HotelSerializer,
     HotelPublicSerializer,
     RoomBookingListSerializer,
-    RoomBookingDetailSerializer
+    RoomBookingDetailSerializer,
+    PublicSectionStaffSerializer
 )
+from .permissions import IsSuperStaffAdminForHotel
 
 
 class HotelViewSet(viewsets.ModelViewSet):
@@ -1043,8 +1052,24 @@ class HotelPublicPageView(APIView):
                 'id': hotel.id,
                 'name': hotel.name,
                 'slug': hotel.slug,
+                'tagline': hotel.tagline,
                 'city': hotel.city,
                 'country': hotel.country,
+                'address_line_1': hotel.address_line_1,
+                'address_line_2': hotel.address_line_2,
+                'postal_code': hotel.postal_code,
+                'latitude': float(hotel.latitude) if hotel.latitude else None,
+                'longitude': float(hotel.longitude) if hotel.longitude else None,
+                'phone': hotel.phone,
+                'email': hotel.email,
+                'website_url': hotel.website_url,
+                'booking_url': hotel.booking_url,
+                'hero_image': hotel.hero_image.url if hotel.hero_image else None,
+                'logo': hotel.logo.url if hotel.logo else None,
+                'short_description': hotel.short_description,
+                'long_description': hotel.long_description,
+                'hotel_type': hotel.hotel_type,
+                'tags': hotel.tags,
             },
             'sections': []
         }
@@ -1106,3 +1131,357 @@ class HotelPublicPageView(APIView):
             response_data['sections'].append(section_data)
         
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# STAFF PUBLIC PAGE BUILDER API
+# ============================================================================
+
+class PublicPageBuilderView(APIView):
+    """
+    Staff builder endpoint for a hotel's public page.
+    Visible only to Super Staff Admin of that hotel.
+    
+    GET /api/staff/hotel/<hotel_slug>/hotel/public-page-builder/
+    
+    Returns:
+      - hotel meta
+      - sections with elements + items (or empty array if hotel is blank)
+      - is_empty flag (true if no sections exist)
+      - static presets for creating new sections
+    
+    This endpoint handles blank hotels gracefully - frontend gets all the tools
+    it needs to build the page from scratch.
+    """
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+
+    def get(self, request, hotel_slug):
+        # Get the hotel
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+        # Get all sections (active or not) for staff management
+        sections = (
+            PublicSection.objects
+            .filter(hotel=hotel)
+            .order_by("position")
+            .select_related("element")
+            .prefetch_related("element__items")
+        )
+
+        # Serialize sections
+        section_data = PublicSectionStaffSerializer(sections, many=True).data
+
+        # Check if hotel is empty (no sections)
+        is_empty = len(section_data) == 0
+
+        # Define presets that frontend can use to create sections
+        presets = {
+            "element_types": [
+                "hero",
+                "text_block",
+                "image_block",
+                "gallery",
+                "cards_list",
+                "reviews_list",
+                "rooms_list",
+                "contact_block",
+                "map_block",
+                "footer_block",
+            ],
+            "section_presets": [
+                {
+                    "key": "hero_default",
+                    "label": "Hero Section",
+                    "element_type": "hero",
+                    "element_defaults": {
+                        "title": f"Welcome to {hotel.name}",
+                        "subtitle": "Your perfect stay starts here",
+                        "body": "",
+                        "settings": {
+                            "primary_cta_label": "Book Now",
+                            "primary_cta_url": hotel.booking_url or "",
+                        },
+                    },
+                },
+                {
+                    "key": "rooms_default",
+                    "label": "Rooms List",
+                    "element_type": "rooms_list",
+                    "element_defaults": {
+                        "title": "Our Rooms & Suites",
+                        "subtitle": "",
+                        "settings": {
+                            "show_price_from": True,
+                            "show_occupancy": True,
+                            "columns": 2,
+                        },
+                    },
+                },
+                {
+                    "key": "highlights_cards",
+                    "label": "Highlights (Cards)",
+                    "element_type": "cards_list",
+                    "element_defaults": {
+                        "title": "Why You'll Love Staying Here",
+                        "subtitle": "",
+                        "settings": {
+                            "columns": 3,
+                        },
+                    },
+                },
+                {
+                    "key": "gallery_default",
+                    "label": "Gallery",
+                    "element_type": "gallery",
+                    "element_defaults": {
+                        "title": "Explore the Hotel",
+                        "subtitle": "",
+                        "settings": {
+                            "layout": "grid",
+                        },
+                    },
+                },
+                {
+                    "key": "reviews_default",
+                    "label": "Reviews",
+                    "element_type": "reviews_list",
+                    "element_defaults": {
+                        "title": "What Our Guests Say",
+                        "subtitle": "",
+                    },
+                },
+                {
+                    "key": "contact_default",
+                    "label": "Contact & Map",
+                    "element_type": "contact_block",
+                    "element_defaults": {
+                        "title": "Contact & Find Us",
+                        "subtitle": "",
+                        "body": "Get in touch or find us on the map.",
+                    },
+                },
+            ],
+        }
+
+        # Build response
+        response = {
+            "hotel": {
+                "id": hotel.id,
+                "slug": hotel.slug,
+                "name": hotel.name,
+                "city": hotel.city,
+                "country": hotel.country,
+                "tagline": hotel.tagline,
+                "booking_url": hotel.booking_url,
+            },
+            "is_empty": is_empty,
+            "sections": section_data,
+            "presets": presets,
+        }
+
+        return Response(response)
+
+
+class PublicPageBootstrapView(APIView):
+    """
+    Bootstrap a hotel with default public page sections.
+    Only works if hotel currently has ZERO sections.
+    
+    POST /api/staff/hotel/<hotel_slug>/hotel/public-page-builder/bootstrap-default/
+    
+    Creates:
+    - Hero section
+    - Rooms list section
+    - Highlights cards section
+    - Gallery section
+    - Reviews section
+    - Contact section
+    
+    Returns the same structure as PublicPageBuilderView GET endpoint.
+    """
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+
+    def post(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
+        # Check if hotel already has sections
+        existing_count = PublicSection.objects.filter(hotel=hotel).count()
+        if existing_count > 0:
+            return Response(
+                {
+                    "detail": f"Hotel already has {existing_count} section(s). Bootstrap only works on empty hotels."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create default sections
+        sections_created = []
+
+        # 1. Hero Section
+        hero_section = PublicSection.objects.create(
+            hotel=hotel,
+            position=0,
+            name="Hero",
+            is_active=True
+        )
+        PublicElement.objects.create(
+            section=hero_section,
+            element_type="hero",
+            title=f"Welcome to {hotel.name}",
+            subtitle="Your perfect stay starts here",
+            body="",
+            image_url="",
+            settings={
+                "primary_cta_label": "Book Now",
+                "primary_cta_url": hotel.booking_url or "",
+            }
+        )
+        sections_created.append("hero")
+
+        # 2. Rooms List
+        rooms_section = PublicSection.objects.create(
+            hotel=hotel,
+            position=1,
+            name="Rooms",
+            is_active=True
+        )
+        PublicElement.objects.create(
+            section=rooms_section,
+            element_type="rooms_list",
+            title="Our Rooms & Suites",
+            subtitle="",
+            body="",
+            image_url="",
+            settings={
+                "show_price_from": True,
+                "show_occupancy": True,
+                "columns": 2,
+            }
+        )
+        sections_created.append("rooms_list")
+
+        # 3. Highlights (Cards)
+        highlights_section = PublicSection.objects.create(
+            hotel=hotel,
+            position=2,
+            name="Highlights",
+            is_active=True
+        )
+        highlights_element = PublicElement.objects.create(
+            section=highlights_section,
+            element_type="cards_list",
+            title="Why You'll Love Staying Here",
+            subtitle="",
+            body="",
+            image_url="",
+            settings={"columns": 3}
+        )
+        # Add sample cards
+        PublicElementItem.objects.create(
+            element=highlights_element,
+            title="Family Friendly",
+            subtitle="Perfect for all ages",
+            body="Spacious family rooms, kids' activities, and flexible dining options.",
+            image_url="",
+            sort_order=0,
+            is_active=True
+        )
+        PublicElementItem.objects.create(
+            element=highlights_element,
+            title="Prime Location",
+            subtitle="Easy access to attractions",
+            body="Close to all major attractions, shops, and restaurants.",
+            image_url="",
+            sort_order=1,
+            is_active=True
+        )
+        PublicElementItem.objects.create(
+            element=highlights_element,
+            title="Excellent Service",
+            subtitle="5-star hospitality",
+            body="Our team is dedicated to making your stay memorable.",
+            image_url="",
+            sort_order=2,
+            is_active=True
+        )
+        sections_created.append("highlights")
+
+        # 4. Gallery
+        gallery_section = PublicSection.objects.create(
+            hotel=hotel,
+            position=3,
+            name="Gallery",
+            is_active=True
+        )
+        PublicElement.objects.create(
+            section=gallery_section,
+            element_type="gallery",
+            title="Explore the Hotel",
+            subtitle="",
+            body="",
+            image_url="",
+            settings={"layout": "grid"}
+        )
+        sections_created.append("gallery")
+
+        # 5. Reviews
+        reviews_section = PublicSection.objects.create(
+            hotel=hotel,
+            position=4,
+            name="Reviews",
+            is_active=True
+        )
+        PublicElement.objects.create(
+            section=reviews_section,
+            element_type="reviews_list",
+            title="What Our Guests Say",
+            subtitle="",
+            body="",
+            image_url="",
+            settings={}
+        )
+        sections_created.append("reviews")
+
+        # 6. Contact
+        contact_section = PublicSection.objects.create(
+            hotel=hotel,
+            position=5,
+            name="Contact",
+            is_active=True
+        )
+        PublicElement.objects.create(
+            section=contact_section,
+            element_type="contact_block",
+            title="Contact & Find Us",
+            subtitle="",
+            body="Get in touch or find us on the map.",
+            image_url="",
+            settings={}
+        )
+        sections_created.append("contact")
+
+        # Return the same structure as GET endpoint
+        sections = (
+            PublicSection.objects
+            .filter(hotel=hotel)
+            .order_by("position")
+            .select_related("element")
+            .prefetch_related("element__items")
+        )
+
+        section_data = PublicSectionStaffSerializer(sections, many=True).data
+
+        return Response(
+            {
+                "message": f"Successfully created {len(sections_created)} default sections",
+                "sections_created": sections_created,
+                "hotel": {
+                    "id": hotel.id,
+                    "slug": hotel.slug,
+                    "name": hotel.name,
+                },
+                "is_empty": False,
+                "sections": section_data,
+            },
+            status=status.HTTP_201_CREATED
+        )

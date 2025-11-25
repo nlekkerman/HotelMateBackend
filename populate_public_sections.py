@@ -26,13 +26,16 @@ def create_hero_section(hotel, position=0):
         name="Hero Banner"
     )
     
+    # Use hotel's hero_image if available
+    hero_image_url = str(hotel.hero_image.url) if hotel.hero_image else ""
+    
     element = PublicElement.objects.create(
         section=section,
         element_type="hero",
         title=hotel.name,
         subtitle=hotel.tagline or "Welcome to our hotel",
         body=hotel.long_description or hotel.short_description,
-        image_url=str(hotel.hero_image.url) if hotel.hero_image else "",
+        image_url=hero_image_url,
         settings={
             "cta_label": "Book Now",
             "cta_url": hotel.booking_url or "#booking",
@@ -40,7 +43,7 @@ def create_hero_section(hotel, position=0):
         }
     )
     
-    print(f"  ✓ Created hero section")
+    print(f"  ✓ Created hero section (image: {'Yes' if hero_image_url else 'No'})")
     return section
 
 

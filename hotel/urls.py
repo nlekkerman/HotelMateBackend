@@ -11,6 +11,8 @@ from .views import (
     StaffBookingsListView,
     StaffBookingConfirmView,
     HotelPublicPageView,
+    PublicPageBuilderView,
+    PublicPageBootstrapView,
 )
 from .staff_views import (
     StaffRoomTypeViewSet,
@@ -64,6 +66,19 @@ urlpatterns = [
     path(
         "staff/",
         include(staff_router.urls),
+    ),
+    
+    # Public Page Builder (Super Staff Admin only)
+    # Accessed via: /api/staff/hotel/<slug>/hotel/public-page-builder/
+    path(
+        "public-page-builder/",
+        PublicPageBuilderView.as_view(),
+        name="public-page-builder"
+    ),
+    path(
+        "public-page-builder/bootstrap-default/",
+        PublicPageBootstrapView.as_view(),
+        name="public-page-bootstrap"
     ),
     
     # Availability check endpoint

@@ -21,8 +21,24 @@ The backend provides a flexible, dynamic page builder system for hotel public pa
     "id": 2,
     "name": "Hotel Killarney",
     "slug": "hotel-killarney",
+    "tagline": "Your Gateway to Ireland's Natural Beauty",
     "city": "Killarney",
-    "country": "Ireland"
+    "country": "Ireland",
+    "address_line_1": "College Street",
+    "address_line_2": "",
+    "postal_code": "V93 X2C4",
+    "latitude": 52.058889,
+    "longitude": -9.505556,
+    "phone": "+353 64 663 1555",
+    "email": "info@hotelkillarney.ie",
+    "website_url": "https://www.hotelkillarney.ie",
+    "booking_url": "https://www.hotelkillarney.ie/book",
+    "hero_image": "http://res.cloudinary.com/.../hero.png",
+    "logo": "http://res.cloudinary.com/.../logo.png",
+    "short_description": "A modern family-friendly hotel...",
+    "long_description": "Nestled in the heart of County Kerry...",
+    "hotel_type": "FamilyHotel",
+    "tags": ["Family", "Nature", "Spa"]
   },
   "sections": [
     {
@@ -83,6 +99,8 @@ The backend provides a flexible, dynamic page builder system for hotel public pa
 **Notes:**
 - No `items` array for hero
 - Always first section (position 0)
+- `element.image_url` contains the hotel's hero image (same as `hotel.hero_image`)
+- Image is automatically populated from hotel model when seeded
 
 ---
 

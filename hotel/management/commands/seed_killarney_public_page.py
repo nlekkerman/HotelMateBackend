@@ -41,21 +41,25 @@ class Command(BaseCommand):
             is_active=True
         )
 
+        # Use hotel's actual hero image and data
+        hero_image_url = hotel.hero_image.url if hotel.hero_image else ""
+        
         PublicElement.objects.create(
             section=hero_section,
             element_type="hero",
-            title="Welcome to Hotel Killarney",
-            subtitle="Your perfect stay in the heart of Kerry",
-            body="Enjoy comfortable rooms, great food, and family-friendly facilities in one of Ireland's most beautiful regions.",
-            image_url="",
+            title=f"Welcome to {hotel.name}",
+            subtitle=hotel.tagline or "Your perfect stay in the heart of Kerry",
+            body=hotel.long_description or "Enjoy comfortable rooms, great food, and family-friendly facilities in one of Ireland's most beautiful regions.",
+            image_url=hero_image_url,
             settings={
                 "primary_cta_label": "Book Now",
-                "primary_cta_url": "/guest/hotels/hotel-killarney/book/",
+                "primary_cta_url": hotel.booking_url or "/guest/hotels/hotel-killarney/book/",
                 "align": "center"
             }
         )
 
-        self.stdout.write(self.style.SUCCESS('✓ Created hero section'))
+        self.stdout.write(self.style.SUCCESS(f'✓ Created hero section (image: {"Yes" if hero_image_url else "No"})'))
+
 
         # ============================================================
         # SECTION 2 — Rooms List
