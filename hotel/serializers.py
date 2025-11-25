@@ -222,8 +222,6 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
             'email',
             'website_url',
             'booking_url',
-            # Gallery from Hotel model
-            'gallery',
             # Nested objects
             'booking_options',
             'public_settings',
@@ -457,7 +455,6 @@ class HotelPublicSettingsPublicSerializer(serializers.ModelSerializer):
             'long_description',
             'welcome_message',
             'hero_image',
-            'gallery',
             'amenities',
             'contact_email',
             'contact_phone',
@@ -517,9 +514,7 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     website_url_display = serializers.SerializerMethodField()
     booking_url_display = serializers.SerializerMethodField()
     
-    # Gallery fetched from Hotel model (read-only, legacy)
-    gallery = serializers.SerializerMethodField()
-    # Galleries - new structured gallery system
+    # Galleries - structured gallery system
     galleries = serializers.SerializerMethodField()
     
     class Meta:
@@ -565,7 +560,6 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'landing_page_image_display',
             'logo',
             'logo_display',
-            'gallery',
             'galleries',
             'amenities',
             # Contact (legacy fields)
@@ -591,12 +585,8 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'theme_mode',
             'updated_at',
         ]
-        # Gallery is read-only, fetched from Hotel model
-        read_only_fields = ['updated_at', 'gallery', 'galleries']
-    
-    def get_gallery(self, obj):
-        """Fetch legacy gallery from Hotel model (public page)"""
-        return obj.hotel.gallery
+        # Galleries is read-only
+        read_only_fields = ['updated_at', 'galleries']
     
     def get_galleries(self, obj):
         """Fetch structured galleries with images"""

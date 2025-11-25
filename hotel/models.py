@@ -119,13 +119,6 @@ class Hotel(models.Model):
         help_text="Primary booking URL (external or internal)"
     )
     
-    # Gallery images for public hotel page
-    gallery = models.JSONField(
-        default=list,
-        blank=True,
-        help_text="List of image URLs for public hotel gallery"
-    )
-    
     # Tags for filtering (Issue #46 enhancement)
     tags = models.JSONField(
         default=list,

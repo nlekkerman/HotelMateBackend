@@ -362,7 +362,6 @@ class HotelPublicSettingsAdmin(admin.ModelAdmin):
                 'long_description',
                 'welcome_message',
                 'hero_image',
-                'gallery',
                 'amenities'
             )
         }),

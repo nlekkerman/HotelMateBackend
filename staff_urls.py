@@ -13,8 +13,6 @@ from hotel.views import (
 )
 from hotel.staff_views import (
     StaffRoomTypeViewSet,
-    StaffGalleryImageUploadView,
-    StaffGalleryManagementView,
     StaffGalleryViewSet,
     StaffGalleryImageViewSet,
 )
@@ -66,22 +64,6 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/settings/',
         HotelPublicSettingsStaffView.as_view(),
         name='staff-hotel-settings'
-    ),
-    # Gallery image management
-    path(
-        'hotel/<str:hotel_slug>/settings/gallery/upload/',
-        StaffGalleryImageUploadView.as_view(),
-        name='staff-gallery-upload'
-    ),
-    path(
-        'hotel/<str:hotel_slug>/settings/gallery/reorder/',
-        StaffGalleryManagementView.as_view(),
-        name='staff-gallery-reorder'
-    ),
-    path(
-        'hotel/<str:hotel_slug>/settings/gallery/remove/',
-        StaffGalleryManagementView.as_view(),
-        name='staff-gallery-remove'
     ),
     # Bookings management
     path(
