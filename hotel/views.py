@@ -747,16 +747,25 @@ class HotelPublicSettingsStaffView(APIView):
             hotel=staff.hotel
         )
 
+        # Track if any changes were made
+        files_uploaded = False
+        
         # Handle file uploads - Save to HOTEL model, not settings
         if 'hero_image' in request.FILES:
             staff.hotel.hero_image = request.FILES['hero_image']
             staff.hotel.save()
+            files_uploaded = True
+            print(f"[Settings] Hero image uploaded")
         if 'landing_page_image' in request.FILES:
             staff.hotel.landing_page_image = request.FILES['landing_page_image']
             staff.hotel.save()
+            files_uploaded = True
+            print(f"[Settings] Landing page image uploaded")
         if 'logo' in request.FILES:
             staff.hotel.logo = request.FILES['logo']
             staff.hotel.save()
+            files_uploaded = True
+            print(f"[Settings] Logo uploaded")
 
         # Update settings (text fields, colors, etc.)
         from .serializers import HotelPublicSettingsStaffSerializer
@@ -768,93 +777,104 @@ class HotelPublicSettingsStaffView(APIView):
 
         if serializer.is_valid():
             serializer.save()
-            
-            # Get fresh data after save to include uploaded images
-            updated_serializer = HotelPublicSettingsStaffSerializer(settings)
-            
-            # Broadcast settings update via Pusher with ALL fields
-            try:
-                from chat.utils import pusher_client
-                pusher_client.trigger(
-                    f'hotel-{hotel_slug}',
-                    'settings-updated',
-                    {
-                        # Hotel override fields
-                        'name_override': updated_serializer.data.get('name_override'),
-                        'name_display': updated_serializer.data.get('name_display'),
-                        'tagline_override': updated_serializer.data.get('tagline_override'),
-                        'tagline_display': updated_serializer.data.get('tagline_display'),
-                        'city_override': updated_serializer.data.get('city_override'),
-                        'city_display': updated_serializer.data.get('city_display'),
-                        'country_override': updated_serializer.data.get('country_override'),
-                        'country_display': updated_serializer.data.get('country_display'),
-                        'address_line_1_override': updated_serializer.data.get('address_line_1_override'),
-                        'address_line_1_display': updated_serializer.data.get('address_line_1_display'),
-                        'address_line_2_override': updated_serializer.data.get('address_line_2_override'),
-                        'address_line_2_display': updated_serializer.data.get('address_line_2_display'),
-                        'postal_code_override': updated_serializer.data.get('postal_code_override'),
-                        'postal_code_display': updated_serializer.data.get('postal_code_display'),
-                        'latitude_override': updated_serializer.data.get('latitude_override'),
-                        'latitude_display': updated_serializer.data.get('latitude_display'),
-                        'longitude_override': updated_serializer.data.get('longitude_override'),
-                        'longitude_display': updated_serializer.data.get('longitude_display'),
-                        'phone_override': updated_serializer.data.get('phone_override'),
-                        'phone_display': updated_serializer.data.get('phone_display'),
-                        'email_override': updated_serializer.data.get('email_override'),
-                        'email_display': updated_serializer.data.get('email_display'),
-                        'website_url_override': updated_serializer.data.get('website_url_override'),
-                        'website_url_display': updated_serializer.data.get('website_url_display'),
-                        'booking_url_override': updated_serializer.data.get('booking_url_override'),
-                        'booking_url_display': updated_serializer.data.get('booking_url_display'),
-                        # Content fields
-                        'short_description': updated_serializer.data.get('short_description'),
-                        'long_description': updated_serializer.data.get('long_description'),
-                        'welcome_message': updated_serializer.data.get('welcome_message'),
-                        # Images
-                        'hero_image': updated_serializer.data.get('hero_image_url'),
-                        'hero_image_url': updated_serializer.data.get('hero_image_url'),
-                        'hero_image_display': updated_serializer.data.get('hero_image_display'),
-                        'landing_page_image': updated_serializer.data.get('landing_page_image_url'),
-                        'landing_page_image_url': updated_serializer.data.get('landing_page_image_url'),
-                        'landing_page_image_display': updated_serializer.data.get('landing_page_image_display'),
-                        'logo': updated_serializer.data.get('logo_display'),
-                        'logo_display': updated_serializer.data.get('logo_display'),
-                        'galleries': updated_serializer.data.get('galleries'),
-                        'amenities': updated_serializer.data.get('amenities'),
-                        # Contact (legacy fields)
-                        'contact_email': updated_serializer.data.get('contact_email'),
-                        'contact_phone': updated_serializer.data.get('contact_phone'),
-                        'contact_address': updated_serializer.data.get('contact_address'),
-                        'website': updated_serializer.data.get('website'),
-                        'google_maps_link': updated_serializer.data.get('google_maps_link'),
-                        'favicon': updated_serializer.data.get('favicon'),
-                        'slogan': updated_serializer.data.get('slogan'),
-                        # Branding colors
-                        'primary_color': updated_serializer.data.get('primary_color'),
-                        'secondary_color': updated_serializer.data.get('secondary_color'),
-                        'accent_color': updated_serializer.data.get('accent_color'),
-                        'background_color': updated_serializer.data.get('background_color'),
-                        'button_color': updated_serializer.data.get('button_color'),
-                        'button_text_color': updated_serializer.data.get('button_text_color'),
-                        'button_hover_color': updated_serializer.data.get('button_hover_color'),
-                        'text_color': updated_serializer.data.get('text_color'),
-                        'border_color': updated_serializer.data.get('border_color'),
-                        'link_color': updated_serializer.data.get('link_color'),
-                        'link_hover_color': updated_serializer.data.get('link_hover_color'),
-                        'theme_mode': updated_serializer.data.get('theme_mode'),
-                        # Metadata
-                        'updated_at': updated_serializer.data.get('updated_at')
-                    }
-                )
-            except Exception:
-                pass  # Don't fail if Pusher fails
-            
-            return Response(updated_serializer.data)
-
-        return Response(
-            serializer.errors,
-            status=status.HTTP_400_BAD_REQUEST
-        )
+            print(f"[Settings] Text/color fields saved")
+        elif not files_uploaded:
+            # Only return error if no files were uploaded
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Refresh settings from DB to get latest hotel data
+        settings.refresh_from_db()
+        
+        # Get fresh data after save to include uploaded images
+        updated_serializer = HotelPublicSettingsStaffSerializer(settings)
+        
+        # Log for debugging
+        print(f"[Pusher] Broadcasting settings-updated to hotel-{hotel_slug}")
+        print(f"[Pusher] Hero image URL: {updated_serializer.data.get('hero_image_url')}")
+        
+        # Broadcast settings update via Pusher with ALL fields
+        try:
+            from chat.utils import pusher_client
+            pusher_client.trigger(
+                f'hotel-{hotel_slug}',
+                'settings-updated',
+                {
+                    # Hotel override fields
+                    'name_override': updated_serializer.data.get('name_override'),
+                    'name_display': updated_serializer.data.get('name_display'),
+                    'tagline_override': updated_serializer.data.get('tagline_override'),
+                    'tagline_display': updated_serializer.data.get('tagline_display'),
+                    'city_override': updated_serializer.data.get('city_override'),
+                    'city_display': updated_serializer.data.get('city_display'),
+                    'country_override': updated_serializer.data.get('country_override'),
+                    'country_display': updated_serializer.data.get('country_display'),
+                    'address_line_1_override': updated_serializer.data.get('address_line_1_override'),
+                    'address_line_1_display': updated_serializer.data.get('address_line_1_display'),
+                    'address_line_2_override': updated_serializer.data.get('address_line_2_override'),
+                    'address_line_2_display': updated_serializer.data.get('address_line_2_display'),
+                    'postal_code_override': updated_serializer.data.get('postal_code_override'),
+                    'postal_code_display': updated_serializer.data.get('postal_code_display'),
+                    'latitude_override': updated_serializer.data.get('latitude_override'),
+                    'latitude_display': updated_serializer.data.get('latitude_display'),
+                    'longitude_override': updated_serializer.data.get('longitude_override'),
+                    'longitude_display': updated_serializer.data.get('longitude_display'),
+                    'phone_override': updated_serializer.data.get('phone_override'),
+                    'phone_display': updated_serializer.data.get('phone_display'),
+                    'email_override': updated_serializer.data.get('email_override'),
+                    'email_display': updated_serializer.data.get('email_display'),
+                    'website_url_override': updated_serializer.data.get('website_url_override'),
+                    'website_url_display': updated_serializer.data.get('website_url_display'),
+                    'booking_url_override': updated_serializer.data.get('booking_url_override'),
+                    'booking_url_display': updated_serializer.data.get('booking_url_display'),
+                    # Content fields
+                    'short_description': updated_serializer.data.get('short_description'),
+                    'long_description': updated_serializer.data.get('long_description'),
+                    'welcome_message': updated_serializer.data.get('welcome_message'),
+                    # Images
+                    'hero_image': updated_serializer.data.get('hero_image_url'),
+                    'hero_image_url': updated_serializer.data.get('hero_image_url'),
+                    'hero_image_display': updated_serializer.data.get('hero_image_display'),
+                    'landing_page_image': updated_serializer.data.get('landing_page_image_url'),
+                    'landing_page_image_url': updated_serializer.data.get('landing_page_image_url'),
+                    'landing_page_image_display': updated_serializer.data.get('landing_page_image_display'),
+                    'logo': updated_serializer.data.get('logo_display'),
+                    'logo_display': updated_serializer.data.get('logo_display'),
+                    'galleries': updated_serializer.data.get('galleries'),
+                    'amenities': updated_serializer.data.get('amenities'),
+                    # Contact (legacy fields)
+                    'contact_email': updated_serializer.data.get('contact_email'),
+                    'contact_phone': updated_serializer.data.get('contact_phone'),
+                    'contact_address': updated_serializer.data.get('contact_address'),
+                    'website': updated_serializer.data.get('website'),
+                    'google_maps_link': updated_serializer.data.get('google_maps_link'),
+                    'favicon': updated_serializer.data.get('favicon'),
+                    'slogan': updated_serializer.data.get('slogan'),
+                    # Branding colors
+                    'primary_color': updated_serializer.data.get('primary_color'),
+                    'secondary_color': updated_serializer.data.get('secondary_color'),
+                    'accent_color': updated_serializer.data.get('accent_color'),
+                    'background_color': updated_serializer.data.get('background_color'),
+                    'button_color': updated_serializer.data.get('button_color'),
+                    'button_text_color': updated_serializer.data.get('button_text_color'),
+                    'button_hover_color': updated_serializer.data.get('button_hover_color'),
+                    'text_color': updated_serializer.data.get('text_color'),
+                    'border_color': updated_serializer.data.get('border_color'),
+                    'link_color': updated_serializer.data.get('link_color'),
+                    'link_hover_color': updated_serializer.data.get('link_hover_color'),
+                    'theme_mode': updated_serializer.data.get('theme_mode'),
+                    # Metadata
+                    'updated_at': updated_serializer.data.get('updated_at')
+                }
+            )
+            print("[Pusher] Broadcast successful!")
+        except Exception as e:
+            print(f"[Pusher] ❌ Broadcast failed: {str(e)}")
+            # Don't fail the request if Pusher fails
+        
+        return Response(updated_serializer.data)
 
 
 # Staff Bookings Management Views
