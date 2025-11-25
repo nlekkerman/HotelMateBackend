@@ -7,11 +7,10 @@ from django.shortcuts import get_object_or_404
 from django.db import models
 from datetime import datetime
 
-from .models import Hotel, HotelPublicSettings, RoomBooking, PricingQuote
+from .models import Hotel, RoomBooking, PricingQuote
 from .serializers import (
     HotelSerializer,
     HotelPublicSerializer,
-    HotelPublicDetailSerializer,
     RoomBookingListSerializer,
     RoomBookingDetailSerializer
 )
@@ -155,46 +154,6 @@ class HotelFilterOptionsView(APIView):
             'tags': sorted(list(all_tags)),
             'hotel_types': list(hotel_types)
         })
-
-
-class HotelPublicDetailView(generics.RetrieveAPIView):
-    """
-    Public API endpoint for single hotel details by slug.
-    Returns hotel with branding and portal configuration.
-    """
-    serializer_class = HotelPublicSerializer
-    permission_classes = [AllowAny]
-    lookup_field = "slug"
-
-    def get_queryset(self):
-        """Only return active hotels with access_config"""
-        return Hotel.objects.filter(
-            is_active=True
-        ).select_related('access_config')
-
-
-class HotelPublicPageView(generics.RetrieveAPIView):
-    """
-    Public API endpoint for complete hotel page content.
-    Returns full hotel details including booking options,
-    room types, offers, and leisure activities.
-    For non-authenticated public users browsing hotels.
-    """
-    serializer_class = HotelPublicDetailSerializer
-    permission_classes = [AllowAny]
-    lookup_field = "slug"
-
-    def get_queryset(self):
-        """Optimized query with all related objects"""
-        return Hotel.objects.filter(
-            is_active=True
-        ).select_related(
-            'booking_options'
-        ).prefetch_related(
-            'room_types',
-            'offers',
-            'leisure_activities'
-        )
 
 
 class HotelAvailabilityView(APIView):
@@ -426,7 +385,6 @@ class HotelPricingQuoteView(APIView):
             total=total,
             currency=room_type.currency,
             promo_code=promo_code if promo_code else '',
-            applied_offer=None,
             valid_until=valid_until
         )
         
@@ -639,43 +597,12 @@ class HotelBookingCreateView(APIView):
         return Response(booking_data, status=status.HTTP_201_CREATED)
 
 
-# Hotel Public Settings Views
+# Staff Hotel Settings Views
+# DEPRECATED: HotelPublicSettings model has been removed
+# The HotelPublicSettingsStaffView class has been temporarily disabled
+# TODO: Implement new hotel settings management system
 
-class HotelPublicSettingsView(APIView):
-    """
-    Public read-only endpoint for hotel public settings.
-    GET /api/public/hotels/<hotel_slug>/settings/
-    """
-    permission_classes = [AllowAny]
-
-    def get(self, request, hotel_slug):
-        # Get hotel by slug
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        
-        # Get or create settings for this hotel
-        settings, created = HotelPublicSettings.objects.get_or_create(
-            hotel=hotel
-        )
-        
-        # Serialize and return
-        from .serializers import HotelPublicSettingsPublicSerializer
-        serializer = HotelPublicSettingsPublicSerializer(settings)
-        return Response(serializer.data)
-
-
-class HotelPublicSettingsStaffView(APIView):
-    """
-    Staff-only endpoint to retrieve and update hotel public settings.
-    GET /api/staff/hotels/<hotel_slug>/settings/ - Retrieve settings
-    PUT/PATCH /api/staff/hotels/<hotel_slug>/settings/ - Update settings
-    
-    Requires:
-    - User is authenticated
-    - User has staff_profile
-    - Staff belongs to the specified hotel
-    - Optionally: Staff has admin/manager access level
-    """
-    permission_classes = []  # Will be added in next step
+# permission_classes = []  # Will be added in next step
     
     def get_permissions(self):
         from rest_framework.permissions import IsAuthenticated
@@ -881,11 +808,6 @@ class HotelPublicSettingsStaffView(APIView):
             print("[Pusher] Broadcast successful!")
         except Exception as e:
             print(f"[Pusher] ❌ Broadcast failed: {str(e)}")
-            # Don't fail the request if Pusher fails
-        
-        return Response(updated_serializer.data)
-
-
 # Staff Bookings Management Views
 
 class StaffBookingsListView(APIView):
@@ -1090,3 +1012,97 @@ class StaffBookingConfirmView(APIView):
             'message': 'Booking confirmed successfully',
             'booking': serializer.data
         })
+
+
+class HotelPublicPageView(APIView):
+    """
+    Public API endpoint to get hotel page structure with all sections and elements.
+    
+    GET /api/public/hotel/<slug>/page/
+    
+    Returns all active sections for the hotel, ordered by position.
+    Special handling for element_type='rooms_list' to return real room types
+    from the database instead of custom items.
+    
+    No authentication required - public endpoint.
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, slug):
+        # Get hotel
+        hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
+        
+        # Get all active sections with their elements, ordered by position
+        sections = hotel.public_sections.filter(
+            is_active=True
+        ).select_related('element').prefetch_related('element__items').order_by('position')
+        
+        # Build response data
+        response_data = {
+            'hotel': {
+                'id': hotel.id,
+                'name': hotel.name,
+                'slug': hotel.slug,
+                'city': hotel.city,
+                'country': hotel.country,
+            },
+            'sections': []
+        }
+        
+        for section in sections:
+            # Skip sections without elements
+            if not hasattr(section, 'element'):
+                continue
+            
+            element = section.element
+            
+            # Build base section data
+            section_data = {
+                'id': section.id,
+                'position': section.position,
+                'name': section.name,
+                'element': {
+                    'id': element.id,
+                    'element_type': element.element_type,
+                    'title': element.title,
+                    'subtitle': element.subtitle,
+                    'body': element.body,
+                    'image_url': element.image_url,
+                    'settings': element.settings,
+                }
+            }
+            
+            # Special case: rooms_list element type
+            if element.element_type == 'rooms_list':
+                # Get real room types from the database
+                room_types = hotel.room_types.filter(
+                    is_active=True
+                ).order_by('sort_order', 'name')
+                
+                # Serialize room types using RoomTypeSerializer
+                from .serializers import RoomTypeSerializer
+                room_types_data = RoomTypeSerializer(room_types, many=True).data
+                section_data['element']['rooms'] = room_types_data
+                section_data['element']['items'] = []  # No custom items for rooms_list
+            else:
+                # Standard elements: include custom items
+                items = element.items.filter(is_active=True).order_by('sort_order')
+                section_data['element']['items'] = [
+                    {
+                        'id': item.id,
+                        'title': item.title,
+                        'subtitle': item.subtitle,
+                        'body': item.body,
+                        'image_url': item.image_url,
+                        'badge': item.badge,
+                        'cta_label': item.cta_label,
+                        'cta_url': item.cta_url,
+                        'sort_order': item.sort_order,
+                        'meta': item.meta,
+                    }
+                    for item in items
+                ]
+            
+            response_data['sections'].append(section_data)
+        
+        return Response(response_data, status=status.HTTP_200_OK)

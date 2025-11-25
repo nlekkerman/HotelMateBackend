@@ -5,19 +5,14 @@ from .views import (
     HotelBySlugView,
     HotelPublicListView,
     HotelFilterOptionsView,
-    HotelPublicDetailView,
-    HotelPublicPageView,
     HotelAvailabilityView,
     HotelPricingQuoteView,
     HotelBookingCreateView,
-    HotelPublicSettingsView,
-    HotelPublicSettingsStaffView,
     StaffBookingsListView,
     StaffBookingConfirmView,
+    HotelPublicPageView,
 )
 from .staff_views import (
-    StaffOfferViewSet,
-    StaffLeisureActivityViewSet,
     StaffRoomTypeViewSet,
     StaffRoomViewSet,
     StaffAccessConfigViewSet,
@@ -32,18 +27,8 @@ from .payment_views import (
 router = DefaultRouter()
 router.register(r'hotels', HotelViewSet)
 
-# Staff router for CRUD views (B5)
+# Staff router for CRUD views
 staff_router = DefaultRouter()
-staff_router.register(
-    r'offers',
-    StaffOfferViewSet,
-    basename='staff-offers'
-)
-staff_router.register(
-    r'leisure-activities',
-    StaffLeisureActivityViewSet,
-    basename='staff-leisure'
-)
 staff_router.register(
     r'room-types',
     StaffRoomTypeViewSet,
@@ -61,44 +46,6 @@ staff_router.register(
 )
 
 urlpatterns = [
-    # Public API endpoints for hotel discovery
-    path(
-        "public/",
-        HotelPublicListView.as_view(),
-        name="hotel-public-list"
-    ),
-    path(
-        "public/filters/",
-        HotelFilterOptionsView.as_view(),
-        name="hotel-filter-options"
-    ),
-    path(
-        "public/<slug:slug>/",
-        HotelPublicDetailView.as_view(),
-        name="hotel-public-detail"
-    ),
-    path(
-        "public/page/<slug:slug>/",
-        HotelPublicPageView.as_view(),
-        name="hotel-public-page"
-    ),
-    
-    # Public hotel settings endpoint
-    # Accessed via: /api/public/hotels/<slug>/settings/
-    path(
-        "public/<slug:hotel_slug>/settings/",
-        HotelPublicSettingsView.as_view(),
-        name="hotel-public-settings"
-    ),
-    
-    # Staff hotel settings endpoint
-    # Accessed via: /api/staff/hotels/<slug>/hotel/settings/
-    path(
-        "settings/",
-        HotelPublicSettingsStaffView.as_view(),
-        name="hotel-staff-settings"
-    ),
-    
     # Staff bookings endpoints
     # Accessed via: /api/staff/hotels/<slug>/hotel/bookings/
     path(

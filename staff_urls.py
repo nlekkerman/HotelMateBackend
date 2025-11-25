@@ -7,16 +7,11 @@ Preserves existing app URL structures without modification.
 
 from django.urls import path, include
 from hotel.views import (
-    HotelPublicSettingsStaffView,
     StaffBookingsListView,
     StaffBookingConfirmView,
 )
 from hotel.staff_views import (
-    StaffOfferViewSet,
-    StaffLeisureActivityViewSet,
     StaffRoomTypeViewSet,
-    StaffGalleryViewSet,
-    StaffGalleryImageViewSet,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -41,42 +36,16 @@ STAFF_APPS = [
     'stock_tracker',
 ]
 
-# Create router for offers, leisure activities, room-types and galleries
+# Create router for room-types
 staff_hotel_router = DefaultRouter()
-staff_hotel_router.register(
-    r'offers',
-    StaffOfferViewSet,
-    basename='staff-offers'
-)
-staff_hotel_router.register(
-    r'leisure-activities',
-    StaffLeisureActivityViewSet,
-    basename='staff-leisure-activities'
-)
 staff_hotel_router.register(
     r'room-types',
     StaffRoomTypeViewSet,
     basename='staff-room-types-direct'
 )
-staff_hotel_router.register(
-    r'galleries',
-    StaffGalleryViewSet,
-    basename='staff-galleries'
-)
-staff_hotel_router.register(
-    r'gallery-images',
-    StaffGalleryImageViewSet,
-    basename='staff-gallery-images'
-)
 
 urlpatterns = [
     # Phase 1 Direct Staff Routes (cleaner URLs)
-    # Hotel settings management
-    path(
-        'hotel/<str:hotel_slug>/settings/',
-        HotelPublicSettingsStaffView.as_view(),
-        name='staff-hotel-settings'
-    ),
     # Bookings management
     path(
         'hotel/<str:hotel_slug>/bookings/',

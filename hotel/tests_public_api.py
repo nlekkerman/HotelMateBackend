@@ -270,8 +270,13 @@ class LeisureActivityModelTests(TestCase):
         )
 
 
+# DEPRECATED: Old public hotel page tests
+# These tests are for the removed HotelPublicPageView endpoint
+# New dynamic section-based public pages will have separate tests
+
+"""
 class HotelPublicPageViewTests(TestCase):
-    """Test Hotel Public Page API view."""
+    Test Hotel Public Page API view - DEPRECATED"""
     
     def setUp(self):
         self.client = APIClient()
@@ -660,3 +665,5 @@ class ActiveItemsFilteringTests(TestCase):
         activities = response.data['leisure_activities']
         self.assertEqual(len(activities), 1)
         self.assertEqual(activities[0]['name'], 'Active Pool')
+"""
+# END OF DEPRECATED PUBLIC PAGE TESTS

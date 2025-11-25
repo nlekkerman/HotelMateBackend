@@ -5,13 +5,11 @@ from .models import (
     Hotel,
     HotelAccessConfig,
     BookingOptions,
-    HotelPublicSettings,
-    Offer,
-    LeisureActivity,
     RoomBooking,
     PricingQuote,
-    Gallery,
-    GalleryImage
+    PublicSection,
+    PublicElement,
+    PublicElementItem,
 )
 
 
@@ -130,91 +128,6 @@ class HotelAccessConfigAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(Offer)
-class OfferAdmin(admin.ModelAdmin):
-    list_display = (
-        'title',
-        'hotel',
-        'tag',
-        'valid_from',
-        'valid_to',
-        'is_active',
-        'sort_order',
-        'photo_preview'
-    )
-    list_filter = ('hotel', 'is_active', 'tag', 'valid_from')
-    search_fields = ('title', 'short_description', 'hotel__name')
-    list_editable = ('is_active', 'sort_order')
-    ordering = ('sort_order', '-created_at')
-    
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('hotel', 'title', 'tag', 'photo')
-        }),
-        ('Description', {
-            'fields': ('short_description', 'details_text', 'details_html')
-        }),
-        ('Validity Period', {
-            'fields': ('valid_from', 'valid_to')
-        }),
-        ('Booking', {
-            'fields': ('book_now_url',)
-        }),
-        ('Display Settings', {
-            'fields': ('is_active', 'sort_order')
-        }),
-    )
-
-    def photo_preview(self, obj):
-        if obj.photo:
-            return format_html(
-                '<img src="{}" style="max-height: 50px;"/>',
-                obj.photo.url
-            )
-        return "-"
-    photo_preview.short_description = "Photo"
-
-
-@admin.register(LeisureActivity)
-class LeisureActivityAdmin(admin.ModelAdmin):
-    list_display = (
-        'name',
-        'hotel',
-        'category',
-        'is_active',
-        'sort_order',
-        'image_preview'
-    )
-    list_filter = ('hotel', 'category', 'is_active')
-    search_fields = ('name', 'short_description', 'hotel__name')
-    list_editable = ('is_active', 'sort_order')
-    ordering = ('category', 'sort_order', 'name')
-    
-    fieldsets = (
-        ('Basic Information', {
-            'fields': ('hotel', 'name', 'category', 'icon')
-        }),
-        ('Description', {
-            'fields': ('short_description', 'details_html')
-        }),
-        ('Media', {
-            'fields': ('image',)
-        }),
-        ('Display Settings', {
-            'fields': ('is_active', 'sort_order')
-        }),
-    )
-
-    def image_preview(self, obj):
-        if obj.image:
-            return format_html(
-                '<img src="{}" style="max-height: 50px;"/>',
-                obj.image.url
-            )
-        return '-'
-    image_preview.short_description = 'Image'
-
-
 @admin.register(RoomBooking)
 class RoomBookingAdmin(admin.ModelAdmin):
     list_display = (
@@ -327,7 +240,7 @@ class PricingQuoteAdmin(admin.ModelAdmin):
             )
         }),
         ('Promotions', {
-            'fields': ('promo_code', 'applied_offer')
+            'fields': ('promo_code',)
         }),
         ('Validity', {
             'fields': ('created_at', 'valid_until')
@@ -335,145 +248,133 @@ class PricingQuoteAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(HotelPublicSettings)
-class HotelPublicSettingsAdmin(admin.ModelAdmin):
-    """
-    Admin interface for HotelPublicSettings.
-    Allows quick inspection and manual adjustments.
-    """
-    list_display = (
-        'hotel',
-        'contact_email',
-        'contact_phone',
-        'theme_mode',
-        'updated_at'
+class PublicElementInline(admin.StackedInline):
+    """Inline editor for PublicElement"""
+    model = PublicElement
+    can_delete = False
+    verbose_name_plural = 'Element'
+    fields = (
+        'element_type',
+        'title',
+        'subtitle',
+        'body',
+        'image_url',
+        'settings',
     )
-    list_filter = ('hotel', 'theme_mode', 'updated_at')
-    search_fields = ('hotel__name', 'hotel__slug', 'contact_email')
-    readonly_fields = ('created_at', 'updated_at')
-    
-    fieldsets = (
-        ('Hotel', {
-            'fields': ('hotel',)
-        }),
-        ('Content', {
-            'fields': (
-                'short_description',
-                'long_description',
-                'welcome_message',
-                'hero_image',
-                'amenities'
-            )
-        }),
-        ('Contact Information', {
-            'fields': (
-                'contact_email',
-                'contact_phone',
-                'contact_address'
-            )
-        }),
-        ('Branding', {
-            'fields': (
-                'primary_color',
-                'secondary_color',
-                'accent_color',
-                'background_color',
-                'button_color',
-                'theme_mode'
-            )
-        }),
-        ('Timestamps', {
-            'fields': ('created_at', 'updated_at')
-        }),
-    )
+    extra = 0
 
 
-class GalleryImageInline(admin.TabularInline):
-    """Inline editor for gallery images"""
-    model = GalleryImage
-    extra = 1
-    fields = ('image', 'caption', 'alt_text', 'display_order', 'is_featured')
-    readonly_fields = ('uploaded_at',)
-
-
-@admin.register(Gallery)
-class GalleryAdmin(admin.ModelAdmin):
-    """Admin interface for Gallery collections"""
-    list_display = (
-        'name',
-        'hotel',
-        'category',
-        'image_count',
+class PublicElementItemInline(admin.TabularInline):
+    """Inline editor for PublicElementItem"""
+    model = PublicElementItem
+    fields = (
+        'title',
+        'subtitle',
+        'image_url',
+        'badge',
+        'cta_label',
+        'cta_url',
+        'sort_order',
         'is_active',
-        'display_order',
-        'updated_at'
     )
-    list_filter = ('hotel', 'category', 'is_active')
-    search_fields = ('name', 'hotel__name', 'description')
-    list_editable = ('is_active', 'display_order')
-    ordering = ('hotel', 'display_order', 'name')
+    extra = 0
+    ordering = ['sort_order']
+
+
+@admin.register(PublicSection)
+class PublicSectionAdmin(admin.ModelAdmin):
+    list_display = (
+        'hotel',
+        'position',
+        'name',
+        'element_type_display',
+        'is_active',
+        'created_at'
+    )
+    list_filter = ('hotel', 'is_active', 'created_at')
+    list_editable = ('position', 'is_active')
+    search_fields = ('hotel__name', 'name')
+    ordering = ('hotel', 'position')
     
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('hotel', 'name', 'category', 'description')
-        }),
-        ('Display Settings', {
-            'fields': ('is_active', 'display_order')
+        ('Section Information', {
+            'fields': ('hotel', 'name', 'position', 'is_active')
         }),
         ('Timestamps', {
             'fields': ('created_at', 'updated_at'),
             'classes': ('collapse',)
         }),
     )
-    
     readonly_fields = ('created_at', 'updated_at')
-    inlines = [GalleryImageInline]
     
-    def image_count(self, obj):
-        """Display number of images in gallery"""
-        return obj.images.count()
-    image_count.short_description = 'Images'
+    inlines = [PublicElementInline]
+
+    def element_type_display(self, obj):
+        """Display the element type from the related element"""
+        if hasattr(obj, 'element'):
+            return obj.element.element_type
+        return "-"
+    element_type_display.short_description = "Element Type"
 
 
-@admin.register(GalleryImage)
-class GalleryImageAdmin(admin.ModelAdmin):
-    """Admin interface for individual gallery images"""
+@admin.register(PublicElement)
+class PublicElementAdmin(admin.ModelAdmin):
     list_display = (
-        'gallery',
-        'caption',
-        'display_order',
-        'is_featured',
-        'image_preview',
-        'uploaded_at'
+        'section',
+        'element_type',
+        'title',
+        'created_at'
     )
-    list_filter = ('gallery__hotel', 'gallery', 'is_featured')
-    search_fields = ('caption', 'alt_text', 'gallery__name')
-    list_editable = ('display_order', 'is_featured')
-    ordering = ('gallery', 'display_order')
+    list_filter = ('element_type', 'created_at')
+    search_fields = ('section__hotel__name', 'title', 'element_type')
     
     fieldsets = (
-        ('Gallery', {
-            'fields': ('gallery',)
+        ('Element Information', {
+            'fields': ('section', 'element_type')
         }),
-        ('Image', {
-            'fields': ('image', 'caption', 'alt_text')
+        ('Content', {
+            'fields': ('title', 'subtitle', 'body', 'image_url', 'settings')
         }),
-        ('Display Settings', {
-            'fields': ('display_order', 'is_featured')
-        }),
-        ('Timestamp', {
-            'fields': ('uploaded_at',)
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
         }),
     )
+    readonly_fields = ('created_at', 'updated_at')
     
-    readonly_fields = ('uploaded_at',)
+    inlines = [PublicElementItemInline]
+
+
+@admin.register(PublicElementItem)
+class PublicElementItemAdmin(admin.ModelAdmin):
+    list_display = (
+        'element',
+        'title',
+        'sort_order',
+        'is_active',
+        'created_at'
+    )
+    list_filter = ('is_active', 'created_at')
+    list_editable = ('sort_order', 'is_active')
+    search_fields = ('element__section__hotel__name', 'title')
+    ordering = ('element', 'sort_order')
     
-    def image_preview(self, obj):
-        """Display image thumbnail"""
-        if obj.image:
-            return format_html(
-                '<img src="{}" style="max-height: 50px;"/>',
-                obj.image.url
-            )
-        return '-'
-    image_preview.short_description = 'Preview'
+    fieldsets = (
+        ('Item Information', {
+            'fields': ('element', 'title', 'subtitle')
+        }),
+        ('Content', {
+            'fields': ('body', 'image_url', 'badge')
+        }),
+        ('Call to Action', {
+            'fields': ('cta_label', 'cta_url')
+        }),
+        ('Display', {
+            'fields': ('sort_order', 'is_active', 'meta')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    readonly_fields = ('created_at', 'updated_at')

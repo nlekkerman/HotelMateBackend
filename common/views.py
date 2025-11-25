@@ -3,9 +3,9 @@ from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from .models import ThemePreference
-from .serializers import ThemePreferenceSerializer, HotelThemeSerializer
+from .serializers import ThemePreferenceSerializer
 from django.shortcuts import get_object_or_404
-from hotel.models import Hotel, HotelPublicSettings
+from hotel.models import Hotel
 from django.http import JsonResponse
 from django.shortcuts import render
 
@@ -28,32 +28,7 @@ class ThemePreferenceViewSet(viewsets.ModelViewSet):
         return theme
 
 
-class HotelThemeView(APIView):
-    """
-    Public endpoint for hotel theme/branding colors.
-    GET /api/common/{hotel_slug}/theme/
-    
-    Returns theme colors from HotelPublicSettings.
-    No authentication required.
-    """
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request, hotel_slug):
-        # Get hotel
-        hotel = get_object_or_404(
-            Hotel,
-            slug=hotel_slug,
-            is_active=True
-        )
-
-        # Get or create public settings
-        settings, created = HotelPublicSettings.objects.get_or_create(
-            hotel=hotel
-        )
-
-        # Serialize and return
-        serializer = HotelThemeSerializer(settings)
-        return Response(serializer.data)
+# HotelThemeView removed - HotelPublicSettings model deleted
 
 
 def custom_404(request, exception):

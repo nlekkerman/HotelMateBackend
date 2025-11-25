@@ -1,11 +1,18 @@
+"""
+DEPRECATED: Old public hotel page customization test
+NOTE: Public hotel detail pages have been removed.
+Staff can still manage settings via /api/staff/hotels/<slug>/settings/
+but there is no longer a public detail page to display them on.
+
+New public pages will be built using the dynamic section-based system.
+"""
 from hotel.models import Hotel, HotelPublicSettings
 from hotel.serializers import (
     HotelPublicSettingsStaffSerializer,
-    HotelPublicDetailSerializer
 )
 
 print("=" * 70)
-print("COMPLETE HOTEL CUSTOMIZATION TEST")
+print("STAFF HOTEL SETTINGS TEST")
 print("=" * 70)
 
 # Get Hotel Killarney
@@ -45,29 +52,11 @@ print(f"  name_override: {staff_data.get('name_override')}")
 print(f"  tagline_override: {staff_data.get('tagline_override')}")
 print(f"  city_override: {staff_data.get('city_override')}")
 
-# Test Public Serializer (what guests see)
 print("\n" + "=" * 70)
-print("PUBLIC PAGE VIEW (GET /api/hotel/public/page/<slug>/)")
+print("✓ STAFF SETTINGS WORKING")
 print("=" * 70)
-
-public_serializer = HotelPublicDetailSerializer(hotel)
-public_data = public_serializer.data
-
-print("\nWhat guests will see:")
-print(f"  name: {public_data.get('name')}")
-print(f"  tagline: {public_data.get('tagline')}")
-print(f"  city: {public_data.get('city')}")
-print(f"  country: {public_data.get('country')}")
-print(f"  phone: {public_data.get('phone')}")
-print(f"  email: {public_data.get('email')}")
-print(f"  hero_image_url: {public_data.get('hero_image_url')[:60] if public_data.get('hero_image_url') else 'None'}...")
-print(f"  landing_page_image_url: {public_data.get('landing_page_image_url')}")
-
-print("\n" + "=" * 70)
-print("✓ IMPLEMENTATION COMPLETE")
-print("=" * 70)
-print("\nNow staff can:")
+print("\nStaff can:")
 print("  1. GET /api/staff/hotels/<slug>/settings/ - See all current values")
 print("  2. PATCH with override fields - Customize any field")
-print("  3. Public page automatically shows customized values")
-print("\nAll Hotel model fields can now be customized via PublicSettings!")
+print("\n⚠️ NOTE: Old public hotel pages have been removed.")
+print("   New dynamic section-based pages will be created later.")

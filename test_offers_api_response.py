@@ -1,5 +1,6 @@
 """
 Test actual API endpoints for offers
+NOTE: Old public hotel pages have been removed. Only staff offers API remains.
 """
 import os
 import django
@@ -7,8 +8,6 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'HotelMateBackend.settings')
 django.setup()
 
-from django.test import RequestFactory
-from hotel.views import HotelPublicPageView
 from hotel.staff_views import StaffOfferViewSet
 from hotel.models import Hotel
 from staff.models import Staff
@@ -25,40 +24,9 @@ if not hotel:
 
 print(f"\n🏨 Testing with Hotel: {hotel.name} ({hotel.slug})")
 
-# Test 1: Public API - HotelPublicPageView
-print("\n" + "=" * 70)
-print("1️⃣ PUBLIC API - /api/hotel/public/page/<slug>/")
-print("=" * 70)
-
-factory = RequestFactory()
-request = factory.get(f'/api/hotel/public/page/{hotel.slug}/')
-view = HotelPublicPageView.as_view()
-
-try:
-    response = view(request, slug=hotel.slug)
-    response.render()
-    
-    import json
-    data = json.loads(response.content)
-    
-    if 'offers' in data:
-        offers = data.get('offers', [])
-        print(f"✅ 'offers' field EXISTS in response")
-        print(f"   Count: {len(offers)}")
-        
-        if offers:
-            print(f"\n   Sample offer:")
-            first_offer = offers[0]
-            for key, value in first_offer.items():
-                print(f"      {key}: {value}")
-        else:
-            print("   ⚠️ offers array is EMPTY")
-    else:
-        print("❌ 'offers' field NOT FOUND in response")
-        print(f"\n   Available fields: {list(data.keys())}")
-        
-except Exception as e:
-    print(f"❌ Error: {e}")
+# NOTE: Test 1 (Public API) has been removed as public hotel pages are deprecated
+print("\n⚠️ Old public hotel pages have been removed.")
+print("   Only staff API for offers remains active.")
 
 
 # Test 2: Staff API - StaffOfferViewSet

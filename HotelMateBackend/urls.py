@@ -51,6 +51,8 @@ urlpatterns = [
     path('api/staff/', include('staff_urls')),
     # Phase 1: New GUEST zone - /api/guest/hotels/<hotel_slug>/site/
     path('api/guest/', include('guest_urls')),
+    # Public zone - No auth required (landing page, hotel discovery)
+    path('api/public/', include('public_urls')),
 ]
 
 # Legacy routes - kept for backward compatibility

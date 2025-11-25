@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import json
 
-from hotel.models import Hotel, Offer, RoomBooking, PricingQuote
+from hotel.models import Hotel, RoomBooking, PricingQuote
 from rooms.models import RoomType, Room
 
 
@@ -66,28 +66,6 @@ def guest_rooms(request, hotel_slug):
                 'max_occupancy': room.max_occupancy,
             }
             for room in rooms
-        ]
-    })
-
-
-def guest_offers(request, hotel_slug):
-    """Guest offers page - returns active offers with photos"""
-    hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    offers = Offer.objects.filter(hotel=hotel, is_active=True)
-    
-    return JsonResponse({
-        'offers': [
-            {
-                'id': offer.id,
-                'title': offer.title,
-                'photo': offer.photo.url if offer.photo else None,
-                'description': offer.description,
-                'discount_percentage': str(offer.discount_percentage) if offer.discount_percentage else None,
-                'valid_from': offer.valid_from.isoformat() if offer.valid_from else None,
-                'valid_until': offer.valid_until.isoformat() if offer.valid_until else None,
-                'is_active': offer.is_active,
-            }
-            for offer in offers
         ]
     })
 
@@ -421,11 +399,6 @@ urlpatterns = [
         'hotels/<str:hotel_slug>/site/rooms/',
         guest_rooms,
         name='guest-rooms'
-    ),
-    path(
-        'hotels/<str:hotel_slug>/site/offers/',
-        guest_offers,
-        name='guest-offers'
     ),
     # Booking endpoints
     path(
