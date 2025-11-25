@@ -94,6 +94,7 @@ class RoomTypeSerializer(serializers.ModelSerializer):
     class Meta:
         model = RoomType
         fields = [
+            'id',
             'code',
             'name',
             'short_description',
@@ -106,6 +107,7 @@ class RoomTypeSerializer(serializers.ModelSerializer):
             'booking_url',
             'availability_message'
         ]
+        read_only_fields = ['id']
 
     def get_photo_url(self, obj):
         """Return photo URL or None"""
