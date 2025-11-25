@@ -12,6 +12,8 @@ from hotel.views import (
     StaffBookingConfirmView,
 )
 from hotel.staff_views import (
+    StaffOfferViewSet,
+    StaffLeisureActivityViewSet,
     StaffRoomTypeViewSet,
     StaffGalleryViewSet,
     StaffGalleryImageViewSet,
@@ -39,8 +41,18 @@ STAFF_APPS = [
     'stock_tracker',
 ]
 
-# Create router for room-types and galleries
+# Create router for offers, leisure activities, room-types and galleries
 staff_hotel_router = DefaultRouter()
+staff_hotel_router.register(
+    r'offers',
+    StaffOfferViewSet,
+    basename='staff-offers'
+)
+staff_hotel_router.register(
+    r'leisure-activities',
+    StaffLeisureActivityViewSet,
+    basename='staff-leisure-activities'
+)
 staff_hotel_router.register(
     r'room-types',
     StaffRoomTypeViewSet,
