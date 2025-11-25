@@ -15,6 +15,9 @@ from hotel.views import (
 )
 from hotel.staff_views import (
     StaffRoomTypeViewSet,
+    PublicSectionViewSet,
+    PublicElementViewSet,
+    PublicElementItemViewSet,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -39,12 +42,27 @@ STAFF_APPS = [
     'stock_tracker',
 ]
 
-# Create router for room-types
+# Create router for direct staff endpoints
 staff_hotel_router = DefaultRouter()
 staff_hotel_router.register(
     r'room-types',
     StaffRoomTypeViewSet,
     basename='staff-room-types-direct'
+)
+staff_hotel_router.register(
+    r'public-sections',
+    PublicSectionViewSet,
+    basename='staff-public-sections'
+)
+staff_hotel_router.register(
+    r'public-elements',
+    PublicElementViewSet,
+    basename='staff-public-elements'
+)
+staff_hotel_router.register(
+    r'public-element-items',
+    PublicElementItemViewSet,
+    basename='staff-public-element-items'
 )
 
 urlpatterns = [
