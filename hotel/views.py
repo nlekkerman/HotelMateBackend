@@ -747,6 +747,16 @@ class HotelPublicSettingsStaffView(APIView):
             hotel=staff.hotel
         )
 
+        # Handle file uploads separately if present
+        if 'hero_image' in request.FILES:
+            settings.hero_image = request.FILES['hero_image']
+        if 'landing_page_image' in request.FILES:
+            settings.landing_page_image = request.FILES['landing_page_image']
+        
+        # Save files first if any were uploaded
+        if request.FILES:
+            settings.save()
+
         # Update settings
         from .serializers import HotelPublicSettingsStaffSerializer
         serializer = HotelPublicSettingsStaffSerializer(
@@ -758,6 +768,9 @@ class HotelPublicSettingsStaffView(APIView):
         if serializer.is_valid():
             serializer.save()
             
+            # Get fresh data after save to include uploaded images
+            updated_serializer = HotelPublicSettingsStaffSerializer(settings)
+            
             # Broadcast settings update via Pusher
             try:
                 from chat.utils import pusher_client
@@ -765,15 +778,16 @@ class HotelPublicSettingsStaffView(APIView):
                     f'hotel-{hotel_slug}',
                     'settings-updated',
                     {
-                        'hero_image': serializer.data.get('hero_image_url'),
-                        'gallery': serializer.data.get('gallery'),
-                        'updated_at': serializer.data.get('updated_at')
+                        'hero_image': updated_serializer.data.get('hero_image_url'),
+                        'hero_image_display': updated_serializer.data.get('hero_image_display'),
+                        'gallery': updated_serializer.data.get('gallery'),
+                        'updated_at': updated_serializer.data.get('updated_at')
                     }
                 )
             except Exception:
                 pass  # Don't fail if Pusher fails
             
-            return Response(serializer.data)
+            return Response(updated_serializer.data)
 
         return Response(
             serializer.errors,
