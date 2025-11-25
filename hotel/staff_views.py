@@ -100,55 +100,84 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
         serializer.save(hotel=staff.hotel)
     
     @action(detail=True, methods=['post'], url_path='upload-image')
-    def upload_image(self, request, pk=None):
+    def upload_image(self, request, pk=None, hotel_slug=None):
         """
         Upload or update room type image.
         Accepts either file upload or image URL.
         
-        POST /api/staff/hotel/{slug}/hotel/staff/room-types/{id}/upload-image/
+        POST /api/staff/hotel/{slug}/room-types/{id}/upload-image/
         
         Body (multipart/form-data or JSON):
         - photo: file upload (multipart)
         OR
         - photo_url: image URL string (JSON)
         """
-        room_type = self.get_object()
-        
-        # Check for file upload
-        if 'photo' in request.FILES:
-            photo_file = request.FILES['photo']
-            room_type.photo = photo_file
-            room_type.save()
+        try:
+            room_type = self.get_object()
             
-            return Response({
-                'message': 'Image uploaded successfully',
-                'photo_url': room_type.photo.url if room_type.photo else None
-            }, status=status.HTTP_200_OK)
-        
-        # Check for URL in request data
-        elif 'photo_url' in request.data:
-            photo_url = request.data['photo_url']
+            # Check for file upload
+            if 'photo' in request.FILES:
+                photo_file = request.FILES['photo']
+                try:
+                    room_type.photo = photo_file
+                    room_type.save()
+                    
+                    photo_url = None
+                    if room_type.photo:
+                        try:
+                            photo_url = room_type.photo.url
+                        except Exception:
+                            photo_url = str(room_type.photo)
+                    
+                    return Response({
+                        'message': 'Image uploaded successfully',
+                        'photo_url': photo_url
+                    }, status=status.HTTP_200_OK)
+                except Exception as e:
+                    return Response({
+                        'error': f'Upload failed: {str(e)}'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-            if not photo_url:
+            # Check for URL in request data
+            elif 'photo_url' in request.data:
+                photo_url = request.data['photo_url']
+                
+                if not photo_url:
+                    return Response(
+                        {'error': 'photo_url cannot be empty'},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                
+                try:
+                    # CloudinaryField accepts URLs directly
+                    room_type.photo = photo_url
+                    room_type.save()
+                    
+                    saved_url = None
+                    if room_type.photo:
+                        try:
+                            saved_url = room_type.photo.url
+                        except Exception:
+                            saved_url = str(room_type.photo)
+                    
+                    return Response({
+                        'message': 'Image URL saved successfully',
+                        'photo_url': saved_url
+                    }, status=status.HTTP_200_OK)
+                except Exception as e:
+                    return Response({
+                        'error': f'Save failed: {str(e)}'
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            else:
                 return Response(
-                    {'error': 'photo_url cannot be empty'},
+                    {'error': 'Please provide either a photo file or photo_url'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            
-            # CloudinaryField accepts URLs directly
-            room_type.photo = photo_url
-            room_type.save()
-            
+        except Exception as e:
             return Response({
-                'message': 'Image URL saved successfully',
-                'photo_url': room_type.photo.url if room_type.photo else None
-            }, status=status.HTTP_200_OK)
-        
-        else:
-            return Response(
-                {'error': 'Please provide either a photo file or photo_url'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+                'error': f'Request failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class StaffRoomViewSet(viewsets.ModelViewSet):
