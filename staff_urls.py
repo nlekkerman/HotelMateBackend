@@ -11,11 +11,16 @@ from hotel.views import (
     StaffBookingsListView,
     StaffBookingConfirmView,
 )
-from hotel.staff_views import StaffRoomTypeViewSet
+from hotel.staff_views import (
+    StaffRoomTypeViewSet,
+    StaffGalleryImageUploadView,
+    StaffGalleryManagementView,
+)
 from rest_framework.routers import DefaultRouter
 
 # List of all apps with URLs to wrap in STAFF zone
 # Note: 'posts' app excluded (no urls.py - only contains static files)
+# Note: 'hotel' removed to avoid double nesting (using direct routes above)
 STAFF_APPS = [
     'attendance',
     'bookings',
@@ -24,7 +29,6 @@ STAFF_APPS = [
     'entertainment',
     'guests',
     'home',
-    'hotel',
     'hotel_info',
     'maintenance',
     'notifications',
@@ -46,6 +50,22 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/settings/',
         HotelPublicSettingsStaffView.as_view(),
         name='staff-hotel-settings'
+    ),
+    # Gallery image management
+    path(
+        'hotel/<str:hotel_slug>/settings/gallery/upload/',
+        StaffGalleryImageUploadView.as_view(),
+        name='staff-gallery-upload'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/settings/gallery/reorder/',
+        StaffGalleryManagementView.as_view(),
+        name='staff-gallery-reorder'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/settings/gallery/remove/',
+        StaffGalleryManagementView.as_view(),
+        name='staff-gallery-remove'
     ),
     # Bookings management
     path(

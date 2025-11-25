@@ -6,15 +6,18 @@ Provides staff-only CRUD operations for:
 - Room Types (marketing)
 - Rooms (inventory)
 - Access Configuration
+- Gallery Image Management
 """
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
+import cloudinary.uploader
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from .models import Offer, LeisureActivity, HotelAccessConfig
+from .models import Offer, LeisureActivity, HotelAccessConfig, HotelPublicSettings
 from rooms.models import RoomType, Room
 from .serializers import (
     OfferStaffSerializer,
@@ -244,3 +247,158 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
             hotel=staff.hotel
         )
         return config
+
+
+class StaffGalleryImageUploadView(APIView):
+    """
+    Staff endpoint to upload gallery images to Cloudinary.
+    Returns image URL to add to gallery array.
+    
+    POST /api/staff/hotel/<hotel_slug>/settings/gallery/upload/
+    Body (multipart): { "image": file }
+    Response: { "url": "https://cloudinary.com/...", "public_id": "..." }
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def post(self, request, hotel_slug):
+        # Verify staff access
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if staff.hotel.slug != hotel_slug:
+            return Response(
+                {'error': 'You can only upload images for your hotel'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check for image file
+        if 'image' not in request.FILES:
+            return Response(
+                {'error': 'No image file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Upload to Cloudinary
+        image_file = request.FILES['image']
+        try:
+            result = cloudinary.uploader.upload(
+                image_file,
+                folder=f"hotels/{hotel_slug}/gallery",
+                resource_type="image"
+            )
+            
+            return Response({
+                'url': result['secure_url'],
+                'public_id': result['public_id'],
+                'message': 'Image uploaded successfully'
+            }, status=status.HTTP_201_CREATED)
+        
+        except Exception as e:
+            return Response(
+                {'error': f'Upload failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class StaffGalleryManagementView(APIView):
+    """
+    Staff endpoint to manage hotel gallery.
+    
+    POST /api/staff/hotel/<hotel_slug>/settings/gallery/reorder/
+    Body: { "gallery": ["url1", "url2", "url3"] }
+    
+    DELETE /api/staff/hotel/<hotel_slug>/settings/gallery/remove/
+    Body: { "url": "https://cloudinary.com/image.jpg" }
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def post(self, request, hotel_slug):
+        """Reorder gallery images"""
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if staff.hotel.slug != hotel_slug:
+            return Response(
+                {'error': 'Access denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get or create settings
+        settings, _ = HotelPublicSettings.objects.get_or_create(
+            hotel=staff.hotel
+        )
+        
+        # Validate gallery data
+        new_gallery = request.data.get('gallery')
+        if not isinstance(new_gallery, list):
+            return Response(
+                {'error': 'gallery must be a list of URLs'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update gallery
+        settings.gallery = new_gallery
+        settings.save()
+        
+        return Response({
+            'message': 'Gallery updated successfully',
+            'gallery': settings.gallery
+        })
+    
+    def delete(self, request, hotel_slug):
+        """Remove single image from gallery"""
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        if staff.hotel.slug != hotel_slug:
+            return Response(
+                {'error': 'Access denied'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get settings
+        try:
+            settings = HotelPublicSettings.objects.get(hotel=staff.hotel)
+        except HotelPublicSettings.DoesNotExist:
+            return Response(
+                {'error': 'No gallery found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get URL to remove
+        url_to_remove = request.data.get('url')
+        if not url_to_remove:
+            return Response(
+                {'error': 'url parameter required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Remove from gallery
+        if url_to_remove in settings.gallery:
+            settings.gallery.remove(url_to_remove)
+            settings.save()
+            
+            return Response({
+                'message': 'Image removed from gallery',
+                'gallery': settings.gallery
+            })
+        else:
+            return Response(
+                {'error': 'URL not found in gallery'},
+                status=status.HTTP_404_NOT_FOUND
+            )
