@@ -485,9 +485,10 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     Includes validation for colors and data formats (B4).
     Shows current values from Hotel model with override capability.
     """
-    # Explicit URL fields for CloudinaryField objects
-    hero_image = serializers.SerializerMethodField()
-    landing_page_image = serializers.SerializerMethodField()
+    # Image fields - NOT SerializerMethodField to allow uploads
+    # CloudinaryField accepts both file uploads and URL strings
+    hero_image_url = serializers.SerializerMethodField(read_only=True)
+    landing_page_image_url = serializers.SerializerMethodField(read_only=True)
     
     # Display fields showing current effective values
     name_display = serializers.SerializerMethodField()
@@ -541,10 +542,12 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'short_description',
             'long_description',
             'welcome_message',
-            # Images
+            # Images (writable fields for uploads)
             'hero_image',
+            'hero_image_url',
             'hero_image_display',
             'landing_page_image',
+            'landing_page_image_url',
             'landing_page_image_display',
             'logo',
             'logo_display',
@@ -632,16 +635,22 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             )
         return value
     
-    def get_hero_image(self, obj):
+    def get_hero_image_url(self, obj):
         """Return hero_image URL from HotelPublicSettings"""
         if obj.hero_image:
-            return obj.hero_image.url
+            try:
+                return obj.hero_image.url
+            except Exception:
+                return str(obj.hero_image)
         return None
     
-    def get_landing_page_image(self, obj):
+    def get_landing_page_image_url(self, obj):
         """Return landing_page_image URL from HotelPublicSettings"""
         if obj.landing_page_image:
-            return obj.landing_page_image.url
+            try:
+                return obj.landing_page_image.url
+            except Exception:
+                return str(obj.landing_page_image)
         return None
     
     def get_hero_image_display(self, obj):
