@@ -15,11 +15,17 @@ from django.conf import settings
 try:
     import cloudinary
     import cloudinary.uploader
+    from cloudinary import config as cloudinary_config
+    
+    # Cloudinary auto-configures from CLOUDINARY_URL env variable
+    cloudinary_config()
+    
+    # Check if configuration is valid
     CLOUDINARY_AVAILABLE = bool(
-        settings.CLOUDINARY_STORAGE and
-        settings.CLOUDINARY_STORAGE.get('CLOUD_NAME')
+        cloudinary.config().cloud_name and 
+        cloudinary.config().api_key
     )
-except:
+except Exception:
     CLOUDINARY_AVAILABLE = False
 
 # Image paths
