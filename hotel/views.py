@@ -757,6 +757,22 @@ class HotelPublicSettingsStaffView(APIView):
 
         if serializer.is_valid():
             serializer.save()
+            
+            # Broadcast settings update via Pusher
+            try:
+                from chat.utils import pusher_client
+                pusher_client.trigger(
+                    f'hotel-{hotel_slug}',
+                    'settings-updated',
+                    {
+                        'hero_image': serializer.data.get('hero_image_url'),
+                        'gallery': serializer.data.get('gallery'),
+                        'updated_at': serializer.data.get('updated_at')
+                    }
+                )
+            except Exception:
+                pass  # Don't fail if Pusher fails
+            
             return Response(serializer.data)
 
         return Response(

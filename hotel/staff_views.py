@@ -17,6 +17,7 @@ from django.shortcuts import get_object_or_404
 import cloudinary.uploader
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
+from chat.utils import pusher_client
 from .models import Offer, LeisureActivity, HotelAccessConfig, HotelPublicSettings
 from rooms.models import RoomType, Room
 from .serializers import (
@@ -128,6 +129,21 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
                             photo_url = room_type.photo.url
                         except Exception:
                             photo_url = str(room_type.photo)
+                    
+                    # Broadcast update via Pusher
+                    try:
+                        hotel_slug = self.request.user.staff_profile.hotel.slug
+                        pusher_client.trigger(
+                            f'hotel-{hotel_slug}',
+                            'room-type-image-updated',
+                            {
+                                'room_type_id': room_type.id,
+                                'photo_url': photo_url,
+                                'timestamp': str(room_type.updated_at) if hasattr(room_type, 'updated_at') else None
+                            }
+                        )
+                    except Exception:
+                        pass  # Don't fail if Pusher fails
                     
                     return Response({
                         'message': 'Image uploaded successfully',
@@ -321,6 +337,19 @@ class StaffGalleryImageUploadView(APIView):
                 resource_type="image"
             )
             
+            # Broadcast gallery update via Pusher
+            try:
+                pusher_client.trigger(
+                    f'hotel-{hotel_slug}',
+                    'gallery-image-uploaded',
+                    {
+                        'url': result['secure_url'],
+                        'public_id': result['public_id']
+                    }
+                )
+            except Exception:
+                pass  # Don't fail if Pusher fails
+            
             return Response({
                 'url': result['secure_url'],
                 'public_id': result['public_id'],
@@ -378,6 +407,16 @@ class StaffGalleryManagementView(APIView):
         # Update gallery
         settings.gallery = new_gallery
         settings.save()
+        
+        # Broadcast via Pusher
+        try:
+            pusher_client.trigger(
+                f'hotel-{hotel_slug}',
+                'gallery-reordered',
+                {'gallery': settings.gallery}
+            )
+        except Exception:
+            pass
         
         return Response({
             'message': 'Gallery updated successfully',
