@@ -517,8 +517,10 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     website_url_display = serializers.SerializerMethodField()
     booking_url_display = serializers.SerializerMethodField()
     
-    # Gallery fetched from Hotel model (read-only)
+    # Gallery fetched from Hotel model (read-only, legacy)
     gallery = serializers.SerializerMethodField()
+    # Galleries - new structured gallery system
+    galleries = serializers.SerializerMethodField()
     
     class Meta:
         model = HotelPublicSettings
@@ -564,6 +566,7 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'logo',
             'logo_display',
             'gallery',
+            'galleries',
             'amenities',
             # Contact (legacy fields)
             'contact_email',
@@ -589,11 +592,18 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         # Gallery is read-only, fetched from Hotel model
-        read_only_fields = ['updated_at', 'gallery']
+        read_only_fields = ['updated_at', 'gallery', 'galleries']
     
     def get_gallery(self, obj):
-        """Fetch gallery from Hotel model (public page)"""
+        """Fetch legacy gallery from Hotel model (public page)"""
         return obj.hotel.gallery
+    
+    def get_galleries(self, obj):
+        """Fetch structured galleries with images"""
+        galleries = Gallery.objects.filter(
+            hotel=obj.hotel
+        ).prefetch_related('images')
+        return GallerySerializer(galleries, many=True).data
     
     def validate_primary_color(self, value):
         return self._validate_hex_color(value, 'primary_color')
