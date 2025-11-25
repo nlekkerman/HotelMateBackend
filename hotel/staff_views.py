@@ -51,12 +51,24 @@ class StaffOfferViewSet(viewsets.ModelViewSet):
         staff = self.get_staff()
         return Offer.objects.filter(hotel=staff.hotel).order_by("sort_order", "-created_at")
 
+    def _broadcast_offers_updated(self, staff):
+        """Generic event to tell all clients: refetch offers."""
+        try:
+            pusher_client.trigger(
+                f"hotel-{staff.hotel.slug}",
+                "offers-updated",
+                {"action": "sync"}
+            )
+            print(f"[Pusher] offers-updated broadcast sent")
+        except Exception as e:
+            print(f"[Pusher] offers-updated failed: {e}")
+
     def perform_create(self, serializer):
         """Create offer & broadcast."""
         staff = self.get_staff()
         offer = serializer.save(hotel=staff.hotel)
 
-        # Broadcast
+        # Specific event
         try:
             pusher_client.trigger(
                 f"hotel-{staff.hotel.slug}",
@@ -67,14 +79,18 @@ class StaffOfferViewSet(viewsets.ModelViewSet):
                 },
             )
         except Exception as e:
-            print(f"[Pusher] Failed: {e}")
+            print(f"[Pusher] offer-created failed: {e}")
+
+        # Generic event
+        self._broadcast_offers_updated(staff)
 
     def perform_update(self, serializer):
         """Update offer & broadcast."""
+        staff = self.get_staff()
         offer = serializer.save()
 
+        # Specific event
         try:
-            staff = self.get_staff()
             pusher_client.trigger(
                 f"hotel-{staff.hotel.slug}",
                 "offer-updated",
@@ -84,7 +100,10 @@ class StaffOfferViewSet(viewsets.ModelViewSet):
                 },
             )
         except Exception as e:
-            print(f"[Pusher] Failed: {e}")
+            print(f"[Pusher] offer-updated failed: {e}")
+
+        # Generic event
+        self._broadcast_offers_updated(staff)
 
     def perform_destroy(self, instance):
         """Delete offer & broadcast."""
@@ -93,6 +112,7 @@ class StaffOfferViewSet(viewsets.ModelViewSet):
 
         instance.delete()
 
+        # Specific event
         try:
             pusher_client.trigger(
                 f"hotel-{staff.hotel.slug}",
@@ -103,7 +123,10 @@ class StaffOfferViewSet(viewsets.ModelViewSet):
                 },
             )
         except Exception as e:
-            print(f"[Pusher] Failed: {e}")
+            print(f"[Pusher] offer-deleted failed: {e}")
+
+        # Generic event
+        self._broadcast_offers_updated(staff)
 
     @action(detail=True, methods=["post"], url_path="upload-image")
     def upload_image(self, request, pk=None, hotel_slug=None):
@@ -129,7 +152,7 @@ class StaffOfferViewSet(viewsets.ModelViewSet):
             except Exception:
                 photo_url = str(offer.photo)
 
-            # Broadcast
+            # Specific event
             try:
                 pusher_client.trigger(
                     f"hotel-{staff.hotel.slug}",
@@ -142,7 +165,10 @@ class StaffOfferViewSet(viewsets.ModelViewSet):
                     },
                 )
             except Exception as e:
-                print(f"[Pusher] Failed: {e}")
+                print(f"[Pusher] offer-image-updated failed: {e}")
+
+            # Generic event
+            self._broadcast_offers_updated(staff)
 
             return Response({"message": "Image uploaded", "photo_url": photo_url}, status=200)
 
