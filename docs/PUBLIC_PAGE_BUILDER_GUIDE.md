@@ -26,9 +26,36 @@ The Public Page Builder API allows Super Staff Admins to build hotel public page
 
 ## Endpoints
 
+### 0. GET Hotel Status (Optional)
+
+**Endpoint:** `GET /api/staff/hotel/{hotel_slug}/status/`
+
+**Purpose:** Check hotel's current state before building
+
+**Response:**
+```json
+{
+  "hotel": {
+    "id": 2,
+    "name": "Hotel Killarney",
+    "slug": "hotel-killarney"
+  },
+  "branding": {
+    "has_hero_image": false,
+    "has_logo": false,
+    "tagline": null
+  },
+  "public_page": {
+    "section_count": 0,
+    "is_empty": true
+  },
+  "ready_for_builder": true
+}
+```
+
 ### 1. GET Builder Data
 
-**Endpoint:** `GET /api/staff/hotel/{hotel_slug}/hotel/public-page-builder/`
+**Endpoint:** `GET /api/staff/hotel/{hotel_slug}/public-page-builder/`
 
 **Purpose:** Load builder interface data (blank or populated)
 
@@ -131,7 +158,7 @@ The Public Page Builder API allows Super Staff Admins to build hotel public page
 
 ### 2. POST Bootstrap Default Layout
 
-**Endpoint:** `POST /api/staff/hotel/{hotel_slug}/hotel/public-page-builder/bootstrap-default/`
+**Endpoint:** `POST /api/staff/hotel/{hotel_slug}/public-page-builder/bootstrap-default/`
 
 **Purpose:** Auto-create starter sections on a **blank hotel only**
 
@@ -192,7 +219,7 @@ function PublicPageBuilder() {
 
   const loadBuilderData = async () => {
     const response = await fetch(
-      `/api/staff/hotel/${hotelSlug}/hotel/public-page-builder/`,
+      `/api/staff/hotel/${hotelSlug}/public-page-builder/`,
       {
         headers: {
           'Authorization': `Bearer ${yourAuthToken}`
@@ -206,7 +233,7 @@ function PublicPageBuilder() {
 
   const bootstrapDefault = async () => {
     const response = await fetch(
-      `/api/staff/hotel/${hotelSlug}/hotel/public-page-builder/bootstrap-default/`,
+      `/api/staff/hotel/${hotelSlug}/public-page-builder/bootstrap-default/`,
       {
         method: 'POST',
         headers: {
@@ -335,8 +362,9 @@ POST /api/staff/hotel/{hotel_slug}/hotel/public-sections/
 
 ### Create element for that section:
 ```javascript
-POST /api/staff/hotel/{hotel_slug}/hotel/public-sections/{section_id}/element/
+POST /api/staff/hotel/{hotel_slug}/hotel/public-elements/
 {
+  "section": sectionId,
   "element_type": "hero",
   "title": "Welcome to Hotel Killarney",
   "subtitle": "Your perfect stay starts here",
@@ -435,19 +463,19 @@ Builder shows populated interface
 
 ### Test with blank hotel:
 ```bash
-GET /api/staff/hotel/some-new-hotel/hotel/public-page-builder/
+GET /api/staff/hotel/hotel-killarney/public-page-builder/
 # Should return is_empty: true
 ```
 
 ### Bootstrap it:
 ```bash
-POST /api/staff/hotel/some-new-hotel/hotel/public-page-builder/bootstrap-default/
+POST /api/staff/hotel/hotel-killarney/public-page-builder/bootstrap-default/
 # Creates 6 default sections
 ```
 
 ### Try to bootstrap again:
 ```bash
-POST /api/staff/hotel/some-new-hotel/hotel/public-page-builder/bootstrap-default/
+POST /api/staff/hotel/hotel-killarney/public-page-builder/bootstrap-default/
 # Should return 400: "Hotel already has X sections"
 ```
 
