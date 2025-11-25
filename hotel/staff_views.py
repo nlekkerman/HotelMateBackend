@@ -532,7 +532,7 @@ class StaffGalleryViewSet(viewsets.ModelViewSet):
         serializer.save(hotel=staff.hotel)
     
     @action(detail=True, methods=['post'])
-    def upload_image(self, request, pk=None):
+    def upload_image(self, request, pk=None, hotel_slug=None):
         """
         Upload image to gallery.
         POST /api/staff/hotel/<slug>/galleries/<id>/upload_image/
@@ -572,7 +572,7 @@ class StaffGalleryViewSet(viewsets.ModelViewSet):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
     @action(detail=True, methods=['post'])
-    def reorder_images(self, request, pk=None):
+    def reorder_images(self, request, pk=None, hotel_slug=None):
         """
         Reorder images in gallery.
         POST /api/staff/hotel/<slug>/galleries/<id>/reorder_images/
