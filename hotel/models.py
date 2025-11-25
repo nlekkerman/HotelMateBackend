@@ -119,6 +119,13 @@ class Hotel(models.Model):
         help_text="Primary booking URL (external or internal)"
     )
     
+    # Gallery images for public hotel page
+    gallery = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of image URLs for public hotel gallery"
+    )
+    
     # Tags for filtering (Issue #46 enhancement)
     tags = models.JSONField(
         default=list,
@@ -996,3 +1003,108 @@ class PricingQuote(models.Model):
 
     def __str__(self):
         return f"{self.quote_id} - €{self.total}"
+
+
+class Gallery(models.Model):
+    """
+    Gallery collections for organizing hotel images by category.
+    Examples: 'Rooms', 'Facilities', 'Restaurant', 'Spa', etc.
+    """
+    CATEGORY_CHOICES = [
+        ('rooms', 'Rooms'),
+        ('facilities', 'Facilities'),
+        ('dining', 'Dining & Restaurant'),
+        ('spa', 'Spa & Wellness'),
+        ('events', 'Events & Conferences'),
+        ('exterior', 'Exterior & Grounds'),
+        ('activities', 'Activities'),
+        ('other', 'Other'),
+    ]
+    
+    hotel = models.ForeignKey(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name='galleries'
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="Gallery name (e.g., 'Luxury Rooms', 'Pool Area')"
+    )
+    category = models.CharField(
+        max_length=50,
+        choices=CATEGORY_CHOICES,
+        default='other',
+        help_text="Category for organizing galleries"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description for this gallery"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Show this gallery on public page"
+    )
+    display_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Order in which galleries are displayed"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Gallery"
+        verbose_name_plural = "Galleries"
+        ordering = ['display_order', 'name']
+        unique_together = [['hotel', 'name']]
+
+    def __str__(self):
+        return f"{self.hotel.name} - {self.name}"
+
+
+class GalleryImage(models.Model):
+    """
+    Individual images within a gallery with captions and ordering.
+    """
+    gallery = models.ForeignKey(
+        Gallery,
+        on_delete=models.CASCADE,
+        related_name='images'
+    )
+    image = CloudinaryField(
+        "gallery_image",
+        help_text="Gallery image stored on Cloudinary"
+    )
+    caption = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Description/caption for this image"
+    )
+    alt_text = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Alternative text for accessibility"
+    )
+    display_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Order within the gallery"
+    )
+    is_featured = models.BooleanField(
+        default=False,
+        help_text="Feature this image (e.g., as gallery thumbnail)"
+    )
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Gallery Image"
+        verbose_name_plural = "Gallery Images"
+        ordering = ['display_order', 'uploaded_at']
+
+    def __str__(self):
+        return f"{self.gallery.name} - Image {self.display_order}"
+    
+    @property
+    def image_url(self):
+        """Return the Cloudinary URL for the image"""
+        if self.image:
+            return self.image.url
+        return None

@@ -9,7 +9,9 @@ from .models import (
     Offer,
     LeisureActivity,
     RoomBooking,
-    PricingQuote
+    PricingQuote,
+    Gallery,
+    GalleryImage
 )
 
 
@@ -385,3 +387,94 @@ class HotelPublicSettingsAdmin(admin.ModelAdmin):
             'fields': ('created_at', 'updated_at')
         }),
     )
+
+
+class GalleryImageInline(admin.TabularInline):
+    """Inline editor for gallery images"""
+    model = GalleryImage
+    extra = 1
+    fields = ('image', 'caption', 'alt_text', 'display_order', 'is_featured')
+    readonly_fields = ('uploaded_at',)
+
+
+@admin.register(Gallery)
+class GalleryAdmin(admin.ModelAdmin):
+    """Admin interface for Gallery collections"""
+    list_display = (
+        'name',
+        'hotel',
+        'category',
+        'image_count',
+        'is_active',
+        'display_order',
+        'updated_at'
+    )
+    list_filter = ('hotel', 'category', 'is_active')
+    search_fields = ('name', 'hotel__name', 'description')
+    list_editable = ('is_active', 'display_order')
+    ordering = ('hotel', 'display_order', 'name')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('hotel', 'name', 'category', 'description')
+        }),
+        ('Display Settings', {
+            'fields': ('is_active', 'display_order')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = ('created_at', 'updated_at')
+    inlines = [GalleryImageInline]
+    
+    def image_count(self, obj):
+        """Display number of images in gallery"""
+        return obj.images.count()
+    image_count.short_description = 'Images'
+
+
+@admin.register(GalleryImage)
+class GalleryImageAdmin(admin.ModelAdmin):
+    """Admin interface for individual gallery images"""
+    list_display = (
+        'gallery',
+        'caption',
+        'display_order',
+        'is_featured',
+        'image_preview',
+        'uploaded_at'
+    )
+    list_filter = ('gallery__hotel', 'gallery', 'is_featured')
+    search_fields = ('caption', 'alt_text', 'gallery__name')
+    list_editable = ('display_order', 'is_featured')
+    ordering = ('gallery', 'display_order')
+    
+    fieldsets = (
+        ('Gallery', {
+            'fields': ('gallery',)
+        }),
+        ('Image', {
+            'fields': ('image', 'caption', 'alt_text')
+        }),
+        ('Display Settings', {
+            'fields': ('display_order', 'is_featured')
+        }),
+        ('Timestamp', {
+            'fields': ('uploaded_at',)
+        }),
+    )
+    
+    readonly_fields = ('uploaded_at',)
+    
+    def image_preview(self, obj):
+        """Display image thumbnail"""
+        if obj.image:
+            return format_html(
+                '<img src="{}" style="max-height: 50px;"/>',
+                obj.image.url
+            )
+        return '-'
+    image_preview.short_description = 'Preview'

@@ -18,7 +18,13 @@ import cloudinary.uploader
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
-from .models import Offer, LeisureActivity, HotelAccessConfig, HotelPublicSettings
+from .models import (
+    Offer,
+    LeisureActivity,
+    HotelAccessConfig,
+    Gallery,
+    GalleryImage
+)
 from rooms.models import RoomType, Room
 from .serializers import (
     OfferStaffSerializer,
@@ -337,6 +343,12 @@ class StaffGalleryImageUploadView(APIView):
                 resource_type="image"
             )
             
+            # Add to Hotel gallery (public page)
+            hotel = staff.hotel
+            if result['secure_url'] not in hotel.gallery:
+                hotel.gallery.append(result['secure_url'])
+                hotel.save()
+            
             # Broadcast gallery update via Pusher
             try:
                 pusher_client.trigger(
@@ -344,7 +356,8 @@ class StaffGalleryImageUploadView(APIView):
                     'gallery-image-uploaded',
                     {
                         'url': result['secure_url'],
-                        'public_id': result['public_id']
+                        'public_id': result['public_id'],
+                        'gallery': hotel.gallery
                     }
                 )
             except Exception:
@@ -353,6 +366,7 @@ class StaffGalleryImageUploadView(APIView):
             return Response({
                 'url': result['secure_url'],
                 'public_id': result['public_id'],
+                'gallery': hotel.gallery,
                 'message': 'Image uploaded successfully'
             }, status=status.HTTP_201_CREATED)
         
@@ -391,10 +405,8 @@ class StaffGalleryManagementView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Get or create settings
-        settings, _ = HotelPublicSettings.objects.get_or_create(
-            hotel=staff.hotel
-        )
+        # Get hotel
+        hotel = staff.hotel
         
         # Validate gallery data
         new_gallery = request.data.get('gallery')
@@ -404,23 +416,23 @@ class StaffGalleryManagementView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Update gallery
-        settings.gallery = new_gallery
-        settings.save()
+        # Update gallery on Hotel model (public page)
+        hotel.gallery = new_gallery
+        hotel.save()
         
         # Broadcast via Pusher
         try:
             pusher_client.trigger(
                 f'hotel-{hotel_slug}',
                 'gallery-reordered',
-                {'gallery': settings.gallery}
+                {'gallery': hotel.gallery}
             )
         except Exception:
             pass
         
         return Response({
             'message': 'Gallery updated successfully',
-            'gallery': settings.gallery
+            'gallery': hotel.gallery
         })
     
     def delete(self, request, hotel_slug):
@@ -439,14 +451,8 @@ class StaffGalleryManagementView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Get settings
-        try:
-            settings = HotelPublicSettings.objects.get(hotel=staff.hotel)
-        except HotelPublicSettings.DoesNotExist:
-            return Response(
-                {'error': 'No gallery found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Get hotel
+        hotel = staff.hotel
         
         # Get URL to remove
         url_to_remove = request.data.get('url')
@@ -457,16 +463,199 @@ class StaffGalleryManagementView(APIView):
             )
         
         # Remove from gallery
-        if url_to_remove in settings.gallery:
-            settings.gallery.remove(url_to_remove)
-            settings.save()
+        if url_to_remove in hotel.gallery:
+            hotel.gallery.remove(url_to_remove)
+            hotel.save()
+            
+            # Broadcast gallery update via Pusher
+            try:
+                pusher_client.trigger(
+                    f'hotel-{hotel_slug}',
+                    'gallery-image-removed',
+                    {
+                        'removed_url': url_to_remove,
+                        'gallery': hotel.gallery
+                    }
+                )
+            except Exception:
+                pass
             
             return Response({
                 'message': 'Image removed from gallery',
-                'gallery': settings.gallery
+                'gallery': hotel.gallery
             })
         else:
             return Response(
                 {'error': 'URL not found in gallery'},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+
+# ==================== Gallery Management ViewSets ====================
+
+
+class StaffGalleryViewSet(viewsets.ModelViewSet):
+    """
+    Staff CRUD operations for galleries.
+    
+    Endpoints:
+    - GET    /api/staff/hotel/<slug>/galleries/ - List all galleries
+    - POST   /api/staff/hotel/<slug>/galleries/ - Create new gallery
+    - GET    /api/staff/hotel/<slug>/galleries/<id>/ - Get gallery
+    - PATCH  /api/staff/hotel/<slug>/galleries/<id>/ - Update gallery
+    - DELETE /api/staff/hotel/<slug>/galleries/<id>/ - Delete gallery
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def get_queryset(self):
+        """Return galleries for staff's hotel"""
+        staff = self.request.user.staff_profile
+        from .serializers import GallerySerializer
+        self.serializer_class = GallerySerializer
+        return Gallery.objects.filter(hotel=staff.hotel).prefetch_related(
+            'images'
+        )
+    
+    def get_serializer_class(self):
+        """Use different serializers for list/create/update"""
+        from .serializers import (
+            GallerySerializer,
+            GalleryCreateUpdateSerializer
+        )
+        if self.action in ['create', 'update', 'partial_update']:
+            return GalleryCreateUpdateSerializer
+        return GallerySerializer
+    
+    def perform_create(self, serializer):
+        """Set hotel from staff profile"""
+        staff = self.request.user.staff_profile
+        serializer.save(hotel=staff.hotel)
+    
+    @action(detail=True, methods=['post'])
+    def upload_image(self, request, pk=None):
+        """
+        Upload image to gallery.
+        POST /api/staff/hotel/<slug>/galleries/<id>/upload_image/
+        Body (multipart): { "image": file, "caption": "...", ... }
+        """
+        gallery = self.get_object()
+        
+        if 'image' not in request.FILES:
+            return Response(
+                {'error': 'No image file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .serializers import GalleryImageCreateSerializer
+        serializer = GalleryImageCreateSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            serializer.save(gallery=gallery)
+            
+            # Broadcast update
+            try:
+                pusher_client.trigger(
+                    f'hotel-{gallery.hotel.slug}',
+                    'gallery-updated',
+                    {
+                        'gallery_id': gallery.id,
+                        'gallery_name': gallery.name,
+                        'action': 'image_added',
+                        'image_count': gallery.images.count()
+                    }
+                )
+            except Exception:
+                pass
+            
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['post'])
+    def reorder_images(self, request, pk=None):
+        """
+        Reorder images in gallery.
+        POST /api/staff/hotel/<slug>/galleries/<id>/reorder_images/
+        Body: { "image_ids": [3, 1, 5, 2] }
+        """
+        gallery = self.get_object()
+        image_ids = request.data.get('image_ids', [])
+        
+        if not isinstance(image_ids, list):
+            return Response(
+                {'error': 'image_ids must be a list'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Update display_order for each image
+        for order, image_id in enumerate(image_ids):
+            GalleryImage.objects.filter(
+                id=image_id,
+                gallery=gallery
+            ).update(display_order=order)
+        
+        # Broadcast update
+        try:
+            pusher_client.trigger(
+                f'hotel-{gallery.hotel.slug}',
+                'gallery-updated',
+                {
+                    'gallery_id': gallery.id,
+                    'gallery_name': gallery.name,
+                    'action': 'images_reordered'
+                }
+            )
+        except Exception:
+            pass
+        
+        return Response({'message': 'Images reordered successfully'})
+
+
+class StaffGalleryImageViewSet(viewsets.ModelViewSet):
+    """
+    Staff CRUD operations for gallery images.
+    
+    Endpoints:
+    - GET    /api/staff/hotel/<slug>/gallery-images/ - List images
+    - GET    /api/staff/hotel/<slug>/gallery-images/<id>/ - Get image
+    - PATCH  /api/staff/hotel/<slug>/gallery-images/<id>/ - Update caption
+    - DELETE /api/staff/hotel/<slug>/gallery-images/<id>/ - Delete image
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def get_queryset(self):
+        """Return images for staff's hotel galleries"""
+        staff = self.request.user.staff_profile
+        return GalleryImage.objects.filter(
+            gallery__hotel=staff.hotel
+        ).select_related('gallery')
+    
+    def get_serializer_class(self):
+        """Use different serializers for update"""
+        from .serializers import (
+            GalleryImageSerializer,
+            GalleryImageUpdateSerializer
+        )
+        if self.action in ['update', 'partial_update']:
+            return GalleryImageUpdateSerializer
+        return GalleryImageSerializer
+    
+    def perform_destroy(self, instance):
+        """Broadcast deletion and remove image"""
+        gallery = instance.gallery
+        instance.delete()
+        
+        # Broadcast update
+        try:
+            pusher_client.trigger(
+                f'hotel-{gallery.hotel.slug}',
+                'gallery-updated',
+                {
+                    'gallery_id': gallery.id,
+                    'gallery_name': gallery.name,
+                    'action': 'image_removed',
+                    'image_count': gallery.images.count()
+                }
+            )
+        except Exception:
+            pass

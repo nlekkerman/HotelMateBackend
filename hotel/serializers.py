@@ -7,7 +7,9 @@ from .models import (
     Offer,
     LeisureActivity,
     RoomBooking,
-    PricingQuote
+    PricingQuote,
+    Gallery,
+    GalleryImage
 )
 from rooms.models import RoomType
 import re
@@ -220,6 +222,8 @@ class HotelPublicDetailSerializer(serializers.ModelSerializer):
             'email',
             'website_url',
             'booking_url',
+            # Gallery from Hotel model
+            'gallery',
             # Nested objects
             'booking_options',
             'public_settings',
@@ -484,6 +488,11 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     Write-enabled serializer for staff to update hotel settings.
     Includes validation for colors and data formats (B4).
     Shows current values from Hotel model with override capability.
+    
+    Note: Gallery is READ-ONLY here. Use dedicated gallery endpoints:
+    - POST /api/staff/hotel/<slug>/settings/gallery/upload/ to add images
+    - POST /api/staff/hotel/<slug>/settings/gallery/reorder/ to reorder
+    - DELETE /api/staff/hotel/<slug>/settings/gallery/remove/ to delete
     """
     # Image fields - NOT SerializerMethodField to allow uploads
     # CloudinaryField accepts both file uploads and URL strings
@@ -507,6 +516,9 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
     email_display = serializers.SerializerMethodField()
     website_url_display = serializers.SerializerMethodField()
     booking_url_display = serializers.SerializerMethodField()
+    
+    # Gallery fetched from Hotel model (read-only)
+    gallery = serializers.SerializerMethodField()
     
     class Meta:
         model = HotelPublicSettings
@@ -576,7 +588,12 @@ class HotelPublicSettingsStaffSerializer(serializers.ModelSerializer):
             'theme_mode',
             'updated_at',
         ]
-        read_only_fields = ['updated_at']
+        # Gallery is read-only, fetched from Hotel model
+        read_only_fields = ['updated_at', 'gallery']
+    
+    def get_gallery(self, obj):
+        """Fetch gallery from Hotel model (public page)"""
+        return obj.hotel.gallery
     
     def validate_primary_color(self, value):
         return self._validate_hex_color(value, 'primary_color')
@@ -970,3 +987,105 @@ class PricingQuoteSerializer(serializers.ModelSerializer):
             'valid_until',
         ]
         read_only_fields = ['quote_id', 'created_at']
+
+
+# ==================== Gallery Serializers ====================
+
+
+class GalleryImageSerializer(serializers.ModelSerializer):
+    """Serializer for individual gallery images"""
+    image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = GalleryImage
+        fields = [
+            'id',
+            'image',
+            'image_url',
+            'caption',
+            'alt_text',
+            'display_order',
+            'is_featured',
+            'uploaded_at',
+        ]
+        read_only_fields = ['id', 'uploaded_at', 'image_url']
+    
+    def get_image_url(self, obj):
+        """Return Cloudinary URL"""
+        return obj.image_url
+
+
+class GallerySerializer(serializers.ModelSerializer):
+    """Serializer for gallery collections"""
+    images = GalleryImageSerializer(many=True, read_only=True)
+    image_count = serializers.SerializerMethodField()
+    hotel_slug = serializers.CharField(source='hotel.slug', read_only=True)
+    
+    class Meta:
+        model = Gallery
+        fields = [
+            'id',
+            'hotel',
+            'hotel_slug',
+            'name',
+            'category',
+            'description',
+            'is_active',
+            'display_order',
+            'image_count',
+            'images',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_image_count(self, obj):
+        """Return number of images in gallery"""
+        return obj.images.count()
+
+
+class GalleryCreateUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for creating/updating galleries (no nested images)"""
+    
+    class Meta:
+        model = Gallery
+        fields = [
+            'id',
+            'name',
+            'category',
+            'description',
+            'is_active',
+            'display_order',
+        ]
+        read_only_fields = ['id']
+
+
+class GalleryImageCreateSerializer(serializers.ModelSerializer):
+    """Serializer for adding images to a gallery"""
+    
+    class Meta:
+        model = GalleryImage
+        fields = [
+            'id',
+            'image',
+            'caption',
+            'alt_text',
+            'display_order',
+            'is_featured',
+        ]
+        read_only_fields = ['id']
+
+
+class GalleryImageUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating image details (caption, order, etc.)"""
+    
+    class Meta:
+        model = GalleryImage
+        fields = [
+            'id',
+            'caption',
+            'alt_text',
+            'display_order',
+            'is_featured',
+        ]
+        read_only_fields = ['id']

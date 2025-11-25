@@ -15,6 +15,8 @@ from hotel.staff_views import (
     StaffRoomTypeViewSet,
     StaffGalleryImageUploadView,
     StaffGalleryManagementView,
+    StaffGalleryViewSet,
+    StaffGalleryImageViewSet,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -39,9 +41,23 @@ STAFF_APPS = [
     'stock_tracker',
 ]
 
-# Create router for room-types
-room_types_router = DefaultRouter()
-room_types_router.register(r'room-types', StaffRoomTypeViewSet, basename='staff-room-types-direct')
+# Create router for room-types and galleries
+staff_hotel_router = DefaultRouter()
+staff_hotel_router.register(
+    r'room-types',
+    StaffRoomTypeViewSet,
+    basename='staff-room-types-direct'
+)
+staff_hotel_router.register(
+    r'galleries',
+    StaffGalleryViewSet,
+    basename='staff-galleries'
+)
+staff_hotel_router.register(
+    r'gallery-images',
+    StaffGalleryImageViewSet,
+    basename='staff-gallery-images'
+)
 
 urlpatterns = [
     # Phase 1 Direct Staff Routes (cleaner URLs)
@@ -78,10 +94,10 @@ urlpatterns = [
         StaffBookingConfirmView.as_view(),
         name='staff-hotel-booking-confirm'
     ),
-    # Room Types CRUD (clean path)
+    # Room Types & Galleries CRUD (clean path)
     path(
         'hotel/<str:hotel_slug>/',
-        include(room_types_router.urls)
+        include(staff_hotel_router.urls)
     ),
 ]
 
