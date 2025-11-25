@@ -386,6 +386,12 @@ class PublicElementItemStaffSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def validate_element(self, value):
+        """Ensure element exists"""
+        if not value:
+            raise serializers.ValidationError("Element is required.")
+        return value
 
 
 class PublicElementStaffSerializer(serializers.ModelSerializer):
@@ -408,6 +414,12 @@ class PublicElementStaffSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def validate_section(self, value):
+        """Ensure section exists and belongs to accessible hotel"""
+        if not value:
+            raise serializers.ValidationError("Section is required.")
+        return value
 
 
 class PublicSectionStaffSerializer(serializers.ModelSerializer):
