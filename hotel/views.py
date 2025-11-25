@@ -747,17 +747,18 @@ class HotelPublicSettingsStaffView(APIView):
             hotel=staff.hotel
         )
 
-        # Handle file uploads separately if present
+        # Handle file uploads - Save to HOTEL model, not settings
         if 'hero_image' in request.FILES:
-            settings.hero_image = request.FILES['hero_image']
+            staff.hotel.hero_image = request.FILES['hero_image']
+            staff.hotel.save()
         if 'landing_page_image' in request.FILES:
-            settings.landing_page_image = request.FILES['landing_page_image']
-        
-        # Save files first if any were uploaded
-        if request.FILES:
-            settings.save()
+            staff.hotel.landing_page_image = request.FILES['landing_page_image']
+            staff.hotel.save()
+        if 'logo' in request.FILES:
+            staff.hotel.logo = request.FILES['logo']
+            staff.hotel.save()
 
-        # Update settings
+        # Update settings (text fields, colors, etc.)
         from .serializers import HotelPublicSettingsStaffSerializer
         serializer = HotelPublicSettingsStaffSerializer(
             settings,
