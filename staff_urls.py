@@ -11,6 +11,8 @@ from hotel.views import (
     StaffBookingsListView,
     StaffBookingConfirmView,
 )
+from hotel.staff_views import StaffRoomTypeViewSet
+from rest_framework.routers import DefaultRouter
 
 # List of all apps with URLs to wrap in STAFF zone
 # Note: 'posts' app excluded (no urls.py - only contains static files)
@@ -33,6 +35,10 @@ STAFF_APPS = [
     'stock_tracker',
 ]
 
+# Create router for room-types
+room_types_router = DefaultRouter()
+room_types_router.register(r'room-types', StaffRoomTypeViewSet, basename='staff-room-types-direct')
+
 urlpatterns = [
     # Phase 1 Direct Staff Routes (cleaner URLs)
     # Hotel settings management
@@ -51,6 +57,11 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/bookings/<str:booking_id>/confirm/',
         StaffBookingConfirmView.as_view(),
         name='staff-hotel-booking-confirm'
+    ),
+    # Room Types CRUD (clean path)
+    path(
+        'hotel/<str:hotel_slug>/',
+        include(room_types_router.urls)
     ),
 ]
 
