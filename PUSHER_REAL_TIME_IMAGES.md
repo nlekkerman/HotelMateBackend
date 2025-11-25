@@ -1,19 +1,33 @@
-# Real-Time Image Updates with Pusher
+# Real-Time Image Updates with Pusher - FINAL
 
-## Backend Implementation ✅
+## Backend Implementation ✅ COMPLETE
 
-I've added Pusher real-time broadcasting for all image/settings updates in the staff zone.
+### Architecture Overview
 
-### Events Broadcast
+**Staff edits Hotel data** → **Saves to Hotel/HotelPublicSettings models** → **Broadcasts via Pusher** → **Public page updates instantly**
 
-#### Channel: `hotel-{hotel_slug}`
+### What's Saved Where
 
-| Event | Triggered When | Payload |
-|-------|---------------|---------|
-| `settings-updated` | Staff updates hotel settings (hero, gallery, etc.) | `{ hero_image, gallery, updated_at }` |
-| `gallery-image-uploaded` | Staff uploads new gallery image | `{ url, public_id }` |
-| `gallery-reordered` | Staff reorders gallery images | `{ gallery: [...urls] }` |
-| `room-type-image-updated` | Staff uploads room type photo | `{ room_type_id, photo_url, timestamp }` |
+| Data | Model | Edited By Staff | Displayed On Public |
+|------|-------|----------------|---------------------|
+| `hero_image` | **Hotel** | `/settings/` file upload | ✅ Yes |
+| `landing_page_image` | **Hotel** | `/settings/` file upload | ✅ Yes |
+| `logo` | **Hotel** | `/settings/` file upload | ✅ Yes |
+| `gallery` | **HotelPublicSettings** | `/gallery/upload/` + `/gallery/reorder/` | ✅ Yes |
+| `amenities` | **HotelPublicSettings** | `/settings/` PATCH | ✅ Yes |
+| `room_types` | **RoomType** (separate model) | `/room-types/{id}/upload-image/` | ✅ Yes |
+| `colors/theme` | **HotelPublicSettings** | `/settings/` PATCH | ✅ Yes |
+
+### Pusher Events Broadcast
+
+#### Channel: `hotel-{hotel_slug}` (e.g., `hotel-killarney`)
+
+| Event | Triggered When | Payload | What Updates |
+|-------|---------------|---------|--------------|
+| `settings-updated` | Staff updates ANY hotel settings | `{ hero_image, hero_image_display, gallery, updated_at }` | Hero image, text, colors |
+| `gallery-image-uploaded` | Staff uploads new gallery image | `{ url, public_id }` | Gallery array (add new) |
+| `gallery-reordered` | Staff reorders gallery images | `{ gallery: [...urls] }` | Gallery order |
+| `room-type-image-updated` | Staff uploads room type photo | `{ room_type_id, photo_url, timestamp }` | Room type card image |
 
 ---
 
