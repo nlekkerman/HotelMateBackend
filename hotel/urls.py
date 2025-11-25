@@ -19,6 +19,9 @@ from .staff_views import (
     StaffRoomTypeViewSet,
     StaffRoomViewSet,
     StaffAccessConfigViewSet,
+    PublicSectionViewSet,
+    PublicElementViewSet,
+    PublicElementItemViewSet,
 )
 from .payment_views import (
     CreatePaymentSessionView,
@@ -46,6 +49,21 @@ staff_router.register(
     r'access-config',
     StaffAccessConfigViewSet,
     basename='staff-access-config'
+)
+staff_router.register(
+    r'public-sections',
+    PublicSectionViewSet,
+    basename='staff-public-sections'
+)
+staff_router.register(
+    r'public-elements',
+    PublicElementViewSet,
+    basename='staff-public-elements'
+)
+staff_router.register(
+    r'public-element-items',
+    PublicElementItemViewSet,
+    basename='staff-public-element-items'
 )
 
 urlpatterns = [

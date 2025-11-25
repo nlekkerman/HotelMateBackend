@@ -13,13 +13,17 @@ from django.shortcuts import get_object_or_404
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
-from .models import HotelAccessConfig
+from .models import HotelAccessConfig, PublicSection, PublicElement, PublicElementItem
 from rooms.models import RoomType, Room
 from .serializers import (
     RoomTypeStaffSerializer,
     HotelAccessConfigStaffSerializer,
+    PublicSectionStaffSerializer,
+    PublicElementStaffSerializer,
+    PublicElementItemStaffSerializer,
 )
 from rooms.serializers import RoomStaffSerializer
+from .permissions import IsSuperStaffAdminForHotel
 
 
 class StaffRoomTypeViewSet(viewsets.ModelViewSet):
@@ -237,3 +241,69 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
             hotel=staff.hotel
         )
         return config
+
+
+# ============================================================================
+# PUBLIC PAGE SECTION CRUD (Super Staff Admin)
+# ============================================================================
+
+class PublicSectionViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for PublicSection.
+    Super Staff Admin only.
+    Scoped to staff's hotel.
+    """
+    serializer_class = PublicSectionStaffSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        """Only return sections for staff's hotel"""
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return PublicSection.objects.none()
+        return PublicSection.objects.filter(
+            hotel__slug=hotel_slug
+        ).order_by('position')
+    
+    def perform_create(self, serializer):
+        """Automatically set hotel from URL"""
+        hotel_slug = self.kwargs.get('hotel_slug')
+        from .models import Hotel
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        serializer.save(hotel=hotel)
+
+
+class PublicElementViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for PublicElement.
+    Super Staff Admin only.
+    """
+    serializer_class = PublicElementStaffSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        """Only return elements for staff's hotel sections"""
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return PublicElement.objects.none()
+        return PublicElement.objects.filter(
+            section__hotel__slug=hotel_slug
+        )
+
+
+class PublicElementItemViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for PublicElementItem.
+    Super Staff Admin only.
+    """
+    serializer_class = PublicElementItemStaffSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        """Only return items for staff's hotel sections"""
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return PublicElementItem.objects.none()
+        return PublicElementItem.objects.filter(
+            element__section__hotel__slug=hotel_slug
+        ).order_by('sort_order')
