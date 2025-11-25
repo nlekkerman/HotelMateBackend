@@ -125,6 +125,7 @@ class OfferSerializer(serializers.ModelSerializer):
     class Meta:
         model = Offer
         fields = [
+            'id',
             'title',
             'short_description',
             'details_html',
