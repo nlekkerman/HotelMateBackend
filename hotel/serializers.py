@@ -371,6 +371,7 @@ class PublicElementItemStaffSerializer(serializers.ModelSerializer):
         model = PublicElementItem
         fields = [
             'id',
+            'element',  # REQUIRED - which element this item belongs to
             'title',
             'subtitle',
             'body',
@@ -395,6 +396,7 @@ class PublicElementStaffSerializer(serializers.ModelSerializer):
         model = PublicElement
         fields = [
             'id',
+            'section',  # REQUIRED - which section this element belongs to
             'element_type',
             'title',
             'subtitle',

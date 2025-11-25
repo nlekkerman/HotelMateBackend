@@ -351,9 +351,9 @@ Use existing endpoints (already built):
 
 ### Create a new section:
 ```javascript
-POST /api/staff/hotel/{hotel_slug}/hotel/public-sections/
+POST /api/staff/hotel/{hotel_slug}/public-sections/
 {
-  "hotel": hotelId,
+  "hotel": hotelId,  // REQUIRED - ID of the hotel
   "position": 0,
   "name": "Hero",
   "is_active": true
@@ -362,12 +362,14 @@ POST /api/staff/hotel/{hotel_slug}/hotel/public-sections/
 
 ### Create element for that section:
 ```javascript
-POST /api/staff/hotel/{hotel_slug}/hotel/public-elements/
+POST /api/staff/hotel/{hotel_slug}/public-elements/
 {
-  "section": sectionId,
+  "section": sectionId,  // REQUIRED - ID of the section created above
   "element_type": "hero",
   "title": "Welcome to Hotel Killarney",
   "subtitle": "Your perfect stay starts here",
+  "body": "",
+  "image_url": "",
   "settings": {
     "primary_cta_label": "Book Now",
     "primary_cta_url": "https://..."
@@ -377,12 +379,13 @@ POST /api/staff/hotel/{hotel_slug}/hotel/public-elements/
 
 ### Add items to elements (for cards, gallery, reviews):
 ```javascript
-POST /api/staff/hotel/{hotel_slug}/hotel/public-element-items/
+POST /api/staff/hotel/{hotel_slug}/public-element-items/
 {
-  "element": elementId,
+  "element": elementId,  // REQUIRED - ID of the element
   "title": "Family Friendly",
   "subtitle": "Perfect for all ages",
   "body": "Spacious rooms...",
+  "image_url": "",
   "sort_order": 0,
   "is_active": true
 }

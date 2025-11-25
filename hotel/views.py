@@ -1194,7 +1194,7 @@ class PublicPageBuilderView(APIView):
                     "label": "Hero Section",
                     "element_type": "hero",
                     "element_defaults": {
-                        "title": f"Welcome to {hotel.name}",
+                        "title": "Welcome",
                         "subtitle": "Your perfect stay starts here",
                         "body": "",
                         "settings": {
@@ -1371,7 +1371,7 @@ class PublicPageBootstrapView(APIView):
         PublicElement.objects.create(
             section=hero_section,
             element_type="hero",
-            title=f"Welcome to {hotel.name}",
+            title="Welcome",
             subtitle="Your perfect stay starts here",
             body="",
             image_url="",
