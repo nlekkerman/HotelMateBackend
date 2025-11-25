@@ -95,6 +95,57 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
         """Automatically set hotel from staff profile"""
         staff = self.request.user.staff_profile
         serializer.save(hotel=staff.hotel)
+    
+    @action(detail=True, methods=['post'], url_path='upload-image')
+    def upload_image(self, request, pk=None):
+        """
+        Upload or update room type image.
+        Accepts either file upload or image URL.
+        
+        POST /api/staff/hotel/{slug}/hotel/staff/room-types/{id}/upload-image/
+        
+        Body (multipart/form-data or JSON):
+        - photo: file upload (multipart)
+        OR
+        - photo_url: image URL string (JSON)
+        """
+        room_type = self.get_object()
+        
+        # Check for file upload
+        if 'photo' in request.FILES:
+            photo_file = request.FILES['photo']
+            room_type.photo = photo_file
+            room_type.save()
+            
+            return Response({
+                'message': 'Image uploaded successfully',
+                'photo_url': room_type.photo.url if room_type.photo else None
+            }, status=status.HTTP_200_OK)
+        
+        # Check for URL in request data
+        elif 'photo_url' in request.data:
+            photo_url = request.data['photo_url']
+            
+            if not photo_url:
+                return Response(
+                    {'error': 'photo_url cannot be empty'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # CloudinaryField accepts URLs directly
+            room_type.photo = photo_url
+            room_type.save()
+            
+            return Response({
+                'message': 'Image URL saved successfully',
+                'photo_url': room_type.photo.url if room_type.photo else None
+            }, status=status.HTTP_200_OK)
+        
+        else:
+            return Response(
+                {'error': 'Please provide either a photo file or photo_url'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 
 class StaffRoomViewSet(viewsets.ModelViewSet):
