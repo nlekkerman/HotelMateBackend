@@ -36,151 +36,118 @@ from rooms.serializers import RoomStaffSerializer
 class StaffOfferViewSet(viewsets.ModelViewSet):
     """
     Staff CRUD for hotel offers.
-    Scoped to staff's hotel only.
+    Always scoped to the authenticated staff's hotel.
+    URL slug is NEVER used to resolve staff.
     """
     serializer_class = OfferStaffSerializer
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
-    
+
+    def get_staff(self):
+        """Always return authenticated staff, not by slug."""
+        return self.request.user.staff_profile
+
     def get_queryset(self):
-        """Only return offers for staff's hotel"""
-        try:
-            staff = self.request.user.staff_profile
-            return Offer.objects.filter(
-                hotel=staff.hotel
-            ).order_by('sort_order', '-created_at')
-        except AttributeError:
-            return Offer.objects.none()
-    
+        """Return offers ONLY for the logged-in staff's hotel."""
+        staff = self.get_staff()
+        return Offer.objects.filter(hotel=staff.hotel).order_by("sort_order", "-created_at")
+
     def perform_create(self, serializer):
-        """Automatically set hotel from staff profile and broadcast creation"""
-        staff = self.request.user.staff_profile
+        """Create offer & broadcast."""
+        staff = self.get_staff()
         offer = serializer.save(hotel=staff.hotel)
-        
-        # Broadcast new offer creation via Pusher
+
+        # Broadcast
         try:
-            serializer_data = OfferStaffSerializer(offer).data
             pusher_client.trigger(
-                f'hotel-{staff.hotel.slug}',
-                'offer-created',
+                f"hotel-{staff.hotel.slug}",
+                "offer-created",
                 {
-                    'offer': serializer_data,
-                    'action': 'created'
-                }
+                    "action": "created",
+                    "offer": OfferStaffSerializer(offer).data,
+                },
             )
-            print(f"[Pusher] Broadcast offer-created for offer {offer.id}")
         except Exception as e:
-            print(f"[Pusher] Broadcast failed: {e}")
-    
+            print(f"[Pusher] Failed: {e}")
+
     def perform_update(self, serializer):
-        """Broadcast offer updates via Pusher"""
+        """Update offer & broadcast."""
         offer = serializer.save()
-        
-        # Broadcast update
+
         try:
-            staff = self.request.user.staff_profile
-            serializer_data = OfferStaffSerializer(offer).data
+            staff = self.get_staff()
             pusher_client.trigger(
-                f'hotel-{staff.hotel.slug}',
-                'offer-updated',
+                f"hotel-{staff.hotel.slug}",
+                "offer-updated",
                 {
-                    'offer': serializer_data,
-                    'action': 'updated'
-                }
+                    "action": "updated",
+                    "offer": OfferStaffSerializer(offer).data,
+                },
             )
-            print(f"[Pusher] Broadcast offer-updated for offer {offer.id}")
         except Exception as e:
-            print(f"[Pusher] Broadcast failed: {e}")
-    
+            print(f"[Pusher] Failed: {e}")
+
     def perform_destroy(self, instance):
-        """Broadcast offer deletion via Pusher"""
-        offer_id = instance.id
-        offer_title = instance.title
-        hotel_slug = instance.hotel.slug
-        
+        """Delete offer & broadcast."""
+        staff = self.get_staff()
+        offer_info = {"offer_id": instance.id, "offer_title": instance.title}
+
         instance.delete()
-        
-        # Broadcast deletion
+
         try:
             pusher_client.trigger(
-                f'hotel-{hotel_slug}',
-                'offer-deleted',
+                f"hotel-{staff.hotel.slug}",
+                "offer-deleted",
                 {
-                    'offer_id': offer_id,
-                    'offer_title': offer_title,
-                    'action': 'deleted'
-                }
+                    "action": "deleted",
+                    **offer_info,
+                },
             )
-            print(f"[Pusher] Broadcast offer-deleted for offer {offer_id}")
         except Exception as e:
-            print(f"[Pusher] Broadcast failed: {e}")
-    
-    @action(detail=True, methods=['post'], url_path='upload-image')
+            print(f"[Pusher] Failed: {e}")
+
+    @action(detail=True, methods=["post"], url_path="upload-image")
     def upload_image(self, request, pk=None, hotel_slug=None):
         """
-        Upload or update offer image with Pusher broadcasting.
-        
-        POST /api/staff/hotel/{slug}/offers/{id}/upload-image/
-        
-        Body (multipart/form-data):
-        - photo: file upload
+        Upload an offer image using CloudinaryField.
+        Always uses authenticated staff's hotel — ignores URL slug.
         """
+
+        offer = self.get_object()
+        staff = self.get_staff()
+
+        if "photo" not in request.FILES:
+            return Response({"error": "No photo file provided"}, status=400)
+
+        photo_file = request.FILES["photo"]
+
         try:
-            offer = self.get_object()
-            
-            # Check for file upload
-            if 'photo' not in request.FILES:
-                return Response(
-                    {'error': 'No photo file provided'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            photo_file = request.FILES['photo']
-            
+            offer.photo = photo_file
+            offer.save()
+
             try:
-                # Upload to Cloudinary
-                offer.photo = photo_file
-                offer.save()
-                
-                # Get photo URL
-                photo_url = None
-                if offer.photo:
-                    try:
-                        photo_url = offer.photo.url
-                    except Exception:
-                        photo_url = str(offer.photo)
-                
-                # Broadcast update via Pusher
-                try:
-                    hotel_slug = self.request.user.staff_profile.hotel.slug
-                    pusher_client.trigger(
-                        f'hotel-{hotel_slug}',
-                        'offer-image-updated',
-                        {
-                            'offer_id': offer.id,
-                            'offer_title': offer.title,
-                            'photo_url': photo_url,
-                            'timestamp': str(offer.created_at)
-                        }
-                    )
-                    print(f"[Pusher] Broadcast offer-image-updated for offer {offer.id}")
-                except Exception as e:
-                    print(f"[Pusher] Broadcast failed: {e}")
-                    pass  # Don't fail if Pusher fails
-                
-                return Response({
-                    'message': 'Image uploaded successfully',
-                    'photo_url': photo_url
-                }, status=status.HTTP_200_OK)
-                
+                photo_url = offer.photo.url
+            except Exception:
+                photo_url = str(offer.photo)
+
+            # Broadcast
+            try:
+                pusher_client.trigger(
+                    f"hotel-{staff.hotel.slug}",
+                    "offer-image-updated",
+                    {
+                        "action": "image-updated",
+                        "offer_id": offer.id,
+                        "offer_title": offer.title,
+                        "photo_url": photo_url,
+                    },
+                )
             except Exception as e:
-                return Response({
-                    'error': f'Upload failed: {str(e)}'
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                
+                print(f"[Pusher] Failed: {e}")
+
+            return Response({"message": "Image uploaded", "photo_url": photo_url}, status=200)
+
         except Exception as e:
-            return Response({
-                'error': f'Request failed: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": f"Upload failed: {e}"}, status=500)
 
 
 class StaffLeisureActivityViewSet(viewsets.ModelViewSet):
