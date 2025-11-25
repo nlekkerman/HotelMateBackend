@@ -9,6 +9,9 @@ from django.urls import path, include
 from hotel.views import (
     StaffBookingsListView,
     StaffBookingConfirmView,
+    PublicPageBuilderView,
+    PublicPageBootstrapView,
+    HotelStatusCheckView,
 )
 from hotel.staff_views import (
     StaffRoomTypeViewSet,
@@ -57,6 +60,24 @@ urlpatterns = [
         StaffBookingConfirmView.as_view(),
         name='staff-hotel-booking-confirm'
     ),
+    
+    # Public Page Builder (Super Staff Admin only)
+    path(
+        'hotel/<str:hotel_slug>/status/',
+        HotelStatusCheckView.as_view(),
+        name='staff-hotel-status'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/public-page-builder/',
+        PublicPageBuilderView.as_view(),
+        name='staff-public-page-builder'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/public-page-builder/bootstrap-default/',
+        PublicPageBootstrapView.as_view(),
+        name='staff-public-page-bootstrap'
+    ),
+    
     # Room Types & Galleries CRUD (clean path)
     path(
         'hotel/<str:hotel_slug>/',

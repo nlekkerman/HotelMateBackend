@@ -13,6 +13,7 @@ from .views import (
     HotelPublicPageView,
     PublicPageBuilderView,
     PublicPageBootstrapView,
+    HotelStatusCheckView,
 )
 from .staff_views import (
     StaffRoomTypeViewSet,
@@ -70,6 +71,11 @@ urlpatterns = [
     
     # Public Page Builder (Super Staff Admin only)
     # Accessed via: /api/staff/hotel/<slug>/hotel/public-page-builder/
+    path(
+        "status/",
+        HotelStatusCheckView.as_view(),
+        name="hotel-status-check"
+    ),
     path(
         "public-page-builder/",
         PublicPageBuilderView.as_view(),

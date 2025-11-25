@@ -1282,6 +1282,50 @@ class PublicPageBuilderView(APIView):
         return Response(response)
 
 
+class HotelStatusCheckView(APIView):
+    """
+    Quick endpoint to check hotel's current state.
+    Useful for debugging and verifying blank state.
+    
+    GET /api/staff/hotel/<hotel_slug>/hotel/status/
+    
+    Returns hotel info, section count, and blank state indicators.
+    """
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+
+    def get(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        section_count = PublicSection.objects.filter(hotel=hotel).count()
+        
+        return Response({
+            "hotel": {
+                "id": hotel.id,
+                "name": hotel.name,
+                "slug": hotel.slug,
+                "city": hotel.city,
+                "country": hotel.country,
+            },
+            "branding": {
+                "has_hero_image": bool(hotel.hero_image),
+                "hero_image_url": hotel.hero_image.url if hotel.hero_image else None,
+                "has_logo": bool(hotel.logo),
+                "logo_url": hotel.logo.url if hotel.logo else None,
+                "tagline": hotel.tagline or None,
+                "booking_url": hotel.booking_url or None,
+            },
+            "content": {
+                "has_short_description": bool(hotel.short_description),
+                "has_long_description": bool(hotel.long_description),
+                "tags": hotel.tags or [],
+            },
+            "public_page": {
+                "section_count": section_count,
+                "is_empty": section_count == 0,
+            },
+            "ready_for_builder": section_count == 0,
+        })
+
+
 class PublicPageBootstrapView(APIView):
     """
     Bootstrap a hotel with default public page sections.
