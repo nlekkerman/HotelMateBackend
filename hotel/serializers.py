@@ -432,8 +432,15 @@ class PublicElementStaffSerializer(serializers.ModelSerializer):
 
 
 class PublicSectionStaffSerializer(serializers.ModelSerializer):
-    """Staff serializer for sections - includes timestamps"""
+    """Staff serializer for sections - includes timestamps and all section-specific data"""
     element = PublicElementStaffSerializer(read_only=True)
+    
+    # Include section-specific data (will be added after serializers are defined)
+    hero_data = serializers.SerializerMethodField()
+    galleries = serializers.SerializerMethodField()
+    lists = serializers.SerializerMethodField()
+    news_items = serializers.SerializerMethodField()
+    section_type = serializers.SerializerMethodField()
     
     class Meta:
         model = PublicSection
@@ -443,11 +450,117 @@ class PublicSectionStaffSerializer(serializers.ModelSerializer):
             'position',
             'is_active',
             'name',
+            'section_type',
             'element',
+            'hero_data',
+            'galleries',
+            'lists',
+            'news_items',
             'created_at',
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_section_type(self, obj):
+        """Infer section type from related data"""
+        if hasattr(obj, 'hero_data'):
+            return 'hero'
+        elif obj.galleries.exists():
+            return 'gallery'
+        elif obj.lists.exists():
+            return 'list'
+        elif obj.news_items.exists():
+            return 'news'
+        return 'unknown'
+    
+    def get_hero_data(self, obj):
+        """Return hero data if exists"""
+        if hasattr(obj, 'hero_data'):
+            # Import here to avoid circular import
+            # HeroSectionSerializer is defined below
+            data = {
+                'id': obj.hero_data.id,
+                'section': obj.hero_data.section_id,
+                'hero_title': obj.hero_data.hero_title,
+                'hero_text': obj.hero_data.hero_text,
+                'hero_image_url': obj.hero_data.hero_image.url if obj.hero_data.hero_image else None,
+                'hero_logo_url': obj.hero_data.hero_logo.url if obj.hero_data.hero_logo else None,
+                'created_at': obj.hero_data.created_at,
+                'updated_at': obj.hero_data.updated_at,
+            }
+            return data
+        return None
+    
+    def get_galleries(self, obj):
+        """Return galleries if exist"""
+        galleries = obj.galleries.all()
+        if galleries.exists():
+            # Inline serialization to avoid circular import
+            return [{
+                'id': g.id,
+                'section': g.section_id,
+                'name': g.name,
+                'sort_order': g.sort_order,
+                'image_count': g.images.count(),
+                'images': [{
+                    'id': img.id,
+                    'gallery': img.gallery_id,
+                    'image_url': img.image.url if img.image else None,
+                    'caption': img.caption,
+                    'alt_text': img.alt_text,
+                    'sort_order': img.sort_order,
+                } for img in g.images.all()]
+            } for g in galleries]
+        return []
+    
+    def get_lists(self, obj):
+        """Return lists if exist"""
+        lists = obj.lists.all()
+        if lists.exists():
+            # Inline serialization to avoid circular import
+            return [{
+                'id': lst.id,
+                'section': lst.section_id,
+                'title': lst.title,
+                'sort_order': lst.sort_order,
+                'card_count': lst.cards.count(),
+                'cards': [{
+                    'id': card.id,
+                    'list_container': card.list_container_id,
+                    'title': card.title,
+                    'subtitle': card.subtitle,
+                    'description': card.description,
+                    'image_url': card.image.url if card.image else None,
+                    'sort_order': card.sort_order,
+                } for card in lst.cards.all()]
+            } for lst in lists]
+        return []
+    
+    def get_news_items(self, obj):
+        """Return news items if exist"""
+        news_items = obj.news_items.all()
+        if news_items.exists():
+            # Inline serialization to avoid circular import
+            return [{
+                'id': news.id,
+                'section': news.section_id,
+                'title': news.title,
+                'date': news.date,
+                'summary': news.summary,
+                'sort_order': news.sort_order,
+                'block_count': news.content_blocks.count(),
+                'content_blocks': [{
+                    'id': block.id,
+                    'news_item': block.news_item_id,
+                    'block_type': block.block_type,
+                    'body': block.body,
+                    'image_url': block.image.url if block.image else None,
+                    'image_position': block.image_position,
+                    'image_caption': block.image_caption,
+                    'sort_order': block.sort_order,
+                } for block in news.content_blocks.all()]
+            } for news in news_items]
+        return []
 
 
 # ============================================================================
