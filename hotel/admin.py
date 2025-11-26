@@ -7,6 +7,7 @@ from .models import (
     BookingOptions,
     RoomBooking,
     PricingQuote,
+    Preset,
     PublicSection,
     PublicElement,
     PublicElementItem,
@@ -91,6 +92,38 @@ class HotelAdmin(admin.ModelAdmin):
             )
         return "-"
     logo_preview.short_description = "Logo"
+
+
+@admin.register(Preset)
+class PresetAdmin(admin.ModelAdmin):
+    """Admin interface for managing presets"""
+    list_display = (
+        'name',
+        'target_type',
+        'section_type',
+        'key',
+        'is_default',
+    )
+    list_filter = ('target_type', 'section_type', 'is_default')
+    search_fields = ('name', 'key', 'description')
+    ordering = ('target_type', 'section_type', 'name')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'key', 'description', 'is_default')
+        }),
+        ('Classification', {
+            'fields': ('target_type', 'section_type'),
+            'description': 'Defines what type of element this preset applies to'
+        }),
+        ('Configuration', {
+            'fields': ('config',),
+            'description': 'JSON configuration for frontend styling and behavior',
+            'classes': ('collapse',)
+        }),
+    )
+    
+    readonly_fields = ('created_at', 'updated_at')
 
 
 @admin.register(HotelAccessConfig)
