@@ -13,7 +13,19 @@ from django.shortcuts import get_object_or_404
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
-from .models import HotelAccessConfig, PublicSection, PublicElement, PublicElementItem
+from .models import (
+    HotelAccessConfig,
+    PublicSection,
+    PublicElement,
+    PublicElementItem,
+    HeroSection,
+    GalleryContainer,
+    GalleryImage,
+    ListContainer,
+    Card,
+    NewsItem,
+    ContentBlock,
+)
 from rooms.models import RoomType, Room
 from .serializers import (
     RoomTypeStaffSerializer,
@@ -21,6 +33,15 @@ from .serializers import (
     PublicSectionStaffSerializer,
     PublicElementStaffSerializer,
     PublicElementItemStaffSerializer,
+    HeroSectionSerializer,
+    GalleryContainerSerializer,
+    GalleryImageSerializer,
+    BulkGalleryImageUploadSerializer,
+    ListContainerSerializer,
+    CardSerializer,
+    NewsItemSerializer,
+    ContentBlockSerializer,
+    PublicSectionDetailSerializer,
 )
 from rooms.serializers import RoomStaffSerializer
 from .permissions import IsSuperStaffAdminForHotel
@@ -310,3 +331,214 @@ class PublicElementItemViewSet(viewsets.ModelViewSet):
         return PublicElementItem.objects.filter(
             element__section__hotel__slug=hotel_slug
         ).order_by('sort_order')
+
+
+# ============================================================================
+# SECTION-SPECIFIC CRUD VIEWSETS
+# ============================================================================
+
+class HeroSectionViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for Hero section data.
+    Automatically creates Hero data with placeholders when section is created.
+    """
+    serializer_class = HeroSectionSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return HeroSection.objects.none()
+        return HeroSection.objects.filter(
+            section__hotel__slug=hotel_slug
+        )
+    
+    @action(detail=True, methods=['post'], url_path='upload-hero-image')
+    def upload_hero_image(self, request, pk=None, hotel_slug=None):
+        """Upload hero background image"""
+        hero = self.get_object()
+        if 'image' not in request.FILES:
+            return Response(
+                {'error': 'No image file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        hero.hero_image = request.FILES['image']
+        hero.save()
+        
+        serializer = self.get_serializer(hero)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'], url_path='upload-logo')
+    def upload_logo(self, request, pk=None, hotel_slug=None):
+        """Upload hero logo image"""
+        hero = self.get_object()
+        if 'image' not in request.FILES:
+            return Response(
+                {'error': 'No image file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        hero.hero_logo = request.FILES['image']
+        hero.save()
+        
+        serializer = self.get_serializer(hero)
+        return Response(serializer.data)
+
+
+class GalleryContainerViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for Gallery containers.
+    Each Gallery section can have multiple gallery containers.
+    """
+    serializer_class = GalleryContainerSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return GalleryContainer.objects.none()
+        return GalleryContainer.objects.filter(
+            section__hotel__slug=hotel_slug
+        ).order_by('sort_order')
+
+
+class GalleryImageViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for Gallery images.
+    Supports bulk upload.
+    """
+    serializer_class = GalleryImageSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return GalleryImage.objects.none()
+        return GalleryImage.objects.filter(
+            gallery__section__hotel__slug=hotel_slug
+        ).order_by('sort_order')
+    
+    @action(detail=False, methods=['post'], url_path='bulk-upload')
+    def bulk_upload(self, request, hotel_slug=None):
+        """
+        Bulk upload images to a gallery.
+        POST body: gallery (ID), images (array of files)
+        """
+        serializer = BulkGalleryImageUploadSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        images = serializer.save()
+        
+        # Return created images
+        response_serializer = GalleryImageSerializer(images, many=True)
+        return Response({
+            'message': f'{len(images)} image(s) uploaded successfully',
+            'images': response_serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+
+class ListContainerViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for List containers.
+    Each List section can have multiple list containers.
+    """
+    serializer_class = ListContainerSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return ListContainer.objects.none()
+        return ListContainer.objects.filter(
+            section__hotel__slug=hotel_slug
+        ).order_by('sort_order')
+
+
+class CardViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for Cards within list containers.
+    """
+    serializer_class = CardSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return Card.objects.none()
+        return Card.objects.filter(
+            list_container__section__hotel__slug=hotel_slug
+        ).order_by('sort_order')
+    
+    @action(detail=True, methods=['post'], url_path='upload-image')
+    def upload_image(self, request, pk=None, hotel_slug=None):
+        """Upload card image"""
+        card = self.get_object()
+        if 'image' not in request.FILES:
+            return Response(
+                {'error': 'No image file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        card.image = request.FILES['image']
+        card.save()
+        
+        serializer = self.get_serializer(card)
+        return Response(serializer.data)
+
+
+class NewsItemViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for News items.
+    """
+    serializer_class = NewsItemSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return NewsItem.objects.none()
+        return NewsItem.objects.filter(
+            section__hotel__slug=hotel_slug
+        ).order_by('sort_order')
+
+
+class ContentBlockViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for Content blocks (text/image) within news items.
+    """
+    serializer_class = ContentBlockSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug:
+            return ContentBlock.objects.none()
+        return ContentBlock.objects.filter(
+            news_item__section__hotel__slug=hotel_slug
+        ).order_by('sort_order')
+    
+    @action(detail=True, methods=['post'], url_path='upload-image')
+    def upload_image(self, request, pk=None, hotel_slug=None):
+        """Upload image for image blocks"""
+        block = self.get_object()
+        
+        if block.block_type != 'image':
+            return Response(
+                {'error': 'Can only upload images to image blocks'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if 'image' not in request.FILES:
+            return Response(
+                {'error': 'No image file provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        block.image = request.FILES['image']
+        block.save()
+        
+        serializer = self.get_serializer(block)
+        return Response(serializer.data)

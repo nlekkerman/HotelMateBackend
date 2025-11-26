@@ -14,6 +14,7 @@ from .views import (
     PublicPageBuilderView,
     PublicPageBootstrapView,
     HotelStatusCheckView,
+    SectionCreateView,
 )
 from .staff_views import (
     StaffRoomTypeViewSet,
@@ -22,6 +23,13 @@ from .staff_views import (
     PublicSectionViewSet,
     PublicElementViewSet,
     PublicElementItemViewSet,
+    HeroSectionViewSet,
+    GalleryContainerViewSet,
+    GalleryImageViewSet,
+    ListContainerViewSet,
+    CardViewSet,
+    NewsItemViewSet,
+    ContentBlockViewSet,
 )
 from .payment_views import (
     CreatePaymentSessionView,
@@ -65,6 +73,41 @@ staff_router.register(
     PublicElementItemViewSet,
     basename='staff-public-element-items'
 )
+staff_router.register(
+    r'hero-sections',
+    HeroSectionViewSet,
+    basename='staff-hero-sections'
+)
+staff_router.register(
+    r'gallery-containers',
+    GalleryContainerViewSet,
+    basename='staff-gallery-containers'
+)
+staff_router.register(
+    r'gallery-images',
+    GalleryImageViewSet,
+    basename='staff-gallery-images'
+)
+staff_router.register(
+    r'list-containers',
+    ListContainerViewSet,
+    basename='staff-list-containers'
+)
+staff_router.register(
+    r'cards',
+    CardViewSet,
+    basename='staff-cards'
+)
+staff_router.register(
+    r'news-items',
+    NewsItemViewSet,
+    basename='staff-news-items'
+)
+staff_router.register(
+    r'content-blocks',
+    ContentBlockViewSet,
+    basename='staff-content-blocks'
+)
 
 urlpatterns = [
     # Staff bookings endpoints
@@ -103,6 +146,11 @@ urlpatterns = [
         "public-page-builder/bootstrap-default/",
         PublicPageBootstrapView.as_view(),
         name="public-page-bootstrap"
+    ),
+    path(
+        "sections/create/",
+        SectionCreateView.as_view(),
+        name="section-create"
     ),
     
     # Availability check endpoint

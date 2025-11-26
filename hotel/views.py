@@ -13,14 +13,18 @@ from .models import (
     PricingQuote,
     PublicSection,
     PublicElement,
-    PublicElementItem
+    PublicElementItem,
+    HeroSection,
+    GalleryContainer,
+    ListContainer,
 )
 from .serializers import (
     HotelSerializer,
     HotelPublicSerializer,
     RoomBookingListSerializer,
     RoomBookingDetailSerializer,
-    PublicSectionStaffSerializer
+    PublicSectionStaffSerializer,
+    PublicSectionDetailSerializer
 )
 from .permissions import IsSuperStaffAdminForHotel
 
@@ -1526,6 +1530,100 @@ class PublicPageBootstrapView(APIView):
                 },
                 "is_empty": False,
                 "sections": section_data,
-            },
             status=status.HTTP_201_CREATED
+        )
+
+
+class SectionCreateView(APIView):
+    """
+    Enhanced section creation endpoint that automatically initializes
+    section-specific data based on type.
+    
+    POST /api/staff/hotel/<hotel_slug>/hotel/sections/create/
+    
+    Body:
+    {
+        "section_type": "hero" | "gallery" | "list" | "news",
+        "name": "optional section name",
+        "position": 0  // optional, defaults to end
+    }
+    
+    Behavior:
+    - hero: Creates HeroSection with placeholder text and images
+    - gallery: Creates one empty GalleryContainer
+    - list: Creates one empty ListContainer
+    - news: Creates empty news section (no items by default)
+    """
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def post(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        section_type = request.data.get('section_type')
+        if not section_type:
+            return Response(
+                {'error': 'section_type is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if section_type not in ['hero', 'gallery', 'list', 'news']:
+            return Response(
+                {'error': 'Invalid section_type. Must be: hero, gallery, list, or news'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get position (default to end)
+        position = request.data.get('position')
+        if position is None:
+            max_pos = PublicSection.objects.filter(hotel=hotel).aggregate(
+                models.Max('position')
+            )['position__max']
+            position = (max_pos or -1) + 1
+        
+        name = request.data.get('name', f'{section_type.title()} Section')
+        
+        # Create section
+        section = PublicSection.objects.create(
+            hotel=hotel,
+            position=position,
+            name=name,
+            is_active=True
+        )
+        
+        # Initialize based on type
+        if section_type == 'hero':
+            # Create HeroSection with placeholders
+            # Use default placeholder images from Cloudinary if available
+            HeroSection.objects.create(
+                section=section,
+                hero_title="Update your hero title here",
+                hero_text="Update your hero description text here.",
+                # hero_image and hero_logo will be null initially
+                # Frontend should provide default placeholders or allow upload
+            )
+            
+        elif section_type == 'gallery':
+            # Create one empty gallery container
+            GalleryContainer.objects.create(
+                section=section,
+                name="Gallery 1",
+                sort_order=0
+            )
+            
+        elif section_type == 'list':
+            # Create one empty list container
+            ListContainer.objects.create(
+                section=section,
+                title="",
+                sort_order=0
+            )
+            
+        # For 'news', we don't create anything - news items added explicitly
+        
+        # Return detailed section data
+        serializer = PublicSectionDetailSerializer(section)
+        return Response({
+            'message': f'{section_type.title()} section created successfully',
+            'section': serializer.data
+        }, status=status.HTTP_201_CREATED)   status=status.HTTP_201_CREATED
         )

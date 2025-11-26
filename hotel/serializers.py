@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.db import models
 from .models import (
     Hotel,
     HotelAccessConfig,
@@ -8,8 +9,16 @@ from .models import (
     PublicSection,
     PublicElement,
     PublicElementItem,
+    HeroSection,
+    GalleryContainer,
+    GalleryImage,
+    ListContainer,
+    Card,
+    NewsItem,
+    ContentBlock,
 )
 from rooms.models import RoomType
+from common.cloudinary_utils import get_cloudinary_url
 
 
 # ============================================================================
@@ -439,3 +448,289 @@ class PublicSectionStaffSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
+
+
+# ============================================================================
+# NEW SECTION TYPE SERIALIZERS
+# ============================================================================
+
+# --- Hero Section Serializers ---
+
+class HeroSectionSerializer(serializers.ModelSerializer):
+    """Serializer for Hero section data"""
+    hero_image_url = serializers.SerializerMethodField()
+    hero_logo_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = HeroSection
+        fields = [
+            'id',
+            'section',
+            'hero_title',
+            'hero_text',
+            'hero_image',
+            'hero_image_url',
+            'hero_logo',
+            'hero_logo_url',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_hero_image_url(self, obj):
+        return get_cloudinary_url(obj.hero_image)
+    
+    def get_hero_logo_url(self, obj):
+        return get_cloudinary_url(obj.hero_logo)
+
+
+# --- Gallery Section Serializers ---
+
+class GalleryImageSerializer(serializers.ModelSerializer):
+    """Serializer for individual gallery images"""
+    image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = GalleryImage
+        fields = [
+            'id',
+            'gallery',
+            'image',
+            'image_url',
+            'caption',
+            'alt_text',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_image_url(self, obj):
+        return get_cloudinary_url(obj.image)
+
+
+class GalleryContainerSerializer(serializers.ModelSerializer):
+    """Serializer for gallery container with nested images"""
+    images = GalleryImageSerializer(many=True, read_only=True)
+    image_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = GalleryContainer
+        fields = [
+            'id',
+            'section',
+            'name',
+            'sort_order',
+            'images',
+            'image_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_image_count(self, obj):
+        return obj.images.count()
+
+
+class BulkGalleryImageUploadSerializer(serializers.Serializer):
+    """Serializer for bulk image upload to a gallery"""
+    gallery = serializers.PrimaryKeyRelatedField(
+        queryset=GalleryContainer.objects.all()
+    )
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        write_only=True,
+        min_length=1,
+        max_length=20
+    )
+    
+    def create(self, validated_data):
+        gallery = validated_data['gallery']
+        images = validated_data['images']
+        
+        # Get current max sort_order
+        max_order = gallery.images.aggregate(
+            models.Max('sort_order')
+        )['sort_order__max'] or -1
+        
+        created_images = []
+        for idx, image in enumerate(images):
+            gallery_image = GalleryImage.objects.create(
+                gallery=gallery,
+                image=image,
+                sort_order=max_order + idx + 1
+            )
+            created_images.append(gallery_image)
+        
+        return created_images
+
+
+# --- List/Card Section Serializers ---
+
+class CardSerializer(serializers.ModelSerializer):
+    """Serializer for individual cards"""
+    image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Card
+        fields = [
+            'id',
+            'list_container',
+            'title',
+            'subtitle',
+            'description',
+            'image',
+            'image_url',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_image_url(self, obj):
+        return get_cloudinary_url(obj.image)
+
+
+class ListContainerSerializer(serializers.ModelSerializer):
+    """Serializer for list container with nested cards"""
+    cards = CardSerializer(many=True, read_only=True)
+    card_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ListContainer
+        fields = [
+            'id',
+            'section',
+            'title',
+            'sort_order',
+            'cards',
+            'card_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_card_count(self, obj):
+        return obj.cards.count()
+
+
+# --- News Section Serializers ---
+
+class ContentBlockSerializer(serializers.ModelSerializer):
+    """Serializer for content blocks (text or image)"""
+    image_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ContentBlock
+        fields = [
+            'id',
+            'news_item',
+            'block_type',
+            'body',
+            'image',
+            'image_url',
+            'image_position',
+            'image_caption',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_image_url(self, obj):
+        return get_cloudinary_url(obj.image)
+    
+    def validate(self, data):
+        """Validate that text blocks have body and image blocks have image"""
+        block_type = data.get('block_type')
+        
+        if block_type == 'text' and not data.get('body'):
+            raise serializers.ValidationError({
+                'body': 'Text blocks must have body content'
+            })
+        
+        if block_type == 'image' and not data.get('image'):
+            raise serializers.ValidationError({
+                'image': 'Image blocks must have an image'
+            })
+        
+        return data
+
+
+class NewsItemSerializer(serializers.ModelSerializer):
+    """Serializer for news items with nested content blocks"""
+    content_blocks = ContentBlockSerializer(many=True, read_only=True)
+    block_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = NewsItem
+        fields = [
+            'id',
+            'section',
+            'title',
+            'date',
+            'summary',
+            'sort_order',
+            'content_blocks',
+            'block_count',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_block_count(self, obj):
+        return obj.content_blocks.count()
+
+
+# ============================================================================
+# ENHANCED PUBLIC SECTION SERIALIZERS (with typed data)
+# ============================================================================
+
+class PublicSectionDetailSerializer(serializers.ModelSerializer):
+    """
+    Enhanced serializer that includes section-specific data
+    based on section type (hero, gallery, list, news)
+    """
+    element = PublicElementSerializer(read_only=True)
+    
+    # Section-specific nested data
+    hero_data = HeroSectionSerializer(read_only=True)
+    galleries = GalleryContainerSerializer(many=True, read_only=True)
+    lists = ListContainerSerializer(many=True, read_only=True)
+    news_items = NewsItemSerializer(many=True, read_only=True)
+    
+    # Helper fields
+    section_type = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PublicSection
+        fields = [
+            'id',
+            'hotel',
+            'position',
+            'is_active',
+            'name',
+            'section_type',
+            'element',
+            'hero_data',
+            'galleries',
+            'lists',
+            'news_items',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_section_type(self, obj):
+        """Infer section type from related data"""
+        if hasattr(obj, 'hero_data'):
+            return 'hero'
+        elif obj.galleries.exists():
+            return 'gallery'
+        elif obj.lists.exists():
+            return 'list'
+        elif obj.news_items.exists():
+            return 'news'
+        elif hasattr(obj, 'element'):
+            return obj.element.element_type
+        return 'unknown'

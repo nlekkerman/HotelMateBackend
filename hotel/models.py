@@ -651,3 +651,239 @@ class PublicElementItem(models.Model):
     def __str__(self):
         return f"{self.element.element_type} item: {self.title or ''}"
 
+
+# ============================================================================
+# SECTION-SPECIFIC MODELS
+# ============================================================================
+
+class HeroSection(models.Model):
+    """
+    Hero section with pre-populated placeholders.
+    One per section, automatically created with defaults.
+    """
+    section = models.OneToOneField(
+        PublicSection,
+        on_delete=models.CASCADE,
+        related_name='hero_data'
+    )
+    hero_title = models.CharField(
+        max_length=255,
+        default="Update your hero title here"
+    )
+    hero_text = models.TextField(
+        default="Update your hero description text here."
+    )
+    hero_image = CloudinaryField(
+        "hero_image",
+        blank=True,
+        null=True,
+        help_text="Main hero background image"
+    )
+    hero_logo = CloudinaryField(
+        "hero_logo",
+        blank=True,
+        null=True,
+        help_text="Corner logo image"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Hero: {self.hero_title}"
+
+
+class GalleryContainer(models.Model):
+    """
+    Container for a gallery (multiple galleries can exist per Gallery section).
+    """
+    section = models.ForeignKey(
+        PublicSection,
+        on_delete=models.CASCADE,
+        related_name='galleries'
+    )
+    name = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Optional gallery name/title"
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order']
+
+    def __str__(self):
+        return f"Gallery: {self.name or f'#{self.id}'}"
+
+
+class GalleryImage(models.Model):
+    """
+    Individual images within a gallery container.
+    """
+    gallery = models.ForeignKey(
+        GalleryContainer,
+        on_delete=models.CASCADE,
+        related_name='images'
+    )
+    image = CloudinaryField(
+        "gallery_image",
+        help_text="Gallery image stored in Cloudinary"
+    )
+    caption = models.CharField(max_length=255, blank=True)
+    alt_text = models.CharField(max_length=255, blank=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order']
+
+    def __str__(self):
+        return f"Image in {self.gallery.name or 'Gallery'}"
+
+
+class ListContainer(models.Model):
+    """
+    Container for a list of cards (multiple lists can exist per List section).
+    """
+    section = models.ForeignKey(
+        PublicSection,
+        on_delete=models.CASCADE,
+        related_name='lists'
+    )
+    title = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Optional list title (e.g., 'Special Offers', 'Rooms & Suites')"
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order']
+
+    def __str__(self):
+        return f"List: {self.title or f'#{self.id}'}"
+
+
+class Card(models.Model):
+    """
+    Individual card within a list container.
+    """
+    list_container = models.ForeignKey(
+        ListContainer,
+        on_delete=models.CASCADE,
+        related_name='cards'
+    )
+    title = models.CharField(max_length=255)
+    subtitle = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
+    image = CloudinaryField(
+        "card_image",
+        blank=True,
+        null=True,
+        help_text="Optional card image"
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order']
+
+    def __str__(self):
+        return f"Card: {self.title}"
+
+
+class NewsItem(models.Model):
+    """
+    News item with title, date, summary, and ordered content blocks.
+    """
+    section = models.ForeignKey(
+        PublicSection,
+        on_delete=models.CASCADE,
+        related_name='news_items'
+    )
+    title = models.CharField(max_length=255)
+    date = models.DateField(
+        blank=True,
+        null=True,
+        help_text="Publication date"
+    )
+    summary = models.CharField(
+        max_length=500,
+        blank=True,
+        help_text="Short summary/excerpt"
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order']
+
+    def __str__(self):
+        return f"News: {self.title}"
+
+
+class ContentBlock(models.Model):
+    """
+    Individual content block within a news item.
+    Can be text or image with positioning.
+    """
+    BLOCK_TYPE_CHOICES = [
+        ('text', 'Text Block'),
+        ('image', 'Image Block'),
+    ]
+    
+    IMAGE_POSITION_CHOICES = [
+        ('full_width', 'Full Width'),
+        ('left', 'Left (text right)'),
+        ('right', 'Right (text left)'),
+        ('inline_grid', 'Inline Grid'),
+    ]
+    
+    news_item = models.ForeignKey(
+        NewsItem,
+        on_delete=models.CASCADE,
+        related_name='content_blocks'
+    )
+    block_type = models.CharField(
+        max_length=20,
+        choices=BLOCK_TYPE_CHOICES,
+        default='text'
+    )
+    
+    # For text blocks
+    body = models.TextField(
+        blank=True,
+        help_text="Text content (supports rich text/markdown)"
+    )
+    
+    # For image blocks
+    image = CloudinaryField(
+        "news_image",
+        blank=True,
+        null=True,
+        help_text="Image for image blocks"
+    )
+    image_position = models.CharField(
+        max_length=20,
+        choices=IMAGE_POSITION_CHOICES,
+        default='full_width',
+        blank=True
+    )
+    image_caption = models.CharField(max_length=255, blank=True)
+    
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order']
+
+    def __str__(self):
+        return f"{self.block_type} block #{self.sort_order} in {self.news_item.title}"
+
