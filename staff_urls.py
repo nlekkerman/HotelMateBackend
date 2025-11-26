@@ -12,12 +12,20 @@ from hotel.views import (
     PublicPageBuilderView,
     PublicPageBootstrapView,
     HotelStatusCheckView,
+    SectionCreateView,
 )
 from hotel.staff_views import (
     StaffRoomTypeViewSet,
     PublicSectionViewSet,
     PublicElementViewSet,
     PublicElementItemViewSet,
+    HeroSectionViewSet,
+    GalleryContainerViewSet,
+    GalleryImageViewSet,
+    ListContainerViewSet,
+    CardViewSet,
+    NewsItemViewSet,
+    ContentBlockViewSet,
 )
 from rest_framework.routers import DefaultRouter
 
@@ -64,6 +72,41 @@ staff_hotel_router.register(
     PublicElementItemViewSet,
     basename='staff-public-element-items'
 )
+staff_hotel_router.register(
+    r'hero-sections',
+    HeroSectionViewSet,
+    basename='staff-hero-sections'
+)
+staff_hotel_router.register(
+    r'gallery-containers',
+    GalleryContainerViewSet,
+    basename='staff-gallery-containers'
+)
+staff_hotel_router.register(
+    r'gallery-images',
+    GalleryImageViewSet,
+    basename='staff-gallery-images'
+)
+staff_hotel_router.register(
+    r'list-containers',
+    ListContainerViewSet,
+    basename='staff-list-containers'
+)
+staff_hotel_router.register(
+    r'cards',
+    CardViewSet,
+    basename='staff-cards'
+)
+staff_hotel_router.register(
+    r'news-items',
+    NewsItemViewSet,
+    basename='staff-news-items'
+)
+staff_hotel_router.register(
+    r'content-blocks',
+    ContentBlockViewSet,
+    basename='staff-content-blocks'
+)
 
 urlpatterns = [
     # Phase 1 Direct Staff Routes (cleaner URLs)
@@ -95,8 +138,13 @@ urlpatterns = [
         PublicPageBootstrapView.as_view(),
         name='staff-public-page-bootstrap'
     ),
+    path(
+        'hotel/<str:hotel_slug>/sections/create/',
+        SectionCreateView.as_view(),
+        name='staff-section-create'
+    ),
     
-    # Room Types & Galleries CRUD (clean path)
+    # Room Types & Section CRUD (clean path)
     path(
         'hotel/<str:hotel_slug>/',
         include(staff_hotel_router.urls)

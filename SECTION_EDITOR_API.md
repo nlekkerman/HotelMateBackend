@@ -23,7 +23,7 @@ All image uploads use the existing Cloudinary integration from the maintenance a
 
 Creates a new section and automatically initializes the appropriate data structure.
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/sections/create/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/sections/create/`
 
 **Body**:
 ```json
@@ -64,13 +64,13 @@ Creates a new section and automatically initializes the appropriate data structu
 
 ### 2. List All Sections
 
-**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/hotel/staff/public-sections/`
+**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/public-sections/`
 
 Returns all sections for the hotel with nested data.
 
 ### 3. Update Section
 
-**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hotel/staff/public-sections/<id>/`
+**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/public-sections/<id>/`
 
 **Body**:
 ```json
@@ -83,7 +83,7 @@ Returns all sections for the hotel with nested data.
 
 ### 4. Delete Section
 
-**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/hotel/staff/public-sections/<id>/`
+**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/public-sections/<id>/`
 
 ---
 
@@ -93,7 +93,7 @@ Hero sections are **pre-populated** with placeholder text and empty image fields
 
 ### Update Hero Data
 
-**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hotel/staff/hero-sections/<id>/`
+**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hero-sections/<id>/`
 
 **Body**:
 ```json
@@ -105,14 +105,14 @@ Hero sections are **pre-populated** with placeholder text and empty image fields
 
 ### Upload Hero Image
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/hero-sections/<id>/upload-hero-image/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hero-sections/<id>/upload-hero-image/`
 
 **Body** (multipart/form-data):
 - `image`: Image file
 
 ### Upload Hero Logo
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/hero-sections/<id>/upload-logo/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hero-sections/<id>/upload-logo/`
 
 **Body** (multipart/form-data):
 - `image`: Image file
@@ -125,7 +125,7 @@ Gallery sections can have **multiple gallery containers**, each containing multi
 
 ### Create Gallery Container
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/gallery-containers/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/gallery-containers/`
 
 **Body**:
 ```json
@@ -138,19 +138,19 @@ Gallery sections can have **multiple gallery containers**, each containing multi
 
 ### List Gallery Containers
 
-**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/hotel/staff/gallery-containers/?section=<section_id>`
+**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/gallery-containers/?section=<section_id>`
 
 ### Update Gallery Container
 
-**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hotel/staff/gallery-containers/<id>/`
+**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/gallery-containers/<id>/`
 
 ### Delete Gallery Container
 
-**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/hotel/staff/gallery-containers/<id>/`
+**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/gallery-containers/<id>/`
 
 ### Add Images to Gallery (Bulk Upload)
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/gallery-images/bulk-upload/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/gallery-images/bulk-upload/`
 
 **Body** (multipart/form-data):
 - `gallery`: Gallery container ID
@@ -174,7 +174,7 @@ Gallery sections can have **multiple gallery containers**, each containing multi
 
 ### Update Gallery Image
 
-**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hotel/staff/gallery-images/<id>/`
+**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/gallery-images/<id>/`
 
 **Body**:
 ```json
@@ -187,7 +187,7 @@ Gallery sections can have **multiple gallery containers**, each containing multi
 
 ### Delete Gallery Image
 
-**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/hotel/staff/gallery-images/<id>/`
+**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/gallery-images/<id>/`
 
 ---
 
@@ -197,7 +197,7 @@ List sections can have **multiple list containers**, each containing multiple ca
 
 ### Create List Container
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/list-containers/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/list-containers/`
 
 **Body**:
 ```json
@@ -210,11 +210,11 @@ List sections can have **multiple list containers**, each containing multiple ca
 
 ### List Containers
 
-**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/hotel/staff/list-containers/?section=<section_id>`
+**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/list-containers/?section=<section_id>`
 
 ### Create Card
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/cards/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/cards/`
 
 **Body**:
 ```json
@@ -229,18 +229,18 @@ List sections can have **multiple list containers**, each containing multiple ca
 
 ### Upload Card Image
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/cards/<id>/upload-image/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/cards/<id>/upload-image/`
 
 **Body** (multipart/form-data):
 - `image`: Image file
 
 ### Update Card
 
-**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hotel/staff/cards/<id>/`
+**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/cards/<id>/`
 
 ### Delete Card
 
-**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/hotel/staff/cards/<id>/`
+**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/cards/<id>/`
 
 ---
 
@@ -250,7 +250,7 @@ News sections contain **news items** with ordered **content blocks** (text or im
 
 ### Create News Item
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/news-items/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/news-items/`
 
 **Body**:
 ```json
@@ -265,19 +265,19 @@ News sections contain **news items** with ordered **content blocks** (text or im
 
 ### List News Items
 
-**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/hotel/staff/news-items/?section=<section_id>`
+**Endpoint**: `GET /api/staff/hotel/<hotel_slug>/news-items/?section=<section_id>`
 
 ### Update News Item
 
-**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hotel/staff/news-items/<id>/`
+**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/news-items/<id>/`
 
 ### Delete News Item
 
-**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/hotel/staff/news-items/<id>/`
+**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/news-items/<id>/`
 
 ### Add Text Block to News Item
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/content-blocks/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/content-blocks/`
 
 **Body**:
 ```json
@@ -291,7 +291,7 @@ News sections contain **news items** with ordered **content blocks** (text or im
 
 ### Add Image Block to News Item
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/content-blocks/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/content-blocks/`
 
 **Body**:
 ```json
@@ -306,18 +306,18 @@ News sections contain **news items** with ordered **content blocks** (text or im
 
 Then upload the image:
 
-**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/hotel/staff/content-blocks/<id>/upload-image/`
+**Endpoint**: `POST /api/staff/hotel/<hotel_slug>/content-blocks/<id>/upload-image/`
 
 **Body** (multipart/form-data):
 - `image`: Image file
 
 ### Update Content Block
 
-**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/hotel/staff/content-blocks/<id>/`
+**Endpoint**: `PATCH /api/staff/hotel/<hotel_slug>/content-blocks/<id>/`
 
 ### Delete Content Block
 
-**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/hotel/staff/content-blocks/<id>/`
+**Endpoint**: `DELETE /api/staff/hotel/<hotel_slug>/content-blocks/<id>/`
 
 ---
 
@@ -405,7 +405,7 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
 
 2. Update text:
    ```
-   PATCH /api/staff/hotel/grand-hotel/hotel/staff/hero-sections/1/
+   PATCH /api/staff/hotel/grand-hotel/hero-sections/1/
    {
      "hero_title": "Welcome to Grand Hotel",
      "hero_text": "Your perfect getaway awaits"
@@ -414,10 +414,10 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
 
 3. Upload images:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/staff/hero-sections/1/upload-hero-image/
+   POST /api/staff/hotel/grand-hotel/hero-sections/1/upload-hero-image/
    (multipart: image file)
    
-   POST /api/staff/hotel/grand-hotel/hotel/staff/hero-sections/1/upload-logo/
+   POST /api/staff/hotel/grand-hotel/hero-sections/1/upload-logo/
    (multipart: logo file)
    ```
 
@@ -425,7 +425,7 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
 
 1. Create section:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/sections/create/
+   POST /api/staff/hotel/grand-hotel/sections/create/
    { "section_type": "gallery", "name": "Hotel Gallery" }
    ```
 
@@ -433,13 +433,13 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
 
 3. Upload multiple images:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/staff/gallery-images/bulk-upload/
+   POST /api/staff/hotel/grand-hotel/gallery-images/bulk-upload/
    (multipart: gallery=1, images=[file1, file2, file3])
    ```
 
 4. Create additional gallery:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/staff/gallery-containers/
+   POST /api/staff/hotel/grand-hotel/gallery-containers/
    { "section": 2, "name": "Dining Area", "sort_order": 1 }
    ```
 
@@ -447,13 +447,13 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
 
 1. Create section:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/sections/create/
+   POST /api/staff/hotel/grand-hotel/sections/create/
    { "section_type": "news", "name": "Latest News" }
    ```
 
 2. Create news item:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/staff/news-items/
+   POST /api/staff/hotel/grand-hotel/news-items/
    {
      "section": 3,
      "title": "New Spa Opening",
@@ -464,7 +464,7 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
 
 3. Add text block:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/staff/content-blocks/
+   POST /api/staff/hotel/grand-hotel/content-blocks/
    {
      "news_item": 1,
      "block_type": "text",
@@ -475,7 +475,7 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
 
 4. Add image block:
    ```
-   POST /api/staff/hotel/grand-hotel/hotel/staff/content-blocks/
+   POST /api/staff/hotel/grand-hotel/content-blocks/
    {
      "news_item": 1,
      "block_type": "image",
@@ -483,7 +483,7 @@ All image uploads use the **existing Cloudinary integration** from the maintenan
      "sort_order": 1
    }
    
-   POST /api/staff/hotel/grand-hotel/hotel/staff/content-blocks/2/upload-image/
+   POST /api/staff/hotel/grand-hotel/content-blocks/2/upload-image/
    (multipart: image file)
    ```
 

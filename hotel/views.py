@@ -1530,6 +1530,7 @@ class PublicPageBootstrapView(APIView):
                 },
                 "is_empty": False,
                 "sections": section_data,
+            },
             status=status.HTTP_201_CREATED
         )
 
@@ -1625,5 +1626,4 @@ class SectionCreateView(APIView):
         return Response({
             'message': f'{section_type.title()} section created successfully',
             'section': serializer.data
-        }, status=status.HTTP_201_CREATED)   status=status.HTTP_201_CREATED
-        )
+        }, status=status.HTTP_201_CREATED)
