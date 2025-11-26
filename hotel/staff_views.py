@@ -266,11 +266,14 @@ class PublicSectionViewSet(viewsets.ModelViewSet):
         ).order_by('position')
     
     def perform_create(self, serializer):
-        """Automatically set hotel from URL"""
+        """Automatically set hotel from URL and ensure is_active defaults to True"""
         hotel_slug = self.kwargs.get('hotel_slug')
         from .models import Hotel
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        serializer.save(hotel=hotel)
+        
+        # Ensure is_active is explicitly set
+        is_active = serializer.validated_data.get('is_active', True)
+        serializer.save(hotel=hotel, is_active=is_active)
 
 
 class PublicElementViewSet(viewsets.ModelViewSet):
