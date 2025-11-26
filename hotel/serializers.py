@@ -6,6 +6,7 @@ from .models import (
     BookingOptions,
     RoomBooking,
     PricingQuote,
+    Preset,
     PublicSection,
     PublicElement,
     PublicElementItem,
@@ -19,6 +20,27 @@ from .models import (
 )
 from rooms.models import RoomType
 from common.cloudinary_utils import get_cloudinary_url
+
+
+# ============================================================================
+# PRESET SERIALIZERS
+# ============================================================================
+
+class PresetSerializer(serializers.ModelSerializer):
+    """Serializer for presets - used for section layouts, card styles, image styles, etc."""
+    class Meta:
+        model = Preset
+        fields = [
+            'id',
+            'target_type',
+            'section_type',
+            'key',
+            'name',
+            'description',
+            'is_default',
+            'config',
+        ]
+        read_only_fields = ['id']
 
 
 # ============================================================================
@@ -356,6 +378,14 @@ class PublicElementSerializer(serializers.ModelSerializer):
 class PublicSectionSerializer(serializers.ModelSerializer):
     """Serializer for sections with their element"""
     element = PublicElementSerializer(read_only=True)
+    layout_preset = PresetSerializer(read_only=True)
+    layout_preset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Preset.objects.filter(target_type='section'),
+        source='layout_preset',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     
     class Meta:
         model = PublicSection
@@ -365,6 +395,8 @@ class PublicSectionSerializer(serializers.ModelSerializer):
             'position',
             'is_active',
             'name',
+            'layout_preset',
+            'layout_preset_id',
             'element',
         ]
         read_only_fields = ['id']
@@ -602,6 +634,14 @@ class HeroSectionSerializer(serializers.ModelSerializer):
 class GalleryImageSerializer(serializers.ModelSerializer):
     """Serializer for individual gallery images"""
     image_url = serializers.SerializerMethodField()
+    image_style_preset = PresetSerializer(read_only=True)
+    image_style_preset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Preset.objects.filter(target_type='image'),
+        source='image_style_preset',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     
     class Meta:
         model = GalleryImage
@@ -612,6 +652,8 @@ class GalleryImageSerializer(serializers.ModelSerializer):
             'image_url',
             'caption',
             'alt_text',
+            'image_style_preset',
+            'image_style_preset_id',
             'sort_order',
             'created_at',
             'updated_at',
@@ -683,6 +725,14 @@ class BulkGalleryImageUploadSerializer(serializers.Serializer):
 class CardSerializer(serializers.ModelSerializer):
     """Serializer for individual cards"""
     image_url = serializers.SerializerMethodField()
+    style_preset = PresetSerializer(read_only=True)
+    style_preset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Preset.objects.filter(target_type='card'),
+        source='style_preset',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     
     class Meta:
         model = Card
@@ -694,6 +744,8 @@ class CardSerializer(serializers.ModelSerializer):
             'description',
             'image',
             'image_url',
+            'style_preset',
+            'style_preset_id',
             'sort_order',
             'created_at',
             'updated_at',
@@ -732,6 +784,14 @@ class ListContainerSerializer(serializers.ModelSerializer):
 class ContentBlockSerializer(serializers.ModelSerializer):
     """Serializer for content blocks (text or image)"""
     image_url = serializers.SerializerMethodField()
+    block_preset = PresetSerializer(read_only=True)
+    block_preset_id = serializers.PrimaryKeyRelatedField(
+        queryset=Preset.objects.filter(target_type='news_block'),
+        source='block_preset',
+        write_only=True,
+        required=False,
+        allow_null=True
+    )
     
     class Meta:
         model = ContentBlock
@@ -744,6 +804,8 @@ class ContentBlockSerializer(serializers.ModelSerializer):
             'image_url',
             'image_position',
             'image_caption',
+            'block_preset',
+            'block_preset_id',
             'sort_order',
             'created_at',
             'updated_at',

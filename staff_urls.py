@@ -16,6 +16,7 @@ from hotel.views import (
 )
 from hotel.staff_views import (
     StaffRoomTypeViewSet,
+    PresetViewSet,
     PublicSectionViewSet,
     PublicElementViewSet,
     PublicElementItemViewSet,
@@ -52,6 +53,11 @@ STAFF_APPS = [
 
 # Create router for direct staff endpoints
 staff_hotel_router = DefaultRouter()
+staff_hotel_router.register(
+    r'presets',
+    PresetViewSet,
+    basename='staff-presets'
+)
 staff_hotel_router.register(
     r'room-types',
     StaffRoomTypeViewSet,

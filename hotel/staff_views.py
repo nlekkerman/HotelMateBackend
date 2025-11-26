@@ -15,6 +15,7 @@ from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
 from .models import (
     HotelAccessConfig,
+    Preset,
     PublicSection,
     PublicElement,
     PublicElementItem,
@@ -30,6 +31,7 @@ from rooms.models import RoomType, Room
 from .serializers import (
     RoomTypeStaffSerializer,
     HotelAccessConfigStaffSerializer,
+    PresetSerializer,
     PublicSectionStaffSerializer,
     PublicElementStaffSerializer,
     PublicElementItemStaffSerializer,
@@ -262,6 +264,71 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
             hotel=staff.hotel
         )
         return config
+
+
+# ============================================================================
+# PRESET MANAGEMENT
+# ============================================================================
+
+class PresetViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    Read-only endpoint for presets.
+    Returns all available presets for sections, cards, images, news blocks, etc.
+    Staff can view presets but not create/edit them (managed via admin or seeding).
+    """
+    serializer_class = PresetSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = Preset.objects.all()
+    
+    @action(detail=False, methods=['get'])
+    def grouped(self, request):
+        """
+        Returns presets grouped by target_type and section_type.
+        Example response:
+        {
+            "section": {
+                "hero": [...],
+                "gallery": [...],
+                "list": [...],
+                "news": [...],
+                "footer": [...]
+            },
+            "card": [...],
+            "image": [...],
+            "news_block": [...],
+            "footer": [...],
+            "page_theme": [...]
+        }
+        """
+        presets = Preset.objects.all()
+        grouped_data = {}
+        
+        # Group by target_type
+        for preset in presets:
+            target = preset.target_type
+            
+            if target == 'section':
+                # Further group sections by section_type
+                if 'section' not in grouped_data:
+                    grouped_data['section'] = {}
+                
+                section_type = preset.section_type or 'general'
+                if section_type not in grouped_data['section']:
+                    grouped_data['section'][section_type] = []
+                
+                grouped_data['section'][section_type].append(
+                    PresetSerializer(preset).data
+                )
+            else:
+                # Other target types don't need sub-grouping
+                if target not in grouped_data:
+                    grouped_data[target] = []
+                
+                grouped_data[target].append(
+                    PresetSerializer(preset).data
+                )
+        
+        return Response(grouped_data)
 
 
 # ============================================================================

@@ -2,6 +2,73 @@ from django.db import models
 from cloudinary.models import CloudinaryField
 
 
+# ============================================================================
+# PRESET SYSTEM
+# ============================================================================
+
+class Preset(models.Model):
+    """
+    Reusable preset for styling sections, cards, images, news blocks, footers, and page themes.
+    Enables mix-and-match combinations across different element types.
+    """
+    TARGET_TYPES = [
+        ("section", "Section"),
+        ("card", "Card"),
+        ("image", "Image"),
+        ("news_block", "News Block"),
+        ("footer", "Footer"),
+        ("page_theme", "Page Theme"),
+    ]
+
+    SECTION_TYPES = [
+        ("hero", "Hero"),
+        ("gallery", "Gallery"),
+        ("list", "List"),
+        ("news", "News"),
+        ("footer", "Footer"),
+    ]
+
+    # What this preset applies to
+    target_type = models.CharField(max_length=20, choices=TARGET_TYPES)
+
+    # For section presets only
+    section_type = models.CharField(
+        max_length=20,
+        choices=SECTION_TYPES,
+        null=True,
+        blank=True,
+        help_text="Required when target_type='section'."
+    )
+
+    # Stable key used by frontend to pick layout
+    key = models.CharField(max_length=50, unique=True)
+
+    # Human readable info
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+
+    # Mark one preset as default for each type
+    is_default = models.BooleanField(default=False)
+
+    # Optional JSON for future config (styles, spacing, animations, etc.)
+    config = models.JSONField(default=dict, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['target_type', 'section_type', 'name']
+
+    def __str__(self):
+        if self.section_type:
+            return f"{self.name} ({self.target_type}/{self.section_type})"
+        return f"{self.name} ({self.target_type})"
+
+
+# ============================================================================
+# HOTEL MODEL
+# ============================================================================
+
 class Hotel(models.Model):
     name = models.CharField(max_length=255)
     slug = models.SlugField(
@@ -591,6 +658,17 @@ class PublicSection(models.Model):
     position = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     name = models.CharField(max_length=100, blank=True)
+    
+    # Preset for section layout
+    layout_preset = models.ForeignKey(
+        Preset,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        limit_choices_to={"target_type": "section"},
+        help_text="Layout preset for this section"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -732,6 +810,17 @@ class GalleryImage(models.Model):
     )
     caption = models.CharField(max_length=255, blank=True)
     alt_text = models.CharField(max_length=255, blank=True)
+    
+    # Preset for image styling
+    image_style_preset = models.ForeignKey(
+        Preset,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        limit_choices_to={"target_type": "image"},
+        help_text="Style preset for this image"
+    )
+    
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -786,6 +875,17 @@ class Card(models.Model):
         null=True,
         help_text="Optional card image"
     )
+    
+    # Preset for card styling
+    style_preset = models.ForeignKey(
+        Preset,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        limit_choices_to={"target_type": "card"},
+        help_text="Style preset for this card"
+    )
+    
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -876,6 +976,16 @@ class ContentBlock(models.Model):
         blank=True
     )
     image_caption = models.CharField(max_length=255, blank=True)
+    
+    # Preset for block styling
+    block_preset = models.ForeignKey(
+        Preset,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        limit_choices_to={"target_type": "news_block"},
+        help_text="Style preset for this content block"
+    )
     
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
