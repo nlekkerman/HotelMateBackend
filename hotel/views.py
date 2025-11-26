@@ -1544,15 +1544,16 @@ class SectionCreateView(APIView):
     
     Body:
     {
-        "section_type": "hero" | "gallery" | "list" | "news",
-        "name": "optional section name",
-        "position": 0  // optional, defaults to end
+        "section_type": "hero" | "gallery" | "list" | "news" (required),
+        "name": "Section name (optional, defaults to '{Type} Section')",
+        "position": 0,  // optional, defaults to end
+        "container_name": "Name for first gallery/list container (optional)"
     }
     
     Behavior:
-    - hero: Creates HeroSection with placeholder text and images
-    - gallery: Creates one empty GalleryContainer
-    - list: Creates one empty ListContainer
+    - hero: Creates HeroSection with placeholder text (no name needed)
+    - gallery: Creates one GalleryContainer with optional name
+    - list: Creates one ListContainer with optional name
     - news: Creates empty news section (no items by default)
     """
     permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
@@ -1573,6 +1574,10 @@ class SectionCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Get optional section name and container name
+        name = request.data.get('name', f'{section_type.title()} Section')
+        container_name = request.data.get('container_name', '')
+        
         # Get position (default to end)
         position = request.data.get('position')
         if position is None:
@@ -1580,8 +1585,6 @@ class SectionCreateView(APIView):
                 models.Max('position')
             )['position__max']
             position = (max_pos or -1) + 1
-        
-        name = request.data.get('name', f'{section_type.title()} Section')
         
         # Create section
         section = PublicSection.objects.create(
@@ -1603,18 +1606,20 @@ class SectionCreateView(APIView):
             )
             
         elif section_type == 'gallery':
-            # Create one empty gallery container
+            # Create one gallery container with optional name
+            gallery_name = container_name if container_name else "Gallery 1"
             GalleryContainer.objects.create(
                 section=section,
-                name="Gallery 1",
+                name=gallery_name,
                 sort_order=0
             )
             
         elif section_type == 'list':
-            # Create one empty list container
+            # Create one list container with optional name
+            list_title = container_name if container_name else ""
             ListContainer.objects.create(
                 section=section,
-                title="",
+                title=list_title,
                 sort_order=0
             )
             
