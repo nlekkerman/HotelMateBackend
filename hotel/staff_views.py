@@ -14,8 +14,10 @@ from django.shortcuts import get_object_or_404
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
 from .models import (
+    Hotel,
     HotelAccessConfig,
     Preset,
+    HotelPublicPage,
     PublicSection,
     PublicElement,
     PublicElementItem,
@@ -32,6 +34,7 @@ from .serializers import (
     RoomTypeStaffSerializer,
     HotelAccessConfigStaffSerializer,
     PresetSerializer,
+    HotelPublicPageSerializer,
     PublicSectionStaffSerializer,
     PublicElementStaffSerializer,
     PublicElementItemStaffSerializer,
@@ -329,6 +332,109 @@ class PresetViewSet(viewsets.ReadOnlyModelViewSet):
                 )
         
         return Response(grouped_data)
+
+
+# ============================================================================
+# HOTEL PUBLIC PAGE MANAGEMENT (Super Staff Admin)
+# ============================================================================
+
+class HotelPublicPageViewSet(viewsets.ModelViewSet):
+    """
+    Manage HotelPublicPage with global style variant.
+    Super Staff Admin only.
+    """
+    serializer_class = HotelPublicPageSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        """Only return public page for staff's hotel"""
+        hotel_slug = self.kwargs.get('hotel_slug')
+        
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
+        
+        if not hotel_slug:
+            return HotelPublicPage.objects.none()
+        
+        return HotelPublicPage.objects.filter(hotel__slug=hotel_slug)
+    
+    @action(detail=False, methods=['post'], url_path='apply-page-style')
+    def apply_page_style(self, request, hotel_slug=None):
+        """
+        Apply a global style preset to all sections.
+        
+        POST /api/staff/hotel/<hotel_slug>/public-page/apply-page-style/
+        
+        Body:
+        {
+            "style_variant": 1  // 1..5
+        }
+        
+        This will:
+        1. Set global_style_variant on HotelPublicPage
+        2. Update style_variant on ALL active PublicSection instances
+        3. Update style_variant on ALL section-specific models (HeroSection, GalleryContainer, etc.)
+        """
+        style_variant = request.data.get('style_variant')
+        
+        # Validate input
+        if style_variant is None:
+            return Response(
+                {'error': 'style_variant is required (1-5)'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            style_variant = int(style_variant)
+            if style_variant < 1 or style_variant > 5:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'style_variant must be an integer between 1 and 5'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get or create HotelPublicPage
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        public_page, created = HotelPublicPage.objects.get_or_create(hotel=hotel)
+        
+        # Update global style variant
+        public_page.global_style_variant = style_variant
+        public_page.save()
+        
+        # Update all sections for this hotel
+        sections = PublicSection.objects.filter(hotel=hotel, is_active=True)
+        sections.update(style_variant=style_variant)
+        
+        # Update all section-specific models
+        for section in sections:
+            # Update HeroSection if exists
+            if hasattr(section, 'hero_data'):
+                section.hero_data.style_variant = style_variant
+                section.hero_data.save()
+            
+            # Update all GalleryContainers
+            section.galleries.all().update(style_variant=style_variant)
+            
+            # Update all ListContainers
+            section.lists.all().update(style_variant=style_variant)
+            
+            # Update all NewsItems
+            section.news_items.all().update(style_variant=style_variant)
+        
+        # Return updated page data with all sections
+        sections_data = PublicSectionStaffSerializer(
+            sections,
+            many=True,
+            context={'request': request}
+        ).data
+        
+        return Response({
+            'message': f'Applied style preset {style_variant} to all sections',
+            'public_page': HotelPublicPageSerializer(public_page).data,
+            'updated_sections_count': sections.count(),
+            'sections': sections_data
+        }, status=status.HTTP_200_OK)
 
 
 # ============================================================================

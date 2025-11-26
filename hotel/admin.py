@@ -8,6 +8,7 @@ from .models import (
     RoomBooking,
     PricingQuote,
     Preset,
+    HotelPublicPage,
     PublicSection,
     PublicElement,
     PublicElementItem,
@@ -124,6 +125,34 @@ class PresetAdmin(admin.ModelAdmin):
     )
     
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(HotelPublicPage)
+class HotelPublicPageAdmin(admin.ModelAdmin):
+    """Admin interface for managing hotel public pages"""
+    list_display = (
+        'hotel',
+        'global_style_variant',
+        'created_at',
+        'updated_at',
+    )
+    list_filter = ('global_style_variant',)
+    search_fields = ('hotel__name', 'hotel__slug')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Hotel', {
+            'fields': ('hotel',)
+        }),
+        ('Global Style', {
+            'fields': ('global_style_variant',),
+            'description': 'Set a global style preset (1-5) that applies to all sections'
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
 
 
 @admin.register(HotelAccessConfig)

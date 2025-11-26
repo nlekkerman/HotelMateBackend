@@ -7,6 +7,7 @@ from .models import (
     RoomBooking,
     PricingQuote,
     Preset,
+    HotelPublicPage,
     PublicSection,
     PublicElement,
     PublicElementItem,
@@ -105,6 +106,20 @@ class HotelSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'slug': {'required': True}
         }
+
+
+class HotelPublicPageSerializer(serializers.ModelSerializer):
+    """Serializer for HotelPublicPage with global style variant"""
+    class Meta:
+        model = HotelPublicPage
+        fields = [
+            'id',
+            'hotel',
+            'global_style_variant',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class BookingOptionsSerializer(serializers.ModelSerializer):
@@ -395,6 +410,7 @@ class PublicSectionSerializer(serializers.ModelSerializer):
             'position',
             'is_active',
             'name',
+            'style_variant',
             'layout_preset',
             'layout_preset_id',
             'element',
@@ -617,6 +633,7 @@ class HeroSectionSerializer(serializers.ModelSerializer):
             'hero_image_url',
             'hero_logo',
             'hero_logo_url',
+            'style_variant',
             'created_at',
             'updated_at',
         ]
@@ -675,6 +692,7 @@ class GalleryContainerSerializer(serializers.ModelSerializer):
             'id',
             'section',
             'name',
+            'style_variant',
             'sort_order',
             'images',
             'image_count',
@@ -767,6 +785,7 @@ class ListContainerSerializer(serializers.ModelSerializer):
             'id',
             'section',
             'title',
+            'style_variant',
             'sort_order',
             'cards',
             'card_count',
@@ -845,6 +864,7 @@ class NewsItemSerializer(serializers.ModelSerializer):
             'title',
             'date',
             'summary',
+            'style_variant',
             'sort_order',
             'content_blocks',
             'block_count',

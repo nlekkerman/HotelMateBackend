@@ -17,6 +17,7 @@ from hotel.views import (
 from hotel.staff_views import (
     StaffRoomTypeViewSet,
     PresetViewSet,
+    HotelPublicPageViewSet,
     PublicSectionViewSet,
     PublicElementViewSet,
     PublicElementItemViewSet,
@@ -57,6 +58,11 @@ staff_hotel_router.register(
     r'presets',
     PresetViewSet,
     basename='staff-presets'
+)
+staff_hotel_router.register(
+    r'public-page',
+    HotelPublicPageViewSet,
+    basename='staff-public-page'
 )
 staff_hotel_router.register(
     r'room-types',

@@ -645,6 +645,36 @@ class PricingQuote(models.Model):
         return f"{self.quote_id} - €{self.total}"
 
 
+class HotelPublicPage(models.Model):
+    """
+    Represents the public page configuration for a hotel.
+    Includes a global style preset that can be applied to all sections.
+    """
+    hotel = models.OneToOneField(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name="public_page"
+    )
+    
+    # Global page preset: 1–5
+    global_style_variant = models.PositiveSmallIntegerField(
+        choices=[(i, f"Page Preset {i}") for i in range(1, 6)],
+        null=True,
+        blank=True,
+        help_text="Optional global style preset index (1–5) applied to all sections."
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Hotel Public Page"
+        verbose_name_plural = "Hotel Public Pages"
+    
+    def __str__(self):
+        return f"Public Page for {self.hotel.name}"
+
+
 class PublicSection(models.Model):
     """
     A container for ordering and visibility.
@@ -658,6 +688,13 @@ class PublicSection(models.Model):
     position = models.PositiveIntegerField(default=0)
     is_active = models.BooleanField(default=True)
     name = models.CharField(max_length=100, blank=True)
+    
+    # Style preset index for this section: 1..5
+    style_variant = models.PositiveSmallIntegerField(
+        choices=[(i, f"Preset {i}") for i in range(1, 6)],
+        default=1,
+        help_text="Section style preset index (1–5)."
+    )
     
     # Preset for section layout
     layout_preset = models.ForeignKey(
@@ -763,6 +800,13 @@ class HeroSection(models.Model):
         null=True,
         help_text="Corner logo image"
     )
+    
+    # Style preset index for this hero section: 1..5
+    style_variant = models.PositiveSmallIntegerField(
+        choices=[(i, f"Preset {i}") for i in range(1, 6)],
+        default=1,
+        help_text="Hero style preset index (1–5)."
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -784,6 +828,14 @@ class GalleryContainer(models.Model):
         blank=True,
         help_text="Optional gallery name/title"
     )
+    
+    # Style preset index for this gallery: 1..5
+    style_variant = models.PositiveSmallIntegerField(
+        choices=[(i, f"Preset {i}") for i in range(1, 6)],
+        default=1,
+        help_text="Gallery style preset index (1–5)."
+    )
+    
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -846,6 +898,14 @@ class ListContainer(models.Model):
         blank=True,
         help_text="Optional list title (e.g., 'Special Offers', 'Rooms & Suites')"
     )
+    
+    # Style preset index for this list: 1..5
+    style_variant = models.PositiveSmallIntegerField(
+        choices=[(i, f"Preset {i}") for i in range(1, 6)],
+        default=1,
+        help_text="List style preset index (1–5)."
+    )
+    
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -917,6 +977,14 @@ class NewsItem(models.Model):
         blank=True,
         help_text="Short summary/excerpt"
     )
+    
+    # Style preset index for this news item: 1..5
+    style_variant = models.PositiveSmallIntegerField(
+        choices=[(i, f"Preset {i}") for i in range(1, 6)],
+        default=1,
+        help_text="News item style preset index (1–5)."
+    )
+    
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
