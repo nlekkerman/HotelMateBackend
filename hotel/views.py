@@ -1031,13 +1031,12 @@ class StaffBookingConfirmView(APIView):
 
 class HotelPublicPageView(APIView):
     """
-    Public API endpoint to get hotel page structure with all sections and elements.
+    Public API endpoint to get hotel page structure with all sections.
     
     GET /api/public/hotel/<slug>/page/
     
-    Returns all active sections for the hotel, ordered by position.
-    Special handling for element_type='rooms_list' to return real room types
-    from the database instead of custom items.
+    Returns all active sections for the hotel with their specific data
+    (HeroSection, GalleryContainer, ListContainer, NewsItem).
     
     No authentication required - public endpoint.
     """
@@ -1047,10 +1046,29 @@ class HotelPublicPageView(APIView):
         # Get hotel
         hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
         
-        # Get all active sections with their elements, ordered by position
-        sections = hotel.public_sections.filter(
-            is_active=True
-        ).select_related('element').prefetch_related('element__items').order_by('position')
+        # Get all active sections ordered by position
+        sections = hotel.public_sections.filter(is_active=True).order_by('position')
+        
+        # Check if hotel has any sections
+        if not sections.exists():
+            return Response({
+                'hotel': {
+                    'id': hotel.id,
+                    'name': hotel.name,
+                    'slug': hotel.slug,
+                },
+                'message': 'Coming Soon',
+                'description': "This hotel's public page is under construction.",
+                'sections': []
+            }, status=status.HTTP_200_OK)
+        
+        # Use the serializer to get full section data
+        from .serializers import PublicSectionDetailSerializer
+        sections_data = PublicSectionDetailSerializer(
+            sections, 
+            many=True,
+            context={'request': request}
+        ).data
         
         # Build response data
         response_data = {
@@ -1077,64 +1095,8 @@ class HotelPublicPageView(APIView):
                 'hotel_type': hotel.hotel_type,
                 'tags': hotel.tags,
             },
-            'sections': []
+            'sections': sections_data
         }
-        
-        for section in sections:
-            # Skip sections without elements
-            if not hasattr(section, 'element'):
-                continue
-            
-            element = section.element
-            
-            # Build base section data
-            section_data = {
-                'id': section.id,
-                'position': section.position,
-                'name': section.name,
-                'element': {
-                    'id': element.id,
-                    'element_type': element.element_type,
-                    'title': element.title,
-                    'subtitle': element.subtitle,
-                    'body': element.body,
-                    'image_url': element.image_url,
-                    'settings': element.settings,
-                }
-            }
-            
-            # Special case: rooms_list element type
-            if element.element_type == 'rooms_list':
-                # Get real room types from the database
-                room_types = hotel.room_types.filter(
-                    is_active=True
-                ).order_by('sort_order', 'name')
-                
-                # Serialize room types using RoomTypeSerializer
-                from .serializers import RoomTypeSerializer
-                room_types_data = RoomTypeSerializer(room_types, many=True).data
-                section_data['element']['rooms'] = room_types_data
-                section_data['element']['items'] = []  # No custom items for rooms_list
-            else:
-                # Standard elements: include custom items
-                items = element.items.filter(is_active=True).order_by('sort_order')
-                section_data['element']['items'] = [
-                    {
-                        'id': item.id,
-                        'title': item.title,
-                        'subtitle': item.subtitle,
-                        'body': item.body,
-                        'image_url': item.image_url,
-                        'badge': item.badge,
-                        'cta_label': item.cta_label,
-                        'cta_url': item.cta_url,
-                        'sort_order': item.sort_order,
-                        'meta': item.meta,
-                    }
-                    for item in items
-                ]
-            
-            response_data['sections'].append(section_data)
         
         return Response(response_data, status=status.HTTP_200_OK)
 
