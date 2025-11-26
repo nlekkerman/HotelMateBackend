@@ -1594,14 +1594,24 @@ class SectionCreateView(APIView):
         # Initialize based on type
         if section_type == 'hero':
             # Create HeroSection with placeholders
-            # Use default placeholder images from Cloudinary if available
-            HeroSection.objects.create(
+            # Use default placeholder images from Cloudinary
+            hero_section = HeroSection.objects.create(
                 section=section,
                 hero_title="Update your hero title here",
                 hero_text="Update your hero description text here.",
-                # hero_image and hero_logo will be null initially
-                # Frontend should provide default placeholders or allow upload
             )
+            
+            # Set placeholder images using Cloudinary URLs
+            # These are generic placeholder images hosted on Cloudinary
+            try:
+                # Use a default hero placeholder image
+                hero_section.hero_image = 'https://res.cloudinary.com/demo/image/upload/v1/sample.jpg'
+                # Use a default logo placeholder
+                hero_section.hero_logo = 'https://res.cloudinary.com/demo/image/upload/v1/logo_sample.jpg'
+                hero_section.save()
+            except Exception:
+                # If placeholder upload fails, leave as null
+                pass
             
         elif section_type == 'gallery':
             # Create one empty gallery container
