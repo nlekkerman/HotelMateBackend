@@ -52,11 +52,17 @@ Show 2 input fields:
    - Default if empty: "" (empty string)
 
 #### For News Section
-Show 1 input field:
-- **Section Name** (optional)
-  - Label: "Section Name"
-  - Placeholder: "e.g., Latest Updates"
-  - Default if empty: "News Section"
+Show 2 input fields:
+1. **Section Name** (optional)
+   - Label: "Section Name"
+   - Placeholder: "e.g., Latest Updates"
+   - Default if empty: "News Section"
+
+2. **First Article Title** (optional)
+   - Label: "First Article Title"
+   - Placeholder: "e.g., Grand Opening Celebration"
+   - Default if empty: "Update Article Title"
+   - **Note**: Creates article with cover image placeholder + 3 text blocks + 2 inline images
 
 ## Request Payload Structure
 
@@ -65,6 +71,7 @@ interface CreateSectionRequest {
   section_type: 'hero' | 'gallery' | 'list' | 'news';  // Required
   name?: string;                                        // Optional
   container_name?: string;                              // Optional (gallery/list only)
+  article_title?: string;                               // Optional (news only)
   position?: number;                                    // Optional (defaults to end)
 }
 ```
@@ -113,13 +120,26 @@ interface CreateSectionRequest {
 ```
 *Results in: Section named "Amenities" with empty container title*
 
-### News Section
+### News Section (With Article Title)
 ```json
 {
   "section_type": "news",
-  "name": "Latest Updates"
+  "name": "Latest Updates",
+  "article_title": "Grand Opening Celebration"
 }
 ```
+*Results in: Section named "Latest Updates" with first article titled "Grand Opening Celebration" containing:*
+- 1 cover image placeholder (full width)
+- 3 text blocks with placeholder text
+- 2 inline images (right and left positioned)
+
+### News Section (Minimal)
+```json
+{
+  "section_type": "news"
+}
+```
+*Results in: Section named "News Section" with article titled "Update Article Title" and same placeholder structure*
 
 ## Implementation Example (React/TypeScript)
 
@@ -147,6 +167,10 @@ const CreateSectionModal = ({ hotelSlug, onClose, onSuccess }) => {
     
     if (containerName.trim() && (sectionType === 'gallery' || sectionType === 'list')) {
       payload.container_name = containerName.trim();
+    }
+    
+    if (containerName.trim() && sectionType === 'news') {
+      payload.article_title = containerName.trim();
     }
 
     try {
@@ -223,6 +247,19 @@ const CreateSectionModal = ({ hotelSlug, onClose, onSuccess }) => {
                 onChange={(e) => setContainerName(e.target.value)}
                 placeholder={sectionType === 'gallery' ? 'e.g., Lobby & Reception' : 'e.g., Room Features'}
               />
+            </label>
+          )}
+
+          {sectionType === 'news' && (
+            <label>
+              First Article Title (optional)
+              <input
+                type="text"
+                value={containerName}
+                onChange={(e) => setContainerName(e.target.value)}
+                placeholder="e.g., Grand Opening Celebration"
+              />
+              <small>Creates article with cover image + text/image placeholders</small>
             </label>
           )}
 

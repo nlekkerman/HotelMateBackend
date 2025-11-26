@@ -17,6 +17,8 @@ from .models import (
     HeroSection,
     GalleryContainer,
     ListContainer,
+    NewsItem,
+    ContentBlock,
 )
 from .serializers import (
     HotelSerializer,
@@ -1547,14 +1549,15 @@ class SectionCreateView(APIView):
         "section_type": "hero" | "gallery" | "list" | "news" (required),
         "name": "Section name (optional, defaults to '{Type} Section')",
         "position": 0,  // optional, defaults to end
-        "container_name": "Name for first gallery/list container (optional)"
+        "container_name": "Name for first gallery/list container (optional)",
+        "article_title": "Title for first news article (optional, for news type)"
     }
     
     Behavior:
     - hero: Creates HeroSection with placeholder text (no name needed)
     - gallery: Creates one GalleryContainer with optional name
     - list: Creates one ListContainer with optional name
-    - news: Creates empty news section (no items by default)
+    - news: Creates first NewsItem with cover image + text/image blocks
     """
     permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
     
@@ -1574,9 +1577,10 @@ class SectionCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get optional section name and container name
+        # Get optional section name, container name, and article title
         name = request.data.get('name', f'{section_type.title()} Section')
         container_name = request.data.get('container_name', '')
+        article_title = request.data.get('article_title', '')
         
         # Get position (default to end)
         position = request.data.get('position')
@@ -1623,7 +1627,70 @@ class SectionCreateView(APIView):
                 sort_order=0
             )
             
-        # For 'news', we don't create anything - news items added explicitly
+        elif section_type == 'news':
+            # Create first news article with placeholders
+            from datetime import date
+            
+            news_title = article_title if article_title else "Update Article Title"
+            news_item = NewsItem.objects.create(
+                section=section,
+                title=news_title,
+                date=date.today(),
+                summary="Add a brief summary of this article here.",
+                sort_order=0
+            )
+            
+            # Create placeholder content blocks:
+            # 1. Cover image block (full width)
+            ContentBlock.objects.create(
+                news_item=news_item,
+                block_type='image',
+                image_position='full_width',
+                image_caption='Add cover image',
+                sort_order=0
+            )
+            
+            # 2. First text block
+            ContentBlock.objects.create(
+                news_item=news_item,
+                block_type='text',
+                body='Add your article introduction text here. This is the opening paragraph.',
+                sort_order=1
+            )
+            
+            # 3. First inline image
+            ContentBlock.objects.create(
+                news_item=news_item,
+                block_type='image',
+                image_position='right',
+                image_caption='Add first inline image',
+                sort_order=2
+            )
+            
+            # 4. Second text block
+            ContentBlock.objects.create(
+                news_item=news_item,
+                block_type='text',
+                body='Add more article content here. Continue your story.',
+                sort_order=3
+            )
+            
+            # 5. Second inline image
+            ContentBlock.objects.create(
+                news_item=news_item,
+                block_type='image',
+                image_position='left',
+                image_caption='Add second inline image',
+                sort_order=4
+            )
+            
+            # 6. Final text block
+            ContentBlock.objects.create(
+                news_item=news_item,
+                block_type='text',
+                body='Add your closing paragraph here. Wrap up the article.',
+                sort_order=5
+            )
         
         # Return detailed section data
         serializer = PublicSectionDetailSerializer(section)
