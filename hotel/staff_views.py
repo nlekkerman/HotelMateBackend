@@ -279,16 +279,27 @@ class PublicSectionViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Only return sections for staff's hotel"""
+        # Try to get hotel_slug from kwargs (URL path) or from staff profile
         hotel_slug = self.kwargs.get('hotel_slug')
+        
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
+        
         if not hotel_slug:
             return PublicSection.objects.none()
+        
         return PublicSection.objects.filter(
             hotel__slug=hotel_slug
         ).order_by('position')
     
     def perform_create(self, serializer):
-        """Automatically set hotel from URL and ensure is_active defaults to True"""
+        """Automatically set hotel from URL or staff profile"""
         hotel_slug = self.kwargs.get('hotel_slug')
+        
+        # Fallback to staff profile if hotel_slug not in URL
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
+        
         from .models import Hotel
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
@@ -308,6 +319,8 @@ class PublicElementViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Only return elements for staff's hotel sections"""
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return PublicElement.objects.none()
         return PublicElement.objects.filter(
@@ -326,6 +339,8 @@ class PublicElementItemViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Only return items for staff's hotel sections"""
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return PublicElementItem.objects.none()
         return PublicElementItem.objects.filter(
@@ -347,6 +362,8 @@ class HeroSectionViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return HeroSection.objects.none()
         return HeroSection.objects.filter(
@@ -396,6 +413,8 @@ class GalleryContainerViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return GalleryContainer.objects.none()
         return GalleryContainer.objects.filter(
@@ -413,6 +432,8 @@ class GalleryImageViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return GalleryImage.objects.none()
         return GalleryImage.objects.filter(
@@ -450,6 +471,8 @@ class ListContainerViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return ListContainer.objects.none()
         return ListContainer.objects.filter(
@@ -466,6 +489,8 @@ class CardViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return Card.objects.none()
         return Card.objects.filter(
@@ -498,6 +523,8 @@ class NewsItemViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return NewsItem.objects.none()
         return NewsItem.objects.filter(
@@ -514,6 +541,8 @@ class ContentBlockViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
         if not hotel_slug:
             return ContentBlock.objects.none()
         return ContentBlock.objects.filter(
