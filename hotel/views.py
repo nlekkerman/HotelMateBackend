@@ -625,30 +625,52 @@ class HotelSettingsView(APIView):
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     def get(self, request, hotel_slug):
-        """Get hotel information and theme"""
+        """Get complete hotel information and theme"""
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
         # Get or create theme
         from common.models import ThemePreference
         theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
         
-        # Basic hotel info + theme
+        # Complete hotel info + theme
         data = {
+            # Basic info
             'id': hotel.id,
             'name': hotel.name,
             'slug': hotel.slug,
+            'subdomain': hotel.subdomain,
+            'is_active': hotel.is_active,
+            'sort_order': hotel.sort_order,
+            
+            # Marketing
             'tagline': hotel.tagline,
+            'short_description': hotel.short_description,
+            'long_description': hotel.long_description,
+            
+            # Location
             'city': hotel.city,
             'country': hotel.country,
             'address_line_1': hotel.address_line_1,
             'address_line_2': hotel.address_line_2,
             'postal_code': hotel.postal_code,
+            'latitude': float(hotel.latitude) if hotel.latitude else None,
+            'longitude': float(hotel.longitude) if hotel.longitude else None,
+            
+            # Contact
             'phone': hotel.phone,
             'email': hotel.email,
             'website_url': hotel.website_url,
             'booking_url': hotel.booking_url,
-            'short_description': hotel.short_description,
-            'long_description': hotel.long_description,
+            
+            # Classification
+            'hotel_type': hotel.hotel_type,
+            'tags': hotel.tags,
+            
+            # Images
+            'logo': hotel.logo.url if hotel.logo else None,
+            'hero_image': hotel.hero_image.url if hotel.hero_image else None,
+            'landing_page_image': hotel.landing_page_image.url if hotel.landing_page_image else None,
+            
             # Theme colors
             'main_color': theme.main_color,
             'secondary_color': theme.secondary_color,
@@ -665,19 +687,30 @@ class HotelSettingsView(APIView):
         return Response(data)
     
     def patch(self, request, hotel_slug):
-        """Update hotel information and theme"""
+        """Update any hotel information and theme"""
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
-        # Update hotel fields if provided
+        # All updatable hotel fields
         hotel_fields = [
-            'name', 'tagline', 'city', 'country', 'address_line_1', 
-            'address_line_2', 'postal_code', 'phone', 'email', 
-            'website_url', 'booking_url', 'short_description', 'long_description'
+            'name', 'subdomain', 'is_active', 'sort_order',
+            'tagline', 'short_description', 'long_description',
+            'city', 'country', 'address_line_1', 'address_line_2', 'postal_code',
+            'latitude', 'longitude',
+            'phone', 'email', 'website_url', 'booking_url',
+            'hotel_type', 'tags'
         ]
         
         for field in hotel_fields:
             if field in request.data:
                 setattr(hotel, field, request.data[field])
+        
+        # Handle file uploads
+        if 'logo' in request.FILES:
+            hotel.logo = request.FILES['logo']
+        if 'hero_image' in request.FILES:
+            hotel.hero_image = request.FILES['hero_image']
+        if 'landing_page_image' in request.FILES:
+            hotel.landing_page_image = request.FILES['landing_page_image']
         
         hotel.save()
         
@@ -697,23 +730,45 @@ class HotelSettingsView(APIView):
         
         theme.save()
         
-        # Return updated data
+        # Return complete updated data
         data = {
+            # Basic info
             'id': hotel.id,
             'name': hotel.name,
             'slug': hotel.slug,
+            'subdomain': hotel.subdomain,
+            'is_active': hotel.is_active,
+            'sort_order': hotel.sort_order,
+            
+            # Marketing
             'tagline': hotel.tagline,
+            'short_description': hotel.short_description,
+            'long_description': hotel.long_description,
+            
+            # Location
             'city': hotel.city,
             'country': hotel.country,
             'address_line_1': hotel.address_line_1,
             'address_line_2': hotel.address_line_2,
             'postal_code': hotel.postal_code,
+            'latitude': float(hotel.latitude) if hotel.latitude else None,
+            'longitude': float(hotel.longitude) if hotel.longitude else None,
+            
+            # Contact
             'phone': hotel.phone,
             'email': hotel.email,
             'website_url': hotel.website_url,
             'booking_url': hotel.booking_url,
-            'short_description': hotel.short_description,
-            'long_description': hotel.long_description,
+            
+            # Classification
+            'hotel_type': hotel.hotel_type,
+            'tags': hotel.tags,
+            
+            # Images
+            'logo': hotel.logo.url if hotel.logo else None,
+            'hero_image': hotel.hero_image.url if hotel.hero_image else None,
+            'landing_page_image': hotel.landing_page_image.url if hotel.landing_page_image else None,
+            
             # Theme colors
             'main_color': theme.main_color,
             'secondary_color': theme.secondary_color,

@@ -12,6 +12,10 @@ This guide explains how to fetch hotel settings (including all theme colors) and
 GET /api/staff/hotel/{hotel_slug}/settings/
 ```
 
+**Full URL:** `https://hotel-porter-d25ad83b12cf.herokuapp.com/api/staff/hotel/hotel-killarney/settings/`
+
+**⚠️ Important:** If your frontend already has `/api` in the base URL, use only `/staff/hotel/{hotel_slug}/settings/`
+
 **Authentication:** Required (Staff Token)
 
 **Response:**
@@ -66,6 +70,33 @@ PATCH /api/staff/hotel/{hotel_slug}/settings/
 ## Frontend Implementation
 
 ### 1. Fetch Settings on App Load
+
+**Option A: If you already have a base API URL configured**
+
+```javascript
+// services/themeService.js
+// Your api.js already has: const API_BASE = 'https://hotel-porter-d25ad83b12cf.herokuapp.com/api'
+
+export async function fetchHotelSettings(hotelSlug, authToken) {
+  const response = await fetch(
+    `/staff/hotel/${hotelSlug}/settings/`, // NO /api prefix
+    {
+      headers: {
+        'Authorization': `Token ${authToken}`,
+        'Content-Type': 'application/json'
+      }
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error('Failed to fetch hotel settings');
+  }
+  
+  return await response.json();
+}
+```
+
+**Option B: If building full URL**
 
 ```javascript
 // services/themeService.js
@@ -242,34 +273,34 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        primary: 'var(--color-primary)',
-        secondary: 'var(--color-secondary)',
-        background: 'var(--color-background)',
-        textMain: 'var(--color-text)',
-        border: 'var(--color-border)',
-        button: 'var(--color-button)',
-        buttonText: 'var(--color-button-text)',
-        buttonHover: 'var(--color-button-hover)',
-        link: 'var(--color-link)',
-        linkHover: 'var(--color-link-hover)',
-      }
-    }
-  }
-}
-```
-
-Then use in your components:
-```jsx
-<button className="bg-button text-buttonText hover:bg-buttonHover">
-  Click Me
-</button>
-
-<div className="border border-border bg-background text-textMain">
-  Content
-</div>
-```
-
 ### 5. Update Theme Colors
+
+```javascript
+// services/themeService.js
+export async function updateHotelTheme(hotelSlug, authToken, updates) {
+  const response = await fetch(
+    `/staff/hotel/${hotelSlug}/settings/`, // Use relative path if you have API_BASE configured
+    {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Token ${authToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(updates)
+    }
+  );
+  
+  if (!response.ok) {
+    throw new Error('Failed to update theme');
+  }
+  
+  const updated = await response.json();
+  
+  // Re-apply theme after update
+  applyThemeToApp(updated);
+  
+  return updated;
+}## 5. Update Theme Colors
 
 ```javascript
 // services/themeService.js
