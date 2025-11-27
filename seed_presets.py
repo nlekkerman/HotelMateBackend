@@ -292,6 +292,84 @@ def seed_presets():
         },
         
         # ============================================================================
+        # ROOMS SECTION PRESETS
+        # ============================================================================
+        {
+            'target_type': 'section',
+            'section_type': 'rooms',
+            'key': 'rooms_grid_3col',
+            'name': 'Rooms Grid - 3 Columns',
+            'description': 'Classic 3-column grid layout for room types',
+            'is_default': True,
+            'config': {
+                'layout': 'grid',
+                'columns': 3,
+                'gap': 'large',
+                'show_price': True,
+                'show_amenities': True,
+            }
+        },
+        {
+            'target_type': 'section',
+            'section_type': 'rooms',
+            'key': 'rooms_grid_2col',
+            'name': 'Rooms Grid - 2 Columns',
+            'description': 'Wider 2-column grid for larger room cards',
+            'is_default': False,
+            'config': {
+                'layout': 'grid',
+                'columns': 2,
+                'gap': 'large',
+                'show_price': True,
+                'show_amenities': True,
+            }
+        },
+        {
+            'target_type': 'section',
+            'section_type': 'rooms',
+            'key': 'rooms_list',
+            'name': 'Rooms List',
+            'description': 'Vertical list layout with image beside text',
+            'is_default': False,
+            'config': {
+                'layout': 'list',
+                'image_position': 'left',
+                'show_price': True,
+                'show_amenities': True,
+            }
+        },
+        {
+            'target_type': 'section',
+            'section_type': 'rooms',
+            'key': 'rooms_carousel',
+            'name': 'Rooms Carousel',
+            'description': 'Horizontal scrolling carousel of room cards',
+            'is_default': False,
+            'config': {
+                'layout': 'carousel',
+                'autoplay': False,
+                'show_dots': True,
+                'show_price': True,
+            }
+        },
+        {
+            'target_type': 'section',
+            'section_type': 'rooms',
+            'key': 'rooms_luxury',
+            'name': 'Luxury Display',
+            'description': 'Premium layout with large images and elegant spacing',
+            'is_default': False,
+            'config': {
+                'layout': 'luxury',
+                'columns': 2,
+                'gap': 'extra_large',
+                'show_price': True,
+                'show_amenities': True,
+                'hover_effect': 'zoom',
+            }
+        },
+        
+        # ============================================================================
         # FOOTER SECTION PRESETS
         # ============================================================================
         {
@@ -421,6 +499,362 @@ def seed_presets():
                 'show_shadow': True,
                 'shadow_size': 'large',
                 'hover_effect': 'lift',
+            }
+        },
+        
+        # ============================================================================
+        # ROOM CARD PRESETS (for rooms section)
+        # ============================================================================
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_standard',
+            'name': 'Standard Room Card',
+            'description': 'Classic room card with image, details, and booking button',
+            'is_default': True,
+            'config': {
+                'image_height': '250px',
+                'show_occupancy': True,
+                'show_bed_setup': True,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': True,
+                'button_style': 'primary',
+                'hover_effect': 'lift',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_compact',
+            'name': 'Compact Room Card',
+            'description': 'Compact card with less details, good for mobile',
+            'is_default': False,
+            'config': {
+                'image_height': '200px',
+                'show_occupancy': True,
+                'show_bed_setup': False,
+                'show_description': False,
+                'show_price': True,
+                'show_badge': False,
+                'button_style': 'outline',
+                'hover_effect': 'none',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_luxury',
+            'name': 'Luxury Room Card',
+            'description': 'Premium card with large image and detailed information',
+            'is_default': False,
+            'config': {
+                'image_height': '350px',
+                'show_occupancy': True,
+                'show_bed_setup': True,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': True,
+                'button_style': 'primary',
+                'hover_effect': 'zoom',
+                'border': True,
+                'shadow': 'large',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_minimal',
+            'name': 'Minimal Room Card',
+            'description': 'Clean minimal design with essential info only',
+            'is_default': False,
+            'config': {
+                'image_height': '300px',
+                'show_occupancy': False,
+                'show_bed_setup': False,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': False,
+                'button_style': 'text',
+                'hover_effect': 'opacity',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_horizontal',
+            'name': 'Horizontal Room Card',
+            'description': 'Wide horizontal layout with image on left',
+            'is_default': False,
+            'config': {
+                'layout': 'horizontal',
+                'image_width': '40%',
+                'show_occupancy': True,
+                'show_bed_setup': True,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': True,
+                'button_style': 'primary',
+            }
+        },
+        
+        # ============================================================================
+        # SECTION HEADER PRESETS
+        # ============================================================================
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_centered',
+            'name': 'Centered Header',
+            'description': 'Centered title and subtitle',
+            'is_default': True,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'large',
+                'show_subtitle': True,
+                'show_divider': False,
+                'margin_bottom': 'large',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_left',
+            'name': 'Left Aligned Header',
+            'description': 'Left-aligned title with subtitle',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'left',
+                'title_size': 'large',
+                'show_subtitle': True,
+                'show_divider': False,
+                'margin_bottom': 'medium',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_with_divider',
+            'name': 'Header with Divider',
+            'description': 'Centered header with decorative bottom line',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'large',
+                'show_subtitle': True,
+                'show_divider': True,
+                'divider_style': 'solid',
+                'margin_bottom': 'large',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_minimal',
+            'name': 'Minimal Header',
+            'description': 'Simple title without subtitle',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'medium',
+                'show_subtitle': False,
+                'show_divider': False,
+                'margin_bottom': 'small',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_luxury',
+            'name': 'Luxury Header',
+            'description': 'Elegant header with decorative elements',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'extra_large',
+                'show_subtitle': True,
+                'show_divider': True,
+                'divider_style': 'decorative',
+                'font_style': 'serif',
+                'margin_bottom': 'extra_large',
+            }
+        },
+        
+        # ============================================================================
+        # GALLERY IMAGE STYLE PRESETS
+        # ============================================================================
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_standard',
+            'name': 'Standard Room Card',
+            'description': 'Classic room card with image, details, and booking button',
+            'is_default': True,
+            'config': {
+                'image_height': '250px',
+                'show_occupancy': True,
+                'show_bed_setup': True,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': True,
+                'button_style': 'primary',
+                'hover_effect': 'lift',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_compact',
+            'name': 'Compact Room Card',
+            'description': 'Compact card with less details, good for mobile',
+            'is_default': False,
+            'config': {
+                'image_height': '200px',
+                'show_occupancy': True,
+                'show_bed_setup': False,
+                'show_description': False,
+                'show_price': True,
+                'show_badge': False,
+                'button_style': 'outline',
+                'hover_effect': 'none',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_luxury',
+            'name': 'Luxury Room Card',
+            'description': 'Premium card with large image and detailed information',
+            'is_default': False,
+            'config': {
+                'image_height': '350px',
+                'show_occupancy': True,
+                'show_bed_setup': True,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': True,
+                'button_style': 'primary',
+                'hover_effect': 'zoom',
+                'border': True,
+                'shadow': 'large',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_minimal',
+            'name': 'Minimal Room Card',
+            'description': 'Clean minimal design with essential info only',
+            'is_default': False,
+            'config': {
+                'image_height': '300px',
+                'show_occupancy': False,
+                'show_bed_setup': False,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': False,
+                'button_style': 'text',
+                'hover_effect': 'opacity',
+            }
+        },
+        {
+            'target_type': 'room_card',
+            'section_type': None,
+            'key': 'room_card_horizontal',
+            'name': 'Horizontal Room Card',
+            'description': 'Wide horizontal layout with image on left',
+            'is_default': False,
+            'config': {
+                'layout': 'horizontal',
+                'image_width': '40%',
+                'show_occupancy': True,
+                'show_bed_setup': True,
+                'show_description': True,
+                'show_price': True,
+                'show_badge': True,
+                'button_style': 'primary',
+            }
+        },
+        
+        # ============================================================================
+        # SECTION HEADER PRESETS
+        # ============================================================================
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_centered',
+            'name': 'Centered Header',
+            'description': 'Centered title and subtitle',
+            'is_default': True,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'large',
+                'show_subtitle': True,
+                'show_divider': False,
+                'margin_bottom': 'large',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_left',
+            'name': 'Left Aligned Header',
+            'description': 'Left-aligned title with subtitle',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'left',
+                'title_size': 'large',
+                'show_subtitle': True,
+                'show_divider': False,
+                'margin_bottom': 'medium',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_with_divider',
+            'name': 'Header with Divider',
+            'description': 'Centered header with decorative bottom line',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'large',
+                'show_subtitle': True,
+                'show_divider': True,
+                'divider_style': 'solid',
+                'margin_bottom': 'large',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_minimal',
+            'name': 'Minimal Header',
+            'description': 'Simple title without subtitle',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'medium',
+                'show_subtitle': False,
+                'show_divider': False,
+                'margin_bottom': 'small',
+            }
+        },
+        {
+            'target_type': 'section_header',
+            'section_type': None,
+            'key': 'header_luxury',
+            'name': 'Luxury Header',
+            'description': 'Elegant header with decorative elements',
+            'is_default': False,
+            'config': {
+                'text_alignment': 'center',
+                'title_size': 'extra_large',
+                'show_subtitle': True,
+                'show_divider': True,
+                'divider_style': 'decorative',
+                'font_style': 'serif',
+                'margin_bottom': 'extra_large',
             }
         },
         

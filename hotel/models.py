@@ -18,6 +18,8 @@ class Preset(models.Model):
         ("news_block", "News Block"),
         ("footer", "Footer"),
         ("page_theme", "Page Theme"),
+        ("room_card", "Room Card"),
+        ("section_header", "Section Header"),
     ]
 
     SECTION_TYPES = [
