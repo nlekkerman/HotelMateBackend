@@ -13,6 +13,7 @@ from hotel.views import (
     PublicPageBootstrapView,
     HotelStatusCheckView,
     SectionCreateView,
+    HotelSettingsView,
 )
 from hotel.staff_views import (
     StaffRoomTypeViewSet,
@@ -132,6 +133,13 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/bookings/<str:booking_id>/confirm/',
         StaffBookingConfirmView.as_view(),
         name='staff-hotel-booking-confirm'
+    ),
+    
+    # Hotel Settings
+    path(
+        'hotel/<str:hotel_slug>/settings/',
+        HotelSettingsView.as_view(),
+        name='staff-hotel-settings'
     ),
     
     # Public Page Builder (Super Staff Admin only)

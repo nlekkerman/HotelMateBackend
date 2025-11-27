@@ -613,50 +613,121 @@ class HotelBookingCreateView(APIView):
 
 
 # Staff Hotel Settings Views
-# DEPRECATED: HotelPublicSettings model has been removed
-# The HotelPublicSettingsStaffView class has been temporarily disabled
-# TODO: Implement new hotel settings management system
-
-# permission_classes = []  # Will be added in next step
+class HotelSettingsView(APIView):
+    """
+    Simple hotel settings endpoint for basic hotel information.
+    For theme/colors, use /common/theme/ endpoint instead.
+    """
+    permission_classes = [IsAuthenticated]
     
     def get_permissions(self):
-        from rest_framework.permissions import IsAuthenticated
         from staff_chat.permissions import IsStaffMember, IsSameHotel
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     def get(self, request, hotel_slug):
-        """Retrieve hotel public settings"""
-        # Get staff profile
-        try:
-            staff = request.user.staff_profile
-        except AttributeError:
-            return Response(
-                {'error': 'Staff profile not found'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        # Verify hotel access
-        if staff.hotel.slug != hotel_slug:
-            return Response(
-                {'error': 'You can only view settings for your hotel'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        # Get or create settings
-        settings, created = HotelPublicSettings.objects.get_or_create(
-            hotel=staff.hotel
-        )
-
-        # Return settings
-        from .serializers import HotelPublicSettingsStaffSerializer
-        serializer = HotelPublicSettingsStaffSerializer(settings)
-        return Response(serializer.data)
-
-    def put(self, request, hotel_slug):
-        return self._update_settings(request, hotel_slug, partial=False)
-
+        """Get hotel information and theme"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Get or create theme
+        from common.models import ThemePreference
+        theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
+        
+        # Basic hotel info + theme
+        data = {
+            'id': hotel.id,
+            'name': hotel.name,
+            'slug': hotel.slug,
+            'tagline': hotel.tagline,
+            'city': hotel.city,
+            'country': hotel.country,
+            'address_line_1': hotel.address_line_1,
+            'address_line_2': hotel.address_line_2,
+            'postal_code': hotel.postal_code,
+            'phone': hotel.phone,
+            'email': hotel.email,
+            'website_url': hotel.website_url,
+            'booking_url': hotel.booking_url,
+            'short_description': hotel.short_description,
+            'long_description': hotel.long_description,
+            # Theme colors
+            'main_color': theme.main_color,
+            'secondary_color': theme.secondary_color,
+            'background_color': theme.background_color,
+            'text_color': theme.text_color,
+            'border_color': theme.border_color,
+            'button_color': theme.button_color,
+            'button_text_color': theme.button_text_color,
+            'button_hover_color': theme.button_hover_color,
+            'link_color': theme.link_color,
+            'link_hover_color': theme.link_hover_color,
+        }
+        
+        return Response(data)
+    
     def patch(self, request, hotel_slug):
-        return self._update_settings(request, hotel_slug, partial=True)
+        """Update hotel information and theme"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Update hotel fields if provided
+        hotel_fields = [
+            'name', 'tagline', 'city', 'country', 'address_line_1', 
+            'address_line_2', 'postal_code', 'phone', 'email', 
+            'website_url', 'booking_url', 'short_description', 'long_description'
+        ]
+        
+        for field in hotel_fields:
+            if field in request.data:
+                setattr(hotel, field, request.data[field])
+        
+        hotel.save()
+        
+        # Update theme fields if provided
+        from common.models import ThemePreference
+        theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
+        
+        theme_fields = [
+            'main_color', 'secondary_color', 'background_color', 'text_color',
+            'border_color', 'button_color', 'button_text_color', 
+            'button_hover_color', 'link_color', 'link_hover_color'
+        ]
+        
+        for field in theme_fields:
+            if field in request.data:
+                setattr(theme, field, request.data[field])
+        
+        theme.save()
+        
+        # Return updated data
+        data = {
+            'id': hotel.id,
+            'name': hotel.name,
+            'slug': hotel.slug,
+            'tagline': hotel.tagline,
+            'city': hotel.city,
+            'country': hotel.country,
+            'address_line_1': hotel.address_line_1,
+            'address_line_2': hotel.address_line_2,
+            'postal_code': hotel.postal_code,
+            'phone': hotel.phone,
+            'email': hotel.email,
+            'website_url': hotel.website_url,
+            'booking_url': hotel.booking_url,
+            'short_description': hotel.short_description,
+            'long_description': hotel.long_description,
+            # Theme colors
+            'main_color': theme.main_color,
+            'secondary_color': theme.secondary_color,
+            'background_color': theme.background_color,
+            'text_color': theme.text_color,
+            'border_color': theme.border_color,
+            'button_color': theme.button_color,
+            'button_text_color': theme.button_text_color,
+            'button_hover_color': theme.button_hover_color,
+            'link_color': theme.link_color,
+            'link_hover_color': theme.link_hover_color,
+        }
+        
+        return Response(data)
 
     def _update_settings(self, request, hotel_slug, partial=False):
         # Get staff profile
