@@ -6,16 +6,19 @@ Preserves existing app URL structures without modification.
 """
 
 from django.urls import path, include
-from hotel.views import (
+from rest_framework.routers import DefaultRouter
+
+# Import from separated view modules
+from hotel.staff_views import (
+    # Management views
+    HotelSettingsView,
     StaffBookingsListView,
     StaffBookingConfirmView,
     PublicPageBuilderView,
     PublicPageBootstrapView,
     HotelStatusCheckView,
     SectionCreateView,
-    HotelSettingsView,
-)
-from hotel.staff_views import (
+    # CRUD ViewSets
     StaffRoomTypeViewSet,
     PresetViewSet,
     HotelPublicPageViewSet,
@@ -30,7 +33,6 @@ from hotel.staff_views import (
     NewsItemViewSet,
     ContentBlockViewSet,
 )
-from rest_framework.routers import DefaultRouter
 
 # List of all apps with URLs to wrap in STAFF zone
 # Note: 'posts' app excluded (no urls.py - only contains static files)

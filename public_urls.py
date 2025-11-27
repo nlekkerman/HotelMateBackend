@@ -3,7 +3,7 @@ Public API URLs - No authentication required
 Landing page hotel listing, filters, and individual hotel public pages.
 """
 from django.urls import path
-from hotel.views import (
+from hotel.public_views import (
     HotelPublicListView,
     HotelFilterOptionsView,
     HotelPublicPageView,

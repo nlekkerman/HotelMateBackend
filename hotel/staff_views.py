@@ -9,6 +9,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
@@ -28,6 +29,7 @@ from .models import (
     Card,
     NewsItem,
     ContentBlock,
+    RoomBooking,
 )
 from rooms.models import RoomType, Room
 from .serializers import (
@@ -744,3 +746,345 @@ class ContentBlockViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(block)
         return Response(serializer.data)
+
+
+# ============================================================================
+# STAFF HOTEL SETTINGS & MANAGEMENT VIEWS
+# ============================================================================
+
+class HotelSettingsView(APIView):
+    """
+    Simple hotel settings endpoint for basic hotel information.
+    For theme/colors, use /common/theme/ endpoint instead.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_permissions(self):
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def get(self, request, hotel_slug):
+        """Get complete hotel information and theme"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Get or create theme
+        from common.models import ThemePreference
+        theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
+        
+        # Complete hotel info + theme
+        data = {
+            # Basic info
+            'id': hotel.id,
+            'name': hotel.name,
+            'slug': hotel.slug,
+            'subdomain': hotel.subdomain,
+            'is_active': hotel.is_active,
+            'sort_order': hotel.sort_order,
+            
+            # Marketing
+            'tagline': hotel.tagline,
+            'short_description': hotel.short_description,
+            'long_description': hotel.long_description,
+            
+            # Location
+            'city': hotel.city,
+            'country': hotel.country,
+            'address_line_1': hotel.address_line_1,
+            'address_line_2': hotel.address_line_2,
+            'postal_code': hotel.postal_code,
+            'latitude': float(hotel.latitude) if hotel.latitude else None,
+            'longitude': float(hotel.longitude) if hotel.longitude else None,
+            
+            # Contact
+            'phone': hotel.phone,
+            'email': hotel.email,
+            'website_url': hotel.website_url,
+            'booking_url': hotel.booking_url,
+            
+            # Classification
+            'hotel_type': hotel.hotel_type,
+            'tags': hotel.tags,
+            
+            # Images
+            'logo': hotel.logo.url if hotel.logo else None,
+            'hero_image': hotel.hero_image.url if hotel.hero_image else None,
+            'landing_page_image': hotel.landing_page_image.url if hotel.landing_page_image else None,
+            
+            # Theme colors
+            'main_color': theme.main_color,
+            'secondary_color': theme.secondary_color,
+            'background_color': theme.background_color,
+            'text_color': theme.text_color,
+            'border_color': theme.border_color,
+            'button_color': theme.button_color,
+            'button_text_color': theme.button_text_color,
+            'button_hover_color': theme.button_hover_color,
+            'link_color': theme.link_color,
+            'link_hover_color': theme.link_hover_color,
+        }
+        
+        return Response(data)
+    
+    def patch(self, request, hotel_slug):
+        """Update any hotel information and theme"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # All updatable hotel fields
+        hotel_fields = [
+            'name', 'subdomain', 'is_active', 'sort_order',
+            'tagline', 'short_description', 'long_description',
+            'city', 'country', 'address_line_1', 'address_line_2', 'postal_code',
+            'latitude', 'longitude',
+            'phone', 'email', 'website_url', 'booking_url',
+            'hotel_type', 'tags'
+        ]
+        
+        for field in hotel_fields:
+            if field in request.data:
+                setattr(hotel, field, request.data[field])
+        
+        # Handle file uploads
+        if 'logo' in request.FILES:
+            hotel.logo = request.FILES['logo']
+        if 'hero_image' in request.FILES:
+            hotel.hero_image = request.FILES['hero_image']
+        if 'landing_page_image' in request.FILES:
+            hotel.landing_page_image = request.FILES['landing_page_image']
+        
+        hotel.save()
+        
+        # Update theme fields if provided
+        from common.models import ThemePreference
+        theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
+        
+        theme_fields = [
+            'main_color', 'secondary_color', 'background_color', 'text_color',
+            'border_color', 'button_color', 'button_text_color', 
+            'button_hover_color', 'link_color', 'link_hover_color'
+        ]
+        
+        for field in theme_fields:
+            if field in request.data:
+                setattr(theme, field, request.data[field])
+        
+        theme.save()
+        
+        # Return complete updated data
+        data = {
+            # Basic info
+            'id': hotel.id,
+            'name': hotel.name,
+            'slug': hotel.slug,
+            'subdomain': hotel.subdomain,
+            'is_active': hotel.is_active,
+            'sort_order': hotel.sort_order,
+            
+            # Marketing
+            'tagline': hotel.tagline,
+            'short_description': hotel.short_description,
+            'long_description': hotel.long_description,
+            
+            # Location
+            'city': hotel.city,
+            'country': hotel.country,
+            'address_line_1': hotel.address_line_1,
+            'address_line_2': hotel.address_line_2,
+            'postal_code': hotel.postal_code,
+            'latitude': float(hotel.latitude) if hotel.latitude else None,
+            'longitude': float(hotel.longitude) if hotel.longitude else None,
+            
+            # Contact
+            'phone': hotel.phone,
+            'email': hotel.email,
+            'website_url': hotel.website_url,
+            'booking_url': hotel.booking_url,
+            
+            # Classification
+            'hotel_type': hotel.hotel_type,
+            'tags': hotel.tags,
+            
+            # Images
+            'logo': hotel.logo.url if hotel.logo else None,
+            'hero_image': hotel.hero_image.url if hotel.hero_image else None,
+            'landing_page_image': hotel.landing_page_image.url if hotel.landing_page_image else None,
+            
+            # Theme colors
+            'main_color': theme.main_color,
+            'secondary_color': theme.secondary_color,
+            'background_color': theme.background_color,
+            'text_color': theme.text_color,
+            'border_color': theme.border_color,
+            'button_color': theme.button_color,
+            'button_text_color': theme.button_text_color,
+            'button_hover_color': theme.button_hover_color,
+            'link_color': theme.link_color,
+            'link_hover_color': theme.link_hover_color,
+        }
+        
+        return Response(data)
+
+
+class StaffBookingsListView(APIView):
+    """Staff endpoint to list room bookings for their hotel."""
+    permission_classes = []
+    
+    def get_permissions(self):
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def get(self, request, hotel_slug):
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response({'error': 'Staff profile not found'}, status=status.HTTP_403_FORBIDDEN)
+
+        if staff.hotel.slug != hotel_slug:
+            return Response({'error': 'You can only view bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
+
+        bookings = RoomBooking.objects.filter(hotel=staff.hotel).select_related('hotel', 'room_type').order_by('-created_at')
+
+        # Apply filters
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            bookings = bookings.filter(status=status_filter.upper())
+
+        start_date = request.query_params.get('start_date')
+        if start_date:
+            from datetime import datetime
+            try:
+                start = datetime.strptime(start_date, '%Y-%m-%d').date()
+                bookings = bookings.filter(check_in__gte=start)
+            except ValueError:
+                return Response({'error': 'Invalid start_date format'}, status=status.HTTP_400_BAD_REQUEST)
+
+        end_date = request.query_params.get('end_date')
+        if end_date:
+            from datetime import datetime
+            try:
+                end = datetime.strptime(end_date, '%Y-%m-%d').date()
+                bookings = bookings.filter(check_out__lte=end)
+            except ValueError:
+                return Response({'error': 'Invalid end_date format'}, status=status.HTTP_400_BAD_REQUEST)
+
+        from .serializers import RoomBookingListSerializer
+        serializer = RoomBookingListSerializer(bookings, many=True)
+        return Response(serializer.data)
+
+
+class StaffBookingConfirmView(APIView):
+    """Staff endpoint to confirm a booking."""
+    permission_classes = []
+    
+    def get_permissions(self):
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def post(self, request, hotel_slug, booking_id):
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response({'error': 'Staff profile not found'}, status=status.HTTP_403_FORBIDDEN)
+
+        if staff.hotel.slug != hotel_slug:
+            return Response({'error': 'You can only confirm bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            booking = RoomBooking.objects.get(booking_id=booking_id, hotel=staff.hotel)
+        except RoomBooking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.status == 'CANCELLED':
+            return Response({'error': 'Cannot confirm a cancelled booking'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if booking.status == 'CONFIRMED':
+            return Response({'message': 'Booking is already confirmed'}, status=status.HTTP_200_OK)
+
+        booking.status = 'CONFIRMED'
+        booking.save()
+
+        from .serializers import RoomBookingDetailSerializer
+        serializer = RoomBookingDetailSerializer(booking)
+        return Response({'message': 'Booking confirmed successfully', 'booking': serializer.data})
+
+
+class PublicPageBuilderView(APIView):
+    """Staff builder endpoint for a hotel's public page."""
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+
+    def get(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        sections = PublicSection.objects.filter(hotel=hotel).order_by("position").select_related("element").prefetch_related("element__items")
+        section_data = PublicSectionStaffSerializer(sections, many=True).data
+        
+        response = {
+            "hotel": {
+                "id": hotel.id,
+                "slug": hotel.slug,
+                "name": hotel.name,
+                "city": hotel.city,
+                "country": hotel.country,
+                "tagline": hotel.tagline,
+                "booking_url": hotel.booking_url,
+            },
+            "is_empty": len(section_data) == 0,
+            "sections": section_data,
+            "presets": {
+                "element_types": ["hero", "text_block", "image_block", "gallery", "cards_list", "reviews_list", "rooms_list", "contact_block", "map_block", "footer_block"],
+                "section_presets": []
+            },
+        }
+        return Response(response)
+
+
+class HotelStatusCheckView(APIView):
+    """Quick endpoint to check hotel's current state."""
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+
+    def get(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        section_count = PublicSection.objects.filter(hotel=hotel).count()
+        
+        return Response({
+            "hotel": {"id": hotel.id, "name": hotel.name, "slug": hotel.slug, "city": hotel.city, "country": hotel.country},
+            "branding": {"has_hero_image": bool(hotel.hero_image), "hero_image_url": hotel.hero_image.url if hotel.hero_image else None},
+            "public_page": {"section_count": section_count, "is_empty": section_count == 0},
+        })
+
+
+class PublicPageBootstrapView(APIView):
+    """Bootstrap a hotel with default public page sections."""
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+
+    def post(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        existing_count = PublicSection.objects.filter(hotel=hotel).count()
+        
+        if existing_count > 0:
+            return Response({"detail": f"Hotel already has {existing_count} section(s)"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create default sections (simplified)
+        hero = PublicSection.objects.create(hotel=hotel, position=0, name="Hero", is_active=True)
+        PublicElement.objects.create(section=hero, element_type="hero", title="Welcome", subtitle="Your perfect stay")
+        
+        return Response({"message": "Bootstrap complete"}, status=status.HTTP_201_CREATED)
+
+
+class SectionCreateView(APIView):
+    """Enhanced section creation endpoint."""
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def post(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        section_type = request.data.get('section_type')
+        
+        if not section_type or section_type not in ['hero', 'gallery', 'list', 'news']:
+            return Response({'error': 'Invalid section_type'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        name = request.data.get('name', f'{section_type.title()} Section')
+        position = request.data.get('position', 0)
+        
+        section = PublicSection.objects.create(hotel=hotel, position=position, name=name, is_active=True)
+        
+        from .serializers import PublicSectionDetailSerializer
+        serializer = PublicSectionDetailSerializer(section)
+        return Response({'message': f'{section_type.title()} section created', 'section': serializer.data}, status=status.HTTP_201_CREATED)

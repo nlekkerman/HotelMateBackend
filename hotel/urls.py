@@ -1,22 +1,29 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
+
+# Base/Admin views
 from .views import (
     HotelViewSet,
     HotelBySlugView,
+)
+
+# Public views
+from .public_views import (
     HotelPublicListView,
     HotelFilterOptionsView,
+    HotelPublicPageView,
+)
+
+# Booking views
+from .booking_views import (
     HotelAvailabilityView,
     HotelPricingQuoteView,
     HotelBookingCreateView,
-    StaffBookingsListView,
-    StaffBookingConfirmView,
-    HotelPublicPageView,
-    PublicPageBuilderView,
-    PublicPageBootstrapView,
-    HotelStatusCheckView,
-    SectionCreateView,
 )
+
+# Staff CRUD views and management views
 from .staff_views import (
+    # ViewSets
     StaffRoomTypeViewSet,
     StaffRoomViewSet,
     StaffAccessConfigViewSet,
@@ -30,7 +37,17 @@ from .staff_views import (
     CardViewSet,
     NewsItemViewSet,
     ContentBlockViewSet,
+    # Management Views
+    HotelSettingsView,
+    StaffBookingsListView,
+    StaffBookingConfirmView,
+    PublicPageBuilderView,
+    HotelStatusCheckView,
+    PublicPageBootstrapView,
+    SectionCreateView,
 )
+
+# Payment views
 from .payment_views import (
     CreatePaymentSessionView,
     StripeWebhookView,
