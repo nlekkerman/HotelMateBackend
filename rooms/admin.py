@@ -1,6 +1,9 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Room, RoomType
+from .models import (
+    Room, RoomType, RatePlan, RoomTypeRatePlan, 
+    DailyRate, Promotion, RoomTypeInventory
+)
 import qrcode
 from io import BytesIO
 import cloudinary.uploader
@@ -127,3 +130,116 @@ class RoomTypeAdmin(admin.ModelAdmin):
             )
         return "-"
     photo_preview.short_description = "Photo"
+
+
+# ============================================================================
+# PMS / RATE MANAGEMENT ADMIN
+# ============================================================================
+
+@admin.register(RatePlan)
+class RatePlanAdmin(admin.ModelAdmin):
+    list_display = (
+        'code',
+        'name',
+        'hotel',
+        'is_refundable',
+        'default_discount_percent',
+        'is_active'
+    )
+    list_filter = ('hotel', 'is_active', 'is_refundable')
+    search_fields = ('code', 'name', 'hotel__name')
+    list_editable = ('is_active',)
+    ordering = ('hotel', 'code')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('hotel', 'code', 'name', 'description')
+        }),
+        ('Configuration', {
+            'fields': ('is_refundable', 'default_discount_percent', 'is_active')
+        }),
+    )
+
+
+@admin.register(RoomTypeRatePlan)
+class RoomTypeRatePlanAdmin(admin.ModelAdmin):
+    list_display = (
+        'room_type',
+        'rate_plan',
+        'base_price',
+        'is_active'
+    )
+    list_filter = ('is_active', 'rate_plan__hotel')
+    search_fields = ('room_type__name', 'rate_plan__code')
+    list_editable = ('is_active',)
+    raw_id_fields = ('room_type', 'rate_plan')
+
+
+@admin.register(DailyRate)
+class DailyRateAdmin(admin.ModelAdmin):
+    list_display = (
+        'date',
+        'room_type',
+        'rate_plan',
+        'price'
+    )
+    list_filter = ('date', 'rate_plan__hotel')
+    search_fields = ('room_type__name', 'rate_plan__code')
+    date_hierarchy = 'date'
+    ordering = ('-date',)
+    raw_id_fields = ('room_type', 'rate_plan')
+
+
+@admin.register(Promotion)
+class PromotionAdmin(admin.ModelAdmin):
+    list_display = (
+        'code',
+        'name',
+        'hotel',
+        'discount_percent',
+        'discount_fixed',
+        'valid_from',
+        'valid_until',
+        'is_active'
+    )
+    list_filter = ('hotel', 'is_active', 'valid_from', 'valid_until')
+    search_fields = ('code', 'name', 'hotel__name')
+    list_editable = ('is_active',)
+    date_hierarchy = 'valid_from'
+    ordering = ('-valid_until',)
+    
+    filter_horizontal = ('room_types', 'rate_plans')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('hotel', 'code', 'name', 'description')
+        }),
+        ('Discount Configuration', {
+            'fields': ('discount_percent', 'discount_fixed')
+        }),
+        ('Validity Period', {
+            'fields': ('valid_from', 'valid_until')
+        }),
+        ('Restrictions', {
+            'fields': ('room_types', 'rate_plans', 'min_nights', 'max_nights')
+        }),
+        ('Status', {
+            'fields': ('is_active',)
+        }),
+    )
+
+
+@admin.register(RoomTypeInventory)
+class RoomTypeInventoryAdmin(admin.ModelAdmin):
+    list_display = (
+        'date',
+        'room_type',
+        'total_rooms',
+        'stop_sell'
+    )
+    list_filter = ('stop_sell', 'room_type__hotel', 'room_type')
+    search_fields = ('room_type__name',)
+    date_hierarchy = 'date'
+    ordering = ('-date',)
+    list_editable = ('total_rooms', 'stop_sell')
+    raw_id_fields = ('room_type',)

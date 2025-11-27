@@ -15,10 +15,12 @@ from .models import (
     Card,
     NewsItem,
     ContentBlock,
-    Preset
+    Preset,
+    RoomsSection
 )
 from .base_serializers import PresetSerializer
 from common.cloudinary_utils import get_cloudinary_url
+from rooms.models import RoomType
 
 
 class HotelPublicSerializer(serializers.ModelSerializer):
@@ -349,10 +351,70 @@ class NewsItemSerializer(serializers.ModelSerializer):
         return obj.content_blocks.count()
 
 
+class RoomTypePublicSerializer(serializers.ModelSerializer):
+    """Public serializer for RoomType in rooms section"""
+    photo = serializers.SerializerMethodField()
+    booking_cta_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = RoomType
+        fields = [
+            'id',
+            'code',
+            'name',
+            'short_description',
+            'max_occupancy',
+            'bed_setup',
+            'photo',
+            'starting_price_from',
+            'currency',
+            'availability_message',
+            'booking_cta_url',
+        ]
+    
+    def get_photo(self, obj):
+        """Return photo URL if available"""
+        return get_cloudinary_url(obj.photo)
+    
+    def get_booking_cta_url(self, obj):
+        """Generate booking URL with room type code"""
+        hotel_slug = obj.hotel.slug
+        code = obj.code or obj.name
+        return f"/booking/{hotel_slug}?room_type_code={code}"
+
+
+class RoomsSectionSerializer(serializers.ModelSerializer):
+    """Serializer for Rooms section with live RoomType data"""
+    room_types = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = RoomsSection
+        fields = [
+            'id',
+            'section',
+            'subtitle',
+            'description',
+            'style_variant',
+            'room_types',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def get_room_types(self, obj):
+        """Get active room types for the hotel, ordered by sort_order"""
+        hotel = obj.section.hotel
+        room_types = RoomType.objects.filter(
+            hotel=hotel,
+            is_active=True
+        ).order_by('sort_order', 'name')
+        return RoomTypePublicSerializer(room_types, many=True, context=self.context).data
+
+
 class PublicSectionDetailSerializer(serializers.ModelSerializer):
     """
     Enhanced serializer that includes section-specific data
-    based on section type (hero, gallery, list, news)
+    based on section type (hero, gallery, list, news, rooms)
     """
     element = PublicElementSerializer(read_only=True)
     
@@ -361,6 +423,7 @@ class PublicSectionDetailSerializer(serializers.ModelSerializer):
     galleries = GalleryContainerSerializer(many=True, read_only=True)
     lists = ListContainerSerializer(many=True, read_only=True)
     news_items = NewsItemSerializer(many=True, read_only=True)
+    rooms_data = RoomsSectionSerializer(read_only=True)
     
     # Helper fields
     section_type = serializers.SerializerMethodField()
@@ -380,6 +443,7 @@ class PublicSectionDetailSerializer(serializers.ModelSerializer):
             'galleries',
             'lists',
             'news_items',
+            'rooms_data',
             'created_at',
             'updated_at',
         ]
@@ -395,6 +459,8 @@ class PublicSectionDetailSerializer(serializers.ModelSerializer):
             return 'list'
         elif obj.news_items.exists():
             return 'news'
+        elif hasattr(obj, 'rooms_data'):
+            return 'rooms'
         elif hasattr(obj, 'element'):
             return obj.element.element_type
         return 'unknown'

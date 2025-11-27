@@ -11,7 +11,8 @@ from .models import (
     PublicSection,
     GalleryContainer,
     GalleryImage,
-    Preset
+    Preset,
+    RoomsSection
 )
 from rooms.models import RoomType
 
@@ -217,3 +218,19 @@ class BulkGalleryImageUploadSerializer(serializers.Serializer):
             created_images.append(gallery_image)
         
         return created_images
+
+
+class RoomsSectionStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD for rooms section configuration"""
+    class Meta:
+        model = RoomsSection
+        fields = [
+            'id',
+            'section',
+            'subtitle',
+            'description',
+            'style_variant',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'section', 'created_at', 'updated_at']

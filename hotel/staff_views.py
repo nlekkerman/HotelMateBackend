@@ -29,6 +29,7 @@ from .models import (
     Card,
     NewsItem,
     ContentBlock,
+    RoomsSection,
     RoomBooking,
 )
 from rooms.models import RoomType, Room
@@ -48,6 +49,7 @@ from .serializers import (
     CardSerializer,
     NewsItemSerializer,
     ContentBlockSerializer,
+    RoomsSectionStaffSerializer,
     PublicSectionDetailSerializer,
 )
 from rooms.serializers import RoomStaffSerializer
@@ -653,6 +655,14 @@ class ListContainerViewSet(viewsets.ModelViewSet):
         return ListContainer.objects.filter(
             section__hotel__slug=hotel_slug
         ).order_by('sort_order')
+    
+    def perform_create(self, serializer):
+        """Validate that lists cannot be attached to rooms sections"""
+        section = serializer.validated_data.get('section')
+        if section and hasattr(section, 'rooms_data'):
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"section": "Cannot attach lists to rooms sections"})
+        serializer.save()
 
 
 class CardViewSet(viewsets.ModelViewSet):
@@ -671,6 +681,14 @@ class CardViewSet(viewsets.ModelViewSet):
         return Card.objects.filter(
             list_container__section__hotel__slug=hotel_slug
         ).order_by('sort_order')
+    
+    def perform_create(self, serializer):
+        """Validate that cards cannot be attached to rooms sections"""
+        list_container = serializer.validated_data.get('list_container')
+        if list_container and hasattr(list_container.section, 'rooms_data'):
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"list_container": "Cannot attach cards to rooms sections"})
+        serializer.save()
     
     @action(detail=True, methods=['post'], url_path='upload-image')
     def upload_image(self, request, pk=None, hotel_slug=None):
@@ -746,6 +764,37 @@ class ContentBlockViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(block)
         return Response(serializer.data)
+
+
+class RoomsSectionViewSet(viewsets.ModelViewSet):
+    """
+    CRUD for Rooms section configuration.
+    Staff can manage subtitle, description, and style_variant.
+    Room types are queried live from PMS - no duplication.
+    """
+    serializer_class = RoomsSectionStaffSerializer
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
+            hotel_slug = self.request.user.staff_profile.hotel.slug
+        if not hotel_slug:
+            return RoomsSection.objects.none()
+        return RoomsSection.objects.filter(
+            section__hotel__slug=hotel_slug
+        )
+    
+    def perform_create(self, serializer):
+        """Validate only one rooms section per hotel"""
+        section = serializer.validated_data.get('section')
+        if section:
+            hotel = section.hotel
+            existing = RoomsSection.objects.filter(section__hotel=hotel).exists()
+            if existing:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({"section": "Hotel already has a rooms section"})
+        serializer.save()
 
 
 # ============================================================================
@@ -1066,6 +1115,20 @@ class PublicPageBootstrapView(APIView):
         hero = PublicSection.objects.create(hotel=hotel, position=0, name="Hero", is_active=True)
         PublicElement.objects.create(section=hero, element_type="hero", title="Welcome", subtitle="Your perfect stay")
         
+        # Create default rooms section
+        from .models import RoomsSection
+        rooms_section = PublicSection.objects.create(
+            hotel=hotel,
+            position=2,
+            name="Our Rooms & Suites",
+            is_active=True
+        )
+        RoomsSection.objects.create(
+            section=rooms_section,
+            subtitle="Choose the perfect stay for your visit",
+            style_variant=1
+        )
+        
         return Response({"message": "Bootstrap complete"}, status=status.HTTP_201_CREATED)
 
 
@@ -1077,7 +1140,7 @@ class SectionCreateView(APIView):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         section_type = request.data.get('section_type')
         
-        if not section_type or section_type not in ['hero', 'gallery', 'list', 'news']:
+        if not section_type or section_type not in ['hero', 'gallery', 'list', 'news', 'rooms']:
             return Response({'error': 'Invalid section_type'}, status=status.HTTP_400_BAD_REQUEST)
         
         name = request.data.get('name', f'{section_type.title()} Section')

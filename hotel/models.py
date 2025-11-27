@@ -26,6 +26,7 @@ class Preset(models.Model):
         ("list", "List"),
         ("news", "News"),
         ("footer", "Footer"),
+        ("rooms", "Rooms"),
     ]
 
     # What this preset applies to
@@ -1064,4 +1065,42 @@ class ContentBlock(models.Model):
 
     def __str__(self):
         return f"{self.block_type} block #{self.sort_order} in {self.news_item.title}"
+
+
+class RoomsSection(models.Model):
+    """
+    Rooms section that dynamically displays RoomType data.
+    RoomTypes are queried live from the PMS system - no data duplication.
+    """
+    section = models.OneToOneField(
+        PublicSection,
+        on_delete=models.CASCADE,
+        related_name='rooms_data'
+    )
+    subtitle = models.CharField(
+        max_length=255,
+        blank=True,
+        help_text="Optional subtitle for the rooms section"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Optional description text"
+    )
+    
+    # Style preset index for this rooms section: 1..5
+    style_variant = models.PositiveSmallIntegerField(
+        choices=[(i, f"Preset {i}") for i in range(1, 6)],
+        default=1,
+        help_text="Rooms section style preset index (1–5)."
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Rooms Section"
+        verbose_name_plural = "Rooms Sections"
+
+    def __str__(self):
+        return f"Rooms Section: {self.section.name or f'#{self.id}'}"
 

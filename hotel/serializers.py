@@ -23,6 +23,8 @@ from .public_serializers import (
     ListContainerSerializer,
     ContentBlockSerializer,
     NewsItemSerializer,
+    RoomTypePublicSerializer,
+    RoomsSectionSerializer,
     PublicSectionDetailSerializer
 )
 
@@ -42,7 +44,8 @@ from .staff_serializers import (
     PublicSectionStaffSerializer,
     GalleryImageStaffSerializer,
     GalleryContainerStaffSerializer,
-    BulkGalleryImageUploadSerializer
+    BulkGalleryImageUploadSerializer,
+    RoomsSectionStaffSerializer
 )
 
 # Re-export all serializers for backwards compatibility
@@ -65,6 +68,8 @@ __all__ = [
     'ListContainerSerializer',
     'ContentBlockSerializer',
     'NewsItemSerializer',
+    'RoomTypePublicSerializer',
+    'RoomsSectionSerializer',
     'PublicSectionDetailSerializer',
     
     # Booking serializers
@@ -83,4 +88,5 @@ __all__ = [
     'GalleryImageStaffSerializer',
     'GalleryContainerStaffSerializer',
     'BulkGalleryImageUploadSerializer',
+    'RoomsSectionStaffSerializer',
 ]

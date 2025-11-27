@@ -37,6 +37,7 @@ from .staff_views import (
     CardViewSet,
     NewsItemViewSet,
     ContentBlockViewSet,
+    RoomsSectionViewSet,
     # Management Views
     HotelSettingsView,
     StaffBookingsListView,
@@ -124,6 +125,11 @@ staff_router.register(
     r'content-blocks',
     ContentBlockViewSet,
     basename='staff-content-blocks'
+)
+staff_router.register(
+    r'rooms-sections',
+    RoomsSectionViewSet,
+    basename='staff-rooms-sections'
 )
 
 urlpatterns = [

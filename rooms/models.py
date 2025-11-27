@@ -27,6 +27,24 @@ class Room(models.Model):
         help_text="Firebase Cloud Messaging token for push notifications to guest's device"
     )
     
+    # PMS fields - link room to room type for inventory tracking
+    room_type = models.ForeignKey(
+        'rooms.RoomType',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='physical_rooms',
+        help_text="Links physical room to a room type for PMS inventory tracking"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this room is available for booking (e.g., false during renovation)"
+    )
+    is_out_of_order = models.BooleanField(
+        default=False,
+        help_text="Temporarily out of service (maintenance, repair, etc.)"
+    )
+    
     class Meta:
         unique_together = ('hotel', 'room_number')
 
@@ -212,3 +230,250 @@ class RoomType(models.Model):
 
     def __str__(self):
         return f"{self.hotel.name} - {self.name}"
+
+
+# ============================================================================
+# PMS / RATE MANAGEMENT MODELS
+# ============================================================================
+
+class RatePlan(models.Model):
+    """
+    Rate plans for hotel rooms (e.g., Standard Rate, Non-Refundable, Early Bird).
+    Each hotel can have multiple rate plans with different terms and pricing.
+    """
+    hotel = models.ForeignKey(
+        'hotel.Hotel',
+        on_delete=models.CASCADE,
+        related_name='rate_plans'
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="e.g., 'Standard Rate', 'Non-Refundable'"
+    )
+    code = models.CharField(
+        max_length=30,
+        help_text="Short code (e.g., 'STD', 'NRF', 'EB10')"
+    )
+    description = models.TextField(blank=True)
+    is_refundable = models.BooleanField(
+        default=True,
+        help_text="Whether bookings under this rate plan can be refunded"
+    )
+    default_discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=0,
+        help_text="Default discount percentage for this rate plan"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this rate plan is currently available"
+    )
+
+    class Meta:
+        unique_together = ('hotel', 'code')
+        ordering = ['hotel', 'name']
+        verbose_name = "Rate Plan"
+        verbose_name_plural = "Rate Plans"
+
+    def __str__(self):
+        return f"{self.hotel.name} - {self.code} ({self.name})"
+
+
+class RoomTypeRatePlan(models.Model):
+    """
+    Links a room type to a rate plan, optionally overriding the base price.
+    Allows different pricing for the same room type under different rate plans.
+    """
+    room_type = models.ForeignKey(
+        'rooms.RoomType',
+        on_delete=models.CASCADE,
+        related_name='rate_plan_links'
+    )
+    rate_plan = models.ForeignKey(
+        'rooms.RatePlan',
+        on_delete=models.CASCADE,
+        related_name='room_type_links'
+    )
+    base_price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Override base price for this room type + rate plan combo"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this rate plan is active for this room type"
+    )
+
+    class Meta:
+        unique_together = ('room_type', 'rate_plan')
+        verbose_name = "Room Type Rate Plan"
+        verbose_name_plural = "Room Type Rate Plans"
+
+    def __str__(self):
+        return f"{self.room_type} - {self.rate_plan}"
+
+
+class DailyRate(models.Model):
+    """
+    Daily pricing for a specific room type and rate plan combination.
+    Allows per-day price adjustments (e.g., weekend premiums, seasonal rates).
+    """
+    room_type = models.ForeignKey(
+        'rooms.RoomType',
+        on_delete=models.CASCADE,
+        related_name='daily_rates'
+    )
+    rate_plan = models.ForeignKey(
+        'rooms.RatePlan',
+        on_delete=models.CASCADE,
+        related_name='daily_rates'
+    )
+    date = models.DateField(
+        help_text="Specific date for this rate"
+    )
+    price = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Price per night for this date"
+    )
+
+    class Meta:
+        unique_together = ('room_type', 'rate_plan', 'date')
+        ordering = ['date']
+        indexes = [
+            models.Index(fields=['room_type', 'date']),
+            models.Index(fields=['rate_plan', 'date']),
+        ]
+        verbose_name = "Daily Rate"
+        verbose_name_plural = "Daily Rates"
+
+    def __str__(self):
+        return f"{self.date} - {self.room_type} [{self.rate_plan}]: {self.price}"
+
+
+class Promotion(models.Model):
+    """
+    Promotional codes with advanced rules and restrictions.
+    Supports percentage and/or fixed discounts with date ranges and constraints.
+    """
+    hotel = models.ForeignKey(
+        'hotel.Hotel',
+        on_delete=models.CASCADE,
+        related_name='promotions'
+    )
+    code = models.CharField(
+        max_length=50,
+        unique=True,
+        help_text="Promo code (case-insensitive)"
+    )
+    name = models.CharField(
+        max_length=100,
+        help_text="Display name for the promotion"
+    )
+    description = models.TextField(
+        blank=True,
+        help_text="Internal description or terms"
+    )
+
+    # Discount configuration
+    discount_percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Percentage discount (e.g., 20.00 for 20%)"
+    )
+    discount_fixed = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Fixed amount discount"
+    )
+
+    # Date range
+    valid_from = models.DateField(
+        help_text="Promotion valid from this date"
+    )
+    valid_until = models.DateField(
+        help_text="Promotion valid until this date"
+    )
+
+    # Restrictions
+    room_types = models.ManyToManyField(
+        'rooms.RoomType',
+        blank=True,
+        help_text="Limit to specific room types (empty = all room types)"
+    )
+    rate_plans = models.ManyToManyField(
+        'rooms.RatePlan',
+        blank=True,
+        help_text="Limit to specific rate plans (empty = all rate plans)"
+    )
+    min_nights = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Minimum nights required for promotion"
+    )
+    max_nights = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Maximum nights allowed for promotion"
+    )
+
+    # Status
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this promotion is currently available"
+    )
+
+    class Meta:
+        ordering = ['-valid_until', 'code']
+        indexes = [
+            models.Index(fields=['code', 'is_active']),
+            models.Index(fields=['hotel', 'valid_from', 'valid_until']),
+        ]
+        verbose_name = "Promotion"
+        verbose_name_plural = "Promotions"
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+
+class RoomTypeInventory(models.Model):
+    """
+    Daily inventory control for room types.
+    Allows overriding physical room counts or stopping sales for specific dates.
+    """
+    room_type = models.ForeignKey(
+        'rooms.RoomType',
+        on_delete=models.CASCADE,
+        related_name='inventory'
+    )
+    date = models.DateField(
+        help_text="Date for this inventory record"
+    )
+    total_rooms = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="If set, overrides physical room count for this date. If null, use physical rooms."
+    )
+    stop_sell = models.BooleanField(
+        default=False,
+        help_text="If true, this room type cannot be booked for this date"
+    )
+
+    class Meta:
+        unique_together = ('room_type', 'date')
+        ordering = ['date']
+        indexes = [
+            models.Index(fields=['room_type', 'date']),
+        ]
+        verbose_name = "Room Type Inventory"
+        verbose_name_plural = "Room Type Inventory"
+
+    def __str__(self):
+        return f"{self.date} - {self.room_type} (stop_sell={self.stop_sell}, total={self.total_rooms})"

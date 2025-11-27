@@ -14,12 +14,16 @@ from django.utils import timezone
 
 from .models import Hotel, RoomBooking, PricingQuote
 
+# Import service layer functions
+from hotel.services.availability import validate_dates, get_room_type_availability
+from hotel.services.pricing import build_pricing_quote_data
+from hotel.services.booking import create_room_booking_from_request
+
 
 class HotelAvailabilityView(APIView):
     """
     Check room availability for specific dates.
-    Phase 1 implementation: Returns all room types with basic
-    availability info.
+    Uses service layer for real inventory checking.
     
     Query params:
     - check_in: YYYY-MM-DD
@@ -46,63 +50,22 @@ class HotelAvailabilityView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Parse dates
+        # Validate and parse dates using service layer
         try:
-            check_in = datetime.strptime(check_in_str, '%Y-%m-%d').date()
-            check_out = datetime.strptime(check_out_str, '%Y-%m-%d').date()
-        except ValueError:
+            check_in, check_out, nights = validate_dates(check_in_str, check_out_str)
+        except ValueError as e:
             return Response(
-                {"detail": "Invalid date format. Use YYYY-MM-DD"},
+                {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Validate dates
-        if check_out <= check_in:
-            return Response(
-                {"detail": "check_out must be after check_in"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Calculate nights
-        nights = (check_out - check_in).days
-        
-        # Get active room types for this hotel
-        room_types = hotel.room_types.filter(
-            is_active=True
-        ).order_by('sort_order', 'name')
+        # Get availability using service layer
+        available_rooms = get_room_type_availability(
+            hotel, check_in, check_out, adults, children
+        )
         
         # Build response
-        available_rooms = []
         total_guests = adults + children
-        
-        for room_type in room_types:
-            # Check if room can accommodate guests
-            can_accommodate = room_type.max_occupancy >= total_guests
-            
-            # Build room data
-            room_data = {
-                "room_type_code": room_type.code or room_type.name,
-                "room_type_name": room_type.name,
-                "is_available": can_accommodate,
-                "max_occupancy": room_type.max_occupancy,
-                "bed_setup": room_type.bed_setup,
-                "short_description": room_type.short_description,
-                "photo": room_type.photo.url if room_type.photo else None,
-                "starting_price_from": str(room_type.starting_price_from),
-                "currency": room_type.currency,
-                "availability_message": room_type.availability_message,
-                "note": None
-            }
-            
-            # Add note for capacity issues
-            if not can_accommodate:
-                room_data["note"] = (
-                    f"Maximum occupancy is {room_type.max_occupancy} "
-                    f"guests"
-                )
-            
-            available_rooms.append(room_data)
-        
         response_data = {
             "hotel": hotel.slug,
             "hotel_name": hotel.name,
@@ -121,8 +84,7 @@ class HotelAvailabilityView(APIView):
 class HotelPricingQuoteView(APIView):
     """
     Calculate pricing quote for a specific room type and dates.
-    Phase 1 implementation: Basic pricing calculation based on
-    room type base price.
+    Uses service layer for advanced pricing with rate plans and promotions.
     
     POST body:
     - room_type_code: code or name of room type
@@ -156,20 +118,12 @@ class HotelPricingQuoteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Parse dates
+        # Validate and parse dates using service layer
         try:
-            check_in = datetime.strptime(check_in_str, '%Y-%m-%d').date()
-            check_out = datetime.strptime(check_out_str, '%Y-%m-%d').date()
-        except ValueError:
+            check_in, check_out, nights = validate_dates(check_in_str, check_out_str)
+        except ValueError as e:
             return Response(
-                {"detail": "Invalid date format. Use YYYY-MM-DD"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Validate dates
-        if check_out <= check_in:
-            return Response(
-                {"detail": "check_out must be after check_in"},
+                {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -186,94 +140,16 @@ class HotelPricingQuoteView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Calculate pricing
-        nights = (check_out - check_in).days
-        base_price = Decimal(str(room_type.starting_price_from))
-        subtotal = base_price * nights
-        
-        # Calculate taxes (9% VAT for Ireland)
-        tax_rate = Decimal('0.09')
-        taxes = subtotal * tax_rate
-        
-        # Apply promo code if provided
-        discount = Decimal('0')
-        applied_promo = None
-        
-        if promo_code:
-            # Simple promo code logic (can be expanded later)
-            promo_code_upper = promo_code.upper()
-            if promo_code_upper == 'WINTER20':
-                discount = subtotal * Decimal('0.20')
-                applied_promo = {
-                    "code": "WINTER20",
-                    "description": "20% off winter bookings",
-                    "discount_percentage": "20.00"
-                }
-            elif promo_code_upper == 'SAVE10':
-                discount = subtotal * Decimal('0.10')
-                applied_promo = {
-                    "code": "SAVE10",
-                    "description": "10% off your stay",
-                    "discount_percentage": "10.00"
-                }
-        
-        # Calculate total
-        fees = Decimal('0')
-        total = subtotal + taxes + fees - discount
-        
-        # Quote valid for 30 minutes
-        valid_until = timezone.now() + timezone.timedelta(minutes=30)
-        
-        # Create PricingQuote record
-        quote = PricingQuote.objects.create(
+        # Build pricing quote using service layer
+        response_data = build_pricing_quote_data(
             hotel=hotel,
             room_type=room_type,
             check_in=check_in,
             check_out=check_out,
             adults=adults,
             children=children,
-            base_price_per_night=base_price,
-            number_of_nights=nights,
-            subtotal=subtotal,
-            taxes=taxes,
-            fees=fees,
-            discount=discount,
-            total=total,
-            currency=room_type.currency,
-            promo_code=promo_code if promo_code else '',
-            valid_until=valid_until
+            promo_code=promo_code
         )
-        
-        response_data = {
-            "quote_id": quote.quote_id,
-            "valid_until": valid_until.isoformat(),
-            "currency": room_type.currency,
-            "room_type": {
-                "code": room_type.code or room_type.name,
-                "name": room_type.name,
-                "photo": room_type.photo.url if room_type.photo else None
-            },
-            "dates": {
-                "check_in": check_in_str,
-                "check_out": check_out_str,
-                "nights": nights
-            },
-            "guests": {
-                "adults": adults,
-                "children": children,
-                "total": adults + children
-            },
-            "breakdown": {
-                "base_price_per_night": f"{base_price:.2f}",
-                "number_of_nights": nights,
-                "subtotal": f"{subtotal:.2f}",
-                "taxes": f"{taxes:.2f}",
-                "fees": f"{fees:.2f}",
-                "discount": f"-{discount:.2f}" if discount > 0 else "0.00",
-                "total": f"{total:.2f}"
-            },
-            "applied_promo": applied_promo
-        }
         
         return Response(response_data, status=status.HTTP_200_OK)
 
@@ -281,7 +157,7 @@ class HotelPricingQuoteView(APIView):
 class HotelBookingCreateView(APIView):
     """
     Create a new room booking.
-    Phase 1 implementation: Creates booking record in pending state.
+    Uses service layer for consistent pricing calculation.
     
     POST body:
     - quote_id: optional quote reference
@@ -333,20 +209,12 @@ class HotelBookingCreateView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Parse dates
+        # Validate and parse dates using service layer
         try:
-            check_in = datetime.strptime(check_in_str, '%Y-%m-%d').date()
-            check_out = datetime.strptime(check_out_str, '%Y-%m-%d').date()
-        except ValueError:
+            check_in, check_out, nights = validate_dates(check_in_str, check_out_str)
+        except ValueError as e:
             return Response(
-                {"detail": "Invalid date format. Use YYYY-MM-DD"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Validate dates
-        if check_out <= check_in:
-            return Response(
-                {"detail": "check_out must be after check_in"},
+                {"detail": str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -363,41 +231,34 @@ class HotelBookingCreateView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Calculate pricing (reuse pricing logic)
-        nights = (check_out - check_in).days
-        base_price = Decimal(str(room_type.starting_price_from))
-        subtotal = base_price * nights
-        tax_rate = Decimal('0.09')
-        taxes = subtotal * tax_rate
-        
-        discount = Decimal('0')
-        if promo_code:
-            promo_code_upper = promo_code.upper()
-            if promo_code_upper == 'WINTER20':
-                discount = subtotal * Decimal('0.20')
-            elif promo_code_upper == 'SAVE10':
-                discount = subtotal * Decimal('0.10')
-        
-        total = subtotal + taxes - discount
-        
-        # Create RoomBooking record
-        booking = RoomBooking.objects.create(
+        # Create booking using service layer
+        booking = create_room_booking_from_request(
             hotel=hotel,
             room_type=room_type,
             check_in=check_in,
             check_out=check_out,
-            guest_first_name=guest_data['first_name'],
-            guest_last_name=guest_data['last_name'],
-            guest_email=guest_data['email'],
-            guest_phone=guest_data['phone'],
             adults=adults,
             children=children,
-            total_amount=total,
-            currency=room_type.currency,
-            status='PENDING_PAYMENT',
+            guest_data=guest_data,
             special_requests=special_requests,
-            promo_code=promo_code if promo_code else ''
+            promo_code=promo_code
         )
+        
+        # Calculate pricing breakdown for response (reuse service logic)
+        from hotel.services.pricing import (
+            get_or_create_default_rate_plan,
+            get_nightly_base_rates,
+            apply_promotion,
+            apply_taxes
+        )
+        
+        rate_plan = get_or_create_default_rate_plan(hotel)
+        nightly_rates = get_nightly_base_rates(room_type, check_in, check_out, rate_plan)
+        subtotal = sum(price for _, price in nightly_rates)
+        subtotal_after_promo, discount, promotion = apply_promotion(
+            hotel, room_type, rate_plan, check_in, check_out, subtotal, promo_code
+        )
+        total, taxes = apply_taxes(subtotal_after_promo)
         
         # Return response using booking data
         booking_data = {
@@ -443,7 +304,7 @@ class HotelBookingCreateView(APIView):
             "quote_id": quote_id if quote_id else None,
             "payment_required": True,
             "payment_url": (
-                f"/api/bookings/{booking.booking_id}/payment/session/"
+                f"/api/hotel/{hotel.slug}/bookings/{booking.booking_id}/payment/session/"
             )
         }
         
