@@ -14,6 +14,7 @@ from hotel.staff_views import (
     HotelSettingsView,
     StaffBookingsListView,
     StaffBookingConfirmView,
+    StaffBookingCancelView,
     PublicPageBuilderView,
     PublicPageBootstrapView,
     HotelStatusCheckView,
@@ -135,6 +136,11 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/bookings/<str:booking_id>/confirm/',
         StaffBookingConfirmView.as_view(),
         name='staff-hotel-booking-confirm'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/bookings/<str:booking_id>/cancel/',
+        StaffBookingCancelView.as_view(),
+        name='staff-hotel-booking-cancel'
     ),
     
     # Hotel Settings

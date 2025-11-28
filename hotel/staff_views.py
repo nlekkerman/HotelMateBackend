@@ -1056,6 +1056,49 @@ class StaffBookingConfirmView(APIView):
         return Response({'message': 'Booking confirmed successfully', 'booking': serializer.data})
 
 
+class StaffBookingCancelView(APIView):
+    """Staff endpoint to cancel a booking."""
+    permission_classes = []
+    
+    def get_permissions(self):
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def post(self, request, hotel_slug, booking_id):
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response({'error': 'Staff profile not found'}, status=status.HTTP_403_FORBIDDEN)
+
+        if staff.hotel.slug != hotel_slug:
+            return Response({'error': 'You can only cancel bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            booking = RoomBooking.objects.get(booking_id=booking_id, hotel=staff.hotel)
+        except RoomBooking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        if booking.status == 'CANCELLED':
+            return Response({'message': 'Booking is already cancelled'}, status=status.HTTP_200_OK)
+
+        if booking.status == 'COMPLETED':
+            return Response({'error': 'Cannot cancel a completed booking'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get cancellation reason from request
+        cancellation_reason = request.data.get('reason', 'Cancelled by staff')
+        
+        booking.status = 'CANCELLED'
+        # Add cancellation reason to special_requests if provided
+        if cancellation_reason:
+            current_requests = booking.special_requests or ''
+            booking.special_requests = f"{current_requests}\n\nCANCELLATION REASON: {cancellation_reason}".strip()
+        booking.save()
+
+        from .serializers import RoomBookingDetailSerializer
+        serializer = RoomBookingDetailSerializer(booking)
+        return Response({'message': 'Booking cancelled successfully', 'booking': serializer.data})
+
+
 class PublicPageBuilderView(APIView):
     """Staff builder endpoint for a hotel's public page."""
     permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
