@@ -154,6 +154,13 @@ class HotelPublicPageView(APIView):
         # Get hotel
         hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
         
+        # Get or create HotelPublicPage to access preset
+        public_page, created = hotel.public_page, False
+        try:
+            public_page = hotel.public_page
+        except:
+            public_page = None
+        
         # Get all active sections ordered by position
         sections = hotel.public_sections.filter(is_active=True).order_by('position')
         
@@ -164,6 +171,7 @@ class HotelPublicPageView(APIView):
                     'id': hotel.id,
                     'name': hotel.name,
                     'slug': hotel.slug,
+                    'preset': public_page.global_style_variant if public_page else 1,
                 },
                 'message': 'Coming Soon',
                 'description': "This hotel's public page is under construction.",
@@ -201,6 +209,7 @@ class HotelPublicPageView(APIView):
                 'long_description': hotel.long_description,
                 'hotel_type': hotel.hotel_type,
                 'tags': hotel.tags,
+                'preset': public_page.global_style_variant if public_page else 1,
             },
             'sections': sections_data
         }

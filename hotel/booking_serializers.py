@@ -139,6 +139,7 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
         read_only=True
     )
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
+    hotel_preset = serializers.SerializerMethodField()
     nights = serializers.SerializerMethodField()
     cancellation_details = serializers.SerializerMethodField()
     room_photo_url = serializers.SerializerMethodField()
@@ -151,6 +152,7 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             'booking_id',
             'confirmation_number',
             'hotel_name',
+            'hotel_preset',
             'room_type_name',
             'room_photo_url',
             'guest_name',
@@ -178,7 +180,7 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             'booking_summary',
         ]
         read_only_fields = [
-            'id', 'booking_id', 'confirmation_number', 'hotel_name',
+            'id', 'booking_id', 'confirmation_number', 'hotel_name', 'hotel_preset',
             'room_type_name', 'guest_name', 'created_at', 'updated_at',
             'nights'
         ]
@@ -188,6 +190,13 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
 
     def get_nights(self, obj):
         return obj.nights
+
+    def get_hotel_preset(self, obj):
+        """Get hotel's public page preset (1-5) for styling"""
+        try:
+            return obj.hotel.public_page.global_style_variant or 1
+        except:
+            return 1
     
     def get_cancellation_details(self, obj):
         """Parse cancellation information from special_requests field"""
