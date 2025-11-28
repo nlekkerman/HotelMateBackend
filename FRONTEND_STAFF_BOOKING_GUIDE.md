@@ -184,8 +184,44 @@ const BookingTable = ({ bookings, onUpdate }) => {
   };
 
   const handleCancel = async (bookingId) => {
-    const reason = prompt('Cancellation reason (optional):');
-    if (reason === null) return; // User clicked cancel
+    // Show cancellation dialog with predefined reasons
+    const reasons = [
+      'Guest requested cancellation',
+      'No-show',
+      'Overbooking',
+      'Room maintenance required',
+      'Payment failed',
+      'Other'
+    ];
+    
+    let selectedReason = '';
+    
+    // You can use a proper modal instead of prompt
+    const reasonChoice = prompt(
+      `Select cancellation reason:\n` +
+      reasons.map((r, i) => `${i + 1}. ${r}`).join('\n') +
+      `\n\nEnter number (1-${reasons.length}) or custom reason:`
+    );
+    
+    if (reasonChoice === null) return; // User clicked cancel
+    
+    const reasonIndex = parseInt(reasonChoice) - 1;
+    if (reasonIndex >= 0 && reasonIndex < reasons.length) {
+      selectedReason = reasons[reasonIndex];
+      
+      // If "Other" is selected, ask for custom reason
+      if (selectedReason === 'Other') {
+        const customReason = prompt('Please enter the cancellation reason:');
+        if (customReason === null) return;
+        selectedReason = customReason || 'Cancelled by staff';
+      }
+    } else {
+      // User entered custom reason directly
+      selectedReason = reasonChoice || 'Cancelled by staff';
+    }
+
+    // Confirm cancellation
+    if (!confirm(`Cancel booking with reason: "${selectedReason}"?`)) return;
 
     try {
       const response = await fetch(
@@ -193,13 +229,13 @@ const BookingTable = ({ bookings, onUpdate }) => {
         {
           method: 'POST',
           headers: authHeaders,
-          body: JSON.stringify({ reason: reason || 'Cancelled by staff' })
+          body: JSON.stringify({ reason: selectedReason })
         }
       );
 
       if (response.ok) {
         const result = await response.json();
-        alert(result.message);
+        alert(`${result.message}\nReason: ${result.cancellation_reason}`);
         onUpdate(); // Refresh booking list
       } else {
         const error = await response.json();

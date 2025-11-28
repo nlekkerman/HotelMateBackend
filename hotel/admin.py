@@ -202,7 +202,8 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'check_out',
         'status',
         'total_amount',
-        'created_at'
+        'created_at',
+        'cancellation_info'
     )
     list_filter = ('status', 'hotel', 'check_in', 'created_at')
     search_fields = (
@@ -217,8 +218,137 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'confirmation_number',
         'created_at',
         'updated_at',
-        'nights'
+        'nights',
+        'cancellation_details_formatted',
+        'cancelled_by_display',
+        'cancellation_date_display',
+        'cancellation_reason_display'
     )
+
+    def cancellation_info(self, obj):
+        """Display cancellation info in list view"""
+        if obj.status == 'CANCELLED' and obj.special_requests:
+            # Handle simple format: "CANCELLATION REASON: payment data wrong"
+            if obj.special_requests.startswith('CANCELLATION REASON:'):
+                reason = obj.special_requests.replace('CANCELLATION REASON:', '').strip()
+                return f"❌ {reason[:30]}..."
+            # Handle structured format with "--- BOOKING CANCELLED ---"
+            elif '--- BOOKING CANCELLED ---' in obj.special_requests:
+                parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
+                if len(parts) > 1:
+                    lines = parts[1].strip().split('\n')
+                    for line in lines:
+                        if line.startswith('Reason:'):
+                            reason = line.replace('Reason:', '').strip()
+                            return f"❌ {reason[:30]}..."
+            return "❌ Cancelled"
+        return "-"
+    cancellation_info.short_description = "Cancellation"
+
+    def cancellation_details_formatted(self, obj):
+        """Parse and display formatted cancellation details"""
+        if obj.status != 'CANCELLED' or not obj.special_requests:
+            return "Not cancelled"
+        
+        formatted = []
+        
+        # Handle simple format: "CANCELLATION REASON: payment data wrong"
+        if obj.special_requests.startswith('CANCELLATION REASON:'):
+            reason = obj.special_requests.replace('CANCELLATION REASON:', '').strip()
+            formatted.append(f"📅 Date: {obj.updated_at.strftime('%Y-%m-%d %H:%M:%S')}")
+            formatted.append(f"👤 Cancelled by: Staff (via admin)")
+            formatted.append(f"📝 Reason: {reason}")
+            return '\n'.join(formatted)
+        
+        # Handle structured format with "--- BOOKING CANCELLED ---"
+        elif '--- BOOKING CANCELLED ---' in obj.special_requests:
+            parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
+            if len(parts) < 2:
+                return "Cancellation details not available"
+            
+            cancel_section = parts[1].strip()
+            lines = cancel_section.split('\n')
+            
+            details = {}
+            for line in lines:
+                if ':' in line:
+                    key, value = line.split(':', 1)
+                    details[key.strip()] = value.strip()
+            
+            if 'Date' in details:
+                formatted.append(f"📅 Date: {details['Date']}")
+            if 'By' in details:
+                formatted.append(f"👤 Cancelled by: {details['By']}")  
+            if 'Reason' in details:
+                formatted.append(f"📝 Reason: {details['Reason']}")
+            
+            return '\n'.join(formatted) if formatted else "Cancellation details not available"
+        
+        return "Cancellation details not available"
+    cancellation_details_formatted.short_description = "Cancellation Details"
+
+    def cancelled_by_display(self, obj):
+        """Display who cancelled the booking"""
+        if obj.status != 'CANCELLED' or not obj.special_requests:
+            return "-"
+        
+        # Handle simple format: "CANCELLATION REASON: payment data wrong"
+        if obj.special_requests.startswith('CANCELLATION REASON:'):
+            return "Staff (via admin)"
+        
+        # Handle structured format with "--- BOOKING CANCELLED ---"
+        elif '--- BOOKING CANCELLED ---' in obj.special_requests:
+            parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
+            if len(parts) > 1:
+                lines = parts[1].strip().split('\n')
+                for line in lines:
+                    if line.startswith('By:'):
+                        return line.replace('By:', '').strip()
+        
+        return "Unknown"
+    cancelled_by_display.short_description = "Cancelled By"
+
+    def cancellation_date_display(self, obj):
+        """Display cancellation date"""
+        if obj.status != 'CANCELLED' or not obj.special_requests:
+            return "-"
+        
+        # Handle simple format: use updated_at timestamp
+        if obj.special_requests.startswith('CANCELLATION REASON:'):
+            return obj.updated_at.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Handle structured format with "--- BOOKING CANCELLED ---"
+        elif '--- BOOKING CANCELLED ---' in obj.special_requests:
+            parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
+            if len(parts) > 1:
+                lines = parts[1].strip().split('\n')
+                for line in lines:
+                    if line.startswith('Date:'):
+                        return line.replace('Date:', '').strip()
+        
+        return "Unknown"
+    cancellation_date_display.short_description = "Cancelled Date"
+
+    def cancellation_reason_display(self, obj):
+        """Display cancellation reason"""
+        if obj.status != 'CANCELLED' or not obj.special_requests:
+            return "-"
+        
+        # Handle simple format: "CANCELLATION REASON: payment data wrong"
+        if obj.special_requests.startswith('CANCELLATION REASON:'):
+            return obj.special_requests.replace('CANCELLATION REASON:', '').strip()
+        
+        # Handle structured format with "--- BOOKING CANCELLED ---"
+        elif '--- BOOKING CANCELLED ---' in obj.special_requests:
+            parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
+            if len(parts) > 1:
+                lines = parts[1].strip().split('\n')
+                for line in lines:
+                    if line.startswith('Reason:'):
+                        return line.replace('Reason:', '').strip()
+        
+        return "No reason provided"
+    cancellation_reason_display.short_description = "Cancellation Reason"
     
     fieldsets = (
         ('Booking Information', {
@@ -254,10 +384,31 @@ class RoomBookingAdmin(admin.ModelAdmin):
                 'paid_at'
             )
         }),
+        ('Cancellation Information', {
+            'fields': (
+                'cancellation_details_formatted',
+                'cancelled_by_display', 
+                'cancellation_date_display',
+                'cancellation_reason_display'
+            ),
+            'classes': ('collapse',),
+            'description': 'Cancellation details (only visible for cancelled bookings)'
+        }),
         ('Additional Information', {
             'fields': ('special_requests', 'internal_notes')
         }),
     )
+
+    def get_fieldsets(self, request, obj=None):
+        """Show cancellation section only for cancelled bookings"""
+        fieldsets = list(self.fieldsets)
+        
+        if obj and obj.status == 'CANCELLED':
+            # Show cancellation section for cancelled bookings
+            return fieldsets
+        else:
+            # Hide cancellation section for non-cancelled bookings
+            return [fs for fs in fieldsets if fs[0] != 'Cancellation Information']
 
 
 @admin.register(PricingQuote)

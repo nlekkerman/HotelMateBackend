@@ -1051,6 +1051,29 @@ class StaffBookingConfirmView(APIView):
         booking.status = 'CONFIRMED'
         booking.save()
 
+        # Send FCM notification to guest if they have a token
+        try:
+            from notifications.fcm_service import send_booking_confirmation_notification
+            # Try to find guest FCM token from room if they're checked in
+            guest_fcm_token = None
+            try:
+                from rooms.models import Room
+                guest_room = Room.objects.filter(
+                    hotel=booking.hotel,
+                    guests__isnull=False,
+                    is_occupied=True
+                ).first()
+                if guest_room and guest_room.guest_fcm_token:
+                    guest_fcm_token = guest_room.guest_fcm_token
+            except:
+                pass
+            
+            if guest_fcm_token:
+                send_booking_confirmation_notification(guest_fcm_token, booking)
+            
+        except ImportError:
+            logger.warning("FCM service not available for booking confirmation")
+
         from .serializers import RoomBookingDetailSerializer
         serializer = RoomBookingDetailSerializer(booking)
         return Response({'message': 'Booking confirmed successfully', 'booking': serializer.data})
@@ -1087,16 +1110,97 @@ class StaffBookingCancelView(APIView):
         # Get cancellation reason from request
         cancellation_reason = request.data.get('reason', 'Cancelled by staff')
         
+        # Get proper staff name from Staff profile (primary) or User (fallback)
+        try:
+            # First try staff profile fields (most likely to have proper names)
+            staff_name = f"{staff.first_name} {staff.last_name}".strip()
+            
+            # If staff profile doesn't have names, try User model
+            if not staff_name:
+                user = request.user
+                staff_name = f"{user.first_name} {user.last_name}".strip()
+            
+            # Final fallback to username or generic name
+            if not staff_name:
+                staff_name = getattr(request.user, 'username', 'Staff Member')
+                
+        except Exception as e:
+            staff_name = 'Staff Member'
+        
         booking.status = 'CANCELLED'
-        # Add cancellation reason to special_requests if provided
-        if cancellation_reason:
-            current_requests = booking.special_requests or ''
-            booking.special_requests = f"{current_requests}\n\nCANCELLATION REASON: {cancellation_reason}".strip()
+        
+        # Add detailed cancellation information to special_requests
+        from django.utils import timezone
+        current_requests = booking.special_requests or ''
+        cancellation_info = (
+            f"\n\n--- BOOKING CANCELLED ---\n"
+            f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"Cancelled by: {staff_name}\n"
+            f"Reason: {cancellation_reason}"
+        )
+        booking.special_requests = f"{current_requests}{cancellation_info}".strip()
         booking.save()
+
+        # Send FCM notification to guest if they have a token
+        try:
+            from notifications.fcm_service import send_booking_cancellation_notification
+            # Try to find guest FCM token from room if they're checked in
+            guest_fcm_token = None
+            try:
+                from rooms.models import Room
+                guest_room = Room.objects.filter(
+                    hotel=booking.hotel,
+                    guests__isnull=False,
+                    is_occupied=True
+                ).first()
+                if guest_room and guest_room.guest_fcm_token:
+                    guest_fcm_token = guest_room.guest_fcm_token
+            except:
+                pass
+            
+            if guest_fcm_token:
+                send_booking_cancellation_notification(guest_fcm_token, booking, cancellation_reason)
+            
+        except ImportError:
+            logger.warning("FCM service not available for booking cancellation")
 
         from .serializers import RoomBookingDetailSerializer
         serializer = RoomBookingDetailSerializer(booking)
-        return Response({'message': 'Booking cancelled successfully', 'booking': serializer.data})
+        return Response({
+            'message': 'Booking cancelled successfully', 
+            'booking': serializer.data,
+            'cancellation_reason': cancellation_reason
+        })
+
+
+class StaffBookingDetailView(APIView):
+    """Staff endpoint to get detailed booking information."""
+    permission_classes = []
+    
+    def get_permissions(self):
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def get(self, request, hotel_slug, booking_id):
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response({'error': 'Staff profile not found'}, status=status.HTTP_403_FORBIDDEN)
+
+        if staff.hotel.slug != hotel_slug:
+            return Response({'error': 'You can only view bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            booking = RoomBooking.objects.select_related('hotel', 'room_type').get(
+                booking_id=booking_id, 
+                hotel=staff.hotel
+            )
+        except RoomBooking.DoesNotExist:
+            return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        from .serializers import RoomBookingDetailSerializer
+        serializer = RoomBookingDetailSerializer(booking)
+        return Response(serializer.data)
 
 
 class PublicPageBuilderView(APIView):

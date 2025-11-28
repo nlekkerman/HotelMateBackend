@@ -306,3 +306,71 @@ def send_kitchen_staff_order_notification(staff, order):
     }
     
     return send_fcm_notification(staff.fcm_token, title, body, data)
+
+
+def send_booking_confirmation_notification(guest_fcm_token, booking):
+    """
+    Send push notification to guest about booking confirmation
+    
+    Args:
+        guest_fcm_token: Guest's FCM token (from room if available)
+        booking: RoomBooking instance
+    
+    Returns:
+        bool: True if notification sent successfully
+    """
+    if not guest_fcm_token:
+        logger.debug(f"No FCM token for guest booking {booking.booking_id}")
+        return False
+    
+    title = "✅ Booking Confirmed!"
+    body = f"Your reservation at {booking.hotel.name} has been confirmed"
+    data = {
+        "type": "booking_confirmation",
+        "booking_id": booking.booking_id,
+        "confirmation_number": booking.confirmation_number,
+        "hotel_name": booking.hotel.name,
+        "room_type": booking.room_type.name if booking.room_type else "",
+        "check_in": str(booking.check_in),
+        "check_out": str(booking.check_out),
+        "click_action": "FLUTTER_NOTIFICATION_CLICK",
+        "route": "/bookings/details"
+    }
+    
+    logger.info(f"📤 Sending booking confirmation FCM for {booking.booking_id}")
+    return send_fcm_notification(guest_fcm_token, title, body, data)
+
+
+def send_booking_cancellation_notification(guest_fcm_token, booking, reason=None):
+    """
+    Send push notification to guest about booking cancellation
+    
+    Args:
+        guest_fcm_token: Guest's FCM token (from room if available)
+        booking: RoomBooking instance
+        reason: Cancellation reason
+    
+    Returns:
+        bool: True if notification sent successfully
+    """
+    if not guest_fcm_token:
+        logger.debug(f"No FCM token for guest booking {booking.booking_id}")
+        return False
+    
+    title = "❌ Booking Cancelled"
+    body = f"Your reservation at {booking.hotel.name} has been cancelled"
+    if reason and reason != "Cancelled by staff":
+        body += f" - {reason}"
+    
+    data = {
+        "type": "booking_cancellation", 
+        "booking_id": booking.booking_id,
+        "confirmation_number": booking.confirmation_number,
+        "hotel_name": booking.hotel.name,
+        "cancellation_reason": reason or "No reason provided",
+        "click_action": "FLUTTER_NOTIFICATION_CLICK",
+        "route": "/bookings/cancelled"
+    }
+    
+    logger.info(f"📤 Sending booking cancellation FCM for {booking.booking_id}")
+    return send_fcm_notification(guest_fcm_token, title, body, data)
