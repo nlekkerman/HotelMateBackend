@@ -11,6 +11,9 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
+import logging
+
+logger = logging.getLogger(__name__)
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
@@ -1051,6 +1054,15 @@ class StaffBookingConfirmView(APIView):
         booking.status = 'CONFIRMED'
         booking.save()
 
+        # Send email notification to guest
+        try:
+            from notifications.email_service import send_booking_confirmation_email
+            send_booking_confirmation_email(booking)
+        except ImportError:
+            logger.warning("Email service not available for booking confirmation")
+        except Exception as e:
+            logger.error(f"Failed to send confirmation email: {e}")
+
         # Send FCM notification to guest if they have a token
         try:
             from notifications.fcm_service import send_booking_confirmation_notification
@@ -1140,6 +1152,15 @@ class StaffBookingCancelView(APIView):
         )
         booking.special_requests = f"{current_requests}{cancellation_info}".strip()
         booking.save()
+
+        # Send email notification to guest
+        try:
+            from notifications.email_service import send_booking_cancellation_email
+            send_booking_cancellation_email(booking, cancellation_reason, staff_name)
+        except ImportError:
+            logger.warning("Email service not available for booking cancellation")
+        except Exception as e:
+            logger.error(f"Failed to send cancellation email: {e}")
 
         # Send FCM notification to guest if they have a token
         try:
