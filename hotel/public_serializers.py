@@ -3,6 +3,7 @@ Public-facing serializers for hotel discovery and public pages.
 No authentication required.
 """
 from rest_framework import serializers
+from decimal import Decimal
 from .models import (
     Hotel,
     PublicSection,
@@ -20,7 +21,8 @@ from .models import (
 )
 from .base_serializers import PresetSerializer
 from common.cloudinary_utils import get_cloudinary_url
-from rooms.models import RoomType
+from rooms.models import RoomType, RatePlan, RoomTypeRatePlan
+from hotel.services.pricing import get_or_create_default_rate_plan
 
 
 class HotelPublicSerializer(serializers.ModelSerializer):
@@ -351,8 +353,122 @@ class NewsItemSerializer(serializers.ModelSerializer):
         return obj.content_blocks.count()
 
 
+class RoomTypeRatePlanVariantSerializer(serializers.ModelSerializer):
+    """Serializer for individual room type + rate plan combinations"""
+    room_type_id = serializers.SerializerMethodField()
+    room_type_name = serializers.SerializerMethodField()
+    room_type_code = serializers.SerializerMethodField()
+    short_description = serializers.SerializerMethodField()
+    max_occupancy = serializers.SerializerMethodField()
+    bed_setup = serializers.SerializerMethodField()
+    photo = serializers.SerializerMethodField()
+    currency = serializers.SerializerMethodField()
+    availability_message = serializers.SerializerMethodField()
+    
+    rate_plan_name = serializers.CharField(source='rate_plan.name')
+    rate_plan_code = serializers.CharField(source='rate_plan.code')
+    rate_plan_description = serializers.CharField(source='rate_plan.description')
+    is_refundable = serializers.BooleanField(source='rate_plan.is_refundable')
+    
+    current_price = serializers.SerializerMethodField()
+    original_price = serializers.SerializerMethodField()
+    price_display = serializers.SerializerMethodField()
+    discount_percent = serializers.SerializerMethodField()
+    has_discount = serializers.SerializerMethodField()
+    booking_cta_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = RoomTypeRatePlan
+        fields = [
+            'id',
+            'room_type_id',
+            'room_type_name', 
+            'room_type_code',
+            'short_description',
+            'max_occupancy',
+            'bed_setup',
+            'photo',
+            'currency',
+            'availability_message',
+            'rate_plan_name',
+            'rate_plan_code', 
+            'rate_plan_description',
+            'is_refundable',
+            'current_price',
+            'original_price',
+            'price_display',
+            'discount_percent',
+            'has_discount',
+            'booking_cta_url',
+        ]
+    
+    def get_room_type_id(self, obj):
+        return obj.room_type.id
+    
+    def get_room_type_name(self, obj):
+        return obj.room_type.name
+    
+    def get_room_type_code(self, obj):
+        return obj.room_type.code or obj.room_type.name
+    
+    def get_short_description(self, obj):
+        return obj.room_type.short_description
+    
+    def get_max_occupancy(self, obj):
+        return obj.room_type.max_occupancy
+    
+    def get_bed_setup(self, obj):
+        return obj.room_type.bed_setup
+    
+    def get_photo(self, obj):
+        """Return photo URL if available"""
+        return get_cloudinary_url(obj.room_type.photo)
+    
+    def get_currency(self, obj):
+        return obj.room_type.currency
+    
+    def get_availability_message(self, obj):
+        return obj.room_type.availability_message
+    
+    def get_current_price(self, obj):
+        """Get current price from RoomTypeRatePlan or fallback to starting_price_from"""
+        if obj.base_price:
+            return float(obj.base_price)
+        return float(obj.room_type.starting_price_from)
+    
+    def get_original_price(self, obj):
+        """Get original room type starting price for comparison"""
+        return float(obj.room_type.starting_price_from)
+    
+    def get_discount_percent(self, obj):
+        """Calculate discount percentage"""
+        return float(obj.rate_plan.default_discount_percent)
+    
+    def get_has_discount(self, obj):
+        """Check if this rate plan has a discount"""
+        return obj.rate_plan.default_discount_percent > 0
+    
+    def get_price_display(self, obj):
+        """Get formatted price display with currency symbol"""
+        current_price = self.get_current_price(obj)
+        currency_symbols = {
+            'EUR': '€',
+            'USD': '$',
+            'GBP': '£'
+        }
+        symbol = currency_symbols.get(obj.room_type.currency, obj.room_type.currency)
+        return f"{symbol}{current_price:.0f}"
+    
+    def get_booking_cta_url(self, obj):
+        """Generate booking URL with room type code and rate plan"""
+        hotel_slug = obj.room_type.hotel.slug
+        room_code = obj.room_type.code or obj.room_type.name
+        rate_code = obj.rate_plan.code
+        return f"/public/booking/{hotel_slug}?room_type_code={room_code}&rate_plan_code={rate_code}"
+
+
 class RoomTypePublicSerializer(serializers.ModelSerializer):
-    """Public serializer for RoomType in rooms section"""
+    """Legacy serializer for simple room type display (backwards compatibility)"""
     photo = serializers.SerializerMethodField()
     booking_cta_url = serializers.SerializerMethodField()
     
@@ -380,8 +496,6 @@ class RoomTypePublicSerializer(serializers.ModelSerializer):
         """Generate booking URL with room type code"""
         hotel_slug = obj.hotel.slug
         code = obj.code or obj.name
-        # Use public booking route to avoid conflicts with restaurant booking
-        # Frontend should handle this route and call public availability endpoint
         return f"/public/booking/{hotel_slug}?room_type_code={code}"
 
 
@@ -404,13 +518,48 @@ class RoomsSectionSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at']
     
     def get_room_types(self, obj):
-        """Get active room types for the hotel, ordered by sort_order"""
+        """Get active room type and rate plan combinations, grouped intelligently"""
         hotel = obj.section.hotel
-        room_types = RoomType.objects.filter(
-            hotel=hotel,
+        
+        # Get all active room type + rate plan combinations
+        room_type_rate_plans = RoomTypeRatePlan.objects.filter(
+            room_type__hotel=hotel,
+            room_type__is_active=True,
+            rate_plan__is_active=True,
             is_active=True
-        ).order_by('sort_order', 'name')
-        return RoomTypePublicSerializer(room_types, many=True, context=self.context).data
+        ).select_related('room_type', 'rate_plan').order_by(
+            'room_type__sort_order', 
+            'room_type__name',
+            'rate_plan__default_discount_percent'  # Show discounted rates first
+        )
+        
+        # Group by room type to check for multiple pricing
+        room_type_groups = {}
+        for rtrp in room_type_rate_plans:
+            room_type_id = rtrp.room_type.id
+            if room_type_id not in room_type_groups:
+                room_type_groups[room_type_id] = []
+            room_type_groups[room_type_id].append(rtrp)
+        
+        # Build response: show all variants if multiple pricing, single if same
+        result = []
+        for room_type_id, variants in room_type_groups.items():
+            # Check if there are different prices for this room type
+            unique_prices = set()
+            for variant in variants:
+                price = variant.base_price if variant.base_price else variant.room_type.starting_price_from
+                unique_prices.add(price)
+            
+            if len(unique_prices) > 1:
+                # Multiple different prices - show all variants
+                for variant in variants:
+                    result.append(RoomTypeRatePlanVariantSerializer(variant, context=self.context).data)
+            else:
+                # Same price for all rate plans - show only the best (most discounted) variant
+                best_variant = min(variants, key=lambda x: x.rate_plan.default_discount_percent, reverse=True)
+                result.append(RoomTypeRatePlanVariantSerializer(best_variant, context=self.context).data)
+        
+        return result
 
 
 class PublicSectionDetailSerializer(serializers.ModelSerializer):
