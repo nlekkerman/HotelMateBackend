@@ -219,6 +219,14 @@ urlpatterns = [
         name="stripe-webhook"
     ),
     
+    # Legacy public page route (for backward compatibility)
+    # This supports the old frontend URL pattern: /api/hotel/public/page/{slug}/
+    path(
+        "public/page/<slug:slug>/",
+        HotelPublicPageView.as_view(),
+        name="hotel-legacy-public-page"
+    ),
+    
     # Internal/admin endpoints
     path("", include(router.urls)),
     path(
