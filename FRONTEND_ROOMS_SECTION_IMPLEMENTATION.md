@@ -55,7 +55,7 @@ The backend now supports a **"rooms"** section type that dynamically displays Ro
             "starting_price_from": "129.00",
             "currency": "EUR",
             "availability_message": "High demand",
-            "booking_cta_url": "/booking/hotel-killarney?room_type_code=SUP-KING"
+            "booking_cta_url": "/public/booking/hotel-killarney?room_type_code=SUP-KING"
           },
           {
             "id": 11,
@@ -68,7 +68,7 @@ The backend now supports a **"rooms"** section type that dynamically displays Ro
             "starting_price_from": "119.00",
             "currency": "EUR",
             "availability_message": "Available",
-            "booking_cta_url": "/booking/hotel-killarney?room_type_code=DLX-TWIN"
+            "booking_cta_url": "/public/booking/hotel-killarney?room_type_code=DLX-TWIN"
           }
         ]
       }
@@ -480,7 +480,7 @@ export default HotelPublicPage;
 
 When a user clicks "Book Now" on a room card, they're redirected to:
 ```
-/booking/{hotelSlug}?room_type_code={code}
+/public/booking/{hotelSlug}?room_type_code={code}
 ```
 
 ### Example Booking Page Hook
@@ -537,7 +537,7 @@ export default BookingPage;
 1. Navigate to your hotel public page component
 2. Verify the rooms section renders after hero/gallery sections
 3. Click "Book Now" button on a room card
-4. Confirm navigation to `/booking/{slug}?room_type_code={code}`
+4. Confirm navigation to `/public/booking/{slug}?room_type_code={code}`
 
 ---
 
@@ -580,7 +580,7 @@ const updateRoomsSection = async (sectionId, data) => {
 ## 9. Key Points
 
 ✅ **Room types are live** - No caching, always shows current PMS data  
-✅ **Booking URLs match** - `/booking/{slug}?room_type_code={code}`  
+✅ **Booking URLs match** - `/public/booking/{slug}?room_type_code={code}`  
 ✅ **No duplication** - Room data comes from `rooms.RoomType` model  
 ✅ **Staff control** - Can edit section subtitle, description, style_variant  
 ✅ **Staff cannot** - Attach lists/cards to rooms sections (validation enforced)
@@ -599,7 +599,7 @@ const updateRoomsSection = async (sectionId, data) => {
 - Check `photo` field is not null in API response
 
 ### Issue: Booking link broken
-- Ensure React Router route matches: `/booking/:hotelSlug`
+- Ensure React Router route matches: `/public/booking/:hotelSlug`
 - Verify `room_type_code` query param is being read correctly
 
 ---

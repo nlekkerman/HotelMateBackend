@@ -17,7 +17,7 @@ Successfully implemented a new **"rooms"** section type for hotel public pages t
 ### 2. Serializers
 - ✅ `RoomTypePublicSerializer` (`hotel/public_serializers.py`)
   - Serializes RoomType for public display
-  - Generates `booking_cta_url`: `/booking/{hotel_slug}?room_type_code={code}`
+  - Generates `booking_cta_url`: `/public/booking/{hotel_slug}?room_type_code={code}`
   - Returns photo URL via Cloudinary
 
 - ✅ `RoomsSectionSerializer` (`hotel/public_serializers.py`)
@@ -97,7 +97,7 @@ Successfully implemented a new **"rooms"** section type for hotel public pages t
         "starting_price_from": "129.00",
         "currency": "EUR",
         "availability_message": "Available",
-        "booking_cta_url": "/booking/hotel-killarney?room_type_code=Deluxe Double Room"
+        "booking_cta_url": "/public/booking/hotel-killarney?room_type_code=Deluxe Double Room"
       }
       // ... 5 more rooms
     ]
@@ -115,7 +115,7 @@ Successfully implemented a new **"rooms"** section type for hotel public pages t
 - ✅ Uses existing PMS service layer
 
 ### Booking Integration
-- ✅ Booking URLs: `/booking/{hotel_slug}?room_type_code={code}`
+- ✅ Booking URLs: `/public/booking/{hotel_slug}?room_type_code={code}`
 - ✅ Matches existing booking wizard routes
 - ✅ Existing endpoints unchanged:
   - `GET /hotel/{slug}/availability/`

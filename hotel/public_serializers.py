@@ -380,7 +380,9 @@ class RoomTypePublicSerializer(serializers.ModelSerializer):
         """Generate booking URL with room type code"""
         hotel_slug = obj.hotel.slug
         code = obj.code or obj.name
-        return f"/booking/{hotel_slug}?room_type_code={code}"
+        # Use public booking route to avoid conflicts with restaurant booking
+        # Frontend should handle this route and call public availability endpoint
+        return f"/public/booking/{hotel_slug}?room_type_code={code}"
 
 
 class RoomsSectionSerializer(serializers.ModelSerializer):

@@ -8,6 +8,11 @@ from hotel.public_views import (
     HotelFilterOptionsView,
     HotelPublicPageView,
 )
+from hotel.booking_views import (
+    HotelAvailabilityView,
+    HotelPricingQuoteView,
+    HotelBookingCreateView,
+)
 
 urlpatterns = [
     # Hotel listing for landing page
@@ -29,5 +34,22 @@ urlpatterns = [
         "hotel/<slug:slug>/page/",
         HotelPublicPageView.as_view(),
         name="public-hotel-page"
+    ),
+    # Public booking endpoints (availability, pricing, booking)
+    # These mirror the hotel endpoints but are exposed under the public namespace
+    path(
+        "hotel/<slug:slug>/availability/",
+        HotelAvailabilityView.as_view(),
+        name="public-hotel-availability",
+    ),
+    path(
+        "hotel/<slug:slug>/pricing/quote/",
+        HotelPricingQuoteView.as_view(),
+        name="public-hotel-pricing-quote",
+    ),
+    path(
+        "hotel/<slug:slug>/bookings/",
+        HotelBookingCreateView.as_view(),
+        name="public-hotel-booking-create",
     ),
 ]
