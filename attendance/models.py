@@ -1,8 +1,13 @@
 from django.db import models
 
+
 class StaffFace(models.Model):
-    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='staff_faces')
-    staff = models.OneToOneField('staff.Staff', on_delete=models.CASCADE, related_name="face_data")
+    hotel = models.ForeignKey(
+        'hotel.Hotel', on_delete=models.CASCADE, related_name='staff_faces'
+    )
+    staff = models.OneToOneField(
+        'staff.Staff', on_delete=models.CASCADE, related_name="face_data"
+    )
     image = models.ImageField(upload_to="staff_faces/")
     encoding = models.JSONField(
         help_text="128‑dim face descriptor (list of floats)",
@@ -15,14 +20,18 @@ class StaffFace(models.Model):
 
 
 class ClockLog(models.Model):
-    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='clock_logs')
+    hotel = models.ForeignKey(
+        'hotel.Hotel', on_delete=models.CASCADE, related_name='clock_logs'
+    )
     staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE)
     time_in = models.DateTimeField(auto_now_add=True)
     time_out = models.DateTimeField(null=True, blank=True)
     verified_by_face = models.BooleanField(default=True)
     location_note = models.CharField(max_length=255, blank=True, null=True)
     auto_clock_out = models.BooleanField(default=False)
-    hours_worked = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    hours_worked = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True
+    )
 
     def save(self, *args, **kwargs):
         # If both time_in and time_out exist, calculate hours
@@ -32,7 +41,10 @@ class ClockLog(models.Model):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.staff} @ {self.hotel.slug} - In: {self.time_in} | Out: {self.time_out or '---'}"
+        return (
+            f"{self.staff} @ {self.hotel.slug} - "
+            f"In: {self.time_in} | Out: {self.time_out or '---'}"
+        )
 
     class Meta:
         ordering = ['-time_in']
@@ -40,10 +52,14 @@ class ClockLog(models.Model):
 
 class RosterPeriod(models.Model):
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE)
-    title = models.CharField(max_length=100, help_text="e.g., 'Week 29 Roster'")
+    title = models.CharField(
+        max_length=100, help_text="e.g., 'Week 29 Roster'"
+    )
     start_date = models.DateField()
     end_date = models.DateField()
-    created_by = models.ForeignKey('staff.Staff', on_delete=models.SET_NULL, null=True)
+    created_by = models.ForeignKey(
+        'staff.Staff', on_delete=models.SET_NULL, null=True
+    )
     published = models.BooleanField(default=False)
 
     def __str__(self):
@@ -59,8 +75,12 @@ class StaffRoster(models.Model):
         ('custom', 'Custom'),
     ]
 
-    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='staff_rosters')
-    staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE, related_name='roster_entries')
+    hotel = models.ForeignKey(
+        'hotel.Hotel', on_delete=models.CASCADE, related_name='staff_rosters'
+    )
+    staff = models.ForeignKey(
+        'staff.Staff', on_delete=models.CASCADE, related_name='roster_entries'
+    )
     # ForeignKey to Department model instead of CharField
     department = models.ForeignKey(
         'staff.Department',
@@ -69,7 +89,9 @@ class StaffRoster(models.Model):
         blank=True,
         related_name='roster_entries'
     )
-    period = models.ForeignKey('RosterPeriod', on_delete=models.CASCADE, related_name='entries', null=True)
+    period = models.ForeignKey(
+        'RosterPeriod', on_delete=models.CASCADE, related_name='entries', null=True
+    )
 
     shift_date = models.DateField()
     shift_start = models.TimeField()
@@ -77,15 +99,19 @@ class StaffRoster(models.Model):
     break_start = models.TimeField(blank=True, null=True)
     break_end = models.TimeField(blank=True, null=True)
 
-    shift_type = models.CharField(max_length=20, choices=SHIFT_TYPES, default='custom')
+    shift_type = models.CharField(
+        max_length=20, choices=SHIFT_TYPES, default='custom'
+    )
     is_split_shift = models.BooleanField(default=False)
     is_night_shift = models.BooleanField(default=False)
-    expected_hours = models.DecimalField(max_digits=4, decimal_places=2, null=True, blank=True)
+    expected_hours = models.DecimalField(
+        max_digits=4, decimal_places=2, null=True, blank=True
+    )
     approved_by = models.ForeignKey(
-        'staff.Staff', 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='approved_rosters'
     )
 
@@ -94,24 +120,37 @@ class StaffRoster(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     location = models.ForeignKey(
-        'attendance.ShiftLocation', on_delete=models.SET_NULL, null=True, blank=True, related_name="shifts"
+        'attendance.ShiftLocation',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="shifts"
     )
+
     class Meta:
         # Allow multiple shifts on the same date, but unique per start time
         unique_together = ('staff', 'shift_date', 'shift_start')
         ordering = ['shift_date', 'shift_start']
 
     def __str__(self):
-        return f"{self.staff} on {self.shift_date} ({self.shift_start}-{self.shift_end})"
+        return (
+            f"{self.staff} on {self.shift_date} "
+            f"({self.shift_start}-{self.shift_end})"
+        )
+
+
 
 class StaffAvailability(models.Model):
-    staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE, related_name='availabilities')
+    staff = models.ForeignKey(
+        'staff.Staff', on_delete=models.CASCADE, related_name='availabilities'
+    )
     date = models.DateField()
     available = models.BooleanField(default=True)
     reason = models.TextField(blank=True, null=True)
 
     def __str__(self):
-        return f"{self.staff} | {self.date} - {'Available' if self.available else 'Unavailable'}"
+        status = 'Available' if self.available else 'Unavailable'
+        return f"{self.staff} | {self.date} - {status}"
 
 
 class ShiftTemplate(models.Model):
@@ -122,11 +161,16 @@ class ShiftTemplate(models.Model):
     is_night = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.hotel.name} | {self.name} ({self.start_time}-{self.end_time})"
+        return (
+            f"{self.hotel.name} | {self.name} "
+            f"({self.start_time}-{self.end_time})"
+        )
 
 
 class RosterRequirement(models.Model):
-    period = models.ForeignKey('RosterPeriod', on_delete=models.CASCADE, related_name='requirements')
+    period = models.ForeignKey(
+        'RosterPeriod', on_delete=models.CASCADE, related_name='requirements'
+    )
     # ForeignKey for Department and Role models
     department = models.ForeignKey(
         'staff.Department',
@@ -143,9 +187,14 @@ class RosterRequirement(models.Model):
     required_count = models.PositiveIntegerField()
 
     def __str__(self):
-        return f"{self.department} | {self.role} on {self.date}: {self.required_count} needed"
+        return (
+            f"{self.department} | {self.role} on {self.date}: "
+            f"{self.required_count} needed"
+        )
 
 # attendance/models.py
+
+
 class ShiftLocation(models.Model):
     hotel = models.ForeignKey(
         'hotel.Hotel', on_delete=models.CASCADE, related_name='shift_locations'
@@ -172,7 +221,9 @@ class DailyPlan(models.Model):
 
 
 class DailyPlanEntry(models.Model):
-    plan = models.ForeignKey(DailyPlan, related_name='entries', on_delete=models.CASCADE)
+    plan = models.ForeignKey(
+        DailyPlan, related_name='entries', on_delete=models.CASCADE
+    )
     staff = models.ForeignKey('staff.Staff', on_delete=models.CASCADE)
     shift_start = models.TimeField(null=True, blank=True)
     shift_end = models.TimeField(null=True, blank=True)
@@ -190,11 +241,18 @@ class DailyPlanEntry(models.Model):
         on_delete=models.SET_NULL,
         related_name='daily_plan_entries'
     )
-    location = models.ForeignKey('attendance.ShiftLocation', null=True, blank=True, on_delete=models.SET_NULL)
+    location = models.ForeignKey(
+        'attendance.ShiftLocation',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL
+    )
     notes = models.TextField(blank=True, default='')
 
     class Meta:
-        unique_together = ('plan', 'staff', 'location', 'shift_start', 'shift_end')
+        unique_together = (
+            'plan', 'staff', 'location', 'shift_start', 'shift_end'
+        )
         ordering = ['location__name', 'staff__last_name', 'staff__first_name']
 
     def save(self, *args, **kwargs):
@@ -205,3 +263,89 @@ class DailyPlanEntry(models.Model):
 
     def __str__(self):
         return f"{self.staff} → {self.location} on {self.plan.date}"
+
+
+class RosterAuditLog(models.Model):
+    """Audit log for tracking all roster modifications and copy operations"""
+    
+    OPERATION_TYPES = [
+        ('create', 'Create Shift'),
+        ('update', 'Update Shift'),
+        ('delete', 'Delete Shift'),
+        ('copy_bulk', 'Copy All Shifts (Period to Period)'),
+        ('copy_day', 'Copy Day Shifts'),
+        ('copy_staff', 'Copy Staff Shifts'),
+        ('bulk_save', 'Bulk Save Operation'),
+    ]
+    
+    hotel = models.ForeignKey(
+        'hotel.Hotel', on_delete=models.CASCADE, related_name='roster_audit_logs'
+    )
+    performed_by = models.ForeignKey(
+        'staff.Staff', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    operation_type = models.CharField(max_length=20, choices=OPERATION_TYPES)
+    
+    # Operation details
+    affected_shifts_count = models.PositiveIntegerField(default=0)
+    source_period = models.ForeignKey(
+        'RosterPeriod',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs_as_source'
+    )
+    target_period = models.ForeignKey(
+        'RosterPeriod',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs_as_target'
+    )
+    
+    # Specific shift information (for single operations)
+    roster_shift = models.ForeignKey(
+        'StaffRoster',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='audit_logs'
+    )
+    affected_staff = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='roster_modifications_audit'
+    )
+    
+    # Additional metadata
+    operation_details = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Additional operation metadata (source_date, target_date, etc.)"
+    )
+    success = models.BooleanField(default=True)
+    error_message = models.TextField(blank=True, null=True)
+    
+    # Timestamps
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['hotel', 'operation_type']),
+            models.Index(fields=['performed_by', 'timestamp']),
+            models.Index(fields=['hotel', 'timestamp']),
+        ]
+    
+    def __str__(self):
+        staff_name = (
+            self.performed_by.user.get_full_name() if self.performed_by
+            else "System"
+        )
+        timestamp_str = self.timestamp.strftime('%Y-%m-%d %H:%M')
+        return (
+            f"{staff_name} - {self.get_operation_type_display()} "
+            f"on {timestamp_str}"
+        )

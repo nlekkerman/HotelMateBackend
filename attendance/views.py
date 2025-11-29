@@ -15,7 +15,7 @@ from django.db import transaction
 from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_plan_grouped_pdf
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
-from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry
+from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry, RosterAuditLog
 from .serializers import (
     ClockLogSerializer,
     RosterPeriodSerializer,
@@ -40,6 +40,32 @@ import django_filters
 from .filters import StaffRosterFilter
 
 # ---------------------- helpers ----------------------
+def log_roster_operation(hotel, operation_type, performed_by=None, **kwargs):
+    """
+    Helper function to create audit log entries for roster operations.
+    
+    Args:
+        hotel: Hotel instance
+        operation_type: One of RosterAuditLog.OPERATION_TYPES
+        performed_by: Staff instance (optional)
+        **kwargs: Additional fields (affected_shifts_count, source_period, target_period, etc.)
+    """
+    try:
+        audit_log = RosterAuditLog.objects.create(
+            hotel=hotel,
+            operation_type=operation_type,
+            performed_by=performed_by,
+            **kwargs
+        )
+        return audit_log
+    except Exception as e:
+        # Don't let audit logging break the main operation
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to create roster audit log: {e}")
+        return None
+
+
 def euclidean(a, b):
     """Compute Euclidean distance between two equal‑length lists of floats."""
     import math
@@ -835,9 +861,65 @@ class CopyRosterViewSet(viewsets.ViewSet):
     """
     ViewSet to handle bulk roster copying using CopyWeekSerializer.
     """
+    permission_classes = [IsAuthenticated]
+    
+    # Rate limiting configuration
+    MAX_SHIFTS_PER_COPY = 500  # Maximum shifts allowed in single copy operation
+    MAX_COPIES_PER_HOUR = 10   # Maximum copy operations per user per hour
+
+    def get_permissions(self):
+        """Import permissions dynamically to avoid circular imports"""
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+    
+    def _check_rate_limit(self, request, hotel_slug):
+        """Check if user has exceeded copy operation rate limit"""
+        from django.utils import timezone
+        from datetime import timedelta
+        
+        try:
+            staff = request.user.staff_profile
+            one_hour_ago = timezone.now() - timedelta(hours=1)
+            
+            recent_operations = RosterAuditLog.objects.filter(
+                hotel__slug=hotel_slug,
+                performed_by=staff,
+                timestamp__gte=one_hour_ago,
+                operation_type__in=['copy_bulk', 'copy_day', 'copy_staff'],
+                success=True
+            ).count()
+            
+            if recent_operations >= self.MAX_COPIES_PER_HOUR:
+                return Response(
+                    {"detail": f"Rate limit exceeded. Maximum {self.MAX_COPIES_PER_HOUR} copy operations per hour."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                )
+            return None
+        except AttributeError:
+            # No staff profile - let permission classes handle this
+            return None
+    
+    def _check_operation_size(self, shifts_count, operation_name):
+        """Check if operation size exceeds safe limits"""
+        if shifts_count > self.MAX_SHIFTS_PER_COPY:
+            return Response(
+                {
+                    "detail": (
+                        f"Operation too large. {operation_name} would copy {shifts_count} shifts. "
+                        f"Maximum allowed: {self.MAX_SHIFTS_PER_COPY}. Please use smaller date ranges."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return None
 
     @action(detail=False, methods=['post'])
     def copy_roster_bulk(self, request, hotel_slug=None):
+        # Check rate limiting
+        rate_limit_response = self._check_rate_limit(request, hotel_slug)
+        if rate_limit_response:
+            return rate_limit_response
+            
         serializer = CopyWeekSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -847,35 +929,99 @@ class CopyRosterViewSet(viewsets.ViewSet):
         source_period = get_object_or_404(RosterPeriod, id=source_period_id, hotel__slug=hotel_slug)
         target_period = get_object_or_404(RosterPeriod, id=target_period_id, hotel__slug=hotel_slug)
 
+        # Validate periods belong to same hotel
+        if source_period.hotel != target_period.hotel:
+            return Response(
+                {"detail": "Source and target periods must belong to the same hotel."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if target period is published/locked
+        if target_period.published:
+            return Response(
+                {"detail": "Cannot copy shifts to a published period."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         source_shifts = StaffRoster.objects.filter(
             hotel__slug=hotel_slug,
             shift_date__gte=source_period.start_date,
             shift_date__lte=source_period.end_date,
         )
 
+        if not source_shifts.exists():
+            return Response(
+                {"detail": "No shifts found in the source period."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        
+        # Check operation size before processing
+        shifts_count = source_shifts.count()
+        size_check_response = self._check_operation_size(shifts_count, "Bulk period copy")
+        if size_check_response:
+            return size_check_response
+
         day_diff = (target_period.start_date - source_period.start_date).days
 
         new_shifts = []
         for shift in source_shifts:
             new_date = shift.shift_date + timedelta(days=day_diff)
-            new_shifts.append(
-                StaffRoster(
-                    hotel=shift.hotel,
-                    staff=shift.staff,
-                    shift_date=new_date,
-                    shift_start=shift.shift_start,   # corrected here
-                    shift_end=shift.shift_end,
-                    expected_hours=shift.expected_hours,
-                    department=shift.department,
-                    location=shift.location,
-                    period=target_period,
+            # Ensure new date falls within target period
+            if target_period.start_date <= new_date <= target_period.end_date:
+                new_shifts.append(
+                    StaffRoster(
+                        hotel=shift.hotel,
+                        staff=shift.staff,
+                        shift_date=new_date,
+                        shift_start=shift.shift_start,
+                        shift_end=shift.shift_end,
+                        expected_hours=shift.expected_hours,
+                        department=shift.department,
+                        location=shift.location,
+                        period=target_period,
+                    )
                 )
+
+        if not new_shifts:
+            return Response(
+                {"detail": "No valid shifts to copy within target period range."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        StaffRoster.objects.bulk_create(new_shifts)
+        with transaction.atomic():
+            # Use ignore_conflicts to prevent duplicate key errors
+            created_shifts = StaffRoster.objects.bulk_create(new_shifts, ignore_conflicts=True)
+            
+            # Count actual created shifts (bulk_create with ignore_conflicts doesn't return count)
+            actual_count = StaffRoster.objects.filter(
+                hotel__slug=hotel_slug,
+                shift_date__gte=target_period.start_date,
+                shift_date__lte=target_period.end_date,
+                period=target_period
+            ).count()
+            
+            # Audit logging
+            try:
+                staff = request.user.staff_profile
+                log_roster_operation(
+                    hotel=source_period.hotel,
+                    operation_type='copy_bulk',
+                    performed_by=staff,
+                    affected_shifts_count=len(new_shifts),
+                    source_period=source_period,
+                    target_period=target_period,
+                    success=True,
+                    operation_details={
+                        'requested_shifts': len(new_shifts),
+                        'actual_created': actual_count
+                    }
+                )
+            except AttributeError:
+                # Handle case where user has no staff_profile
+                pass
 
         return Response(
-            {'copied_shifts_count': len(new_shifts)},
+            {'copied_shifts_count': len(new_shifts), 'actual_created_count': actual_count},
             status=status.HTTP_201_CREATED,
         )
 
@@ -884,6 +1030,11 @@ class CopyRosterViewSet(viewsets.ViewSet):
         """
         Copy shifts for all staff from source_date to target_date.
         """
+        # Check rate limiting
+        rate_limit_response = self._check_rate_limit(request, hotel_slug)
+        if rate_limit_response:
+            return rate_limit_response
+            
         serializer = CopyDayAllSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -907,10 +1058,36 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Validate periods belong to same hotel
+        if source_period.hotel != target_period.hotel:
+            return Response(
+                {"detail": "Source and target periods must belong to the same hotel."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if target period is published/locked
+        if target_period.published:
+            return Response(
+                {"detail": "Cannot copy shifts to a published period."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         source_shifts = StaffRoster.objects.filter(
             hotel__slug=hotel_slug,
             shift_date=source_date,
         )
+
+        if not source_shifts.exists():
+            return Response(
+                {"detail": "No shifts found for the source date."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        
+        # Check operation size before processing
+        shifts_count = source_shifts.count()
+        size_check_response = self._check_operation_size(shifts_count, "Day copy")
+        if size_check_response:
+            return size_check_response
 
         new_shifts = []
         for shift in source_shifts:
@@ -928,7 +1105,71 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 )
             )
 
-        StaffRoster.objects.bulk_create(new_shifts)
+        with transaction.atomic():
+            # Check for overlapping shifts before creating
+            existing_shifts = list(
+                StaffRoster.objects.filter(
+                    hotel__slug=hotel_slug,
+                    shift_date=target_date
+                ).values("staff_id", "shift_date", "shift_start", "shift_end")
+            )
+            
+            # Combine existing and new shifts for overlap detection
+            all_combined = existing_shifts + [
+                {
+                    "staff_id": shift.staff_id,
+                    "shift_date": shift.shift_date,
+                    "shift_start": shift.shift_start,
+                    "shift_end": shift.shift_end
+                } for shift in new_shifts
+            ]
+            
+            if detect_overlapping_shifts(all_combined):
+                # Audit failed operation
+                try:
+                    staff = request.user.staff_profile
+                    log_roster_operation(
+                        hotel=source_period.hotel,
+                        operation_type='copy_day',
+                        performed_by=staff,
+                        affected_shifts_count=0,
+                        source_period=source_period,
+                        target_period=target_period,
+                        success=False,
+                        error_message="Copying would create overlapping shifts",
+                        operation_details={
+                            'source_date': source_date.isoformat(),
+                            'target_date': target_date.isoformat()
+                        }
+                    )
+                except AttributeError:
+                    pass
+                return Response(
+                    {"detail": "Copying would create overlapping shifts. Operation cancelled."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Use ignore_conflicts to prevent duplicate key errors
+            StaffRoster.objects.bulk_create(new_shifts, ignore_conflicts=True)
+            
+            # Audit successful operation
+            try:
+                staff = request.user.staff_profile
+                log_roster_operation(
+                    hotel=source_period.hotel,
+                    operation_type='copy_day',
+                    performed_by=staff,
+                    affected_shifts_count=len(new_shifts),
+                    source_period=source_period,
+                    target_period=target_period,
+                    success=True,
+                    operation_details={
+                        'source_date': source_date.isoformat(),
+                        'target_date': target_date.isoformat()
+                    }
+                )
+            except AttributeError:
+                pass
 
         return Response(
             {'copied_shifts_count': len(new_shifts)},
@@ -940,6 +1181,11 @@ class CopyRosterViewSet(viewsets.ViewSet):
         """
         Copy all shifts for a single staff member from one period (week) to another.
         """
+        # Check rate limiting
+        rate_limit_response = self._check_rate_limit(request, hotel_slug)
+        if rate_limit_response:
+            return rate_limit_response
+            
         serializer = CopyWeekStaffSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
@@ -955,6 +1201,20 @@ class CopyRosterViewSet(viewsets.ViewSet):
             RosterPeriod, id=target_period_id, hotel__slug=hotel_slug
         )
 
+        # Validate periods belong to same hotel
+        if source_period.hotel != target_period.hotel:
+            return Response(
+                {"detail": "Source and target periods must belong to the same hotel."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Check if target period is published/locked
+        if target_period.published:
+            return Response(
+                {"detail": "Cannot copy shifts to a published period."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Get shifts only for this staff in the source period
         source_shifts = StaffRoster.objects.filter(
             hotel__slug=hotel_slug,
@@ -968,6 +1228,12 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 {"detail": "No shifts found for this staff in the source period."},
                 status=status.HTTP_404_NOT_FOUND,
             )
+        
+        # Check operation size before processing
+        shifts_count = source_shifts.count()
+        size_check_response = self._check_operation_size(shifts_count, "Staff week copy")
+        if size_check_response:
+            return size_check_response
 
         # Calculate date difference between periods
         day_diff = (target_period.start_date - source_period.start_date).days
@@ -976,21 +1242,94 @@ class CopyRosterViewSet(viewsets.ViewSet):
         new_shifts = []
         for shift in source_shifts:
             new_date = shift.shift_date + timedelta(days=day_diff)
-            new_shifts.append(
-                StaffRoster(
-                    hotel=shift.hotel,
-                    staff=shift.staff,
-                    shift_date=new_date,
-                    shift_start=shift.shift_start,
-                    shift_end=shift.shift_end,
-                    expected_hours=shift.expected_hours,
-                    department=shift.department,
-                    location=shift.location,
-                    period=target_period,
+            # Ensure new date falls within target period
+            if target_period.start_date <= new_date <= target_period.end_date:
+                new_shifts.append(
+                    StaffRoster(
+                        hotel=shift.hotel,
+                        staff=shift.staff,
+                        shift_date=new_date,
+                        shift_start=shift.shift_start,
+                        shift_end=shift.shift_end,
+                        expected_hours=shift.expected_hours,
+                        department=shift.department,
+                        location=shift.location,
+                        period=target_period,
+                    )
                 )
+
+        if not new_shifts:
+            return Response(
+                {"detail": "No valid shifts to copy within target period range."},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        StaffRoster.objects.bulk_create(new_shifts)
+        with transaction.atomic():
+            # Check for overlapping shifts for this staff member
+            existing_shifts = list(
+                StaffRoster.objects.filter(
+                    staff_id=staff_id,
+                    shift_date__gte=target_period.start_date,
+                    shift_date__lte=target_period.end_date
+                ).values("staff_id", "shift_date", "shift_start", "shift_end")
+            )
+            
+            # Combine existing and new shifts for overlap detection
+            all_combined = existing_shifts + [
+                {
+                    "staff_id": shift.staff_id,
+                    "shift_date": shift.shift_date,
+                    "shift_start": shift.shift_start,
+                    "shift_end": shift.shift_end
+                } for shift in new_shifts
+            ]
+            
+            if detect_overlapping_shifts(all_combined):
+                # Audit failed operation
+                try:
+                    staff = request.user.staff_profile
+                    log_roster_operation(
+                        hotel=source_period.hotel,
+                        operation_type='copy_staff',
+                        performed_by=staff,
+                        affected_shifts_count=0,
+                        source_period=source_period,
+                        target_period=target_period,
+                        affected_staff_id=staff_id,
+                        success=False,
+                        error_message="Copying would create overlapping shifts for this staff member",
+                        operation_details={
+                            'target_staff_id': staff_id
+                        }
+                    )
+                except AttributeError:
+                    pass
+                return Response(
+                    {"detail": "Copying would create overlapping shifts for this staff member. Operation cancelled."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # Use ignore_conflicts to prevent duplicate key errors
+            StaffRoster.objects.bulk_create(new_shifts, ignore_conflicts=True)
+            
+            # Audit successful operation
+            try:
+                staff = request.user.staff_profile
+                log_roster_operation(
+                    hotel=source_period.hotel,
+                    operation_type='copy_staff',
+                    performed_by=staff,
+                    affected_shifts_count=len(new_shifts),
+                    source_period=source_period,
+                    target_period=target_period,
+                    affected_staff_id=staff_id,
+                    success=True,
+                    operation_details={
+                        'target_staff_id': staff_id
+                    }
+                )
+            except AttributeError:
+                pass
 
         return Response(
             {"copied_shifts_count": len(new_shifts)},
