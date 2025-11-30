@@ -38,6 +38,7 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
     department = DepartmentSerializer(read_only=True)
     role = RoleSerializer(read_only=True)
     profile_image_url = serializers.SerializerMethodField()
+    current_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Staff
@@ -46,7 +47,7 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
             'department', 'role',
             'email', 'phone_number',
             'is_active', 'is_on_duty',
-            'hotel', 'profile_image_url',
+            'hotel', 'profile_image_url', 'current_status',
         ]
 
     def get_profile_image_url(self, obj):
@@ -55,6 +56,9 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
         if url and request:
             return request.build_absolute_uri(url)
         return url
+    
+    def get_current_status(self, obj):
+        return obj.get_current_status()
 
 
 class UserSerializer(serializers.ModelSerializer):

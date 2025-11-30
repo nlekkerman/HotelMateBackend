@@ -136,6 +136,43 @@ class Staff(models.Model):
     is_on_duty = models.BooleanField(default=False)
     has_registered_face = models.BooleanField(default=False, null=True)
 
+    def get_current_status(self):
+        """
+        Returns current attendance status including break information.
+        """
+        if not self.is_on_duty:
+            return {
+                'status': 'off_duty',
+                'label': 'Off Duty',
+                'is_on_break': False
+            }
+        
+        # Check if currently on break
+        from django.utils.timezone import now
+        from attendance.models import ClockLog
+        
+        today = now().date()
+        current_log = ClockLog.objects.filter(
+            staff=self,
+            time_in__date=today,
+            time_out__isnull=True
+        ).first()
+        
+        if current_log and current_log.is_on_break:
+            return {
+                'status': 'on_break',
+                'label': 'On Break',
+                'is_on_break': True,
+                'break_start': current_log.break_start,
+                'total_break_minutes': current_log.total_break_minutes
+            }
+        
+        return {
+            'status': 'on_duty',
+            'label': 'On Duty',
+            'is_on_break': False
+        }
+
     # Firebase Cloud Messaging token for push notifications
     fcm_token = models.CharField(
         max_length=255,

@@ -22,6 +22,7 @@ from .utils import (
     create_face_audit_log, check_face_attendance_permissions,
     send_unrostered_request_notification
 )
+from staff.pusher_utils import trigger_clock_status_update
 from common.mixins import AttendanceHotelScopedMixin
 
 
@@ -359,6 +360,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                     # Update staff status
                     matched_staff.is_on_duty = True
                     matched_staff.save(update_fields=['is_on_duty'])
+                    
+                    # Trigger Pusher event for real-time status update
+                    trigger_clock_status_update(hotel.slug, matched_staff, 'clock_in')
                     
                     # Get staff image for success message
                     staff_image = None
@@ -846,6 +850,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
             matched_staff.is_on_duty = False
             matched_staff.save(update_fields=['is_on_duty'])
             
+            # Trigger Pusher event for real-time status update
+            trigger_clock_status_update(hotel.slug, matched_staff, 'clock_out')
+            
             # Calculate session duration
             session_duration = (existing_log.time_out - existing_log.time_in).total_seconds() / 3600
             
@@ -969,6 +976,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 existing_log.break_end = now()
                 existing_log.save()
                 
+                # Trigger Pusher event for break end (staff back on duty)
+                trigger_clock_status_update(hotel.slug, matched_staff, 'break_end')
+                
                 # Use kiosk mode from saved log
                 kiosk_action = 'refresh_for_next_person' if existing_log.is_kiosk_mode else 'stay_logged_in'
                 
@@ -994,6 +1004,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 existing_log.is_on_break = True
                 existing_log.break_start = now()
                 existing_log.save()
+                
+                # Trigger Pusher event for break start
+                trigger_clock_status_update(hotel.slug, matched_staff, 'break_start')
                 
                 # Use kiosk mode from saved log
                 kiosk_action = 'refresh_for_next_person' if existing_log.is_kiosk_mode else 'stay_logged_in'
