@@ -1142,6 +1142,32 @@ class AttendanceSettings(models.Model):
         help_text="Whether to actively enforce attendance limits and warnings"
     )
     
+    # Face recognition attendance settings
+    face_attendance_enabled = models.BooleanField(
+        default=False,
+        help_text="Enable face recognition for attendance tracking"
+    )
+    face_attendance_min_confidence = models.FloatField(
+        default=0.80,
+        help_text="Minimum confidence score for face recognition (0.0-1.0)"
+    )
+    require_face_consent = models.BooleanField(
+        default=True,
+        help_text="Require explicit consent before collecting face data"
+    )
+    allow_face_self_registration = models.BooleanField(
+        default=True,
+        help_text="Allow staff to register their own face data"
+    )
+    face_data_retention_days = models.IntegerField(
+        default=365,
+        help_text="Number of days to retain face data after staff leaves"
+    )
+    face_attendance_departments = models.JSONField(
+        default=list,
+        help_text="List of department IDs that can use face attendance (empty = all)"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

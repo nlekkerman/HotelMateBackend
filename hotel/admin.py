@@ -12,6 +12,7 @@ from .models import (
     PublicSection,
     PublicElement,
     PublicElementItem,
+    AttendanceSettings,
 )
 
 
