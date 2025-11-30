@@ -127,16 +127,16 @@ def send_break_warning(hotel, clock_log, duration_hours):
     
     # Send to staff-specific channel
     pusher_client.trigger(
-        channel=f"attendance-{hotel.slug}-staff-{clock_log.staff.id}",
-        event='break-warning',
-        data=event_data
+        f"attendance-{hotel.slug}-staff-{clock_log.staff.id}",
+        'break-warning',
+        event_data
     )
     
     # Also send to managers channel for oversight
     pusher_client.trigger(
-        channel=f"attendance-{hotel.slug}-managers",
-        event='staff-break-warning',
-        data=event_data
+        f"attendance-{hotel.slug}-managers",
+        'staff-break-warning',
+        event_data
     )
 
 
@@ -161,16 +161,16 @@ def send_overtime_warning(hotel, clock_log, duration_hours):
     
     # Send to staff-specific channel
     pusher_client.trigger(
-        channel=f"attendance-{hotel.slug}-staff-{clock_log.staff.id}",
-        event='overtime-warning',
-        data=event_data
+        f"attendance-{hotel.slug}-staff-{clock_log.staff.id}",
+        'overtime-warning',
+        event_data
     )
     
     # Send to managers channel for oversight
     pusher_client.trigger(
-        channel=f"attendance-{hotel.slug}-managers",
-        event='staff-overtime-warning',
-        data=event_data
+        f"attendance-{hotel.slug}-managers",
+        'staff-overtime-warning',
+        event_data
     )
 
 
@@ -208,16 +208,16 @@ def send_hard_limit_warning(hotel, clock_log, duration_hours):
     
     # Send to staff-specific channel
     pusher_client.trigger(
-        channel=f"attendance-{hotel.slug}-staff-{clock_log.staff.id}",
-        event='hard-limit-warning',
-        data=event_data
+        f"attendance-{hotel.slug}-staff-{clock_log.staff.id}",
+        'hard-limit-warning',
+        event_data
     )
     
     # Send to managers channel for urgent oversight
     pusher_client.trigger(
-        channel=f"attendance-{hotel.slug}-managers",
-        event='staff-hard-limit-warning',
-        data=event_data
+        f"attendance-{hotel.slug}-managers",
+        'staff-hard-limit-warning',
+        event_data
     )
 
 
@@ -256,9 +256,9 @@ def send_unrostered_request_notification(hotel, clock_log):
     
     # Send to managers channel
     pusher_client.trigger(
-        channel=f"attendance-{hotel.slug}-managers",
-        event='unrostered-clockin-request',
-        data=event_data
+        f"attendance-{hotel.slug}-managers",
+        'unrostered-clockin-request',
+        event_data
     )
 
 

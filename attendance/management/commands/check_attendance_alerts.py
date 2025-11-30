@@ -42,6 +42,7 @@ class Command(BaseCommand):
             try:
                 hotel = Hotel.objects.get(slug=options['hotel'])
                 hotels = [hotel]
+                hotels_count = 1
             except Hotel.DoesNotExist:
                 self.stdout.write(
                     self.style.ERROR(f'Hotel with slug "{options["hotel"]}" not found.')
@@ -50,6 +51,7 @@ class Command(BaseCommand):
         else:
             # Check all hotels
             hotels = Hotel.objects.filter(is_active=True)
+            hotels_count = hotels.count()
 
         total_alerts = {
             'break_warnings': 0,
@@ -62,7 +64,7 @@ class Command(BaseCommand):
                 self.style.WARNING('DRY RUN MODE: No actual alerts will be sent')
             )
 
-        self.stdout.write(f'Checking attendance alerts for {hotels.count()} hotel(s)...')
+        self.stdout.write(f'Checking attendance alerts for {hotels_count} hotel(s)...')
 
         for hotel in hotels:
             if options['verbose']:

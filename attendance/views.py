@@ -673,9 +673,9 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         
         # Trigger Pusher event
         pusher_client.trigger(
-            channel=f"attendance-{hotel_slug}-staff-{log.staff.id}",
-            event='clocklog-approved',
-            data={
+            f"attendance-{hotel_slug}-staff-{log.staff.id}",
+            'clocklog-approved',
+            {
                 'clock_log_id': log.id,
                 'message': 'Your unrostered clock-in has been approved.',
                 'approved_by': request.user.staff_profile.first_name if hasattr(request.user, 'staff_profile') else 'Manager'
@@ -715,9 +715,9 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         
         # Trigger Pusher event
         pusher_client.trigger(
-            channel=f"attendance-{hotel_slug}-staff-{log.staff.id}",
-            event='clocklog-rejected',
-            data={
+            f"attendance-{hotel_slug}-staff-{log.staff.id}",
+            'clocklog-rejected',
+            {
                 'clock_log_id': log.id,
                 'message': 'Your unrostered clock-in has been rejected and you have been clocked out.',
                 'rejected_by': request.user.staff_profile.first_name if hasattr(request.user, 'staff_profile') else 'Manager'
@@ -749,9 +749,9 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         
         # Notify managers of the decision
         pusher_client.trigger(
-            channel=f"attendance-{hotel_slug}-managers",
-            event='staff-long-session-acknowledged',
-            data={
+            f"attendance-{hotel_slug}-managers",
+            'staff-long-session-acknowledged',
+            {
                 'clock_log_id': log.id,
                 'staff_id': log.staff.id,
                 'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
@@ -1013,9 +1013,9 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         
         # Notify managers
         pusher_client.trigger(
-            channel=f"attendance-{hotel_slug}-managers",
-            event='period-finalized',
-            data={
+            f"attendance-{hotel_slug}-managers",
+            'period-finalized',
+            {
                 'period_id': period.id,
                 'period_title': period.title,
                 'finalized_by': period.finalized_by.first_name if period.finalized_by else 'System',
@@ -1069,9 +1069,9 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         
         # Notify managers
         pusher_client.trigger(
-            channel=f"attendance-{hotel_slug}-managers",
-            event='period-unfinalized',
-            data={
+            f"attendance-{hotel_slug}-managers",
+            'period-unfinalized',
+            {
                 'period_id': period.id,
                 'period_title': period.title,
                 'unfinalized_by': request.user.staff_profile.first_name if hasattr(request.user, 'staff_profile') else 'Admin',
