@@ -43,10 +43,13 @@ class ClockLogSerializer(serializers.ModelSerializer):
     # read-only lightweight representation
     roster_shift = serializers.SerializerMethodField(read_only=True)
 
+    # Add staff image field
+    staff_image = serializers.SerializerMethodField()
+    
     class Meta:
         model = ClockLog
         fields = [
-            'id', 'staff', 'staff_name', 'hotel', 'hotel_slug',
+            'id', 'staff', 'staff_name', 'staff_image', 'hotel', 'hotel_slug',
             'time_in', 'time_out', 'verified_by_face', 'location_note', 'auto_clock_out',
             'hours_worked', 'department',
             'roster_shift_id',  # input
@@ -55,6 +58,8 @@ class ClockLogSerializer(serializers.ModelSerializer):
             'is_unrostered', 'is_approved', 'is_rejected',
             'break_warning_sent', 'overtime_warning_sent', 'hard_limit_warning_sent',
             'long_session_ack_mode',
+            # Break tracking fields
+            'is_on_break', 'break_start', 'break_end', 'total_break_minutes',
         ]
 
     def get_staff_name(self, obj):
@@ -67,6 +72,15 @@ class ClockLogSerializer(serializers.ModelSerializer):
                 'slug': obj.staff.department.slug,
             }
         return {'name': 'N/A', 'slug': None}
+    
+    def get_staff_image(self, obj):
+        """Get staff face image from face registration"""
+        try:
+            from .models import StaffFace
+            staff_face = StaffFace.objects.get(staff=obj.staff, is_active=True)
+            return staff_face.get_image_url()
+        except StaffFace.DoesNotExist:
+            return None
 
     def get_roster_shift(self, obj):
         shift = obj.roster_shift

@@ -19,7 +19,8 @@ from .serializers import (
 )
 from .utils import (
     find_best_face_match, generate_face_registration_response,
-    create_face_audit_log, check_face_attendance_permissions
+    create_face_audit_log, check_face_attendance_permissions,
+    send_unrostered_request_notification
 )
 from common.mixins import AttendanceHotelScopedMixin
 
@@ -217,6 +218,7 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
             "encoding": [0.123, -0.456, ...], // 128 floats
             "location_note": "Front Desk", // optional
             "force_action": "clock_in" // optional: clock_in/clock_out
+            "confirmation_mode": false // optional: true for two-step confirmation
         }
         """
         hotel = self.get_hotel()
@@ -270,41 +272,126 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
             ).first()
             
             if existing_log:
-                # Clock out
-                existing_log.time_out = now()
-                existing_log.save()
+                # For clock-out: Return two-step confirmation options
+                session_duration = (now() - existing_log.time_in).total_seconds() / 3600
                 
-                # Serialize with enhanced features
-                serializer = ClockLogSerializer(existing_log)
+                # Get staff image
+                staff_image = None
+                try:
+                    staff_face = StaffFace.objects.get(staff=matched_staff, is_active=True)
+                    staff_image = staff_face.get_image_url()
+                except StaffFace.DoesNotExist:
+                    pass
+                
+                # Calculate break time
+                current_break_time = 0
+                if existing_log.is_on_break and existing_log.break_start:
+                    current_break_time = (now() - existing_log.break_start).total_seconds() / 60  # minutes
                 
                 return Response({
-                    'action': 'clock_out',
-                    'message': f'Clocked out successfully',
-                    'confidence_score': confidence_score,
-                    'clock_log': serializer.data
+                    'action': 'clock_out_options',
+                    'message': f'{matched_staff.first_name} {matched_staff.last_name} - Choose action',
+                    'staff': {
+                        'id': matched_staff.id,
+                        'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                        'department': matched_staff.department.name if matched_staff.department else 'No Department',
+                        'image': staff_image
+                    },
+                    'session_info': {
+                        'duration_hours': round(session_duration, 2),
+                        'clock_in_time': existing_log.time_in.isoformat(),
+                        'is_on_break': existing_log.is_on_break,
+                        'current_break_minutes': round(current_break_time, 0) if existing_log.is_on_break else 0,
+                        'total_break_minutes': existing_log.total_break_minutes
+                    },
+                    'available_actions': [
+                        {
+                            'action': 'clock_out',
+                            'label': 'Clock Out',
+                            'description': f'End shift ({round(session_duration, 1)}h worked)',
+                            'endpoint': f'/api/staff/hotel/{hotel.slug}/attendance/face-management/confirm-clock-out/',
+                            'primary': True
+                        },
+                        {
+                            'action': 'start_break' if not existing_log.is_on_break else 'end_break',
+                            'label': 'Start Break' if not existing_log.is_on_break else 'End Break',
+                            'description': 'Take a break' if not existing_log.is_on_break else f'End break ({round(current_break_time, 0)}min)',
+                            'endpoint': f'/api/staff/hotel/{hotel.slug}/attendance/face-management/toggle-break/',
+                            'primary': False
+                        }
+                    ],
+                    'confidence_score': confidence_score
                 }, status=status.HTTP_200_OK)
             else:
-                # Clock in - create new log
-                new_log = ClockLog.objects.create(
-                    hotel=hotel,
-                    staff=matched_staff,
-                    verified_by_face=True,
-                    location_note=validated_data.get('location_note', ''),
-                    time_in=now()
-                )
+                # Clock in - create new log with roster checking
+                from .utils_roster import find_matching_shift_for_datetime
                 
-                # TODO: Add roster shift matching logic here
-                # TODO: Add unrostered detection logic here
+                current_dt = now()
+                matching_shift = find_matching_shift_for_datetime(hotel, matched_staff, current_dt)
                 
-                # Serialize with enhanced features
-                serializer = ClockLogSerializer(new_log)
-                
-                return Response({
-                    'action': 'clock_in',
-                    'message': f'Clocked in successfully',
-                    'confidence_score': confidence_score,
-                    'clock_log': serializer.data
-                }, status=status.HTTP_201_CREATED)
+                if matching_shift:
+                    # Normal rostered clock-in (ONE STEP - AUTOMATIC)
+                    new_log = ClockLog.objects.create(
+                        hotel=hotel,
+                        staff=matched_staff,
+                        verified_by_face=True,
+                        location_note=validated_data.get('location_note', ''),
+                        time_in=current_dt,
+                        roster_shift=matching_shift,
+                        is_unrostered=False,
+                        is_approved=True,
+                        is_on_break=False
+                    )
+                    
+                    # Update staff status
+                    matched_staff.is_on_duty = True
+                    matched_staff.save(update_fields=['is_on_duty'])
+                    
+                    # Get staff image for success message
+                    staff_image = None
+                    try:
+                        staff_face = StaffFace.objects.get(staff=matched_staff, is_active=True)
+                        staff_image = staff_face.get_image_url()
+                    except StaffFace.DoesNotExist:
+                        pass
+                    
+                    # Serialize with enhanced features
+                    serializer = ClockLogSerializer(new_log)
+                    
+                    return Response({
+                        'action': 'clock_in_success',
+                        'message': f'{matched_staff.first_name} {matched_staff.last_name} clocked in successfully!',
+                        'staff': {
+                            'id': matched_staff.id,
+                            'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                            'department': matched_staff.department.name if matched_staff.department else 'No Department',
+                            'image': staff_image
+                        },
+                        'is_rostered': True,
+                        'shift_info': {
+                            'id': matching_shift.id,
+                            'date': matching_shift.shift_date.isoformat(),
+                            'start_time': matching_shift.shift_start.strftime('%H:%M'),
+                            'end_time': matching_shift.shift_end.strftime('%H:%M'),
+                            'department': matching_shift.department.name if matching_shift.department else None
+                        } if matching_shift else None,
+                        'confidence_score': confidence_score,
+                        'clock_log': serializer.data
+                    }, status=status.HTTP_201_CREATED)
+                else:
+                    # Unrostered staff - return confirmation prompt
+                    return Response({
+                        'action': 'unrostered_detected',
+                        'message': f'No scheduled shift found for {matched_staff.first_name} {matched_staff.last_name}. Confirm to clock in anyway.',
+                        'staff': {
+                            'id': matched_staff.id,
+                            'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                            'department': matched_staff.department.name if matched_staff.department else 'No Department'
+                        },
+                        'requires_confirmation': True,
+                        'confidence_score': confidence_score,
+                        'confirmation_endpoint': f'/api/staff/hotel/{hotel.slug}/attendance/face-management/force-clock-in/'
+                    }, status=status.HTTP_200_OK)
                 
         except Exception as e:
             return Response(
@@ -402,6 +489,111 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
             'results': serializer.data
         }, status=status.HTTP_200_OK)
     
+    @action(detail=False, methods=['post'], url_path='detect-staff')
+    def detect_staff_with_status(self, request, hotel_slug=None):
+        """
+        Detect staff from face encoding and return current clock status with action options.
+        
+        POST /api/staff/hotel/{hotel_slug}/attendance/face-management/detect-staff/
+        
+        Body:
+        {
+            "encoding": [128-dimensional array]
+        }
+        """
+        hotel = self.get_hotel()
+        
+        # Check permissions
+        has_permission, error_message = self.check_staff_permissions(request, hotel)
+        if not has_permission:
+            return Response(
+                {'error': error_message}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Validate encoding
+        encoding = request.data.get('encoding')
+        if not isinstance(encoding, list) or len(encoding) != 128:
+            return Response({
+                'error': 'A 128-length descriptor array is required.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Find matching face
+            staff_faces_qs = StaffFace.objects.filter(
+                hotel=hotel,
+                is_active=True
+            ).select_related('staff')
+            
+            matched_staff, confidence_score = find_best_face_match(
+                encoding, 
+                staff_faces_qs, 
+                threshold=0.6
+            )
+            
+            if not matched_staff:
+                return Response({
+                    'error': 'Face not recognized',
+                    'confidence_score': confidence_score,
+                    'message': 'No matching face found or confidence too low'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Check current clock status
+            today = now().date()
+            existing_log = ClockLog.objects.filter(
+                hotel=hotel,
+                staff=matched_staff,
+                time_in__date=today,
+                time_out__isnull=True
+            ).first()
+            
+            # Calculate session duration if clocked in
+            session_duration_hours = None
+            if existing_log:
+                duration = now() - existing_log.time_in
+                session_duration_hours = round(duration.total_seconds() / 3600, 2)
+            
+            # Determine available actions
+            available_actions = []
+            if existing_log:
+                available_actions.append({
+                    'action': 'clock_out',
+                    'label': 'Clock Out',
+                    'description': f'End shift (worked {session_duration_hours}h)',
+                    'endpoint': f'/api/staff/hotel/{hotel.slug}/attendance/face-management/face-clock-in/',
+                    'urgent': session_duration_hours and session_duration_hours >= 10
+                })
+            else:
+                available_actions.append({
+                    'action': 'clock_in',
+                    'label': 'Clock In',
+                    'description': 'Start new shift',
+                    'endpoint': f'/api/staff/hotel/{hotel.slug}/attendance/face-management/face-clock-in/'
+                })
+            
+            return Response({
+                'recognized': True,
+                'staff': {
+                    'id': matched_staff.id,
+                    'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                    'department': matched_staff.department.name if matched_staff.department else 'No Department'
+                },
+                'current_status': {
+                    'is_clocked_in': bool(existing_log),
+                    'session_duration_hours': session_duration_hours,
+                    'clock_in_time': existing_log.time_in.isoformat() if existing_log else None
+                },
+                'confidence_score': confidence_score,
+                'available_actions': available_actions,
+                'auto_action_available': True  # Can use one-step mode
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Face detection failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=False, methods=['get'], url_path='face-status')
     def face_status(self, request, hotel_slug=None):
         """
@@ -435,3 +627,368 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 'has_registered_face': False,
                 'face_data': None
             }, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=['post'], url_path='force-clock-in')
+    def force_clock_in_unrostered(self, request, hotel_slug=None):
+        """
+        Force clock-in for unrostered staff after confirmation.
+        
+        POST /api/staff/hotel/{hotel_slug}/attendance/face-management/force-clock-in/
+        
+        Body:
+        {
+            "encoding": [128-dimensional array],
+            "reason": "Emergency coverage needed",
+            "location_note": "Front Desk" (optional)
+        }
+        """
+        hotel = self.get_hotel()
+        
+        # Check permissions
+        has_permission, error_message = self.check_staff_permissions(request, hotel)
+        if not has_permission:
+            return Response(
+                {'error': error_message}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Serialize and validate request data
+        encoding = request.data.get('encoding')
+        reason = request.data.get('reason', 'Unrostered clock-in confirmed by staff')
+        
+        if not isinstance(encoding, list) or len(encoding) != 128:
+            return Response({
+                'error': 'A 128-length descriptor array is required.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Find matching face
+            staff_faces_qs = StaffFace.objects.filter(
+                hotel=hotel,
+                is_active=True
+            ).select_related('staff')
+            
+            matched_staff, confidence_score = find_best_face_match(
+                encoding, 
+                staff_faces_qs, 
+                threshold=0.6
+            )
+            
+            if not matched_staff:
+                return Response({
+                    'error': 'Face not recognized',
+                    'confidence_score': confidence_score,
+                    'message': 'No matching face found or confidence too low'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Check if already clocked in
+            today = now().date()
+            existing_log = ClockLog.objects.filter(
+                hotel=hotel,
+                staff=matched_staff,
+                time_in__date=today,
+                time_out__isnull=True
+            ).first()
+            
+            if existing_log:
+                return Response({
+                    'error': 'Staff already clocked in',
+                    'message': f'{matched_staff.first_name} is already clocked in since {existing_log.time_in}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create unrostered clock log
+            current_dt = now()
+            new_log = ClockLog.objects.create(
+                hotel=hotel,
+                staff=matched_staff,
+                verified_by_face=True,
+                location_note=request.data.get('location_note', ''),
+                time_in=current_dt,
+                roster_shift=None,
+                is_unrostered=True,
+                is_approved=False,  # Requires manager approval
+                is_rejected=False
+            )
+            
+            # Update staff status
+            matched_staff.is_on_duty = True
+            matched_staff.save(update_fields=['is_on_duty'])
+            
+            # Create audit log
+            create_face_audit_log(
+                hotel=hotel,
+                staff=matched_staff,
+                action='FORCED_CLOCK_IN',
+                performed_by=matched_staff,
+                reason=reason,
+                request=request
+            )
+            
+            # Notify managers about unrostered clock-in
+            from .utils import send_unrostered_request_notification
+            send_unrostered_request_notification(hotel, new_log)
+            
+            # Serialize response
+            serializer = ClockLogSerializer(new_log)
+            
+            return Response({
+                'action': 'unrostered_clock_in',
+                'message': f'{matched_staff.first_name} {matched_staff.last_name} clocked in (unrostered - requires approval)',
+                'staff': {
+                    'id': matched_staff.id,
+                    'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                    'department': matched_staff.department.name if matched_staff.department else 'No Department'
+                },
+                'is_rostered': False,
+                'requires_approval': True,
+                'confidence_score': confidence_score,
+                'clock_log': serializer.data
+            }, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            return Response(
+                {'error': f'Force clock-in failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'], url_path='confirm-clock-out')
+    def confirm_clock_out(self, request, hotel_slug=None):
+        """
+        Confirm clock-out action after two-step verification.
+        
+        POST /api/staff/hotel/{hotel_slug}/attendance/face-management/confirm-clock-out/
+        
+        Body:
+        {
+            "encoding": [128-dimensional array]
+        }
+        """
+        hotel = self.get_hotel()
+        
+        # Check permissions
+        has_permission, error_message = self.check_staff_permissions(request, hotel)
+        if not has_permission:
+            return Response(
+                {'error': error_message}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Validate encoding
+        encoding = request.data.get('encoding')
+        if not isinstance(encoding, list) or len(encoding) != 128:
+            return Response({
+                'error': 'A 128-length descriptor array is required.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Find matching face
+            staff_faces_qs = StaffFace.objects.filter(
+                hotel=hotel,
+                is_active=True
+            ).select_related('staff')
+            
+            matched_staff, confidence_score = find_best_face_match(
+                encoding, 
+                staff_faces_qs, 
+                threshold=0.6
+            )
+            
+            if not matched_staff:
+                return Response({
+                    'error': 'Face not recognized',
+                    'confidence_score': confidence_score
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Find existing open log
+            today = now().date()
+            existing_log = ClockLog.objects.filter(
+                hotel=hotel,
+                staff=matched_staff,
+                time_in__date=today,
+                time_out__isnull=True
+            ).first()
+            
+            if not existing_log:
+                return Response({
+                    'error': 'No active clock-in found'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # End break if currently on break
+            if existing_log.is_on_break:
+                existing_log.is_on_break = False
+                if existing_log.break_start:
+                    break_duration = (now() - existing_log.break_start).total_seconds() / 60
+                    existing_log.total_break_minutes += int(break_duration)
+                existing_log.break_end = now()
+            
+            # Clock out
+            existing_log.time_out = now()
+            existing_log.save()
+            
+            # Update staff status
+            matched_staff.is_on_duty = False
+            matched_staff.save(update_fields=['is_on_duty'])
+            
+            # Calculate session duration
+            session_duration = (existing_log.time_out - existing_log.time_in).total_seconds() / 3600
+            
+            # Get staff image
+            staff_image = None
+            try:
+                staff_face = StaffFace.objects.get(staff=matched_staff, is_active=True)
+                staff_image = staff_face.get_image_url()
+            except StaffFace.DoesNotExist:
+                pass
+            
+            # Serialize response
+            serializer = ClockLogSerializer(existing_log)
+            
+            return Response({
+                'action': 'clock_out_success',
+                'message': f'{matched_staff.first_name} {matched_staff.last_name} clocked out successfully!',
+                'staff': {
+                    'id': matched_staff.id,
+                    'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                    'department': matched_staff.department.name if matched_staff.department else 'No Department',
+                    'image': staff_image
+                },
+                'session_summary': {
+                    'duration_hours': round(session_duration, 2),
+                    'total_break_minutes': existing_log.total_break_minutes,
+                    'clock_in_time': existing_log.time_in.isoformat(),
+                    'clock_out_time': existing_log.time_out.isoformat()
+                },
+                'confidence_score': confidence_score,
+                'clock_log': serializer.data
+            }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            return Response(
+                {'error': f'Clock-out failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @action(detail=False, methods=['post'], url_path='toggle-break')
+    def toggle_break(self, request, hotel_slug=None):
+        """
+        Start or end break for currently clocked-in staff.
+        
+        POST /api/staff/hotel/{hotel_slug}/attendance/face-management/toggle-break/
+        
+        Body:
+        {
+            "encoding": [128-dimensional array]
+        }
+        """
+        hotel = self.get_hotel()
+        
+        # Check permissions
+        has_permission, error_message = self.check_staff_permissions(request, hotel)
+        if not has_permission:
+            return Response(
+                {'error': error_message}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Validate encoding
+        encoding = request.data.get('encoding')
+        if not isinstance(encoding, list) or len(encoding) != 128:
+            return Response({
+                'error': 'A 128-length descriptor array is required.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            # Find matching face
+            staff_faces_qs = StaffFace.objects.filter(
+                hotel=hotel,
+                is_active=True
+            ).select_related('staff')
+            
+            matched_staff, confidence_score = find_best_face_match(
+                encoding, 
+                staff_faces_qs, 
+                threshold=0.6
+            )
+            
+            if not matched_staff:
+                return Response({
+                    'error': 'Face not recognized',
+                    'confidence_score': confidence_score
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Find existing open log
+            today = now().date()
+            existing_log = ClockLog.objects.filter(
+                hotel=hotel,
+                staff=matched_staff,
+                time_in__date=today,
+                time_out__isnull=True
+            ).first()
+            
+            if not existing_log:
+                return Response({
+                    'error': 'No active clock-in found'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get staff image
+            staff_image = None
+            try:
+                staff_face = StaffFace.objects.get(staff=matched_staff, is_active=True)
+                staff_image = staff_face.get_image_url()
+            except StaffFace.DoesNotExist:
+                pass
+            
+            if existing_log.is_on_break:
+                # End break
+                if existing_log.break_start:
+                    break_duration = (now() - existing_log.break_start).total_seconds() / 60
+                    existing_log.total_break_minutes += int(break_duration)
+                
+                existing_log.is_on_break = False
+                existing_log.break_end = now()
+                existing_log.save()
+                
+                return Response({
+                    'action': 'break_ended',
+                    'message': f'{matched_staff.first_name} {matched_staff.last_name} break ended',
+                    'staff': {
+                        'id': matched_staff.id,
+                        'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                        'department': matched_staff.department.name if matched_staff.department else 'No Department',
+                        'image': staff_image
+                    },
+                    'break_info': {
+                        'break_duration_minutes': int(break_duration) if existing_log.break_start else 0,
+                        'total_break_minutes': existing_log.total_break_minutes,
+                        'is_on_break': False
+                    },
+                    'confidence_score': confidence_score
+                }, status=status.HTTP_200_OK)
+            else:
+                # Start break
+                existing_log.is_on_break = True
+                existing_log.break_start = now()
+                existing_log.save()
+                
+                return Response({
+                    'action': 'break_started',
+                    'message': f'{matched_staff.first_name} {matched_staff.last_name} break started',
+                    'staff': {
+                        'id': matched_staff.id,
+                        'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                        'department': matched_staff.department.name if matched_staff.department else 'No Department',
+                        'image': staff_image
+                    },
+                    'break_info': {
+                        'break_start_time': existing_log.break_start.isoformat(),
+                        'total_break_minutes': existing_log.total_break_minutes,
+                        'is_on_break': True
+                    },
+                    'confidence_score': confidence_score
+                }, status=status.HTTP_200_OK)
+                
+        except Exception as e:
+            return Response(
+                {'error': f'Break toggle failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

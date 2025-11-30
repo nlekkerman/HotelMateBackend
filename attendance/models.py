@@ -153,6 +153,26 @@ class ClockLog(models.Model):
         ),
         help_text="How staff responded to hard limit warning"
     )
+    
+    # Break tracking fields
+    is_on_break = models.BooleanField(
+        default=False,
+        help_text="Whether staff is currently on break"
+    )
+    break_start = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When break started"
+    )
+    break_end = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When break ended"
+    )
+    total_break_minutes = models.IntegerField(
+        default=0,
+        help_text="Total break time in minutes for this shift"
+    )
 
     def save(self, *args, **kwargs):
         # If both time_in and time_out exist, calculate hours
