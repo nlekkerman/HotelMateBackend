@@ -36,6 +36,8 @@ from hotel.staff_views import (
     ContentBlockViewSet,
 )
 
+from staff.me_views import StaffMeView
+
 # List of all apps with URLs to wrap in STAFF zone
 # Note: 'posts' app excluded (no urls.py - only contains static files)
 # Note: 'hotel' removed to avoid double nesting (using direct routes above)
@@ -127,6 +129,13 @@ staff_hotel_router.register(
 
 urlpatterns = [
     # Phase 1 Direct Staff Routes (cleaner URLs)
+    # Staff Profile
+    path(
+        'hotel/<str:hotel_slug>/me/',
+        StaffMeView.as_view(),
+        name='staff-profile-me'
+    ),
+    
     # Bookings management
     path(
         'hotel/<str:hotel_slug>/bookings/',

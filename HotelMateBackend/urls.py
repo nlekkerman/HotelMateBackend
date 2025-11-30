@@ -4,6 +4,7 @@ from django.http import HttpResponse
 from django.views.generic import TemplateView
 from django.conf import settings
 from django.conf.urls.static import static
+from hotel.face_config_views import HotelFaceConfigView
 
 apps = [
     'rooms',
@@ -47,6 +48,8 @@ handler404 = 'common.views.custom_404'
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', home),  # root URL shows home page
+    # Face configuration endpoint (public access)
+    path('api/hotels/<str:hotel_slug>/face-config/', HotelFaceConfigView.as_view(), name='hotel-face-config'),
     # Phase 1: New STAFF zone - /api/staff/hotels/<hotel_slug>/<app>/
     path('api/staff/', include('staff_urls')),
     # Phase 1: New GUEST zone - /api/guest/hotels/<hotel_slug>/site/
