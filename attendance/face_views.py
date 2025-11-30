@@ -324,7 +324,7 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 }, status=status.HTTP_200_OK)
             else:
                 # Clock in - create new log with roster checking
-                from .utils_roster import find_matching_shift_for_datetime
+                from .views import find_matching_shift_for_datetime
                 
                 current_dt = now()
                 matching_shift = find_matching_shift_for_datetime(hotel, matched_staff, current_dt)
