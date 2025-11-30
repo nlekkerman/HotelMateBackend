@@ -524,9 +524,9 @@ def check_face_attendance_permissions(staff, hotel):
             if staff.department.id not in attendance_settings.face_attendance_departments:
                 return False, "Face attendance not allowed for your department"
                 
-    except AttributeError:
-        # No attendance settings found for this hotel
-        return False, "Face attendance is not configured for this hotel. Please use the regular clock-in method."
+    except Exception as e:
+        # No attendance settings found for this hotel or other error
+        return False, f"Face attendance configuration error: {str(e)}. Please contact support."
     
     return True, ""
 
