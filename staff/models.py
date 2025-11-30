@@ -126,6 +126,12 @@ class Staff(models.Model):
         default='regular_staff'
     )
 
+    DUTY_STATUS_CHOICES = [
+        ('off_duty', 'Off Duty'),
+        ('on_duty', 'On Duty'),
+        ('on_break', 'On Break'),
+    ]
+
     first_name = models.CharField(max_length=100, blank=True, default='')
     last_name = models.CharField(max_length=100, blank=True, default='')
 
@@ -133,7 +139,14 @@ class Staff(models.Model):
     phone_number = models.CharField(max_length=15, null=True, blank=True)
 
     is_active = models.BooleanField(default=True)
-    is_on_duty = models.BooleanField(default=False)
+    duty_status = models.CharField(
+        max_length=20,
+        choices=DUTY_STATUS_CHOICES,
+        default='off_duty',
+        help_text="Current duty status of the staff member"
+    )
+    # Deprecated: Keep for migration compatibility, will be removed
+    is_on_duty = models.BooleanField(default=False, null=True, blank=True)
     has_registered_face = models.BooleanField(default=False, null=True)
 
     def get_current_status(self):
