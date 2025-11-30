@@ -31,12 +31,30 @@ class ClockLogSerializer(serializers.ModelSerializer):
     hotel_slug = serializers.CharField(source='hotel.slug', read_only=True)
     department = serializers.SerializerMethodField()  # Add this
 
+    # write-only FK setter
+    roster_shift_id = serializers.PrimaryKeyRelatedField(
+        source='roster_shift',
+        queryset=StaffRoster.objects.all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
+
+    # read-only lightweight representation
+    roster_shift = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = ClockLog
         fields = [
             'id', 'staff', 'staff_name', 'hotel', 'hotel_slug',
             'time_in', 'time_out', 'verified_by_face', 'location_note', 'auto_clock_out',
-            'department',  # add here
+            'hours_worked', 'department',
+            'roster_shift_id',  # input
+            'roster_shift',     # output
+            # PHASE 4: Unrostered approval and warning fields
+            'is_unrostered', 'is_approved', 'is_rejected',
+            'break_warning_sent', 'overtime_warning_sent', 'hard_limit_warning_sent',
+            'long_session_ack_mode',
         ]
 
     def get_staff_name(self, obj):
@@ -50,23 +68,44 @@ class ClockLogSerializer(serializers.ModelSerializer):
             }
         return {'name': 'N/A', 'slug': None}
 
+    def get_roster_shift(self, obj):
+        shift = obj.roster_shift
+        if not shift:
+            return None
+        return {
+            "id": shift.id,
+            "date": shift.shift_date,
+            "start": shift.shift_start,
+            "end": shift.shift_end,
+            "location": getattr(shift.location, "name", None),
+            "department": getattr(shift.department, "name", None),
+        }
+
 # ─────────────────────────────
 # Roster
 # ─────────────────────────────
 
 class RosterPeriodSerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
+    finalized_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = RosterPeriod
         fields = [
             'id', 'title', 'hotel', 'start_date', 'end_date',
-            'created_by', 'created_by_name', 'published'
+            'created_by', 'created_by_name', 'published',
+            # PHASE 4: Finalization fields
+            'is_finalized', 'finalized_by', 'finalized_by_name', 'finalized_at'
         ]
 
     def get_created_by_name(self, obj):
         if obj.created_by:
             return f"{obj.created_by.first_name} {obj.created_by.last_name}"
+        return None
+    
+    def get_finalized_by_name(self, obj):
+        if obj.finalized_by:
+            return f"{obj.finalized_by.first_name} {obj.finalized_by.last_name}"
         return None
 
 
@@ -132,48 +171,37 @@ class StaffRosterSerializer(serializers.ModelSerializer):
 
     def _calc_expected_hours(self, data):
         """
-        Calculate total worked hours (as Decimal hours) considering night shift wrap
-        and optional break deduction.
+        Calculate total worked hours using centralized overnight shift logic.
         """
+        from .views import calculate_shift_hours, shift_to_datetime_range
+        
         shift_date = data['shift_date']
         start = data['shift_start']
         end = data['shift_end']
 
-        # Build datetimes
-        start_dt = datetime.combine(shift_date, start)
-        end_dt = datetime.combine(shift_date, end)
+        # Use centralized calculation
+        total_hours = calculate_shift_hours(shift_date, start, end)
 
-        # Night shift -> crosses midnight
-        if end <= start:
-            end_dt += timedelta(days=1)
-
-        total = end_dt - start_dt
-
-        # Break
+        # Deduct break time if provided
         bs, be = data.get('break_start'), data.get('break_end')
         if bs and be:
-            bs_dt = datetime.combine(shift_date, bs)
-            be_dt = datetime.combine(shift_date, be)
-            # If break also crosses midnight (rare), adjust
-            if be <= bs:
-                be_dt += timedelta(days=1)
-            total -= max(timedelta(0), be_dt - bs_dt)
+            # Calculate break duration using same logic
+            break_hours = calculate_shift_hours(shift_date, bs, be)
+            total_hours = max(0, total_hours - break_hours)
 
-        # Convert to hours with 2 decimals
-        hours = round(total.total_seconds() / 3600.0, 2)
-        return hours
+        return total_hours
 
     # ---------- validation ----------
 
     def validate(self, attrs):
         """
-        - Ensure hotel == period.hotel
-        - Ensure (optional) location.hotel == hotel
-        - Ensure shift_end logically after shift_start unless night shift
-        - Ensure break is inside the shift window (basic sanity)
-        - Auto-set expected_hours if not provided
-        - Auto-set is_night_shift if shift crosses midnight
+        Comprehensive validation using centralized overnight shift utilities.
         """
+        from .views import (
+            is_overnight_shift, validate_shift_duration, 
+            validate_overnight_shift_end_time
+        )
+        
         hotel = attrs.get('hotel') or getattr(self.instance, 'hotel', None)
         period = attrs.get('period') or getattr(self.instance, 'period', None)
         location = attrs.get('location') or getattr(self.instance, 'location', None)
@@ -190,24 +218,39 @@ class StaffRosterSerializer(serializers.ModelSerializer):
                 "Location must belong to the same hotel as the shift."
             )
 
+        shift_date = attrs.get('shift_date') or getattr(self.instance, 'shift_date', None)
         start = attrs.get('shift_start') or getattr(self.instance, 'shift_start', None)
         end = attrs.get('shift_end') or getattr(self.instance, 'shift_end', None)
-        is_night = attrs.get('is_night_shift', getattr(self.instance, 'is_night_shift', False))
 
-        if start and end:
-            if end <= start:
-                # Shift crosses midnight, mark as night shift automatically
-                attrs['is_night_shift'] = True
-            else:
-                # Normal shift, ensure is_night_shift is False if not explicitly set
-                attrs['is_night_shift'] = False
+        if start and end and shift_date:
+            # Validate shift duration doesn't exceed maximum
+            try:
+                validate_shift_duration(shift_date, start, end, max_hours=12.0)
+            except ValueError as e:
+                raise serializers.ValidationError(str(e))
+            
+            # Validate overnight shift end times are reasonable
+            try:
+                validate_overnight_shift_end_time(start, end, max_end_hour=6)
+            except ValueError as e:
+                raise serializers.ValidationError(str(e))
+            
+            # Auto-set is_night_shift based on time crossing midnight
+            attrs['is_night_shift'] = is_overnight_shift(start, end)
 
-        # Break sanity (coarse)
+        # Break validation
         bs, be = attrs.get('break_start'), attrs.get('break_end')
         if (bs and not be) or (be and not bs):
             raise serializers.ValidationError(
                 "Both break_start and break_end must be provided, or neither."
             )
+        
+        # Validate break duration if provided
+        if bs and be and shift_date:
+            try:
+                validate_shift_duration(shift_date, bs, be, max_hours=2.0)
+            except ValueError as e:
+                raise serializers.ValidationError(f"Break duration error: {e}")
 
         # Auto-calc expected_hours if not provided
         if (
@@ -336,3 +379,47 @@ class CopyWeekStaffSerializer(serializers.Serializer):
     staff_id = serializers.IntegerField()
     source_period_id = serializers.IntegerField()
     target_period_id = serializers.IntegerField()
+
+
+# ─────────────────────────────
+# PHASE 4: Approval & Alert Serializers
+# ─────────────────────────────
+
+class UnrosteredConfirmSerializer(serializers.Serializer):
+    """Serializer for confirming unrostered clock-in"""
+    staff_id = serializers.IntegerField()
+    confirmed = serializers.BooleanField(default=True)
+
+
+class ClockLogApprovalSerializer(serializers.ModelSerializer):
+    """Minimal serializer for approval actions"""
+    staff_name = serializers.SerializerMethodField(read_only=True)
+    
+    class Meta:
+        model = ClockLog
+        fields = [
+            'id', 'staff', 'staff_name', 'time_in', 
+            'is_unrostered', 'is_approved', 'is_rejected'
+        ]
+        read_only_fields = ['id', 'staff', 'staff_name', 'time_in', 'is_unrostered']
+    
+    def get_staff_name(self, obj):
+        return f"{obj.staff.first_name} {obj.staff.last_name}"
+
+
+class AlertActionSerializer(serializers.Serializer):
+    """Serializer for break/overtime alert actions"""
+    action = serializers.ChoiceField(choices=[
+        ('stay', 'Stay clocked in'),
+        ('clock_out', 'Clock out now')
+    ])
+    reason = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+
+class PeriodFinalizationSerializer(serializers.Serializer):
+    """Serializer for period finalization validation"""
+    confirm = serializers.BooleanField(default=False)
+    force = serializers.BooleanField(
+        default=False, 
+        help_text="Force finalization even with unresolved logs (admin only)"
+    )

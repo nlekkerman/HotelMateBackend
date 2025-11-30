@@ -1106,3 +1106,50 @@ class RoomsSection(models.Model):
     def __str__(self):
         return f"Rooms Section: {self.section.name or f'#{self.id}'}"
 
+
+class AttendanceSettings(models.Model):
+    """
+    Hotel-level attendance configuration for break warnings, overtime alerts,
+    and shift duration limits.
+    """
+    hotel = models.OneToOneField(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name='attendance_settings',
+    )
+
+    # Warning when continuous work exceeds this many hours (e.g., suggest break)
+    break_warning_hours = models.DecimalField(
+        max_digits=4, decimal_places=2, default=6.0,
+        help_text="Hours after which to send break warning notification"
+    )
+
+    # Warning for long sessions approaching overtime
+    overtime_warning_hours = models.DecimalField(
+        max_digits=4, decimal_places=2, default=10.0,
+        help_text="Hours after which to send overtime warning notification"
+    )
+
+    # Hard limit – at/after this duration we must prompt to stay/clock-out
+    hard_limit_hours = models.DecimalField(
+        max_digits=4, decimal_places=2, default=12.0,
+        help_text="Maximum shift hours before requiring action from staff"
+    )
+
+    # Future-proof flags
+    enforce_limits = models.BooleanField(
+        default=True,
+        help_text="Whether to actively enforce attendance limits and warnings"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Attendance Settings"
+        verbose_name_plural = "Attendance Settings"
+
+    def __str__(self):
+        return f"AttendanceSettings({self.hotel.slug})"
+
+

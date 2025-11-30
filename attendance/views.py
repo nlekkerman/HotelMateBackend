@@ -7,11 +7,15 @@ from django.utils.timezone import now
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.http import HttpResponse
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, exceptions
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
+
+# Security imports
+from common.mixins import HotelScopedViewSetMixin, AttendanceHotelScopedMixin
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_plan_grouped_pdf
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
@@ -34,6 +38,7 @@ from staff.pusher_utils import (
     trigger_attendance_log,
     trigger_roster_update
 )
+from chat.utils import pusher_client
 
 # attendance/filters.py
 import django_filters
@@ -71,85 +76,203 @@ def euclidean(a, b):
     import math
     return math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
 
-def parse_time(t):
-    print(f"parse_time input: {t} (type: {type(t)})")
-    if isinstance(t, time):
-        # Already a time object, just return it
-        result = t
-    else:
-        # Assume it's a string, parse it
-        result = datetime.strptime(t, "%H:%M").time()
-    print(f"parse_time output: {result}")
-    return result
 
+# ---------------------- Overnight Shift & Overlap Utilities ----------------------
 
-def calculate_shift_range(shift_date, start_str, end_str):
-    print(f"calculate_shift_range called with shift_date={shift_date}, start_str={start_str}, end_str={end_str}")
-    start = parse_time(start_str)
-    end = parse_time(end_str)
+def shift_to_datetime_range(shift_date, shift_start, shift_end):
+    """
+    Convert (shift_date, shift_start, shift_end) into (start_dt, end_dt),
+    supporting overnight shifts where end < start (crossing midnight).
+    """
+    start_dt = datetime.combine(shift_date, shift_start)
+    end_dt = datetime.combine(shift_date, shift_end)
 
-    start_dt = datetime.combine(shift_date, start)
-    print(f"Start datetime: {start_dt}")
+    # Overnight: if end time is "earlier" than start, assume next day
+    if shift_end < shift_start:
+        end_dt += timedelta(days=1)
 
-    if end <= start:
-        # Crosses midnight
-        end_dt = datetime.combine(shift_date + timedelta(days=1), end)
-        print(f"Shift crosses midnight, end datetime set to: {end_dt}")
-    else:
-        end_dt = datetime.combine(shift_date, end)
-        print(f"Shift does not cross midnight, end datetime set to: {end_dt}")
-
-    # Special case: allow shifts until 4 AM to count as "today"
-    if end <= time(4, 0) and end <= start:
-        end_dt = datetime.combine(shift_date, end) + timedelta(days=1)
-        print(f"Special case: shift ends before 4 AM, adjusted end datetime: {end_dt}")
-
-    print(f"calculate_shift_range result: start_dt={start_dt}, end_dt={end_dt}")
     return start_dt, end_dt
 
-def shifts_overlap(start1, end1, start2, end2):
-    overlap = start1 < end2 and start2 < end1
-    print(f"shifts_overlap called with start1={start1}, end1={end1}, start2={start2}, end2={end2} -> {overlap}")
-    return overlap
 
-def detect_overlapping_shifts(shifts):
-    parsed = []
+def calculate_shift_hours(shift_date, shift_start, shift_end):
+    """
+    Calculate the duration of a shift in hours, supporting overnight shifts.
+    """
+    start_dt, end_dt = shift_to_datetime_range(shift_date, shift_start, shift_end)
+    duration = end_dt - start_dt
+    return round(duration.total_seconds() / 3600, 2)
+
+
+def is_overnight_shift(shift_start, shift_end):
+    """
+    Determine if a shift is overnight (crosses midnight).
+    """
+    return shift_end < shift_start
+
+
+def validate_shift_duration(shift_date, shift_start, shift_end, max_hours=12.0):
+    """
+    Validate that a shift duration doesn't exceed maximum allowed hours.
+    """
+    duration = calculate_shift_hours(shift_date, shift_start, shift_end)
+    
+    if duration > max_hours:
+        raise ValueError(
+            f"Shift duration ({duration:.1f} hours) exceeds maximum allowed length ({max_hours} hours)."
+        )
+
+
+def validate_overnight_shift_end_time(shift_start, shift_end, max_end_hour=6):
+    """
+    Validate that overnight shifts end within reasonable morning hours.
+    """
+    if is_overnight_shift(shift_start, shift_end):
+        if shift_end.hour > max_end_hour:
+            raise ValueError(
+                f"Overnight shifts cannot end after {max_end_hour:02d}:00. "
+                f"End time {shift_end.strftime('%H:%M')} is too late."
+            )
+
+
+def has_overlaps_for_staff(shifts):
+    """
+    Check for overlapping shifts within the same staff member on the same date.
+    Different staff can work the same hours without conflict.
+    """
+    from collections import defaultdict
+    
+    # Group shifts by (staff_id, shift_date)
+    groups = defaultdict(list)
+    
     for shift in shifts:
-        print(f"Processing shift: {shift}")
+        # Handle both date objects and string dates
         shift_date = shift["shift_date"]
-        # Check if shift_date is a date object but NOT datetime
-        if isinstance(shift_date, date) and not isinstance(shift_date, datetime):
-            shift_date_str = shift_date.strftime("%Y-%m-%d")
-            print(f"Converted date object to string: {shift_date_str}")
-        else:
-            shift_date_str = shift_date
-
-        date_obj = datetime.strptime(shift_date_str, "%Y-%m-%d").date()
-        start, end = calculate_shift_range(date_obj, shift["shift_start"], shift["shift_end"])
-        parsed.append((start, end, shift))
-
-    parsed.sort(key=lambda x: x[0])  # Sort by start datetime
-    print("Parsed shifts sorted by start time:")
-    for p in parsed:
-        print(p)
-
-    for i in range(1, len(parsed)):
-        prev_start, prev_end, _ = parsed[i - 1]
-        curr_start, curr_end, _ = parsed[i]
-
-        if shifts_overlap(prev_start, prev_end, curr_start, curr_end) and prev_end != curr_start:
-            print("Overlap detected between shifts:")
-            print(f"Prev: {prev_start} - {prev_end}")
-            print(f"Curr: {curr_start} - {curr_end}")
-            return True
-
-    print("No overlapping shifts detected.")
+        if isinstance(shift_date, str):
+            shift_date = datetime.strptime(shift_date, "%Y-%m-%d").date()
+        elif isinstance(shift_date, datetime):
+            shift_date = shift_date.date()
+        
+        # Handle staff_id vs staff field names
+        staff_id = shift.get("staff_id") or shift.get("staff")
+        
+        key = (staff_id, shift_date)
+        groups[key].append(shift)
+    
+    # Check for overlaps within each group
+    for key, group in groups.items():
+        if len(group) <= 1:
+            continue  # No overlaps possible with single shift
+            
+        # Convert to datetime ranges
+        ranges = []
+        for shift in group:
+            shift_date = shift["shift_date"]
+            if isinstance(shift_date, str):
+                shift_date = datetime.strptime(shift_date, "%Y-%m-%d").date()
+            elif isinstance(shift_date, datetime):
+                shift_date = shift_date.date()
+                
+            start_dt, end_dt = shift_to_datetime_range(
+                shift_date, shift["shift_start"], shift["shift_end"]
+            )
+            ranges.append((start_dt, end_dt, shift))
+        
+        # Sort by start time
+        ranges.sort(key=lambda r: r[0])
+        
+        # Check consecutive intervals for overlap
+        for i in range(len(ranges) - 1):
+            current_end = ranges[i][1]
+            next_start = ranges[i + 1][0]
+            
+            # Overlaps if current shift ends after next shift starts
+            # Allow exact adjacency (current_end == next_start)
+            if current_end > next_start:
+                return True
+    
     return False
+
+
+def get_existing_shifts_for_overlap_check(staff_ids, date_range, hotel_id=None):
+    """
+    Fetch existing shifts from database for overlap checking.
+    """
+    # Build query
+    query_filters = {
+        "staff_id__in": staff_ids,
+        "shift_date__range": date_range,
+    }
+    
+    if hotel_id:
+        query_filters["hotel_id"] = hotel_id
+    
+    existing_shifts = StaffRoster.objects.filter(**query_filters).values(
+        "staff_id", "shift_date", "shift_start", "shift_end"
+    )
+    
+    return list(existing_shifts)
+
+
+# Legacy function for backward compatibility
+def detect_overlapping_shifts(shifts):
+    """
+    Legacy function - now uses the improved has_overlaps_for_staff logic.
+    """
+    return has_overlaps_for_staff(shifts)
+
+
+def find_matching_shift_for_datetime(hotel, staff, current_dt):
+    """
+    Find the StaffRoster entry for this hotel & staff whose datetime range
+    (using shift_to_datetime_range) contains `current_dt`.
+
+    Consider both today and yesterday for overnight shifts.
+    Return a single StaffRoster instance or None.
+    """
+    from django.utils.timezone import make_aware, is_aware
+    
+    today = current_dt.date()
+    yesterday = today - timedelta(days=1)
+
+    candidates = StaffRoster.objects.filter(
+        hotel=hotel,
+        staff=staff,
+        shift_date__in=[yesterday, today],
+        shift_start__isnull=False,
+        shift_end__isnull=False,
+    )
+
+    matches = []
+    for shift in candidates:
+        start_dt, end_dt = shift_to_datetime_range(
+            shift.shift_date,
+            shift.shift_start,
+            shift.shift_end,
+        )
+        
+        # Ensure timezone consistency
+        if is_aware(current_dt) and not is_aware(start_dt):
+            start_dt = make_aware(start_dt)
+            end_dt = make_aware(end_dt)
+        elif not is_aware(current_dt) and is_aware(start_dt):
+            current_dt = make_aware(current_dt)
+            
+        if start_dt <= current_dt <= end_dt:
+            matches.append((start_dt, end_dt, shift))
+
+    if not matches:
+        return None
+
+    # In theory there should be at most one due to overlap rules.
+    # But just in case, pick the earliest/shortest to be deterministic.
+    matches.sort(key=lambda tup: (tup[0], tup[1] - tup[0]))
+    return matches[0][2]
+
 # ---------------------- Clock / Face ----------------------
-class ClockLogViewSet(viewsets.ModelViewSet):
+class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     queryset = ClockLog.objects.select_related('staff__department','staff', 'hotel').all()
     serializer_class = ClockLogSerializer
-    permission_classes = [IsAuthenticated]
+    # Permissions are inherited from AttendanceHotelScopedMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     @action(detail=False, methods=['post'], url_path=r'register-face/(?P<hotel_slug>[^/.]+)')
     def register_face(self, request, hotel_slug=None):
@@ -163,6 +286,11 @@ class ClockLogViewSet(viewsets.ModelViewSet):
         if not staff:
             return Response({"error": "User has no linked staff profile."},
                             status=status.HTTP_400_BAD_REQUEST)
+                            
+        # Validate staff belongs to the hotel
+        if staff.hotel.slug != hotel_slug:
+            return Response({"error": "You don't have access to this hotel."},
+                            status=status.HTTP_403_FORBIDDEN)
 
         StaffFace.objects.filter(staff=staff).delete()
         StaffFace.objects.create(hotel=hotel, staff=staff, encoding=descriptor)
@@ -179,6 +307,12 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Validate user has staff profile and belongs to this hotel
+        staff = getattr(request.user, "staff_profile", None)
+        if not staff or staff.hotel.slug != hotel_slug:
+            return Response({"error": "You don't have access to this hotel."},
+                            status=status.HTTP_403_FORBIDDEN)
         staff_faces = StaffFace.objects.select_related('staff') \
                                        .filter(hotel=hotel, staff__is_active=True)
 
@@ -204,14 +338,37 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                 log = existing_log
                 staff.is_on_duty = False
             else:
-                log = ClockLog.objects.create(
-                    hotel=hotel,
-                    staff=staff,
-                    verified_by_face=True
-                )
-                action_message = "Clock‑in"
-                action_type = "clock_in"
-                staff.is_on_duty = True
+                # CLOCK-IN path - find matching shift
+                current_dt = now()
+                matching_shift = find_matching_shift_for_datetime(hotel, staff, current_dt)
+                
+                if matching_shift:
+                    # Normal rostered clock-in
+                    log = ClockLog.objects.create(
+                        hotel=hotel,
+                        staff=staff,
+                        verified_by_face=True,
+                        roster_shift=matching_shift,
+                        is_unrostered=False,
+                        is_approved=True,
+                        is_rejected=False,
+                    )
+                    action_message = "Clock‑in"
+                    action_type = "clock_in"
+                    staff.is_on_duty = True
+                else:
+                    # Unrostered clock-in - return detection result for frontend confirmation
+                    return Response({
+                        "action": "unrostered_detected",
+                        "message": f"No scheduled shift found for {staff.first_name}. Please confirm if you want to clock in anyway.",
+                        "staff": {
+                            "id": staff.id,
+                            "name": f"{staff.first_name} {staff.last_name}",
+                            "department": staff.department.name if staff.department else "No Department"
+                        },
+                        "requires_confirmation": True,
+                        "confirmation_endpoint": f"/api/hotels/{hotel_slug}/clock-logs/unrostered-confirm/"
+                    }, status=status.HTTP_200_OK)
 
             staff.save(update_fields=["is_on_duty"])
 
@@ -248,6 +405,10 @@ class ClockLogViewSet(viewsets.ModelViewSet):
         hotel_slug = request.query_params.get("hotel_slug")
         if not staff or not hotel_slug:
             return Response({"error": "Missing staff or hotel."}, status=400)
+            
+        # Validate staff belongs to the hotel
+        if staff.hotel.slug != hotel_slug:
+            return Response({"error": "You don't have access to this hotel."}, status=403)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         latest_log = ClockLog.objects.filter(hotel=hotel, staff=staff) \
@@ -267,6 +428,12 @@ class ClockLogViewSet(viewsets.ModelViewSet):
                             status=status.HTTP_400_BAD_REQUEST)
 
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Validate user has staff profile and belongs to this hotel
+        staff = getattr(request.user, "staff_profile", None)
+        if not staff or staff.hotel.slug != hotel_slug:
+            return Response({"error": "You don't have access to this hotel."},
+                            status=status.HTTP_403_FORBIDDEN)
         staff_faces = StaffFace.objects.select_related('staff') \
                                        .filter(hotel=hotel, staff__is_active=True)
 
@@ -289,14 +456,82 @@ class ClockLogViewSet(viewsets.ModelViewSet):
             })
 
         return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    @action(detail=True, methods=['post'], url_path='auto-attach-shift')
+    def auto_attach_shift(self, request, hotel_slug=None, pk=None):
+        """
+        Try to automatically attach this ClockLog to a StaffRoster shift
+        based on its time_in and the existing roster.
+        """
+        log = self.get_object()
+        current_dt = log.time_in
+
+        matching_shift = find_matching_shift_for_datetime(
+            hotel=log.hotel,
+            staff=log.staff,
+            current_dt=current_dt,
+        )
+
+        log.roster_shift = matching_shift
+        log.save(update_fields=['roster_shift'])
+
+        return Response(
+            {
+                "detail": "Shift attached." if matching_shift else "No matching shift found.",
+                "roster_shift_id": matching_shift.id if matching_shift else None,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['post'], url_path='relink-day')
+    def relink_day(self, request, hotel_slug=None):
+        """
+        For a given date (and optionally staff), attempt to auto-attach
+        all ClockLogs to matching shifts.
+        """
+        from django.utils.dateparse import parse_date
+        
+        date_str = request.data.get('date')
+        staff_id = request.data.get('staff_id')
+
+        if not date_str:
+            return Response({"detail": "date is required (YYYY-MM-DD)."}, status=400)
+
+        target_date = parse_date(date_str)
+        if not target_date:
+            return Response({"detail": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+            
+        hotel = self.get_hotel()  # from HotelScopedViewSetMixin
+
+        logs = ClockLog.objects.filter(
+            hotel=hotel,
+            time_in__date=target_date,
+        )
+        if staff_id:
+            logs = logs.filter(staff_id=staff_id)
+
+        updated = 0
+        for log in logs:
+            match = find_matching_shift_for_datetime(hotel, log.staff, log.time_in)
+            if match != log.roster_shift:
+                log.roster_shift = match
+                log.save(update_fields=['roster_shift'])
+                updated += 1
+
+        return Response({"updated_logs": updated}, status=status.HTTP_200_OK)
     
     @action(detail=False, methods=['get'], url_path='currently-clocked-in')
     def currently_clocked_in(self, request):
         hotel_slug = request.query_params.get('hotel_slug')
         if not hotel_slug:
             return Response({"detail": "hotel_slug query parameter required"}, status=400)
+            
+        # Validate staff belongs to the hotel
+        staff = getattr(request.user, "staff_profile", None)
+        if not staff or staff.hotel.slug != hotel_slug:
+            return Response({"detail": "You don't have access to this hotel"}, status=403)
 
-        logs = self.queryset.filter(time_out__isnull=True, hotel__slug=hotel_slug).order_by('-time_in')
+        logs = self.get_queryset().filter(time_out__isnull=True).order_by('-time_in')
 
         page = self.paginate_queryset(logs)
         if page is not None:
@@ -313,8 +548,13 @@ class ClockLogViewSet(viewsets.ModelViewSet):
 
         if not hotel_slug:
             return Response({"detail": "hotel_slug query parameter required"}, status=400)
+            
+        # Validate staff belongs to the hotel
+        staff = getattr(request.user, "staff_profile", None)
+        if not staff or staff.hotel.slug != hotel_slug:
+            return Response({"detail": "You don't have access to this hotel"}, status=403)
 
-        logs = self.queryset.filter(hotel__slug=hotel_slug)
+        logs = self.get_queryset()
 
         if department_slug:
             logs = logs.filter(staff__department__slug=department_slug)
@@ -328,24 +568,256 @@ class ClockLogViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(logs, many=True)
         return Response(serializer.data)
+    
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 4: UNROSTERED CLOCK-IN APPROVAL ENDPOINTS
+    # ═══════════════════════════════════════════════════════════
+    
+    @action(detail=False, methods=['post'], url_path='unrostered-confirm')
+    def unrostered_confirm(self, request, hotel_slug=None):
+        """
+        Confirm unrostered clock-in when staff wants to proceed without a scheduled shift.
+        Creates a ClockLog with is_unrostered=True and is_approved=False (pending manager approval).
+        """
+        from .utils import send_unrostered_request_notification
+        
+        staff_id = request.data.get('staff_id')
+        if not staff_id:
+            return Response({"error": "staff_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Validate user has staff profile and belongs to this hotel
+        request_staff = getattr(request.user, "staff_profile", None)
+        if not request_staff or request_staff.hotel.slug != hotel_slug:
+            return Response({"error": "You don't have access to this hotel."},
+                            status=status.HTTP_403_FORBIDDEN)
+        
+        # Get the staff member to clock in (could be same as request_staff or different)
+        from staff.models import Staff
+        staff = get_object_or_404(Staff, id=staff_id, hotel=hotel)
+        
+        # Check if already clocked in today
+        today = now().date()
+        existing_log = ClockLog.objects.filter(
+            hotel=hotel, staff=staff,
+            time_in__date=today, time_out__isnull=True
+        ).first()
+        
+        if existing_log:
+            return Response({"error": "Staff member is already clocked in."}, 
+                            status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create unrostered clock log
+        log = ClockLog.objects.create(
+            hotel=hotel,
+            staff=staff,
+            verified_by_face=True,
+            roster_shift=None,
+            is_unrostered=True,
+            is_approved=False,   # manager must approve
+            is_rejected=False,
+        )
+        
+        # Update staff status
+        staff.is_on_duty = True
+        staff.save(update_fields=["is_on_duty"])
+        
+        # Send notification to managers
+        send_unrostered_request_notification(hotel, log)
+        
+        # Trigger Pusher events
+        trigger_clock_status_update(hotel_slug, staff, "clock_in")
+        trigger_attendance_log(
+            hotel_slug,
+            {
+                'id': log.id,
+                'staff_id': staff.id,
+                'staff_name': f"{staff.first_name} {staff.last_name}",
+                'department': staff.department.name if staff.department else None,
+                'time': log.time_in,
+                'verified_by_face': True,
+                'is_unrostered': True,
+                'is_approved': False,
+            },
+            "clock_in"
+        )
+        
+        serializer = ClockLogSerializer(log)
+        return Response(
+            {
+                "action": "unrostered_clock_in_created",
+                "message": f"Unrostered clock-in recorded for {staff.first_name}. Manager approval required.",
+                "log": serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+    
+    @action(detail=True, methods=['post'], url_path='approve')
+    def approve_log(self, request, hotel_slug=None, pk=None):
+        """
+        Approve an unrostered clock log (manager action).
+        """
+        from .utils import is_period_or_log_locked
+        
+        log = self.get_object()
+        
+        # Check if log is locked due to period finalization
+        if is_period_or_log_locked(clock_log=log):
+            return Response({"error": "Cannot approve log: related period is finalized."}, 
+                            status=status.HTTP_400_BAD_REQUEST)
+        
+        log.is_approved = True
+        log.is_rejected = False
+        log.save(update_fields=['is_approved', 'is_rejected'])
+        
+        # Trigger Pusher event
+        pusher_client.trigger(
+            channel=f"attendance-{hotel_slug}-staff-{log.staff.id}",
+            event='clocklog-approved',
+            data={
+                'clock_log_id': log.id,
+                'message': 'Your unrostered clock-in has been approved.',
+                'approved_by': request.user.staff_profile.first_name if hasattr(request.user, 'staff_profile') else 'Manager'
+            }
+        )
+        
+        serializer = ClockLogSerializer(log)
+        return Response({
+            "detail": "Clock log approved.",
+            "log": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='reject')
+    def reject_log(self, request, hotel_slug=None, pk=None):
+        """
+        Reject an unrostered clock log (manager action).
+        """
+        from .utils import is_period_or_log_locked
+        
+        log = self.get_object()
+        
+        # Check if log is locked due to period finalization
+        if is_period_or_log_locked(clock_log=log):
+            return Response({"error": "Cannot reject log: related period is finalized."}, 
+                            status=status.HTTP_400_BAD_REQUEST)
+        
+        log.is_approved = False
+        log.is_rejected = True
+        log.save(update_fields=['is_approved', 'is_rejected'])
+        
+        # Clock out staff if currently on duty with this log
+        if log.time_out is None:
+            log.time_out = now()
+            log.save(update_fields=['time_out'])
+            log.staff.is_on_duty = False
+            log.staff.save(update_fields=['is_on_duty'])
+        
+        # Trigger Pusher event
+        pusher_client.trigger(
+            channel=f"attendance-{hotel_slug}-staff-{log.staff.id}",
+            event='clocklog-rejected',
+            data={
+                'clock_log_id': log.id,
+                'message': 'Your unrostered clock-in has been rejected and you have been clocked out.',
+                'rejected_by': request.user.staff_profile.first_name if hasattr(request.user, 'staff_profile') else 'Manager'
+            }
+        )
+        
+        serializer = ClockLogSerializer(log)
+        return Response({
+            "detail": "Clock log rejected.",
+            "log": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 4: BREAK & OVERTIME ALERT ENDPOINTS
+    # ═══════════════════════════════════════════════════════════
+    
+    @action(detail=True, methods=['post'], url_path='stay-clocked-in')
+    def stay_clocked_in(self, request, hotel_slug=None, pk=None):
+        """
+        Staff acknowledges hard limit warning and chooses to stay clocked in.
+        """
+        log = self.get_object()
+        
+        if log.time_out is not None:
+            return Response({"detail": "Log is already closed."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        log.long_session_ack_mode = 'stay'
+        log.save(update_fields=['long_session_ack_mode'])
+        
+        # Notify managers of the decision
+        pusher_client.trigger(
+            channel=f"attendance-{hotel_slug}-managers",
+            event='staff-long-session-acknowledged',
+            data={
+                'clock_log_id': log.id,
+                'staff_id': log.staff.id,
+                'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
+                'action': 'staying_clocked_in',
+                'message': f"{log.staff.first_name} {log.staff.last_name} chose to stay clocked in after hard limit warning.",
+                'timestamp': now().isoformat(),
+            }
+        )
+        
+        return Response({
+            "detail": "Staying clocked in confirmed.",
+            "action": "stay_acknowledged"
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='force-clock-out')
+    def force_clock_out(self, request, hotel_slug=None, pk=None):
+        """
+        Staff acknowledges hard limit warning and chooses to clock out immediately.
+        """
+        log = self.get_object()
+        
+        if log.time_out is not None:
+            return Response({"detail": "Log is already closed."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Clock out the staff member
+        log.time_out = now()
+        log.long_session_ack_mode = 'clocked_out'
+        log.save(update_fields=['time_out', 'long_session_ack_mode'])
+        
+        # Update staff status
+        log.staff.is_on_duty = False
+        log.staff.save(update_fields=['is_on_duty'])
+        
+        # Trigger Pusher events
+        trigger_clock_status_update(hotel_slug, log.staff, "clock_out")
+        trigger_attendance_log(
+            hotel_slug,
+            {
+                'id': log.id,
+                'staff_id': log.staff.id,
+                'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
+                'department': log.staff.department.name if log.staff.department else None,
+                'time': log.time_out,
+                'verified_by_face': True,
+            },
+            "clock_out"
+        )
+        
+        serializer = ClockLogSerializer(log)
+        return Response({
+            "detail": "Clocked out successfully after hard limit warning.",
+            "action": "clock_out_completed",
+            "log": serializer.data
+        }, status=status.HTTP_200_OK)
 
 # ---------------------- Roster Period ----------------------
-class RosterPeriodViewSet(viewsets.ModelViewSet):
+class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
+    queryset = RosterPeriod.objects.select_related('hotel', 'created_by').all()
     serializer_class = RosterPeriodSerializer
-    permission_classes = [IsAuthenticated]
-   
-    
-    def get_hotel(self):
-        return get_object_or_404(Hotel, slug=self.kwargs.get("hotel_slug"))
-
-    def get_queryset(self):
-        hotel = self.get_hotel()
-        return RosterPeriod.objects.select_related('hotel', 'created_by').filter(hotel=hotel)
+    # Permissions are inherited from AttendanceHotelScopedMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     def perform_create(self, serializer):
-        hotel = self.get_hotel()
-        staff = getattr(self.request.user, "staff_profile", None)
-        serializer.save(hotel=hotel, created_by=staff)
+        """Create roster period with proper hotel and staff assignment"""
+        staff_hotel = self.get_staff_hotel()
+        staff_profile = self.request.user.staff_profile
+        serializer.save(hotel=staff_hotel, created_by=staff_profile)
 
     @action(detail=True, methods=['post'], url_path='add-shift')
     def add_shift(self, request, pk=None):
@@ -478,31 +950,191 @@ class RosterPeriodViewSet(viewsets.ModelViewSet):
             )
 
         return Response(serializer.data)
+    
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 4: PERIOD FINALIZATION ENDPOINTS
+    # ═══════════════════════════════════════════════════════════
+    
+    @action(detail=True, methods=['post'], url_path='finalize')
+    def finalize_period(self, request, hotel_slug=None, pk=None):
+        """
+        Finalize a roster period, locking all related ClockLogs and StaffRoster shifts.
+        Validates that no unresolved unrostered logs exist within the period.
+        """
+        from django.utils.timezone import now
+        from .utils import validate_period_finalization
+        
+        period = self.get_object()
+        
+        # Check if already finalized
+        if period.is_finalized:
+            return Response({
+                "error": f"Period '{period.title}' is already finalized.",
+                "finalized_at": period.finalized_at,
+                "finalized_by": period.finalized_by.first_name if period.finalized_by else None
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate period can be finalized
+        force = request.data.get('force', False)
+        is_admin = getattr(request.user, 'is_staff', False)
+        
+        if not force:
+            is_valid, error_message = validate_period_finalization(period)
+            if not is_valid:
+                return Response({
+                    "error": error_message,
+                    "can_force": is_admin,
+                    "suggestion": "Resolve unrostered logs or use force=true (admin only)"
+                }, status=status.HTTP_400_BAD_REQUEST)
+        elif force and not is_admin:
+            return Response({
+                "error": "Only administrators can force finalization with unresolved logs."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Finalize the period
+        period.is_finalized = True
+        period.finalized_by = getattr(request.user, 'staff_profile', None)
+        period.finalized_at = now()
+        period.save(update_fields=['is_finalized', 'finalized_by', 'finalized_at'])
+        
+        # Log the finalization
+        log_roster_operation(
+            hotel=period.hotel,
+            operation_type='finalize_period',
+            performed_by=period.finalized_by,
+            target_period=period,
+            operation_details={
+                'period_title': period.title,
+                'start_date': str(period.start_date),
+                'end_date': str(period.end_date),
+                'forced': force,
+            }
+        )
+        
+        # Notify managers
+        pusher_client.trigger(
+            channel=f"attendance-{hotel_slug}-managers",
+            event='period-finalized',
+            data={
+                'period_id': period.id,
+                'period_title': period.title,
+                'finalized_by': period.finalized_by.first_name if period.finalized_by else 'System',
+                'message': f"Roster period '{period.title}' has been finalized.",
+                'timestamp': period.finalized_at.isoformat(),
+            }
+        )
+        
+        serializer = RosterPeriodSerializer(period)
+        return Response({
+            "detail": f"Period '{period.title}' finalized successfully.",
+            "period": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['post'], url_path='unfinalize')
+    def unfinalize_period(self, request, hotel_slug=None, pk=None):
+        """
+        Unfinalize a roster period (admin only).
+        """
+        period = self.get_object()
+        
+        # Admin check
+        if not getattr(request.user, 'is_staff', False):
+            return Response({
+                "error": "Only administrators can unfinalize periods."
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        if not period.is_finalized:
+            return Response({
+                "error": f"Period '{period.title}' is not finalized."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Unfinalize the period
+        period.is_finalized = False
+        period.finalized_by = None
+        period.finalized_at = None
+        period.save(update_fields=['is_finalized', 'finalized_by', 'finalized_at'])
+        
+        # Log the unfinalization
+        log_roster_operation(
+            hotel=period.hotel,
+            operation_type='unfinalize_period',
+            performed_by=getattr(request.user, 'staff_profile', None),
+            target_period=period,
+            operation_details={
+                'period_title': period.title,
+                'start_date': str(period.start_date),
+                'end_date': str(period.end_date),
+            }
+        )
+        
+        # Notify managers
+        pusher_client.trigger(
+            channel=f"attendance-{hotel_slug}-managers",
+            event='period-unfinalized',
+            data={
+                'period_id': period.id,
+                'period_title': period.title,
+                'unfinalized_by': request.user.staff_profile.first_name if hasattr(request.user, 'staff_profile') else 'Admin',
+                'message': f"Roster period '{period.title}' has been unfinalized and is now editable.",
+                'timestamp': now().isoformat(),
+            }
+        )
+        
+        serializer = RosterPeriodSerializer(period)
+        return Response({
+            "detail": f"Period '{period.title}' unfinalized successfully.",
+            "period": serializer.data
+        }, status=status.HTTP_200_OK)
+    
+    @action(detail=True, methods=['get'], url_path='finalization-status')
+    def finalization_status(self, request, hotel_slug=None, pk=None):
+        """
+        Check finalization status and validation for a roster period.
+        """
+        from .utils import validate_period_finalization
+        
+        period = self.get_object()
+        
+        if period.is_finalized:
+            return Response({
+                "is_finalized": True,
+                "finalized_at": period.finalized_at,
+                "finalized_by": period.finalized_by.first_name if period.finalized_by else None,
+                "can_unfinalize": getattr(request.user, 'is_staff', False),
+            })
+        
+        # Check if can be finalized
+        is_valid, error_message = validate_period_finalization(period)
+        
+        return Response({
+            "is_finalized": False,
+            "can_finalize": is_valid,
+            "validation_error": error_message if not is_valid else None,
+            "can_force": getattr(request.user, 'is_staff', False),
+        })
+
 # ---------------------- Staff Roster ----------------------
-class StaffRosterViewSet(viewsets.ModelViewSet):
+class StaffRosterViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     queryset = StaffRoster.objects.select_related('staff', 'hotel', 'period', 'approved_by', 'location').all()
     serializer_class = StaffRosterSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_class = StaffRosterFilter
     pagination_class = None
+    # Permissions are inherited from AttendanceHotelScopedMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
     
     def get_queryset(self):
+        """Get hotel-scoped roster queryset with additional filters"""
+        # Start with hotel-scoped queryset from mixin
         qs = super().get_queryset()
 
+        # Apply additional filters while maintaining hotel security
         staff_id = self.request.query_params.get("staff") or self.request.query_params.get("staff_id")
         period_id = self.request.query_params.get("period")
         location_id = self.request.query_params.get("location")
         start = self.request.query_params.get("start")
         end = self.request.query_params.get("end")
         department_slug = self.request.query_params.get("department")
-        hotel_slug = self.request.query_params.get("hotel_slug")
 
-        print(f"--- get_queryset filters ---")
-        print(f"hotel_slug={hotel_slug}, department_slug={department_slug}, staff_id={staff_id}, period_id={period_id}, location_id={location_id}, start={start}, end={end}")
-
-        if hotel_slug:
-            qs = qs.filter(hotel__slug=hotel_slug)
         if department_slug:
             qs = qs.filter(staff__department__slug=department_slug)
         if staff_id:
@@ -514,12 +1146,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         if start and end:
             qs = qs.filter(shift_date__range=[start, end])
 
-        print(f"Final queryset count: {qs.count()}")
         return qs
-
-    def perform_create(self, serializer):
-        staff = getattr(self.request.user, "staff_profile", None)
-        serializer.save(approved_by=staff)
 
     @action(detail=False, methods=['post'], url_path='bulk-save')
     def bulk_save(self, request, *args, **kwargs):
@@ -575,6 +1202,67 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
             return Response({"created": [], "updated": [], "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 
         with transaction.atomic():
+            # Comprehensive overlap detection using new utilities
+            # Prepare all shifts for overlap checking
+            all_shifts_to_check = []
+            
+            # Add new shifts
+            for shift in created_data:
+                all_shifts_to_check.append({
+                    "staff_id": shift.get("staff"),
+                    "shift_date": shift.get("shift_date"),
+                    "shift_start": shift.get("shift_start"),
+                    "shift_end": shift.get("shift_end"),
+                })
+            
+            # Add updated shifts
+            for shift in updated_data:
+                all_shifts_to_check.append({
+                    "staff_id": shift.get("staff"),
+                    "shift_date": shift.get("shift_date"),
+                    "shift_start": shift.get("shift_start"),
+                    "shift_end": shift.get("shift_end"),
+                })
+            
+            # Get existing shifts for the affected staff/dates (excluding ones being updated)
+            staff_ids = set()
+            date_range = [None, None]
+            
+            for shift in all_shifts_to_check:
+                staff_ids.add(shift["staff_id"])
+                shift_date = shift["shift_date"]
+                if isinstance(shift_date, str):
+                    shift_date = datetime.strptime(shift_date, "%Y-%m-%d").date()
+                
+                if date_range[0] is None or shift_date < date_range[0]:
+                    date_range[0] = shift_date
+                if date_range[1] is None or shift_date > date_range[1]:
+                    date_range[1] = shift_date
+            
+            if staff_ids and date_range[0] and date_range[1]:
+                # Get existing shifts but exclude ones being updated
+                update_ids = [shift["id"] for shift in updated_data if shift.get("id")]
+                existing_query = StaffRoster.objects.filter(
+                    staff_id__in=list(staff_ids),
+                    shift_date__range=date_range
+                )
+                if update_ids:
+                    existing_query = existing_query.exclude(id__in=update_ids)
+                
+                existing_shifts = existing_query.values(
+                    "staff_id", "shift_date", "shift_start", "shift_end"
+                )
+                
+                # Combine existing and new/updated shifts
+                all_shifts_combined = list(existing_shifts) + all_shifts_to_check
+                
+                # Check for overlaps
+                if has_overlaps_for_staff(all_shifts_combined):
+                    errors.append({
+                        "detail": "Bulk save would create overlapping shifts for one or more staff members."
+                    })
+            
+            # Mark split shifts
             staff_date_map = defaultdict(list)
             for shift in created_data:
                 staff_id = shift.get("staff")
@@ -583,20 +1271,13 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
                     staff_date_map[(staff_id, shift_date)].append(shift)
 
             for (staff_id, shift_date), new_shifts in staff_date_map.items():
-                existing = list(
-                    StaffRoster.objects.filter(staff_id=staff_id, shift_date=shift_date).values(
-                        "shift_date", "shift_start", "shift_end"
-                    )
-                )
-                all_combined = existing + new_shifts
-                if detect_overlapping_shifts(all_combined):
-                    errors.append({
-                        "staff": staff_id,
-                        "date": shift_date,
-                        "detail": "Overlapping shifts are not allowed (except adjacent or ending before 04:00)."
-                    })
-
-                if len(new_shifts) > 1 or existing:
+                existing_count = StaffRoster.objects.filter(
+                    staff_id=staff_id, shift_date=shift_date
+                ).exclude(
+                    id__in=[shift["id"] for shift in updated_data if shift.get("id")]
+                ).count()
+                
+                if len(new_shifts) > 1 or existing_count > 0:
                     for shift in new_shifts:
                         shift["is_split_shift"] = True
 
@@ -633,16 +1314,16 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=["get"], url_path="daily-pdf")
     def daily_pdf(self, request, hotel_slug=None, **kwargs):
-        hotel_slug = request.query_params.get("hotel_slug")
         day = request.query_params.get("date")
         department = request.query_params.get("department")
         location_id = request.query_params.get("location")
 
-        if not (hotel_slug and day):
-            return Response({"error": "hotel_slug and date are required."}, status=400)
+        if not day:
+            return Response({"error": "date parameter is required."}, status=400)
 
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        qs = StaffRoster.objects.select_related("staff", "location").filter(hotel=hotel, shift_date=date.fromisoformat(day))
+        # Use hotel-secured queryset from mixin
+        staff_hotel = self.get_staff_hotel()
+        qs = self.get_queryset().filter(shift_date=date.fromisoformat(day))
 
         if department:
             qs = qs.filter(department__slug=department)
@@ -652,19 +1333,18 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
 
         title = f"Daily Roster – {day}"
         meta = [
-            f"Hotel: {hotel.name}",
+            f"Hotel: {staff_hotel.name}",
             f"Date: {day}",
             f"Department: {department or 'All'}",
         ]
 
         pdf_bytes = build_roster_pdf(title, meta, qs, landscape_mode=False)
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
-        resp["Content-Disposition"] = f'attachment; filename="roster_{hotel.slug}_{day}.pdf"'
+        resp["Content-Disposition"] = f'attachment; filename="roster_{staff_hotel.slug}_{day}.pdf"'
         return resp
 
     @action(detail=False, methods=["get"], url_path="staff-pdf")
     def staff_pdf(self, request, hotel_slug=None, **kwargs):
-        hotel_slug = request.query_params.get("hotel_slug")
         staff_id = request.query_params.get("staff_id") or request.query_params.get("staff")
         period_id = request.query_params.get("period")
         start = request.query_params.get("start")
@@ -672,12 +1352,12 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
         department = request.query_params.get("department")
         location_id = request.query_params.get("location")
 
-        if not (hotel_slug and staff_id):
-            return Response({"error": "hotel_slug and staff_id are required."}, status=400)
+        if not staff_id:
+            return Response({"error": "staff_id parameter is required."}, status=400)
 
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-
-        qs = StaffRoster.objects.select_related("staff", "location", "period").filter(hotel=hotel, staff_id=staff_id)
+        # Use hotel-secured queryset from mixin
+        staff_hotel = self.get_staff_hotel()
+        qs = self.get_queryset().filter(staff_id=staff_id)
 
         period_obj = None
         if period_id:
@@ -706,7 +1386,7 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
 
         title = f"Roster – {staff_name}"
         meta = [
-            f"Hotel: {hotel.name}",
+            f"Hotel: {staff_hotel.name}",
             f"Staff: {staff_name}",
             f"Range: {date_str}",
             f"Department: {department or 'All'}",
@@ -714,65 +1394,23 @@ class StaffRosterViewSet(viewsets.ModelViewSet):
 
         pdf_bytes = build_roster_pdf(title, meta, qs, landscape_mode=False)
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
-        resp["Content-Disposition"] = f'attachment; filename="roster_{hotel.slug}_staff_{staff_id}.pdf"'
+        resp["Content-Disposition"] = f'attachment; filename="roster_{staff_hotel.slug}_staff_{staff_id}.pdf"'
         return resp
     
-class ShiftLocationViewSet(viewsets.ModelViewSet):
+class ShiftLocationViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = ShiftLocation.objects.all()
     serializer_class = ShiftLocationSerializer
-    permission_classes = [IsAuthenticated]
+    # Permissions are inherited from HotelScopedViewSetMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
 
-    def get_hotel(self):
-        """
-        Resolve the Hotel instance either from query params or kwargs.
-        """
-        hotel_slug = (
-            self.kwargs.get("hotel_slug")
-            or self.request.query_params.get("hotel_slug")
-        )
-        if not hotel_slug:
-            return None
-        return get_object_or_404(Hotel, slug=hotel_slug)
-
-    def get_queryset(self):
-        qs = super().get_queryset()
-        hotel = self.get_hotel()
-        if hotel:
-            qs = qs.filter(hotel=hotel)
-        return qs
-
-    def perform_create(self, serializer):
-        """
-        Attach the hotel automatically during creation.
-        """
-        hotel = self.get_hotel()
-        if hotel:
-            serializer.save(hotel=hotel)
-        else:
-            raise ValueError("Hotel slug is required to create a shift location.")
-
-    def perform_update(self, serializer):
-        """
-        Prevent changing the hotel on update (always enforce current hotel).
-        """
-        hotel = self.get_hotel()
-        if hotel:
-            serializer.save(hotel=hotel)
-        else:
-            serializer.save()
-
-class DailyPlanViewSet(viewsets.ModelViewSet):
+class DailyPlanViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
+    queryset = DailyPlan.objects.all()
     serializer_class = DailyPlanSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_hotel(self):
-        hotel_slug = self.kwargs.get("hotel_slug")
-        return get_object_or_404(Hotel, slug=hotel_slug)
+    # Permissions are inherited from HotelScopedViewSetMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     def get_queryset(self):
-        hotel = self.get_hotel()
+        """Get hotel-scoped daily plans with optional department filtering"""
+        queryset = super().get_queryset()
         department_slug = self.kwargs.get('department_slug')
-        queryset = DailyPlan.objects.filter(hotel=hotel)
         if department_slug:
             queryset = queryset.filter(
                 entries__roster__department__slug=department_slug
@@ -781,7 +1419,7 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], url_path='prepare-daily-plan')
     def prepare_daily_plan(self, request, *args, **kwargs):
-        hotel = self.get_hotel()
+        staff_hotel = self.get_staff_hotel()
         department_slug = kwargs.get('department_slug')
         date_str = request.query_params.get('date')
 
@@ -793,14 +1431,14 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
         except ValueError:
             return Response({'detail': 'Invalid date format, expected YYYY-MM-DD.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        plan, created = DailyPlan.objects.get_or_create(hotel=hotel, date=date_obj)
+        plan, created = DailyPlan.objects.get_or_create(hotel=staff_hotel, date=date_obj)
 
         # Clear existing entries to regenerate fresh
         plan.entries.all().delete()
 
         # Filter roster shifts for that date
         filters = {
-            "hotel": hotel,
+            "hotel": staff_hotel,
             "shift_date": date_obj,
             "shift_start__isnull": False,
             "shift_end__isnull": False,
@@ -841,18 +1479,29 @@ class DailyPlanViewSet(viewsets.ModelViewSet):
 
 
 class DailyPlanEntryViewSet(viewsets.ModelViewSet):
+    queryset = DailyPlanEntry.objects.all()
     serializer_class = DailyPlanEntrySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     def get_daily_plan(self):
+        """Get daily plan with hotel security validation"""
         daily_plan_id = self.kwargs.get("daily_plan_pk")
-        return get_object_or_404(DailyPlan, pk=daily_plan_id)
+        daily_plan = get_object_or_404(DailyPlan, pk=daily_plan_id)
+        
+        # Validate the plan belongs to the user's hotel
+        staff_hotel = self.request.user.staff_profile.hotel
+        if daily_plan.hotel.id != staff_hotel.id:
+            raise exceptions.PermissionDenied("You cannot access daily plans from other hotels")
+        
+        return daily_plan
 
     def get_queryset(self):
+        """Get entries for the specific daily plan with hotel validation"""
         daily_plan = self.get_daily_plan()
         return DailyPlanEntry.objects.filter(plan=daily_plan)
 
     def perform_create(self, serializer):
+        """Create entry with validated daily plan"""
         daily_plan = self.get_daily_plan()
         serializer.save(plan=daily_plan)   
 
@@ -989,6 +1638,53 @@ class CopyRosterViewSet(viewsets.ViewSet):
             )
 
         with transaction.atomic():
+            # Check for overlaps before creating
+            # Get existing shifts in target period
+            existing_shifts = list(
+                StaffRoster.objects.filter(
+                    hotel__slug=hotel_slug,
+                    shift_date__gte=target_period.start_date,
+                    shift_date__lte=target_period.end_date,
+                ).values("staff_id", "shift_date", "shift_start", "shift_end")
+            )
+            
+            # Prepare candidate shifts for overlap checking
+            candidate_shifts = [
+                {
+                    "staff_id": shift.staff_id,
+                    "shift_date": shift.shift_date,
+                    "shift_start": shift.shift_start,
+                    "shift_end": shift.shift_end,
+                } for shift in new_shifts
+            ]
+            
+            # Combine existing and candidate shifts
+            all_combined = existing_shifts + candidate_shifts
+            
+            if has_overlaps_for_staff(all_combined):
+                # Audit failed operation
+                try:
+                    staff = request.user.staff_profile
+                    log_roster_operation(
+                        hotel=source_period.hotel,
+                        operation_type='copy_bulk',
+                        performed_by=staff,
+                        affected_shifts_count=0,
+                        source_period=source_period,
+                        target_period=target_period,
+                        success=False,
+                        error_message="Bulk copy would create overlapping shifts",
+                        operation_details={
+                            'requested_shifts': len(new_shifts)
+                        }
+                    )
+                except AttributeError:
+                    pass
+                return Response(
+                    {"detail": "Bulk roster copy would create overlapping shifts. Operation cancelled."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            
             # Use ignore_conflicts to prevent duplicate key errors
             created_shifts = StaffRoster.objects.bulk_create(new_shifts, ignore_conflicts=True)
             
@@ -1106,7 +1802,7 @@ class CopyRosterViewSet(viewsets.ViewSet):
             )
 
         with transaction.atomic():
-            # Check for overlapping shifts before creating
+            # Check for overlapping shifts using improved detection
             existing_shifts = list(
                 StaffRoster.objects.filter(
                     hotel__slug=hotel_slug,
@@ -1114,8 +1810,8 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 ).values("staff_id", "shift_date", "shift_start", "shift_end")
             )
             
-            # Combine existing and new shifts for overlap detection
-            all_combined = existing_shifts + [
+            # Prepare new shifts for overlap checking
+            new_shifts_data = [
                 {
                     "staff_id": shift.staff_id,
                     "shift_date": shift.shift_date,
@@ -1124,7 +1820,10 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 } for shift in new_shifts
             ]
             
-            if detect_overlapping_shifts(all_combined):
+            # Combine existing and new shifts
+            all_combined = existing_shifts + new_shifts_data
+            
+            if has_overlaps_for_staff(all_combined):
                 # Audit failed operation
                 try:
                     staff = request.user.staff_profile
@@ -1145,7 +1844,7 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 except AttributeError:
                     pass
                 return Response(
-                    {"detail": "Copying would create overlapping shifts. Operation cancelled."},
+                    {"detail": "Copying would create overlapping shifts for one or more staff on the target date."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -1274,8 +1973,8 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 ).values("staff_id", "shift_date", "shift_start", "shift_end")
             )
             
-            # Combine existing and new shifts for overlap detection
-            all_combined = existing_shifts + [
+            # Prepare new shifts for overlap checking
+            new_shifts_data = [
                 {
                     "staff_id": shift.staff_id,
                     "shift_date": shift.shift_date,
@@ -1284,7 +1983,10 @@ class CopyRosterViewSet(viewsets.ViewSet):
                 } for shift in new_shifts
             ]
             
-            if detect_overlapping_shifts(all_combined):
+            # Combine existing and new shifts for overlap detection
+            all_combined = existing_shifts + new_shifts_data
+            
+            if has_overlaps_for_staff(all_combined):
                 # Audit failed operation
                 try:
                     staff = request.user.staff_profile

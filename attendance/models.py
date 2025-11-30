@@ -33,6 +33,61 @@ class ClockLog(models.Model):
         max_digits=5, decimal_places=2, null=True, blank=True
     )
 
+    # NEW: link clock log to a planned roster shift
+    roster_shift = models.ForeignKey(
+        'attendance.StaffRoster',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='clock_logs',
+        help_text="Optional link to planned roster shift for this log.",
+    )
+
+    # PHASE 4: Unrostered clock-in approval fields
+    # True if there was no matching roster shift at clock-in
+    is_unrostered = models.BooleanField(
+        default=False,
+        help_text="True if clocked in without matching roster shift"
+    )
+
+    # Approved by manager for payroll / reports
+    is_approved = models.BooleanField(
+        default=True,
+        help_text="Whether this log is approved for payroll calculations"
+    )
+
+    # If explicitly rejected by manager (do not count to hours)
+    is_rejected = models.BooleanField(
+        default=False,
+        help_text="Whether this log was rejected by management"
+    )
+
+    # PHASE 4: Long-session warning flags
+    break_warning_sent = models.BooleanField(
+        default=False,
+        help_text="Break reminder notification sent for this session"
+    )
+    overtime_warning_sent = models.BooleanField(
+        default=False,
+        help_text="Overtime warning notification sent for this session"
+    )
+    hard_limit_warning_sent = models.BooleanField(
+        default=False,
+        help_text="Hard limit warning notification sent for this session"
+    )
+
+    # Optional – track how the hard limit alert was handled
+    long_session_ack_mode = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        choices=(
+            ('stay', 'Stay clocked in'),
+            ('clocked_out', 'Clocked out after warning'),
+        ),
+        help_text="How staff responded to hard limit warning"
+    )
+
     def save(self, *args, **kwargs):
         # If both time_in and time_out exist, calculate hours
         if self.time_in and self.time_out:
@@ -61,6 +116,25 @@ class RosterPeriod(models.Model):
         'staff.Staff', on_delete=models.SET_NULL, null=True
     )
     published = models.BooleanField(default=False)
+    
+    # PHASE 4: Period finalization for locking
+    is_finalized = models.BooleanField(
+        default=False,
+        help_text="When finalized, related ClockLogs and StaffRoster shifts are locked"
+    )
+    finalized_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='finalized_periods',
+        help_text="Staff member who finalized this period"
+    )
+    finalized_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this period was finalized"
+    )
 
     def __str__(self):
         return f"{self.hotel.name} | {self.title}"
