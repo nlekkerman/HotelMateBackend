@@ -25,73 +25,267 @@ headers: {
 
 ---
 
-## 1. Clock Management Endpoints
+## 1. Face Recognition Management
 
-### 1.1 Face Registration
+### 1.1 Face Registration (Enhanced)
 
-**Register Staff Face for Clock-In**
+**Register Staff Face with Cloudinary Storage**
 ```http
-POST /api/staff/hotel/{hotel_slug}/attendance/clock-logs/register-face/
+POST /api/staff/hotel/{hotel_slug}/attendance/face-management/register-face/
 ```
 
 **Request Body:**
 ```json
 {
-  "image": "base64_encoded_image_string",
-  "staff_id": 123
+  "image": "data:image/jpeg;base64,/9j/4AAQ...",
+  "encoding": [0.123, -0.456, 0.789, ...], 
+  "staff_id": 123,
+  "consent_given": true
 }
 ```
 
 **Response:**
 ```json
 {
-  "id": 45,
-  "staff": 123,
-  "staff_name": "John Doe",
-  "hotel": 1,
-  "hotel_slug": "grand-hotel",
-  "image": "/media/faces/...",
-  "encoding": [...],
-  "created_at": "2025-11-30T10:00:00Z"
+  "message": "Face registered successfully",
+  "face_data": {
+    "id": 45,
+    "staff": 123,
+    "staff_name": "John Doe",
+    "hotel": 1,
+    "hotel_slug": "grand-hotel",
+    "image_url": "https://res.cloudinary.com/.../staff_faces/face_image.jpg",
+    "public_id": "staff_faces/face_image_xyz123",
+    "encoding_length": 128,
+    "is_active": true,
+    "consent_given": true,
+    "registered_by": "Manager Smith",
+    "created_at": "2025-11-30T10:00:00Z",
+    "updated_at": "2025-11-30T10:00:00Z"
+  }
 }
 ```
 
-### 1.2 Face Clock-In/Out
+### 1.2 Face Revocation
 
-**Clock In/Out Using Face Recognition**
+**Revoke Staff Face Data**
 ```http
-POST /api/staff/hotel/{hotel_slug}/attendance/clock-logs/face-clock-in/
+POST /api/staff/hotel/{hotel_slug}/attendance/face-management/revoke-face/
 ```
 
 **Request Body:**
 ```json
 {
-  "image": "base64_encoded_image_string",
-  "location_note": "Front Desk"
+  "staff_id": 123,
+  "reason": "Privacy request from staff member"
+}
+```
+
+**Response:**
+```json
+{
+  "message": "Face data revoked successfully",
+  "staff_id": 123,
+  "staff_name": "John Doe",
+  "revoked_at": "2025-11-30T15:30:00Z"
+}
+```
+
+### 1.3 List Registered Faces
+
+**List All Registered Faces (Privacy-Safe)**
+```http
+GET /api/staff/hotel/{hotel_slug}/attendance/face-management/list-faces/
+```
+
+**Query Parameters:**
+- `active_only`: true/false (default: true)
+- `staff_id`: Filter by specific staff ID
+
+**Response:**
+```json
+{
+  "count": 25,
+  "faces": [
+    {
+      "id": 45,
+      "staff": 123,
+      "staff_name": "John Doe",
+      "hotel": 1,
+      "image_url": "https://res.cloudinary.com/.../face_image.jpg",
+      "public_id": "staff_faces/xyz123",
+      "encoding_length": 128,
+      "is_active": true,
+      "consent_given": true,
+      "registered_by_name": "Manager Smith",
+      "created_at": "2025-11-30T10:00:00Z",
+      "updated_at": "2025-11-30T10:00:00Z"
+    }
+  ]
+}
+```
+
+### 1.4 Face Status Check
+
+**Check Current User's Face Registration Status**
+```http
+GET /api/staff/hotel/{hotel_slug}/attendance/face-management/face-status/
+```
+
+**Response (Registered):**
+```json
+{
+  "has_registered_face": true,
+  "face_data": {
+    "id": 45,
+    "staff": 123,
+    "staff_name": "John Doe",
+    "image_url": "https://res.cloudinary.com/.../face_image.jpg",
+    "is_active": true,
+    "consent_given": true,
+    "created_at": "2025-11-30T10:00:00Z"
+  }
+}
+```
+
+**Response (Not Registered):**
+```json
+{
+  "has_registered_face": false,
+  "face_data": null
+}
+```
+
+### 1.5 Face Audit Logs
+
+**Get Face Lifecycle Audit Logs**
+```http
+GET /api/staff/hotel/{hotel_slug}/attendance/face-management/audit-logs/
+```
+
+**Query Parameters:**
+- `staff_id`: Filter by staff ID
+- `action`: Filter by action (REGISTERED/REVOKED/RE_REGISTERED)
+- `start_date`: Filter from date (YYYY-MM-DD)
+- `end_date`: Filter to date (YYYY-MM-DD)
+- `page`: Page number (default: 1)
+- `page_size`: Results per page (default: 50, max: 200)
+
+**Response:**
+```json
+{
+  "count": 150,
+  "page": 1,
+  "page_size": 50,
+  "has_next": true,
+  "has_previous": false,
+  "results": [
+    {
+      "id": 78,
+      "hotel_slug": "grand-hotel",
+      "staff": 123,
+      "staff_name": "John Doe", 
+      "action": "REGISTERED",
+      "performed_by": 45,
+      "performed_by_name": "Manager Smith",
+      "reason": "",
+      "consent_given": true,
+      "client_ip": "192.168.1.100",
+      "created_at": "2025-11-30T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+## 2. Clock Management Endpoints
+
+### 2.1 Enhanced Face Clock-In/Out
+
+**Clock In/Out Using Face Recognition (Enhanced)**
+```http
+POST /api/staff/hotel/{hotel_slug}/attendance/face-management/face-clock-in/
+```
+
+**Request Body:**
+```json
+{
+  "image": "data:image/jpeg;base64,/9j/4AAQ...",
+  "encoding": [0.123, -0.456, 0.789, ...],
+  "location_note": "Front Desk",
+  "force_action": "clock_in"
 }
 ```
 
 **Response (Clock In):**
 ```json
 {
-  "id": 234,
-  "staff": 123,
-  "staff_name": "John Doe",
-  "hotel_slug": "grand-hotel",
-  "time_in": "2025-11-30T09:00:00Z",
-  "time_out": null,
-  "verified_by_face": true,
-  "location_note": "Front Desk",
-  "is_unrostered": false,
-  "roster_shift": {
-    "id": 456,
-    "date": "2025-11-30",
-    "start": "09:00:00",
-    "end": "17:00:00",
-    "location": "Front Desk",
-    "department": "Reception"
+  "action": "clock_in",
+  "message": "Clocked in successfully",
+  "confidence_score": 0.23,
+  "clock_log": {
+    "id": 234,
+    "staff": 123,
+    "staff_name": "John Doe",
+    "hotel_slug": "grand-hotel",
+    "time_in": "2025-11-30T09:00:00Z",
+    "time_out": null,
+    "verified_by_face": true,
+    "location_note": "Front Desk",
+    "is_unrostered": false,
+    "roster_shift": {
+      "id": 456,
+      "date": "2025-11-30",
+      "start": "09:00:00",
+      "end": "17:00:00",
+      "location": "Front Desk",
+      "department": "Reception"
+    }
   }
 }
+```
+
+**Response (Clock Out):**
+```json
+{
+  "action": "clock_out",
+  "message": "Clocked out successfully",
+  "confidence_score": 0.23,
+  "clock_log": {
+    "id": 234,
+    "staff": 123,
+    "staff_name": "John Doe",
+    "time_in": "2025-11-30T09:00:00Z",
+    "time_out": "2025-11-30T17:00:00Z",
+    "hours_worked": "8.00",
+    "verified_by_face": true,
+    "location_note": "Front Desk"
+  }
+}
+```
+
+**Error Response (Face Not Recognized):**
+```json
+{
+  "error": "Face not recognized",
+  "confidence_score": 0.85,
+  "message": "No matching face found or confidence too low"
+}
+```
+
+### 2.2 Legacy Face Registration (Deprecated)
+
+**⚠️ DEPRECATED: Use face-management endpoints instead**
+```http
+POST /api/staff/hotel/{hotel_slug}/attendance/clock-logs/register-face/
+```
+
+### 2.3 Legacy Face Clock-In (Deprecated)
+
+**⚠️ DEPRECATED: Use face-management endpoints instead**
+```http
+POST /api/staff/hotel/{hotel_slug}/attendance/clock-logs/face-clock-in/
 ```
 
 ### 1.3 Clock Logs Management
@@ -826,29 +1020,90 @@ ws://api.example.com/ws/staff/{hotel_slug}/attendance/unrostered-approvals/
 
 ## 11. Usage Examples
 
-### Complete Clock-In Flow
+### Complete Face Registration & Clock-In Flow
 ```javascript
-// 1. Check current status
-const statusResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/clock-logs/status/`);
-const status = await statusResponse.json();
+// 1. Check if user has registered face
+const faceStatusResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/face-management/face-status/`, {
+  headers: { 'Authorization': `Bearer ${token}` }
+});
+const faceStatus = await faceStatusResponse.json();
 
-if (!status.is_clocked_in) {
-  // 2. Clock in using face recognition
-  const clockInResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/clock-logs/face-clock-in/`, {
+if (!faceStatus.has_registered_face) {
+  // 2. Register face first (with user consent)
+  const registrationResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/face-management/register-face/`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
-      image: base64Image,
+      image: `data:image/jpeg;base64,${base64ImageData}`,
+      encoding: faceEncodingArray, // 128-dimensional array
+      consent_given: true
+    })
+  });
+  
+  const registrationResult = await registrationResponse.json();
+  console.log('Face registered:', registrationResult);
+}
+
+// 3. Check current clock status
+const statusResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/clock-logs/status/`);
+const status = await statusResponse.json();
+
+if (!status.is_clocked_in) {
+  // 4. Clock in using enhanced face recognition
+  const clockInResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/face-management/face-clock-in/`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      image: `data:image/jpeg;base64,${base64ImageData}`,
+      encoding: faceEncodingArray,
       location_note: 'Front Desk'
     })
   });
   
-  const clockLog = await clockInResponse.json();
-  console.log('Clocked in:', clockLog);
+  const clockResult = await clockInResponse.json();
+  
+  if (clockResult.error) {
+    console.error('Clock-in failed:', clockResult.error);
+    // Handle face not recognized
+  } else {
+    console.log('Clocked in successfully:', clockResult);
+    console.log('Confidence score:', clockResult.confidence_score);
+  }
 }
+```
+
+### Face Management Admin Flow
+```javascript
+// 1. List all registered faces in hotel
+const facesResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/face-management/list-faces/`, {
+  headers: { 'Authorization': `Bearer ${adminToken}` }
+});
+const faces = await facesResponse.json();
+
+// 2. Revoke a staff member's face data
+const revokeResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/face-management/revoke-face/`, {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${adminToken}`,
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    staff_id: 123,
+    reason: 'Privacy request from staff member'
+  })
+});
+
+// 3. View audit logs for compliance
+const auditResponse = await fetch(`/api/staff/hotel/${hotelSlug}/attendance/face-management/audit-logs/?staff_id=123`, {
+  headers: { 'Authorization': `Bearer ${adminToken}` }
+});
+const auditLogs = await auditResponse.json();
 ```
 
 ### Roster Management Flow
@@ -914,6 +1169,72 @@ const departmentData = await deptSummaryResponse.json();
 - Provide real-time feedback for clock-in/out actions
 - Cache data for offline capability where possible
 
+### Face Recognition Security
+- **Privacy First**: Always obtain explicit consent before face registration
+- **Data Minimization**: Face encoding vectors are never included in API responses
+- **Audit Trail**: All face lifecycle events are logged with IP addresses and timestamps
+- **Cloudinary Storage**: Face images stored securely in cloud, not locally
+- **Revocation Rights**: Staff can request face data deletion at any time
+- **Access Control**: Only hotel staff can access face management endpoints
+- **Confidence Thresholds**: Configurable similarity thresholds prevent false matches
+
+### Face Recognition Implementation Tips
+```javascript
+// Always handle face recognition errors gracefully
+const handleFaceClockIn = async (imageData, encoding) => {
+  try {
+    const response = await faceClockIn(imageData, encoding);
+    
+    if (response.confidence_score > 0.7) {
+      // Low confidence - ask user to try again
+      showMessage('Face recognition confidence low. Please try again in better lighting.');
+      return;
+    }
+    
+    // Success
+    showMessage(`${response.action === 'clock_in' ? 'Clocked in' : 'Clocked out'} successfully!`);
+    
+  } catch (error) {
+    if (error.message.includes('Face not recognized')) {
+      showMessage('Face not recognized. Please ensure you are registered.');
+      // Redirect to registration flow
+    } else {
+      showMessage('Clock-in failed. Please try again or use manual entry.');
+    }
+  }
+};
+
+// Implement proper consent flow
+const requestFaceRegistration = async () => {
+  const consent = await showConsentDialog({
+    title: 'Face Recognition Consent',
+    message: 'Do you consent to storing your facial data for attendance tracking? You can revoke this consent at any time.',
+    options: ['Accept', 'Decline']
+  });
+  
+  if (consent === 'Accept') {
+    return registerFace(imageData, encoding, true);
+  }
+  
+  return null;
+};
+```
+
 ---
 
-This documentation covers all attendance and roster-related endpoints in the HotelMate Backend system. For questions or issues, please refer to the backend team or check the API error responses for detailed validation messages.
+## 13. Face Recognition Error Codes
+
+| Error Code | Description | Solution |
+|------------|-------------|----------|
+| `FACE_NOT_RECOGNIZED` | No matching face found or confidence too low | Re-register face or use manual clock-in |
+| `INVALID_IMAGE_FORMAT` | Image format not supported | Use JPEG, PNG, or WebP format |
+| `IMAGE_TOO_LARGE` | Image exceeds 10MB limit | Compress image or reduce resolution |
+| `INVALID_ENCODING` | Face encoding format invalid | Ensure 128-dimensional float array |
+| `NO_FACE_REGISTERED` | User has no registered face data | Complete face registration first |
+| `FACE_DATA_REVOKED` | Face data has been revoked | Re-register face data if desired |
+| `CONSENT_REQUIRED` | Explicit consent needed for face processing | Obtain user consent before registration |
+| `HOTEL_FACE_DISABLED` | Face attendance disabled for hotel | Contact administrator |
+
+---
+
+This documentation covers all attendance and roster-related endpoints in the HotelMate Backend system, including the comprehensive face recognition management system with Cloudinary integration, privacy controls, and audit trails. For questions or issues, please refer to the backend team or check the API error responses for detailed validation messages.

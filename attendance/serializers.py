@@ -6,7 +6,7 @@ from staff.serializers import StaffMinimalSerializer, DepartmentSerializer
 from .models import (
     StaffFace, ClockLog, RosterPeriod, StaffRoster,
     StaffAvailability, ShiftTemplate, RosterRequirement,
-    ShiftLocation, DailyPlan, DailyPlanEntry,
+    ShiftLocation, DailyPlan, DailyPlanEntry, FaceAuditLog,
 )
 
 
@@ -423,3 +423,330 @@ class PeriodFinalizationSerializer(serializers.Serializer):
         default=False, 
         help_text="Force finalization even with unresolved logs (admin only)"
     )
+
+
+# ─────────────────────────────
+# Enhanced Face Recognition Serializers  
+# ─────────────────────────────
+
+import base64
+import io
+from PIL import Image
+from django.core.files.uploadedfile import InMemoryUploadedFile
+from .utils import (
+    validate_face_encoding, generate_face_registration_response,
+    create_face_audit_log
+)
+
+
+class Base64ImageField(serializers.Field):
+    """
+    Custom field to handle base64 image data and convert to file objects for Cloudinary.
+    """
+    
+    def to_internal_value(self, data):
+        """Convert base64 string to Django file object."""
+        if not isinstance(data, str):
+            raise serializers.ValidationError("Image data must be a base64 string")
+        
+        if not data.startswith('data:image/'):
+            raise serializers.ValidationError("Image data must be a valid base64 data URL")
+        
+        try:
+            # Parse the data URL: data:image/jpeg;base64,/9j/4AAQ...
+            header, encoded_data = data.split(',', 1)
+            
+            # Extract image format from header
+            format_part = header.split(';')[0].split('/')[-1]
+            if format_part.lower() not in ['jpeg', 'jpg', 'png', 'webp']:
+                raise serializers.ValidationError("Unsupported image format")
+            
+            # Decode base64 data
+            decoded_data = base64.b64decode(encoded_data)
+            
+            # Create PIL Image to validate
+            image = Image.open(io.BytesIO(decoded_data))
+            
+            # Validate image size (max 10MB)
+            if len(decoded_data) > 10 * 1024 * 1024:
+                raise serializers.ValidationError("Image file too large. Maximum size is 10MB.")
+            
+            # Create InMemoryUploadedFile object for Cloudinary
+            image_file = InMemoryUploadedFile(
+                file=io.BytesIO(decoded_data),
+                field_name='image',
+                name=f'face_image.{format_part}',
+                content_type=f'image/{format_part}',
+                size=len(decoded_data),
+                charset=None
+            )
+            
+            return image_file
+            
+        except Exception as e:
+            raise serializers.ValidationError(f"Invalid image data: {str(e)}")
+    
+    def to_representation(self, value):
+        """Return the Cloudinary URL for the image."""
+        if value:
+            try:
+                return value.url
+            except Exception:
+                return str(value)
+        return None
+
+
+class FaceRegistrationSerializer(serializers.Serializer):
+    """
+    Serializer for face registration with Cloudinary image upload and encoding validation.
+    """
+    image = Base64ImageField(
+        help_text="Base64 encoded image data (data:image/jpeg;base64,...)"
+    )
+    encoding = serializers.ListField(
+        child=serializers.FloatField(),
+        help_text="128-dimensional face encoding vector",
+        allow_empty=False
+    )
+    staff_id = serializers.IntegerField(
+        required=False,
+        help_text="Target staff ID (optional, defaults to requesting user)"
+    )
+    consent_given = serializers.BooleanField(
+        default=True,
+        help_text="Explicit consent for face data processing"
+    )
+    
+    def validate_encoding(self, value):
+        """Validate face encoding format."""
+        is_valid, error_message = validate_face_encoding(value)
+        if not is_valid:
+            raise serializers.ValidationError(error_message)
+        return value
+    
+    def validate(self, data):
+        """Cross-field validation."""
+        request = self.context.get('request')
+        hotel = self.context.get('hotel')
+        
+        if not request or not hotel:
+            raise serializers.ValidationError("Missing request context")
+        
+        # Determine target staff
+        staff_id = data.get('staff_id')
+        if staff_id:
+            # Admin registering for another staff member
+            from staff.models import Staff
+            try:
+                target_staff = Staff.objects.get(id=staff_id, hotel=hotel)
+                data['target_staff'] = target_staff
+            except Staff.DoesNotExist:
+                raise serializers.ValidationError("Invalid staff ID for this hotel")
+        else:
+            # Self-registration
+            if not hasattr(request.user, 'staff_profile'):
+                raise serializers.ValidationError("User does not have staff profile")
+            data['target_staff'] = request.user.staff_profile
+        
+        return data
+    
+    def create(self, validated_data):
+        """Create or update staff face data with Cloudinary storage."""
+        target_staff = validated_data['target_staff']
+        hotel = self.context['hotel']
+        request = self.context['request']
+        performing_staff = getattr(request.user, 'staff_profile', None)
+        
+        # Delete existing face data if any
+        StaffFace.objects.filter(staff=target_staff).delete()
+        
+        # Create new face data
+        staff_face = StaffFace.objects.create(
+            hotel=hotel,
+            staff=target_staff,
+            image=validated_data['image'],  # Will be uploaded to Cloudinary
+            encoding=validated_data['encoding'],
+            consent_given=validated_data.get('consent_given', True),
+            registered_by=performing_staff,
+            is_active=True
+        )
+        
+        # Update staff profile
+        target_staff.has_registered_face = True
+        target_staff.save(update_fields=['has_registered_face'])
+        
+        # Create audit log
+        create_face_audit_log(
+            hotel=hotel,
+            staff=target_staff,
+            action='REGISTERED',
+            performed_by=performing_staff,
+            consent_given=validated_data.get('consent_given', True),
+            request=request
+        )
+        
+        return staff_face
+
+
+class FaceClockInSerializer(serializers.Serializer):
+    """
+    Serializer for face recognition clock-in/out with enhanced safety features.
+    """
+    image = Base64ImageField(
+        help_text="Base64 encoded face image for recognition"
+    )
+    encoding = serializers.ListField(
+        child=serializers.FloatField(),
+        help_text="128-dimensional face encoding vector for matching"
+    )
+    location_note = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_blank=True,
+        help_text="Optional location or note for this clock action"
+    )
+    force_action = serializers.ChoiceField(
+        choices=[('clock_in', 'Force Clock In'), ('clock_out', 'Force Clock Out')],
+        required=False,
+        help_text="Force specific clock action (optional)"
+    )
+    
+    def validate_encoding(self, value):
+        """Validate face encoding format."""
+        is_valid, error_message = validate_face_encoding(value)
+        if not is_valid:
+            raise serializers.ValidationError(error_message)
+        return value
+
+
+class StaffFaceEnhancedSerializer(serializers.ModelSerializer):
+    """
+    Enhanced serializer for StaffFace model with security considerations.
+    Excludes sensitive biometric encoding data from API responses.
+    """
+    staff_name = serializers.SerializerMethodField()
+    image_url = serializers.SerializerMethodField()
+    public_id = serializers.SerializerMethodField()
+    encoding_length = serializers.SerializerMethodField()
+    registered_by_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = StaffFace
+        fields = [
+            'id', 'staff', 'staff_name', 'hotel', 
+            'image_url', 'public_id', 'encoding_length',
+            'is_active', 'consent_given', 'registered_by_name',
+            'created_at', 'updated_at'
+        ]
+        # Exclude sensitive biometric data from serialization
+        # encoding field is intentionally excluded for privacy
+    
+    def get_staff_name(self, obj):
+        return obj.staff.user.get_full_name()
+    
+    def get_image_url(self, obj):
+        return obj.get_image_url()
+    
+    def get_public_id(self, obj):
+        return obj.get_public_id()
+    
+    def get_encoding_length(self, obj):
+        return len(obj.encoding) if obj.encoding else 0
+    
+    def get_registered_by_name(self, obj):
+        if obj.registered_by:
+            return obj.registered_by.user.get_full_name()
+        return None
+
+
+class FaceRevocationSerializer(serializers.Serializer):
+    """
+    Serializer for face data revocation with audit trail.
+    """
+    reason = serializers.CharField(
+        max_length=500,
+        required=False,
+        allow_blank=True,
+        help_text="Optional reason for revocation"
+    )
+    staff_id = serializers.IntegerField(
+        required=False,
+        help_text="Target staff ID (optional, defaults to requesting user)"
+    )
+    
+    def validate(self, data):
+        """Validate revocation request."""
+        request = self.context.get('request')
+        hotel = self.context.get('hotel')
+        
+        if not request or not hotel:
+            raise serializers.ValidationError("Missing request context")
+        
+        # Determine target staff
+        staff_id = data.get('staff_id')
+        if staff_id:
+            # Admin revoking for another staff member
+            from staff.models import Staff
+            try:
+                target_staff = Staff.objects.get(id=staff_id, hotel=hotel)
+                data['target_staff'] = target_staff
+            except Staff.DoesNotExist:
+                raise serializers.ValidationError("Invalid staff ID for this hotel")
+        else:
+            # Self-revocation
+            if not hasattr(request.user, 'staff_profile'):
+                raise serializers.ValidationError("User does not have staff profile")
+            data['target_staff'] = request.user.staff_profile
+        
+        # Check if staff has face data to revoke
+        try:
+            face_data = StaffFace.objects.get(staff=data['target_staff'], is_active=True)
+            data['face_data'] = face_data
+        except StaffFace.DoesNotExist:
+            raise serializers.ValidationError("No active face data found for this staff member")
+        
+        return data
+    
+    def create(self, validated_data):
+        """Revoke face data and update audit trail."""
+        face_data = validated_data['face_data']
+        request = self.context['request']
+        performing_staff = getattr(request.user, 'staff_profile', None)
+        
+        # Revoke the face data (calls model method with audit log)
+        face_data.revoke(
+            performed_by=performing_staff,
+            reason=validated_data.get('reason')
+        )
+        
+        # Update staff profile
+        face_data.staff.has_registered_face = False
+        face_data.staff.save(update_fields=['has_registered_face'])
+        
+        return face_data
+
+
+class FaceAuditLogSerializer(serializers.ModelSerializer):
+    """
+    Serializer for face audit log entries.
+    """
+    staff_name = serializers.SerializerMethodField()
+    performed_by_name = serializers.SerializerMethodField()
+    hotel_slug = serializers.CharField(source='hotel.slug', read_only=True)
+    
+    class Meta:
+        model = FaceAuditLog
+        fields = [
+            'id', 'hotel_slug', 'staff', 'staff_name', 'action',
+            'performed_by', 'performed_by_name', 'reason', 'consent_given',
+            'client_ip', 'created_at'
+        ]
+        # Exclude user_agent from API response for brevity
+    
+    def get_staff_name(self, obj):
+        return obj.staff.user.get_full_name()
+    
+    def get_performed_by_name(self, obj):
+        if obj.performed_by:
+            return obj.performed_by.user.get_full_name()
+        return None

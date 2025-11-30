@@ -12,6 +12,7 @@ from .views import (
     CopyRosterViewSet, 
 )
 from .views_analytics import RosterAnalyticsViewSet
+from .face_views import FaceManagementViewSet
 
 app_name = "attendance"
 
@@ -69,10 +70,18 @@ prepare_daily_plan = DailyPlanViewSet.as_view({'get': 'prepare_daily_plan'})
 download_daily_plan_pdf = DailyPlanViewSet.as_view({'get': 'download_pdf'})
 
 
-# copy urls copy_shift = ShiftCopyViewSet.as_view({'post': 'copy_shift'})
+# --------- Copy Operations ---------
 copy_roster_bulk = CopyRosterViewSet.as_view({'post': 'copy_roster_bulk'})
 copy_roster_day_all = CopyRosterViewSet.as_view({'post': 'copy_roster_day_all'})
 copy_week_staff = CopyRosterViewSet.as_view({'post': 'copy_week_staff'})
+
+# --------- Face Management ---------
+face_register = FaceManagementViewSet.as_view({'post': 'register_face'})
+face_revoke = FaceManagementViewSet.as_view({'post': 'revoke_face'})
+face_list = FaceManagementViewSet.as_view({'get': 'list_faces'})
+face_clock_in = FaceManagementViewSet.as_view({'post': 'face_clock_in'})
+face_audit_logs = FaceManagementViewSet.as_view({'get': 'audit_logs'})
+face_status = FaceManagementViewSet.as_view({'get': 'face_status'})
 
 # -------------------------
 # URL patterns
@@ -136,7 +145,14 @@ urlpatterns = [
     
     # --------- Shift Copy Endpoints ---------
     path('shift-copy/copy-roster-day-all/', copy_roster_day_all, name='copy-roster-day-all'),
-
     path('shift-copy/copy-roster-bulk/', copy_roster_bulk, name='copy-roster-bulk'),
     path('shift-copy/copy-week-staff/', copy_week_staff, name='copy-week-staff'),
+    
+    # --------- Face Management Endpoints ---------
+    path('face-management/register-face/', face_register, name='face-register'),
+    path('face-management/revoke-face/', face_revoke, name='face-revoke'),
+    path('face-management/list-faces/', face_list, name='face-list'),
+    path('face-management/face-clock-in/', face_clock_in, name='face-clock-in'),
+    path('face-management/audit-logs/', face_audit_logs, name='face-audit-logs'),
+    path('face-management/face-status/', face_status, name='face-status'),
 ]

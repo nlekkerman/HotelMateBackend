@@ -19,7 +19,7 @@ from staff_chat.permissions import IsStaffMember, IsSameHotel
 from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_plan_grouped_pdf
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
-from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry, RosterAuditLog
+from .models import ClockLog, StaffFace, RosterPeriod, StaffRoster, ShiftLocation, DailyPlan, DailyPlanEntry, RosterAuditLog, FaceAuditLog
 from .serializers import (
     ClockLogSerializer,
     RosterPeriodSerializer,

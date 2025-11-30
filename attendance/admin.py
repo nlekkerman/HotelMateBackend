@@ -7,6 +7,7 @@ from .models import (
     StaffFace, ClockLog, RosterPeriod, StaffRoster,
     StaffAvailability, ShiftTemplate, RosterRequirement,
     ShiftLocation, DailyPlan, DailyPlanEntry, RosterAuditLog,
+    FaceAuditLog,
 )
 
 # ──────────────── Face Recognition Admin ──────────────── #

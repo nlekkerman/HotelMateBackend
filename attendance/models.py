@@ -1,4 +1,5 @@
 from django.db import models
+from cloudinary.models import CloudinaryField
 
 
 class StaffFace(models.Model):
@@ -8,15 +9,80 @@ class StaffFace(models.Model):
     staff = models.OneToOneField(
         'staff.Staff', on_delete=models.CASCADE, related_name="face_data"
     )
-    image = models.ImageField(upload_to="staff_faces/")
+    image = CloudinaryField(
+        'face_image',
+        folder='staff_faces',
+        null=True,
+        blank=True,
+        help_text="Face image stored in Cloudinary cloud storage"
+    )
     encoding = models.JSONField(
         help_text="128‑dim face descriptor (list of floats)",
         default=list,
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Audit and security fields
+    consent_given = models.BooleanField(
+        default=True,
+        help_text="Whether staff member consented to face data collection"
+    )
+    registered_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='registered_faces',
+        help_text="Staff member who performed the registration"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this face data is active for recognition"
+    )
 
+    def get_image_url(self):
+        """Get secure URL for face image"""
+        if self.image:
+            try:
+                return self.image.url
+            except Exception:
+                return None
+        return None
+    
+    def get_public_id(self):
+        """Get Cloudinary public_id for the image"""
+        if self.image and hasattr(self.image, 'public_id'):
+            return self.image.public_id
+        return None
+    
+    def revoke(self, performed_by=None, reason=None):
+        """Revoke this face data and create audit log"""
+        self.is_active = False
+        self.save()
+        
+        # Create audit log
+        from .utils import create_face_audit_log
+        create_face_audit_log(
+            hotel=self.hotel,
+            staff=self.staff,
+            action='REVOKED',
+            performed_by=performed_by or self.staff,
+            reason=reason
+        )
+    
     def __str__(self):
-        return f"Face data for {self.staff} @ {self.hotel.slug}"
+        status = "Active" if self.is_active else "Revoked"
+        return f"Face data for {self.staff} @ {self.hotel.slug} ({status})"
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Staff Face Data"
+        verbose_name_plural = "Staff Face Data"
+        indexes = [
+            models.Index(fields=['hotel', 'is_active']),
+            models.Index(fields=['staff', 'is_active']),
+        ]
 
 
 class ClockLog(models.Model):
@@ -423,3 +489,63 @@ class RosterAuditLog(models.Model):
             f"{staff_name} - {self.get_operation_type_display()} "
             f"on {timestamp_str}"
         )
+
+
+class FaceAuditLog(models.Model):
+    """Audit log for tracking face lifecycle events (registration, revocation, re-registration)"""
+    ACTION_CHOICES = [
+        ('REGISTERED', 'Registered'),
+        ('REVOKED', 'Revoked'),
+        ('RE_REGISTERED', 'Re-registered'),
+    ]
+    
+    hotel = models.ForeignKey(
+        'hotel.Hotel', 
+        on_delete=models.CASCADE, 
+        related_name='face_audit_logs'
+    )
+    staff = models.ForeignKey(
+        'staff.Staff', 
+        on_delete=models.CASCADE,
+        related_name='face_audit_logs'
+    )
+    action = models.CharField(
+        max_length=20,
+        choices=ACTION_CHOICES,
+        help_text="Type of face lifecycle action performed"
+    )
+    performed_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='performed_face_actions',
+        help_text="Staff member who performed this action (may be same as target staff for self-registration)"
+    )
+    reason = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Optional reason for the action (especially for revocation)"
+    )
+    consent_given = models.BooleanField(
+        default=True,
+        help_text="Whether consent was explicitly given for face data processing"
+    )
+    client_ip = models.GenericIPAddressField(
+        null=True,
+        blank=True,
+        help_text="IP address of the client when action was performed"
+    )
+    user_agent = models.TextField(
+        blank=True,
+        help_text="User agent string for audit trail"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = "Face Audit Log"
+        verbose_name_plural = "Face Audit Logs"
+
+    def __str__(self):
+        return f"{self.action} for {self.staff} at {self.hotel.slug} by {self.performed_by or 'system'}"
