@@ -6,7 +6,7 @@ import base64
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
@@ -992,3 +992,144 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 {'error': f'Break toggle failed: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def force_clock_in_unrostered(request, hotel_slug):
+    """
+    Independent endpoint for force clock-in of unrostered staff.
+    
+    POST /api/staff/hotel/{hotel_slug}/attendance/face-management/force-clock-in/
+    
+    Body:
+    {
+        "encoding": [128-dimensional array],
+        "reason": "Emergency coverage needed",
+        "location_note": "Front Desk" (optional)
+    }
+    """
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    
+    # Check permissions
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff:
+        return Response(
+            {'error': "User does not have staff profile"}, 
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    has_permission, error_message = check_face_attendance_permissions(staff, hotel)
+    if not has_permission:
+        return Response(
+            {'error': error_message}, 
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    # Serialize and validate request data
+    encoding = request.data.get('encoding')
+    reason = request.data.get('reason', 'Unrostered clock-in confirmed by staff')
+    
+    if not isinstance(encoding, list) or len(encoding) != 128:
+        return Response({
+            'error': 'A 128-length descriptor array is required.'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    try:
+        # Find matching face
+        staff_faces_qs = StaffFace.objects.filter(
+            hotel=hotel,
+            is_active=True
+        ).select_related('staff')
+        
+        matched_staff, confidence_score = find_best_face_match(
+            encoding, 
+            staff_faces_qs, 
+            threshold=0.6
+        )
+        
+        if not matched_staff:
+            return Response({
+                'error': 'Face not recognized',
+                'confidence_score': confidence_score,
+                'message': 'No matching face found or confidence too low'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if already clocked in
+        today = now().date()
+        existing_log = ClockLog.objects.filter(
+            hotel=hotel,
+            staff=matched_staff,
+            time_in__date=today,
+            time_out__isnull=True
+        ).first()
+        
+        if existing_log:
+            return Response({
+                'error': 'Staff already clocked in',
+                'message': f'{matched_staff.first_name} is already clocked in since {existing_log.time_in}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create unrostered clock log
+        current_dt = now()
+        new_log = ClockLog.objects.create(
+            hotel=hotel,
+            staff=matched_staff,
+            verified_by_face=True,
+            location_note=request.data.get('location_note', ''),
+            time_in=current_dt,
+            roster_shift=None,
+            is_unrostered=True,
+            is_approved=False,  # Requires manager approval
+            is_rejected=False
+        )
+        
+        # Update staff status
+        matched_staff.is_on_duty = True
+        matched_staff.save(update_fields=['is_on_duty'])
+        
+        # Create audit log
+        create_face_audit_log(
+            hotel=hotel,
+            staff=matched_staff,
+            action='FORCED_CLOCK_IN',
+            performed_by=matched_staff,
+            reason=reason,
+            request=request
+        )
+        
+        # Notify managers about unrostered clock-in
+        from .utils import send_unrostered_request_notification
+        send_unrostered_request_notification(hotel, new_log)
+        
+        # Get staff image for response
+        staff_image = None
+        try:
+            staff_face = StaffFace.objects.get(staff=matched_staff, is_active=True)
+            staff_image = staff_face.get_image_url()
+        except StaffFace.DoesNotExist:
+            pass
+        
+        # Serialize response
+        serializer = ClockLogSerializer(new_log)
+        
+        return Response({
+            'action': 'unrostered_clock_in',
+            'message': f'{matched_staff.first_name} {matched_staff.last_name} clocked in (unrostered - requires approval)',
+            'staff': {
+                'id': matched_staff.id,
+                'name': f'{matched_staff.first_name} {matched_staff.last_name}',
+                'department': matched_staff.department.name if matched_staff.department else 'No Department',
+                'image': staff_image
+            },
+            'is_rostered': False,
+            'requires_approval': True,
+            'confidence_score': confidence_score,
+            'clock_log': serializer.data
+        }, status=status.HTTP_201_CREATED)
+            
+    except Exception as e:
+        return Response(
+            {'error': f'Force clock-in failed: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

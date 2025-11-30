@@ -12,7 +12,7 @@ from .views import (
     CopyRosterViewSet, 
 )
 from .views_analytics import RosterAnalyticsViewSet
-from .face_views import FaceManagementViewSet
+from .face_views import FaceManagementViewSet, force_clock_in_unrostered
 
 app_name = "attendance"
 
@@ -153,6 +153,7 @@ urlpatterns = [
     path('face-management/revoke-face/', face_revoke, name='face-revoke'),
     path('face-management/list-faces/', face_list, name='face-list'),
     path('face-management/face-clock-in/', face_clock_in, name='face-clock-in'),
+    path('face-management/force-clock-in/', force_clock_in_unrostered, name='force-clock-in'),
     path('face-management/audit-logs/', face_audit_logs, name='face-audit-logs'),
     path('face-management/face-status/', face_status, name='face-status'),
 ]
