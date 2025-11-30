@@ -12,7 +12,12 @@ from .views import (
     CopyRosterViewSet, 
 )
 from .views_analytics import RosterAnalyticsViewSet
-from .face_views import FaceManagementViewSet, force_clock_in_unrostered
+from .face_views import (
+    FaceManagementViewSet, 
+    force_clock_in_unrostered,
+    confirm_clock_out_view,
+    toggle_break_view
+)
 
 app_name = "attendance"
 
@@ -154,6 +159,8 @@ urlpatterns = [
     path('face-management/list-faces/', face_list, name='face-list'),
     path('face-management/face-clock-in/', face_clock_in, name='face-clock-in'),
     path('face-management/force-clock-in/', force_clock_in_unrostered, name='force-clock-in'),
+    path('face-management/confirm-clock-out/', confirm_clock_out_view, name='confirm-clock-out'),
+    path('face-management/toggle-break/', toggle_break_view, name='toggle-break'),
     path('face-management/audit-logs/', face_audit_logs, name='face-audit-logs'),
     path('face-management/face-status/', face_status, name='face-status'),
 ]
