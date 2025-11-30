@@ -154,10 +154,10 @@ class ClockLog(models.Model):
         help_text="How staff responded to hard limit warning"
     )
     
-    # Kiosk mode tracking 
+    # Kiosk mode tracking
     is_kiosk_mode = models.BooleanField(
         default=False,
-        help_text="True if clocked in via shared kiosk device (affects frontend behavior)"
+        help_text="True if clocked in via shared kiosk device"
     )
     
     # Break tracking fields

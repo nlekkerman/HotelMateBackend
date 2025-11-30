@@ -358,8 +358,8 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                     )
                     
                     # Update staff status
-                    matched_staff.is_on_duty = True
-                    matched_staff.save(update_fields=['is_on_duty'])
+                    matched_staff.duty_status = 'on_duty'
+                    matched_staff.save(update_fields=['duty_status'])
                     
                     # Trigger Pusher event for real-time status update
                     trigger_clock_status_update(hotel.slug, matched_staff, 'clock_in')
@@ -732,8 +732,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
             )
             
             # Update staff status
-            matched_staff.is_on_duty = True
-            matched_staff.save(update_fields=['is_on_duty'])
+            # Update staff status back to on_duty (end break)
+            matched_staff.duty_status = 'on_duty'
+            matched_staff.save(update_fields=['duty_status'])
             
             # Create audit log
             create_face_audit_log(
@@ -847,8 +848,8 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
             existing_log.save()
             
             # Update staff status
-            matched_staff.is_on_duty = False
-            matched_staff.save(update_fields=['is_on_duty'])
+            matched_staff.duty_status = 'off_duty'
+            matched_staff.save(update_fields=['duty_status'])
             
             # Trigger Pusher event for real-time status update
             trigger_clock_status_update(hotel.slug, matched_staff, 'clock_out')
@@ -977,7 +978,7 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 existing_log.save()
                 
                 # Trigger Pusher event for break end (staff back on duty)
-                trigger_clock_status_update(hotel.slug, matched_staff, 'break_end')
+                trigger_clock_status_update(hotel.slug, matched_staff, 'end_break')
                 
                 # Use kiosk mode from saved log
                 kiosk_action = 'refresh_for_next_person' if existing_log.is_kiosk_mode else 'stay_logged_in'
@@ -1005,8 +1006,12 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 existing_log.break_start = now()
                 existing_log.save()
                 
+                # Update staff duty status
+                matched_staff.duty_status = 'on_break'
+                matched_staff.save(update_fields=['duty_status'])
+                
                 # Trigger Pusher event for break start
-                trigger_clock_status_update(hotel.slug, matched_staff, 'break_start')
+                trigger_clock_status_update(hotel.slug, matched_staff, 'start_break')
                 
                 # Use kiosk mode from saved log
                 kiosk_action = 'refresh_for_next_person' if existing_log.is_kiosk_mode else 'stay_logged_in'
@@ -1127,8 +1132,8 @@ def force_clock_in_unrostered(request, hotel_slug):
         )
         
         # Update staff status
-        matched_staff.is_on_duty = True
-        matched_staff.save(update_fields=['is_on_duty'])
+        matched_staff.duty_status = 'on_duty'
+        matched_staff.save(update_fields=['duty_status'])
         
         # Create audit log
         create_face_audit_log(
@@ -1255,8 +1260,8 @@ def confirm_clock_out_view(request, hotel_slug):
         existing_log.save()
         
         # Update staff status
-        matched_staff.is_on_duty = False
-        matched_staff.save(update_fields=['is_on_duty'])
+        matched_staff.duty_status = 'off_duty'
+        matched_staff.save(update_fields=['duty_status'])
         
         # Calculate session duration
         session_duration = (existing_log.time_out - existing_log.time_in).total_seconds() / 3600
@@ -1401,6 +1406,13 @@ def toggle_break_view(request, hotel_slug):
             existing_log.is_on_break = True
             existing_log.break_start = now()
             existing_log.save()
+            
+            # Update staff duty status
+            matched_staff.duty_status = 'on_break'
+            matched_staff.save(update_fields=['duty_status'])
+            
+            # Trigger Pusher event for break start
+            trigger_clock_status_update(hotel.slug, matched_staff, 'start_break')
             
             return Response({
                 'action': 'break_started',

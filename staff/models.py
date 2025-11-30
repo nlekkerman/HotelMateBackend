@@ -138,39 +138,38 @@ class Staff(models.Model):
 
     def get_current_status(self):
         """
-        Returns current attendance status including break information.
+        Returns current attendance status based on duty_status field.
         """
-        if not self.is_on_duty:
-            return {
-                'status': 'off_duty',
-                'label': 'Off Duty',
-                'is_on_break': False
-            }
+        status_labels = {
+            'off_duty': 'Off Duty',
+            'on_duty': 'On Duty', 
+            'on_break': 'On Break'
+        }
         
-        # Check if currently on break
-        from django.utils.timezone import now
-        from attendance.models import ClockLog
-        
-        today = now().date()
-        current_log = ClockLog.objects.filter(
-            staff=self,
-            time_in__date=today,
-            time_out__isnull=True
-        ).first()
-        
-        if current_log and current_log.is_on_break:
-            return {
-                'status': 'on_break',
-                'label': 'On Break',
-                'is_on_break': True,
-                'break_start': current_log.break_start,
-                'total_break_minutes': current_log.total_break_minutes
-            }
+        # Get additional break information if on break
+        break_info = {}
+        if self.duty_status == 'on_break':
+            from django.utils.timezone import now
+            from attendance.models import ClockLog
+            
+            today = now().date()
+            current_log = ClockLog.objects.filter(
+                staff=self,
+                time_in__date=today,
+                time_out__isnull=True
+            ).first()
+            
+            if current_log:
+                break_info = {
+                    'break_start': current_log.break_start,
+                    'total_break_minutes': current_log.total_break_minutes
+                }
         
         return {
-            'status': 'on_duty',
-            'label': 'On Duty',
-            'is_on_break': False
+            'status': self.duty_status,
+            'label': status_labels.get(self.duty_status, 'Unknown'),
+            'is_on_break': self.duty_status == 'on_break',
+            **break_info
         }
 
     # Firebase Cloud Messaging token for push notifications

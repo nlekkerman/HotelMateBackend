@@ -14,20 +14,26 @@ logger = logging.getLogger(__name__)
 
 def trigger_clock_status_update(hotel_slug, staff, action):
     """
-    Broadcast clock in/out status change to all staff in the hotel.
+    Broadcast clock in/out/break status change to all staff in the hotel.
     
     Args:
         hotel_slug: Hotel identifier
         staff: Staff instance
-        action: 'clock_in' or 'clock_out'
+        action: 'clock_in', 'clock_out', 'start_break', 'end_break'
     """
     channel = f'hotel-{hotel_slug}'
     event = 'clock-status-updated'
     
+    # Get current status details
+    current_status = staff.get_current_status()
+    
     data = {
         'user_id': staff.user.id if staff.user else None,
         'staff_id': staff.id,
-        'is_on_duty': staff.is_on_duty,
+        'duty_status': staff.duty_status,
+        'is_on_duty': staff.duty_status in ['on_duty', 'on_break'],
+        'is_on_break': staff.duty_status == 'on_break',
+        'status_label': current_status['label'],
         'clock_time': timezone.now().isoformat(),
         'first_name': staff.first_name,
         'last_name': staff.last_name,
@@ -36,6 +42,7 @@ def trigger_clock_status_update(hotel_slug, staff, action):
         'department_slug': (
             staff.department.slug if staff.department else None
         ),
+        'current_status': current_status,
     }
     
     try:
@@ -90,8 +97,11 @@ def trigger_staff_profile_update(hotel_slug, staff, action='updated'):
             'role': staff.role.name if staff.role else None,
             'role_slug': staff.role.slug if staff.role else None,
             'is_active': staff.is_active,
-            'is_on_duty': staff.is_on_duty,
+            'duty_status': staff.duty_status,
+            'is_on_duty': staff.duty_status in ['on_duty', 'on_break'],
+            'is_on_break': staff.duty_status == 'on_break',
             'access_level': staff.access_level,
+            'current_status': staff.get_current_status(),
             'timestamp': timezone.now().isoformat(),
         }
     

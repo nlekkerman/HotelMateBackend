@@ -46,7 +46,7 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
             'id', 'first_name', 'last_name',
             'department', 'role',
             'email', 'phone_number',
-            'is_active', 'is_on_duty',
+            'is_active', 'duty_status', 'is_on_duty',
             'hotel', 'profile_image_url', 'current_status',
         ]
 
@@ -181,7 +181,7 @@ class StaffSerializer(serializers.ModelSerializer):
             'department', 'department_detail',
             'role', 'role_detail',
             'email', 'phone_number',
-            'is_active', 'is_on_duty',
+            'is_active', 'duty_status', 'is_on_duty',
             'hotel', 'access_level', 'hotel_name', 'hotel_slug',
             'profile_image', 'profile_image_url',
             'has_registered_face', 'allowed_navs',
@@ -294,7 +294,7 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user_id', 'user', 'first_name', 'last_name',
             'department', 'role',
-            'email', 'phone_number', 'is_active', 'is_on_duty',
+            'email', 'phone_number', 'is_active', 'duty_status', 'is_on_duty',
             'hotel', 'access_level', 'hotel_name',
             'profile_image',
         ]
