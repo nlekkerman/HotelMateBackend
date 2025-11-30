@@ -511,20 +511,22 @@ def check_face_attendance_permissions(staff, hotel):
     if not staff.is_active:
         return False, "Staff member account is inactive"
     
-    # Check hotel settings (if implemented)
-    attendance_settings = getattr(hotel, 'attendance_settings', None)
-    if attendance_settings:
-        # Check if face attendance is enabled
-        if hasattr(attendance_settings, 'face_attendance_enabled'):
-            if not attendance_settings.face_attendance_enabled:
-                return False, "Face attendance is disabled for this hotel"
+    # Check hotel settings 
+    try:
+        attendance_settings = hotel.attendance_settings
         
-        # Check department restrictions (if implemented)
-        if hasattr(attendance_settings, 'allowed_departments'):
-            allowed_departments = getattr(attendance_settings, 'allowed_departments', None)
-            if allowed_departments and staff.department:
-                if staff.department not in allowed_departments.all():
-                    return False, "Face attendance not allowed for your department"
+        # Check if face attendance is enabled
+        if not attendance_settings.face_attendance_enabled:
+            return False, "Face attendance is not enabled for this hotel. Please use the regular clock-in method."
+        
+        # Check department restrictions
+        if attendance_settings.face_attendance_departments and staff.department:
+            if staff.department.id not in attendance_settings.face_attendance_departments:
+                return False, "Face attendance not allowed for your department"
+                
+    except AttributeError:
+        # No attendance settings found for this hotel
+        return False, "Face attendance is not configured for this hotel. Please use the regular clock-in method."
     
     return True, ""
 

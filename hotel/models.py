@@ -1,4 +1,6 @@
 from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 from cloudinary.models import CloudinaryField
 
 
@@ -1168,6 +1170,21 @@ class AttendanceSettings(models.Model):
         help_text="List of department IDs that can use face attendance (empty = all)"
     )
     
+    def save(self, *args, **kwargs):
+        # Auto-populate departments on creation if empty
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        if is_new and not self.face_attendance_departments:
+            # Populate with all existing departments for this hotel (through staff)
+            from staff.models import Department
+            dept_ids = list(Department.objects.filter(
+                staff_members__hotel=self.hotel
+            ).distinct().values_list('id', flat=True))
+            if dept_ids:
+                self.face_attendance_departments = dept_ids
+                super().save(update_fields=['face_attendance_departments'])
+    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -1175,7 +1192,51 @@ class AttendanceSettings(models.Model):
         verbose_name = "Attendance Settings"
         verbose_name_plural = "Attendance Settings"
 
+    def get_all_department_ids(self):
+        """Get all department IDs for this hotel"""
+        from staff.models import Department
+        return list(Department.objects.filter(
+            staff_members__hotel=self.hotel
+        ).distinct().values_list('id', flat=True))
+    
+    def add_department_to_face_attendance(self, department_id):
+        """Add a department ID to face attendance allowed departments"""
+        if department_id not in self.face_attendance_departments:
+            self.face_attendance_departments.append(department_id)
+            self.save(update_fields=['face_attendance_departments'])
+    
+    def populate_all_departments(self):
+        """Populate face_attendance_departments with all hotel departments"""
+        all_dept_ids = self.get_all_department_ids()
+        self.face_attendance_departments = all_dept_ids
+        self.save(update_fields=['face_attendance_departments'])
+        return all_dept_ids
+    
     def __str__(self):
         return f"AttendanceSettings({self.hotel.slug})"
+
+
+# Signal to auto-add new departments to face attendance
+@receiver(post_save, sender='staff.Department')
+def add_department_to_face_attendance(sender, instance, created, **kwargs):
+    """Automatically add new departments to all AttendanceSettings for hotels with staff in this department"""
+    if created:
+        # Find all hotels that have staff in this department
+        from staff.models import Staff
+        hotels_with_staff = Hotel.objects.filter(
+            staff__department=instance
+        ).distinct()
+        
+        for hotel in hotels_with_staff:
+            # Get or create AttendanceSettings for this hotel
+            attendance_settings, created_settings = AttendanceSettings.objects.get_or_create(
+                hotel=hotel,
+                defaults={'face_attendance_enabled': False}
+            )
+            
+            # Add the new department ID if not already present
+            if instance.id not in attendance_settings.face_attendance_departments:
+                attendance_settings.face_attendance_departments.append(instance.id)
+                attendance_settings.save(update_fields=['face_attendance_departments'])
 
 

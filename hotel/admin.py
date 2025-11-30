@@ -592,3 +592,102 @@ class PublicElementItemAdmin(admin.ModelAdmin):
         }),
     )
     readonly_fields = ('created_at', 'updated_at')
+
+
+@admin.register(AttendanceSettings)
+class AttendanceSettingsAdmin(admin.ModelAdmin):
+    """Admin interface for managing hotel attendance settings"""
+    list_display = (
+        'hotel',
+        'face_attendance_enabled',
+        'face_departments_display',
+        'break_warning_hours',
+        'overtime_warning_hours',
+        'enforce_limits',
+    )
+    list_filter = ('face_attendance_enabled', 'enforce_limits')
+    search_fields = ('hotel__name', 'hotel__slug')
+    readonly_fields = ('face_departments_display',)
+    
+    fieldsets = (
+        ('Hotel', {
+            'fields': ('hotel',)
+        }),
+        ('Time Limits & Warnings', {
+            'fields': (
+                'break_warning_hours',
+                'overtime_warning_hours', 
+                'hard_limit_hours',
+                'enforce_limits',
+            ),
+            'description': 'Configure shift duration warnings and limits'
+        }),
+        ('Face Recognition Settings', {
+            'fields': (
+                'face_attendance_enabled',
+                'face_attendance_min_confidence',
+                'require_face_consent',
+                'allow_face_self_registration',
+                'face_data_retention_days',
+                'face_attendance_departments',
+                'face_departments_display',
+            ),
+            'description': 'Configure face recognition for attendance tracking'
+        }),
+    )
+    
+    def get_form(self, request, obj=None, **kwargs):
+        """Add help text for face_attendance_departments field"""
+        form = super().get_form(request, obj, **kwargs)
+        if 'face_attendance_departments' in form.base_fields:
+            if obj and obj.hotel:
+                # Show available departments for this hotel (through staff members)
+                from staff.models import Department
+                departments = Department.objects.filter(
+                    staff_members__hotel=obj.hotel
+                ).distinct()
+                dept_info = [f"{dept.name} (ID: {dept.id})" for dept in departments]
+                help_text = (
+                    f'Available departments for {obj.hotel.name}: '
+                    f'{", ".join(dept_info) if dept_info else "No departments found"}. '
+                    'Enter department IDs as JSON list, e.g., [1, 2, 3]. Leave empty to allow all departments.'
+                )
+            else:
+                help_text = (
+                    'JSON list of department IDs that can use face attendance. '
+                    'Leave empty to allow all departments. Example: [1, 2, 3]'
+                )
+            form.base_fields['face_attendance_departments'].help_text = help_text
+        return form
+    
+    def face_departments_display(self, obj):
+        """Display department names instead of IDs"""
+        if not obj.face_attendance_departments:
+            return "All departments allowed"
+        
+        try:
+            from staff.models import Department
+            total_departments = Department.objects.count()
+            enabled_count = len(obj.face_attendance_departments)
+            
+            # Check if all departments are enabled
+            if enabled_count == total_departments:
+                return f"🌟 ALL departments ({enabled_count})"
+            
+            # Get department names
+            departments = Department.objects.filter(
+                id__in=obj.face_attendance_departments
+            ).values_list('name', flat=True)
+            
+            dept_names = list(departments)
+            
+            # Show first few names, then count if too many
+            if len(dept_names) <= 3:
+                return ", ".join(dept_names)
+            else:
+                return f"{', '.join(dept_names[:3])} + {len(dept_names) - 3} more"
+                
+        except Exception as e:
+            return f"Error: {str(obj.face_attendance_departments)}"
+    
+    face_departments_display.short_description = "Allowed Departments"

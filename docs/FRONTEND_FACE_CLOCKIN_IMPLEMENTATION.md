@@ -1,4 +1,6 @@
-# Frontend Face Clock-In Implementation Guide
+
+Face Clock-In Not Available
+Face attendance is not enabled for this hotel. Please use the regular clock-in method.# Frontend Face Clock-In Implementation Guide
 
 ## Overview
 
