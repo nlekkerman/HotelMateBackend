@@ -82,61 +82,61 @@ urlpatterns = [
     path('', include(router.urls)),
 
     # --------- Roster Periods ---------
-    path('<slug:hotel_slug>/periods/', roster_period_list, name='roster-period-list'),
-    path('<slug:hotel_slug>/periods/<int:pk>/', roster_period_detail, name='roster-period-detail'),
-    path('<slug:hotel_slug>/periods/<int:pk>/add-shift/', roster_add_shift, name='roster-add-shift'),
-    path('<slug:hotel_slug>/periods/<int:pk>/create-department-roster/', roster_create_department, name='roster-create-department'),
-    path('<slug:hotel_slug>/periods/create-for-week/', roster_create_for_week, name='roster-create-for-week'),
+    path('periods/', roster_period_list, name='roster-period-list'),
+    path('periods/<int:pk>/', roster_period_detail, name='roster-period-detail'),
+    path('periods/<int:pk>/add-shift/', roster_add_shift, name='roster-add-shift'),
+    path('periods/<int:pk>/create-department-roster/', roster_create_department, name='roster-create-department'),
+    path('periods/create-for-week/', roster_create_for_week, name='roster-create-for-week'),
     
     # --------- Staff Shifts ---------
-    path('<slug:hotel_slug>/shifts/', staff_roster_list, name='staff-roster-list'),
-    path('<slug:hotel_slug>/shifts/<int:pk>/', staff_roster_detail, name='staff-roster-detail'),
-    path('<slug:hotel_slug>/shifts/bulk-save/', staff_roster_bulk_save, name='staff-roster-bulk-save'),
+    path('shifts/', staff_roster_list, name='staff-roster-list'),
+    path('shifts/<int:pk>/', staff_roster_detail, name='staff-roster-detail'),
+    path('shifts/bulk-save/', staff_roster_bulk_save, name='staff-roster-bulk-save'),
 
-    # --------- Roster Analytics (slugged) ---------
-    path('<slug:hotel_slug>/roster-analytics/staff-summary/', staff_summary, name='ra-staff-summary'),
-    path('<slug:hotel_slug>/roster-analytics/department-summary/', department_summary, name='ra-department-summary'),
-    path('<slug:hotel_slug>/roster-analytics/kpis/', kpis, name='ra-kpis'),
+    # --------- Roster Analytics ---------
+    path('roster-analytics/staff-summary/', staff_summary, name='ra-staff-summary'),
+    path('roster-analytics/department-summary/', department_summary, name='ra-department-summary'),
+    path('roster-analytics/kpis/', kpis, name='ra-kpis'),
 
-    path('<slug:hotel_slug>/roster-analytics/daily-totals/', daily_totals, name='ra-daily-totals'),
-    path('<slug:hotel_slug>/roster-analytics/daily-by-department/', daily_by_department, name='ra-daily-by-department'),
-    path('<slug:hotel_slug>/roster-analytics/daily-by-staff/', daily_by_staff, name='ra-daily-by-staff'),
+    path('roster-analytics/daily-totals/', daily_totals, name='ra-daily-totals'),
+    path('roster-analytics/daily-by-department/', daily_by_department, name='ra-daily-by-department'),
+    path('roster-analytics/daily-by-staff/', daily_by_staff, name='ra-daily-by-staff'),
 
-    path('<slug:hotel_slug>/roster-analytics/weekly-totals/', weekly_totals, name='ra-weekly-totals'),
-    path('<slug:hotel_slug>/roster-analytics/weekly-by-department/', weekly_by_department, name='ra-weekly-by-department'),
-    path('<slug:hotel_slug>/roster-analytics/weekly-by-staff/', weekly_by_staff, name='ra-weekly-by-staff'),
+    path('roster-analytics/weekly-totals/', weekly_totals, name='ra-weekly-totals'),
+    path('roster-analytics/weekly-by-department/', weekly_by_department, name='ra-weekly-by-department'),
+    path('roster-analytics/weekly-by-staff/', weekly_by_staff, name='ra-weekly-by-staff'),
 
-    path('<slug:hotel_slug>/shift-locations/', shift_location_list, name='shift-location-list'),
-    path('<slug:hotel_slug>/shift-locations/<int:pk>/', shift_location_detail, name='shift-location-detail'),
+    path('shift-locations/', shift_location_list, name='shift-location-list'),
+    path('shift-locations/<int:pk>/', shift_location_detail, name='shift-location-detail'),
 
         # --------- Roster Period PDF ---------
-    path('<slug:hotel_slug>/periods/<int:pk>/export-pdf/', roster_period_export_pdf, name='roster-period-export-pdf'),
+    path('periods/<int:pk>/export-pdf/', roster_period_export_pdf, name='roster-period-export-pdf'),
 
     # --------- Staff Roster PDFs ---------
-    path('<slug:hotel_slug>/shifts/daily-pdf/', staff_roster_daily_pdf, name='staff-roster-daily-pdf'),
-    path('<slug:hotel_slug>/shifts/staff-pdf/', staff_roster_staff_pdf, name='staff-roster-staff-pdf'),
+    path('shifts/daily-pdf/', staff_roster_daily_pdf, name='staff-roster-daily-pdf'),
+    path('shifts/staff-pdf/', staff_roster_staff_pdf, name='staff-roster-staff-pdf'),
 
     # Daily Plans for a hotel
-    path('<slug:hotel_slug>/daily-plans/', daily_plan_list, name='daily-plan-list'),
-    path('<slug:hotel_slug>/daily-plans/<int:pk>/', daily_plan_detail, name='daily-plan-detail'),
+    path('daily-plans/', daily_plan_list, name='daily-plan-list'),
+    path('daily-plans/<int:pk>/', daily_plan_detail, name='daily-plan-detail'),
 
     # Nested Daily Plan Entries under a Daily Plan
-    path('<slug:hotel_slug>/departments/<slug:department_slug>/daily-plans/', daily_plan_list, name='daily-plan-by-department-list'),
-    path('<slug:hotel_slug>/daily-plans/<int:daily_plan_pk>/entries/<int:pk>/', daily_plan_entry_detail, name='daily-plan-entry-detail'),
+    path('departments/<slug:department_slug>/daily-plans/', daily_plan_list, name='daily-plan-by-department-list'),
+    path('daily-plans/<int:daily_plan_pk>/entries/<int:pk>/', daily_plan_entry_detail, name='daily-plan-entry-detail'),
     path(
-        '<slug:hotel_slug>/departments/<slug:department_slug>/daily-plans/prepare-daily-plan/',
+        'departments/<slug:department_slug>/daily-plans/prepare-daily-plan/',
         prepare_daily_plan,
         name='prepare-daily-plan'
     ),
     path(
-        '<slug:hotel_slug>/departments/<slug:department_slug>/daily-plans/download-pdf/',
+        'departments/<slug:department_slug>/daily-plans/download-pdf/',
         download_daily_plan_pdf,
         name='daily-plan-download-pdf',
     ),
     
     # --------- Shift Copy Endpoints ---------
-    path('<slug:hotel_slug>/shift-copy/copy-roster-day-all/', copy_roster_day_all, name='copy-roster-day-all'),
+    path('shift-copy/copy-roster-day-all/', copy_roster_day_all, name='copy-roster-day-all'),
 
-    path('<slug:hotel_slug>/shift-copy/copy-roster-bulk/', copy_roster_bulk, name='copy-roster-bulk'),
-    path('<slug:hotel_slug>/shift-copy/copy-week-staff/', copy_week_staff, name='copy-week-staff'),
+    path('shift-copy/copy-roster-bulk/', copy_roster_bulk, name='copy-roster-bulk'),
+    path('shift-copy/copy-week-staff/', copy_week_staff, name='copy-week-staff'),
 ]

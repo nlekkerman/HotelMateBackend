@@ -274,13 +274,14 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     serializer_class = ClockLogSerializer
     # Permissions are inherited from AttendanceHotelScopedMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
 
-    @action(detail=False, methods=['post'], url_path=r'register-face/(?P<hotel_slug>[^/.]+)')
+    @action(detail=False, methods=['post'], url_path='register-face')
     def register_face(self, request, hotel_slug=None):
         descriptor = request.data.get("descriptor")
         if not isinstance(descriptor, list) or len(descriptor) != 128:
             return Response({"error": "A 128‑length descriptor array is required."},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        hotel_slug = self.kwargs.get('hotel_slug')
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         staff = getattr(request.user, "staff_profile", None)
         if not staff:
@@ -299,13 +300,14 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
 
         return Response({"message": "Face descriptor registered."})
 
-    @action(detail=False, methods=['post'], url_path=r'face-clock-in/(?P<hotel_slug>[^/.]+)')
+    @action(detail=False, methods=['post'], url_path='face-clock-in')
     def face_clock_in(self, request, hotel_slug=None):
         probe = request.data.get("descriptor")
         if not isinstance(probe, list) or len(probe) != 128:
             return Response({"error": "A 128‑length descriptor array is required."},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        hotel_slug = self.kwargs.get('hotel_slug')
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
         # Validate user has staff profile and belongs to this hotel
@@ -420,13 +422,14 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
             return Response({"status": "clocked_out", "last_log": latest_log.time_out})
         return Response({"status": "clocked_in", "since": latest_log.time_in})
 
-    @action(detail=False, methods=['post'], url_path=r'detect/(?P<hotel_slug>[^/.]+)')
+    @action(detail=False, methods=['post'], url_path='detect')
     def detect_face_only(self, request, hotel_slug=None):
         probe = request.data.get("descriptor")
         if not isinstance(probe, list) or len(probe) != 128:
             return Response({"error": "A 128‑length descriptor array is required."},
                             status=status.HTTP_400_BAD_REQUEST)
 
+        hotel_slug = self.kwargs.get('hotel_slug')
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
         # Validate user has staff profile and belongs to this hotel
