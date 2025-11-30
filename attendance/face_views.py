@@ -288,6 +288,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 if existing_log.is_on_break and existing_log.break_start:
                     current_break_time = (now() - existing_log.break_start).total_seconds() / 60  # minutes
                 
+                # Use kiosk mode from the saved clock log
+                kiosk_action = 'show_options_then_refresh' if existing_log.is_kiosk_mode else 'show_options_stay_logged_in'
+                
                 return Response({
                     'action': 'clock_out_options',
                     'message': f'{matched_staff.first_name} {matched_staff.last_name} - Choose action',
@@ -304,6 +307,7 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                         'current_break_minutes': round(current_break_time, 0) if existing_log.is_on_break else 0,
                         'total_break_minutes': existing_log.total_break_minutes
                     },
+                    'kiosk_action': kiosk_action,
                     'available_actions': [
                         {
                             'action': 'clock_out',
@@ -348,7 +352,8 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                         roster_shift=matching_shift,
                         is_unrostered=False,
                         is_approved=True,
-                        is_on_break=False
+                        is_on_break=False,
+                        is_kiosk_mode=validated_data.get('is_kiosk_mode', False)
                     )
                     
                     # Update staff status
@@ -365,6 +370,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                     
                     # Serialize with enhanced features
                     serializer = ClockLogSerializer(new_log)
+                    
+                    # Determine frontend action based on kiosk mode
+                    kiosk_action = 'refresh_for_next_person' if new_log.is_kiosk_mode else 'stay_logged_in'
                     
                     return Response({
                         'action': 'clock_in_success',
@@ -384,6 +392,7 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                             'department': matching_shift.department.name if matching_shift.department else None
                         } if matching_shift else None,
                         'confidence_score': confidence_score,
+                        'kiosk_action': kiosk_action,
                         'clock_log': serializer.data
                     }, status=status.HTTP_201_CREATED)
                 else:
@@ -851,6 +860,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
             # Serialize response
             serializer = ClockLogSerializer(existing_log)
             
+            # Use kiosk mode from saved log to determine frontend action
+            kiosk_action = 'refresh_for_next_person' if existing_log.is_kiosk_mode else 'stay_logged_in'
+            
             return Response({
                 'action': 'clock_out_success',
                 'message': f'{matched_staff.first_name} {matched_staff.last_name} clocked out successfully!',
@@ -867,6 +879,7 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                     'clock_out_time': existing_log.time_out.isoformat()
                 },
                 'confidence_score': confidence_score,
+                'kiosk_action': kiosk_action,
                 'clock_log': serializer.data
             }, status=status.HTTP_200_OK)
                 
@@ -956,6 +969,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 existing_log.break_end = now()
                 existing_log.save()
                 
+                # Use kiosk mode from saved log
+                kiosk_action = 'refresh_for_next_person' if existing_log.is_kiosk_mode else 'stay_logged_in'
+                
                 return Response({
                     'action': 'break_ended',
                     'message': f'{matched_staff.first_name} {matched_staff.last_name} break ended',
@@ -970,13 +986,17 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                         'total_break_minutes': existing_log.total_break_minutes,
                         'is_on_break': False
                     },
-                    'confidence_score': confidence_score
+                    'confidence_score': confidence_score,
+                    'kiosk_action': kiosk_action
                 }, status=status.HTTP_200_OK)
             else:
                 # Start break
                 existing_log.is_on_break = True
                 existing_log.break_start = now()
                 existing_log.save()
+                
+                # Use kiosk mode from saved log
+                kiosk_action = 'refresh_for_next_person' if existing_log.is_kiosk_mode else 'stay_logged_in'
                 
                 return Response({
                     'action': 'break_started',
@@ -992,7 +1012,8 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                         'total_break_minutes': existing_log.total_break_minutes,
                         'is_on_break': True
                     },
-                    'confidence_score': confidence_score
+                    'confidence_score': confidence_score,
+                    'kiosk_action': kiosk_action
                 }, status=status.HTTP_200_OK)
                 
         except Exception as e:

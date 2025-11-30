@@ -632,6 +632,11 @@ class FaceClockInSerializer(serializers.Serializer):
         required=False,
         help_text="Force specific clock action (optional)"
     )
+    is_kiosk_mode = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="True if this is a shared kiosk device (auto-refresh after actions)"
+    )
     
     def validate_encoding(self, value):
         """Validate face encoding format."""

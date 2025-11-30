@@ -32,11 +32,11 @@ class StaffFaceAdmin(admin.ModelAdmin):
 class ClockLogAdmin(admin.ModelAdmin):
     list_display = (
         'staff', 'hotel', 'time_in', 'time_out', 'hours_worked',
-        'verified_by_face', 'is_unrostered', 'is_approved', 'auto_clock_out'
+        'verified_by_face', 'is_unrostered', 'is_approved', 'is_kiosk_mode', 'auto_clock_out'
     )
     list_filter = (
         'hotel', 'verified_by_face', 'auto_clock_out', 'is_unrostered',
-        'is_approved', 'is_rejected'
+        'is_approved', 'is_rejected', 'is_kiosk_mode'
     )
     search_fields = ('staff__first_name', 'staff__last_name', 'hotel__name')
     readonly_fields = ('time_in', 'hours_worked')
@@ -52,7 +52,7 @@ class ClockLogAdmin(admin.ModelAdmin):
         ('Approval & Status', {
             'fields': (
                 'is_unrostered', 'is_approved', 'is_rejected',
-                'auto_clock_out', 'location_note'
+                'auto_clock_out', 'is_kiosk_mode', 'location_note'
             )
         }),
         ('Warning Flags', {
