@@ -607,7 +607,9 @@ class FaceClockInSerializer(serializers.Serializer):
     Serializer for face recognition clock-in/out with enhanced safety features.
     """
     image = Base64ImageField(
-        help_text="Base64 encoded face image for recognition"
+        required=False,
+        allow_null=True,
+        help_text="Base64 encoded face image for recognition (optional if encoding provided)"
     )
     encoding = serializers.ListField(
         child=serializers.FloatField(),
@@ -620,7 +622,13 @@ class FaceClockInSerializer(serializers.Serializer):
         help_text="Optional location or note for this clock action"
     )
     force_action = serializers.ChoiceField(
-        choices=[('clock_in', 'Force Clock In'), ('clock_out', 'Force Clock Out')],
+        choices=[
+            ('clock_in', 'Force Clock In'), 
+            ('clock_out', 'Force Clock Out'),
+            ('start_break', 'Start Break'),
+            ('end_break', 'End Break'),
+            ('resume_shift', 'Resume Shift')
+        ],
         required=False,
         help_text="Force specific clock action (optional)"
     )
