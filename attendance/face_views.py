@@ -390,7 +390,7 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                         },
                         'requires_confirmation': True,
                         'confidence_score': confidence_score,
-                        'confirmation_endpoint': f'/api/staff/hotel/{hotel.slug}/attendance/face-management/force-clock-in/'
+                        'confirmation_endpoint': f'/staff/hotel/{hotel.slug}/attendance/face-management/force-clock-in/'
                     }, status=status.HTTP_200_OK)
                 
         except Exception as e:
