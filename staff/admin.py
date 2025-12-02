@@ -67,7 +67,7 @@ class StaffAdmin(admin.ModelAdmin):
         'access_level',
         'has_registered_face',
         'is_active',
-        'is_on_duty',
+        'duty_status',
         'has_fcm_token',
     )
     list_filter = (
@@ -77,7 +77,7 @@ class StaffAdmin(admin.ModelAdmin):
         'access_level',
         'has_registered_face',
         'is_active',
-        'is_on_duty',
+        'duty_status',
     )
     search_fields = (
         'first_name',
@@ -96,7 +96,7 @@ class StaffAdmin(admin.ModelAdmin):
         'is_active',
         'role',
         'access_level',
-        'is_on_duty',
+        'duty_status',
     )
 
     fieldsets = (
@@ -106,7 +106,7 @@ class StaffAdmin(admin.ModelAdmin):
                 ('first_name', 'last_name'),
                 ('email', 'phone_number'),
                 ('department', 'role', 'access_level'),
-                ('is_active', 'is_on_duty', 'has_registered_face'),
+                ('is_active', 'duty_status', 'has_registered_face'),
                 'profile_image',
                 'profile_image_preview',
                 'allowed_navigation_items',
@@ -169,7 +169,7 @@ class StaffAdmin(admin.ModelAdmin):
     get_role.admin_order_field = 'role__name'
     get_role.short_description = 'Role'
 
-    actions = ['mark_as_inactive', 'mark_as_on_duty', 'mark_as_off_duty']
+    actions = ['mark_as_inactive', 'mark_as_on_duty', 'mark_as_off_duty', 'mark_as_on_break']
 
     @admin.action(description="Mark selected staff as inactive")
     def mark_as_inactive(self, request, queryset):
@@ -177,11 +177,15 @@ class StaffAdmin(admin.ModelAdmin):
 
     @admin.action(description="Mark selected staff as ON duty")
     def mark_as_on_duty(self, request, queryset):
-        queryset.update(is_on_duty=True)
+        queryset.update(duty_status='on_duty')
 
     @admin.action(description="Mark selected staff as OFF duty")
     def mark_as_off_duty(self, request, queryset):
-        queryset.update(is_on_duty=False)
+        queryset.update(duty_status='off_duty')
+
+    @admin.action(description="Mark selected staff as ON break")
+    def mark_as_on_break(self, request, queryset):
+        queryset.update(duty_status='on_break')
 
     def get_queryset(self, request):
         qs = super().get_queryset(request)

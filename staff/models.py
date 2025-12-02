@@ -146,7 +146,6 @@ class Staff(models.Model):
         help_text="Current duty status of the staff member"
     )
     # Deprecated: Keep for migration compatibility, will be removed
-    is_on_duty = models.BooleanField(default=False, null=True, blank=True)
     has_registered_face = models.BooleanField(default=False, null=True)
 
     def get_current_status(self):
