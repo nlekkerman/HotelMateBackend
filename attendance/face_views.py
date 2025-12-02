@@ -357,9 +357,10 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                         is_kiosk_mode=validated_data.get('is_kiosk_mode', False)
                     )
                     
-                    # Update staff status
+                    # Update staff status (both new and legacy fields)
                     matched_staff.duty_status = 'on_duty'
-                    matched_staff.save(update_fields=['duty_status'])
+                    matched_staff.is_on_duty = True
+                    matched_staff.save(update_fields=['duty_status', 'is_on_duty'])
                     
                     # Trigger Pusher event for real-time status update
                     trigger_clock_status_update(hotel.slug, matched_staff, 'clock_in')
@@ -977,6 +978,10 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 existing_log.break_end = now()
                 existing_log.save()
                 
+                # Update staff duty status back to on_duty
+                matched_staff.duty_status = 'on_duty'
+                matched_staff.save(update_fields=['duty_status'])
+                
                 # Trigger Pusher event for break end (staff back on duty)
                 trigger_clock_status_update(hotel.slug, matched_staff, 'end_break')
                 
@@ -1006,8 +1011,9 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 existing_log.break_start = now()
                 existing_log.save()
                 
-                # Update staff duty status
+                # Update staff duty status (keep is_on_duty=True since still working)
                 matched_staff.duty_status = 'on_break'
+                # Don't change is_on_duty - staff is still working, just on break
                 matched_staff.save(update_fields=['duty_status'])
                 
                 # Trigger Pusher event for break start
@@ -1131,9 +1137,10 @@ def force_clock_in_unrostered(request, hotel_slug):
             is_rejected=False
         )
         
-        # Update staff status
+        # Update staff status (both new and legacy fields)
         matched_staff.duty_status = 'on_duty'
-        matched_staff.save(update_fields=['duty_status'])
+        matched_staff.is_on_duty = True
+        matched_staff.save(update_fields=['duty_status', 'is_on_duty'])
         
         # Create audit log
         create_face_audit_log(
@@ -1259,9 +1266,10 @@ def confirm_clock_out_view(request, hotel_slug):
         existing_log.time_out = now()
         existing_log.save()
         
-        # Update staff status
+        # Update staff status (both new and legacy fields)
         matched_staff.duty_status = 'off_duty'
-        matched_staff.save(update_fields=['duty_status'])
+        matched_staff.is_on_duty = False
+        matched_staff.save(update_fields=['duty_status', 'is_on_duty'])
         
         # Calculate session duration
         session_duration = (existing_log.time_out - existing_log.time_in).total_seconds() / 3600
@@ -1385,6 +1393,10 @@ def toggle_break_view(request, hotel_slug):
             existing_log.break_end = now()
             existing_log.save()
             
+            # Update staff duty status back to on_duty
+            matched_staff.duty_status = 'on_duty'
+            matched_staff.save(update_fields=['duty_status'])
+            
             return Response({
                 'action': 'break_ended',
                 'message': f'{matched_staff.first_name} {matched_staff.last_name} ended break',
@@ -1407,8 +1419,9 @@ def toggle_break_view(request, hotel_slug):
             existing_log.break_start = now()
             existing_log.save()
             
-            # Update staff duty status
+            # Update staff duty status (keep is_on_duty=True since still working)
             matched_staff.duty_status = 'on_break'
+            # Don't change is_on_duty - staff is still working, just on break
             matched_staff.save(update_fields=['duty_status'])
             
             # Trigger Pusher event for break start

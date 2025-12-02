@@ -338,6 +338,8 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
                 action_message = "Clock‑out"
                 action_type = "clock_out"
                 log = existing_log
+                # Update staff status (both new and legacy fields)
+                staff.duty_status = 'off_duty'
                 staff.is_on_duty = False
             else:
                 # CLOCK-IN path - find matching shift
@@ -372,7 +374,7 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
                         "confirmation_endpoint": f"/api/hotels/{hotel_slug}/clock-logs/unrostered-confirm/"
                     }, status=status.HTTP_200_OK)
 
-            staff.save(update_fields=["is_on_duty"])
+            staff.save(update_fields=["duty_status", "is_on_duty"])
 
             # Trigger Pusher events for real-time updates
             trigger_clock_status_update(hotel_slug, staff, action_type)
@@ -623,8 +625,10 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         )
         
         # Update staff status
+        # Update staff status (both new and legacy fields)
+        staff.duty_status = 'on_duty'
         staff.is_on_duty = True
-        staff.save(update_fields=["is_on_duty"])
+        staff.save(update_fields=["duty_status", "is_on_duty"])
         
         # Send notification to managers
         send_unrostered_request_notification(hotel, log)
@@ -713,8 +717,10 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         if log.time_out is None:
             log.time_out = now()
             log.save(update_fields=['time_out'])
+            # Update staff status (both new and legacy fields)
+            log.staff.duty_status = 'off_duty'
             log.staff.is_on_duty = False
-            log.staff.save(update_fields=['is_on_duty'])
+            log.staff.save(update_fields=['duty_status', 'is_on_duty'])
         
         # Trigger Pusher event
         pusher_client.trigger(
@@ -784,9 +790,10 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         log.long_session_ack_mode = 'clocked_out'
         log.save(update_fields=['time_out', 'long_session_ack_mode'])
         
-        # Update staff status
+        # Update staff status (both new and legacy fields)
+        log.staff.duty_status = 'off_duty'
         log.staff.is_on_duty = False
-        log.staff.save(update_fields=['is_on_duty'])
+        log.staff.save(update_fields=['duty_status', 'is_on_duty'])
         
         # Trigger Pusher events
         trigger_clock_status_update(hotel_slug, log.staff, "clock_out")
