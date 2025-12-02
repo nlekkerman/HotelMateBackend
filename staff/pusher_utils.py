@@ -27,12 +27,27 @@ def trigger_clock_status_update(hotel_slug, staff, action):
     # Get current status details
     current_status = staff.get_current_status()
     
+    # Ensure duty_status and current_status.status are consistent
+    duty_status = staff.duty_status
+    if action == 'clock_in':
+        duty_status = 'on_duty'
+    elif action == 'clock_out':
+        duty_status = 'off_duty'
+    elif action == 'start_break':
+        duty_status = 'on_break'
+    elif action == 'end_break':
+        duty_status = 'on_duty'
+    
+    # Update current_status to match duty_status
+    current_status['status'] = duty_status
+    current_status['is_on_break'] = (duty_status == 'on_break')
+    
     data = {
         'user_id': staff.user.id if staff.user else None,
         'staff_id': staff.id,
-        'duty_status': staff.duty_status,
-        'is_on_duty': staff.duty_status in ['on_duty', 'on_break'],
-        'is_on_break': staff.duty_status == 'on_break',
+        'duty_status': duty_status,
+        'is_on_duty': duty_status in ['on_duty', 'on_break'],
+        'is_on_break': duty_status == 'on_break',
         'status_label': current_status['label'],
         'clock_time': timezone.now().isoformat(),
         'first_name': staff.first_name,
@@ -48,8 +63,8 @@ def trigger_clock_status_update(hotel_slug, staff, action):
     try:
         pusher_client.trigger(channel, event, data)
         logger.info(
-            f"Pusher: {event} triggered for staff {staff.id} "
-            f"in hotel {hotel_slug}"
+            f"Pusher clock-status-updated → channel={channel} staff_id={staff.id} "
+            f"duty_status={duty_status} action={action}"
         )
     except Exception as e:
         logger.error(

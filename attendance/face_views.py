@@ -1142,6 +1142,9 @@ def force_clock_in_unrostered(request, hotel_slug):
         matched_staff.is_on_duty = True
         matched_staff.save(update_fields=['duty_status', 'is_on_duty'])
         
+        # Trigger Pusher event for real-time status update
+        trigger_clock_status_update(hotel.slug, matched_staff, 'clock_in')
+        
         # Create audit log
         create_face_audit_log(
             hotel=hotel,
@@ -1396,6 +1399,9 @@ def toggle_break_view(request, hotel_slug):
             # Update staff duty status back to on_duty
             matched_staff.duty_status = 'on_duty'
             matched_staff.save(update_fields=['duty_status'])
+            
+            # Trigger Pusher event for break end
+            trigger_clock_status_update(hotel.slug, matched_staff, 'end_break')
             
             return Response({
                 'action': 'break_ended',

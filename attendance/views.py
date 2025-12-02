@@ -359,6 +359,8 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
                     )
                     action_message = "Clock‑in"
                     action_type = "clock_in"
+                    # Update staff status (both new and legacy fields)
+                    staff.duty_status = 'on_duty'
                     staff.is_on_duty = True
                 else:
                     # Unrostered clock-in - return detection result for frontend confirmation
