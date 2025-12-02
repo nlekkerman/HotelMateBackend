@@ -42,13 +42,22 @@ def trigger_clock_status_update(hotel_slug, staff, action):
     current_status['status'] = duty_status
     current_status['is_on_break'] = (duty_status == 'on_break')
     
+    # Update labels to match the actual duty status
+    status_labels = {
+        'off_duty': 'Off Duty',
+        'on_duty': 'On Duty', 
+        'on_break': 'On Break'
+    }
+    status_label = status_labels.get(duty_status, 'Unknown')
+    current_status['label'] = status_label
+    
     data = {
         'user_id': staff.user.id if staff.user else None,
         'staff_id': staff.id,
         'duty_status': duty_status,
         'is_on_duty': duty_status in ['on_duty', 'on_break'],
         'is_on_break': duty_status == 'on_break',
-        'status_label': current_status['label'],
+        'status_label': status_label,
         'clock_time': timezone.now().isoformat(),
         'first_name': staff.first_name,
         'last_name': staff.last_name,
