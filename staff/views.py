@@ -35,6 +35,8 @@ from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
 
 
+from .permissions_superuser import IsSuperUser
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 20
     page_size_query_param = 'page_size'
@@ -140,8 +142,6 @@ class CustomAuthToken(ObtainAuthToken):
         output_serializer.is_valid(raise_exception=True)
         return Response(output_serializer.data)
 
-
-from .permissions_superuser import IsSuperUser
 
 class StaffViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):

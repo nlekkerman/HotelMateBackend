@@ -173,7 +173,7 @@ class StaffSerializer(serializers.ModelSerializer):
     is_staff_member = serializers.SerializerMethodField()
     hotel_slug = serializers.CharField(source='hotel.slug', read_only=True)
     role_slug = serializers.SerializerMethodField()
-
+    current_status = serializers.SerializerMethodField()
     class Meta:
         model = Staff
         fields = [
@@ -185,12 +185,12 @@ class StaffSerializer(serializers.ModelSerializer):
             'hotel', 'access_level', 'hotel_name', 'hotel_slug',
             'profile_image', 'profile_image_url',
             'has_registered_face', 'allowed_navs',
-            'has_fcm_token', 'is_staff_member', 'role_slug',
+            'has_fcm_token', 'is_staff_member', 'role_slug','current_status',
         ]
         read_only_fields = [
             'user', 'allowed_navs', 'hotel_name', 'hotel_slug',
             'profile_image_url', 'department_detail', 'role_detail',
-            'has_fcm_token', 'is_staff_member', 'role_slug'
+            'has_fcm_token', 'is_staff_member', 'role_slug','current_status'
         ]
 
     def get_has_fcm_token(self, obj):
@@ -226,6 +226,14 @@ class StaffSerializer(serializers.ModelSerializer):
         """
         return obj.role.slug if obj.role else None
 
+    def get_current_status(self, obj):
+        """
+        Expose unified duty status object for frontend.
+        Uses Staff.get_current_status() which already
+        maps duty_status + break info.
+        """
+        return obj.get_current_status()
+    
     def create(self, validated_data):
         user_data = validated_data.pop('user', None)
         if user_data:
