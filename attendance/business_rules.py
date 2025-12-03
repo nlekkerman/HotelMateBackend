@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, time
 from django.db.models import Q, Sum
 from django.utils.timezone import now
 from .models import StaffRoster, ClockLog
-from .helpers import shift_to_datetime_range
 
 
 # Reuse existing constants from attendance logic
@@ -16,6 +15,24 @@ MAX_DAILY_HOURS = 12  # Align with attendance "12h hard stop"
 MAX_WEEKLY_HOURS = 48  # Standard working week limit
 MINIMUM_BREAK_DURATION = timedelta(minutes=30)  # Minimum break time
 MAXIMUM_SHIFT_DURATION = timedelta(hours=12)  # Max single shift length
+
+
+def shift_to_datetime_range(shift_date, shift_start, shift_end):
+    """
+    Convert a shift date + start/end times to datetime range.
+    Handles overnight shifts that cross midnight.
+    Copied from attendance/views.py to avoid circular imports.
+    """
+    start_dt = datetime.combine(shift_date, shift_start)
+    
+    if shift_end < shift_start:
+        # Overnight shift - end time is next day
+        end_dt = datetime.combine(shift_date + timedelta(days=1), shift_end)
+    else:
+        # Same day shift
+        end_dt = datetime.combine(shift_date, shift_end)
+    
+    return start_dt, end_dt
 
 
 def validate_shift_business_rules(shift_data, hotel, existing_shifts=None):
@@ -268,14 +285,15 @@ def align_with_clock_log_rules(shift, clock_logs=None):
     Ensure roster shift aligns with ClockLog attachment rules.
     Uses existing find_matching_shift_for_datetime logic.
     """
-    from .helpers import find_matching_shift_for_datetime
+    # Import here to avoid circular imports
+    from . import views
     
     # This ensures new roster shifts follow same rules that 
     # ClockLog.roster_shift attachment uses
     
     if clock_logs:
         for log in clock_logs:
-            matching_shift = find_matching_shift_for_datetime(
+            matching_shift = views.find_matching_shift_for_datetime(
                 hotel=shift.hotel,
                 staff=shift.staff, 
                 current_dt=log.time_in
