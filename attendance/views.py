@@ -609,6 +609,57 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(logs, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='department-status')
+    def department_status(self, request):
+        """
+        Get current status per department:
+        1. Currently clocked in staff (per department)
+        2. Unrostered staff (per department)
+        """
+        from collections import defaultdict
+        from django.utils.timezone import now
+        
+        hotel_slug = self.kwargs.get('hotel_slug')
+        today = now().date()
+        
+        # Get all currently clocked in logs (no time_out)
+        active_logs = self.get_queryset().filter(
+            time_out__isnull=True,
+            time_in__date=today
+        ).select_related('staff__department', 'staff')
+        
+        # Group by department
+        departments = defaultdict(lambda: {
+            'currently_clocked_in': [],
+            'unrostered': []
+        })
+        
+        for log in active_logs:
+            dept_slug = log.staff.department.slug if log.staff.department else 'unassigned'
+            
+            staff_data = {
+                'staff_id': log.staff.id,
+                'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
+                'clock_in_time': log.time_in.strftime('%H:%M'),
+                'is_on_break': getattr(log, 'is_on_break', False),
+                'hours_worked': float(log.hours_worked or 0),
+                'is_approved': log.is_approved
+            }
+            
+            # Add to currently clocked in
+            departments[dept_slug]['currently_clocked_in'].append(staff_data)
+            
+            # Also add to unrostered if applicable
+            if log.is_unrostered:
+                unrostered_data = staff_data.copy()
+                unrostered_data.update({
+                    'is_unrostered': True,
+                    'needs_approval': not log.is_approved
+                })
+                departments[dept_slug]['unrostered'].append(unrostered_data)
+        
+        return Response(dict(departments))
     
     # ═══════════════════════════════════════════════════════════
     # PHASE 4: UNROSTERED CLOCK-IN APPROVAL ENDPOINTS
