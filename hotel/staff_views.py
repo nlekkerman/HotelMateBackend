@@ -1313,9 +1313,140 @@ class SectionCreateView(APIView):
         
         name = request.data.get('name', f'{section_type.title()} Section')
         position = request.data.get('position', 0)
+        container_name = request.data.get('container_name', '')
+        article_title = request.data.get('article_title', '')
         
-        section = PublicSection.objects.create(hotel=hotel, position=position, name=name, is_active=True)
+        # Create the section
+        section = PublicSection.objects.create(
+            hotel=hotel, 
+            position=position, 
+            name=name, 
+            is_active=True
+        )
+        
+        # Create section-specific related objects based on type
+        if section_type == 'hero':
+            self._create_hero_section(section)
+            
+        elif section_type == 'gallery':
+            self._create_gallery_section(section, container_name)
+            
+        elif section_type == 'list':
+            self._create_list_section(section, container_name)
+            
+        elif section_type == 'news':
+            self._create_news_section(section, article_title)
+            
+        elif section_type == 'rooms':
+            self._create_rooms_section(section)
         
         from .serializers import PublicSectionDetailSerializer
         serializer = PublicSectionDetailSerializer(section)
-        return Response({'message': f'{section_type.title()} section created', 'section': serializer.data}, status=status.HTTP_201_CREATED)
+        return Response({
+            'message': f'{section_type.title()} section created', 
+            'section': serializer.data
+        }, status=status.HTTP_201_CREATED)
+    
+    def _create_hero_section(self, section):
+        """Create hero section with default placeholder data."""
+        HeroSection.objects.create(
+            section=section,
+            hero_title="Update your hero title here",
+            hero_text="Update your hero description text here.",
+            style_variant=1
+        )
+    
+    def _create_gallery_section(self, section, container_name):
+        """Create gallery section with an empty gallery container."""
+        gallery_name = container_name.strip() if container_name else "Gallery 1"
+        GalleryContainer.objects.create(
+            section=section,
+            name=gallery_name,
+            sort_order=0,
+            style_variant=1
+        )
+    
+    def _create_list_section(self, section, container_name):
+        """Create list section with an empty list container."""
+        list_title = container_name.strip() if container_name else ""
+        ListContainer.objects.create(
+            section=section,
+            title=list_title,
+            sort_order=0,
+            style_variant=1
+        )
+    
+    def _create_news_section(self, section, article_title):
+        """Create news section with a placeholder article and content blocks."""
+        from datetime import date
+        
+        news_title = article_title.strip() if article_title else "Update Article Title"
+        news_item = NewsItem.objects.create(
+            section=section,
+            title=news_title,
+            date=date.today(),
+            summary="Update this summary with your article excerpt.",
+            sort_order=0,
+            style_variant=1
+        )
+        
+        # Create placeholder content blocks for the news article
+        ContentBlock.objects.create(
+            news_item=news_item,
+            block_type='image',
+            body='',
+            image_position='full_width',
+            image_caption='Add your cover image here',
+            sort_order=0
+        )
+        
+        ContentBlock.objects.create(
+            news_item=news_item,
+            block_type='text',
+            body='Start writing your article content here. This is the first text block.',
+            image_position='full_width',
+            sort_order=1
+        )
+        
+        ContentBlock.objects.create(
+            news_item=news_item,
+            block_type='image',
+            body='',
+            image_position='right',
+            image_caption='Add an inline image (optional)',
+            sort_order=2
+        )
+        
+        ContentBlock.objects.create(
+            news_item=news_item,
+            block_type='text',
+            body='Continue your article here. This text will wrap around the image above.',
+            image_position='full_width',
+            sort_order=3
+        )
+        
+        ContentBlock.objects.create(
+            news_item=news_item,
+            block_type='image',
+            body='',
+            image_position='left',
+            image_caption='Another inline image (optional)',
+            sort_order=4
+        )
+        
+        ContentBlock.objects.create(
+            news_item=news_item,
+            block_type='text',
+            body='Conclude your article with this final text block.',
+            image_position='full_width',
+            sort_order=5
+        )
+    
+    def _create_rooms_section(self, section):
+        """Create rooms section configuration."""
+        RoomsSection.objects.create(
+            section=section,
+            subtitle="Choose the perfect stay for your visit",
+            description="",
+            style_variant=1
+        )
