@@ -7,6 +7,7 @@ from hotel.public_views import (
     HotelPublicListView,
     HotelFilterOptionsView,
     HotelPublicPageView,
+    PublicPresetsView,
 )
 from hotel.booking_views import (
     HotelAvailabilityView,
@@ -15,6 +16,13 @@ from hotel.booking_views import (
 )
 
 urlpatterns = [
+    # Presets for frontend styling (no auth required)
+    path(
+        "presets/",
+        PublicPresetsView.as_view(),
+        name="public-presets"
+    ),
+    
     # Hotel listing for landing page
     path(
         "hotels/",

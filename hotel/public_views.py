@@ -10,10 +10,11 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import models
 
-from .models import Hotel
+from .models import Hotel, Preset
 from .serializers import (
     HotelPublicSerializer,
-    PublicSectionDetailSerializer
+    PublicSectionDetailSerializer,
+    PresetSerializer
 )
 
 
@@ -215,3 +216,39 @@ class HotelPublicPageView(APIView):
         }
         
         return Response(response_data, status=status.HTTP_200_OK)
+
+
+class PublicPresetsView(APIView):
+    """
+    Public endpoint for presets - no authentication required.
+    Used by frontend to fetch available style presets.
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request):
+        """Return all available presets grouped by type"""
+        presets = Preset.objects.all()
+        serializer = PresetSerializer(presets, many=True)
+        
+        # Group presets by target_type and section_type for easier frontend use
+        grouped = {}
+        for preset_data in serializer.data:
+            target_type = preset_data.get('target_type', 'unknown')
+            section_type = preset_data.get('section_type', 'default')
+            
+            if target_type not in grouped:
+                grouped[target_type] = {}
+            
+            if target_type == 'section':
+                if section_type not in grouped[target_type]:
+                    grouped[target_type][section_type] = []
+                grouped[target_type][section_type].append(preset_data)
+            else:
+                if 'items' not in grouped[target_type]:
+                    grouped[target_type]['items'] = []
+                grouped[target_type]['items'].append(preset_data)
+        
+        return Response({
+            'presets': serializer.data,
+            'grouped': grouped
+        }, status=status.HTTP_200_OK)
