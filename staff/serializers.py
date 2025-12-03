@@ -407,7 +407,7 @@ class StaffAttendanceSummarySerializer(StaffSerializer):
             }
         return None
     
-    is_superuser = serializers.BooleanField()
+    is_superuser = serializers.BooleanField(source='user.is_superuser', read_only=True)
     access_level = serializers.CharField(allow_null=True, required=False)
     hotel = serializers.SerializerMethodField()
     allowed_navs = serializers.ListField(child=serializers.CharField(), default=list)
