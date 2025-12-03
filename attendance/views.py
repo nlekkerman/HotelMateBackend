@@ -611,7 +611,7 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @action(detail=False, methods=['get'], url_path='department-status')
-    def department_status(self, request):
+    def department_status(self, request, hotel_slug=None):
         """
         Get current status per department:
         1. Currently clocked in staff (per department)
