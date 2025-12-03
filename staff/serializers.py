@@ -7,6 +7,12 @@ from .models import (
 from hotel.serializers import HotelSerializer
 from hotel.models import Hotel
 from django.utils import timezone
+from .attendance_utils import (
+    calculate_attendance_status, calculate_worked_minutes,
+    count_planned_shifts, count_worked_shifts, count_attendance_issues,
+    get_status_badge_info, get_attendance_status_badge_info
+)
+from datetime import datetime, date
 
 
 class NavigationItemSerializer(serializers.ModelSerializer):
@@ -268,6 +274,124 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     hotel_name = serializers.CharField(allow_null=True, required=False)
     hotel_slug = serializers.CharField(allow_null=True, required=False)
     is_staff = serializers.BooleanField()
+
+
+class StaffAttendanceSummarySerializer(StaffSerializer):
+    """
+    Enhanced Staff serializer with comprehensive attendance and roster data.
+    Extends existing StaffSerializer with attendance aggregations for dashboard.
+    """
+    # Core staff info (inherited from StaffSerializer)
+    full_name = serializers.SerializerMethodField()
+    department_name = serializers.SerializerMethodField()
+    department_slug = serializers.SerializerMethodField()
+    avatar_url = serializers.CharField(source='profile_image.url', read_only=True)
+    
+    # Attendance aggregation fields
+    planned_shifts = serializers.SerializerMethodField()
+    worked_shifts = serializers.SerializerMethodField()
+    total_worked_minutes = serializers.SerializerMethodField()
+    issues_count = serializers.SerializerMethodField()
+    attendance_status = serializers.SerializerMethodField()
+    
+    # Badge information for UI
+    duty_status_badge = serializers.SerializerMethodField()
+    attendance_status_badge = serializers.SerializerMethodField()
+    
+    class Meta(StaffSerializer.Meta):
+        fields = StaffSerializer.Meta.fields + [
+            'full_name', 'department_name', 'department_slug', 'avatar_url',
+            'planned_shifts', 'worked_shifts', 'total_worked_minutes', 
+            'issues_count', 'attendance_status',
+            'duty_status_badge', 'attendance_status_badge'
+        ]
+        read_only_fields = StaffSerializer.Meta.read_only_fields + [
+            'full_name', 'department_name', 'department_slug', 'avatar_url',
+            'planned_shifts', 'worked_shifts', 'total_worked_minutes',
+            'issues_count', 'attendance_status', 
+            'duty_status_badge', 'attendance_status_badge'
+        ]
+    
+    def __init__(self, *args, **kwargs):
+        # Extract date range from context for attendance calculations
+        self.from_date = None
+        self.to_date = None
+        
+        context = kwargs.get('context', {})
+        request = context.get('request')
+        
+        if request:
+            from_str = request.query_params.get('from')
+            to_str = request.query_params.get('to', from_str)
+            
+            try:
+                if from_str:
+                    self.from_date = datetime.strptime(from_str, '%Y-%m-%d').date()
+                if to_str:
+                    self.to_date = datetime.strptime(to_str, '%Y-%m-%d').date()
+            except ValueError:
+                # Invalid date format, use defaults
+                self.from_date = date.today()
+                self.to_date = date.today()
+        
+        # Default to today if no dates provided
+        if not self.from_date:
+            self.from_date = date.today()
+        if not self.to_date:
+            self.to_date = self.from_date
+            
+        super().__init__(*args, **kwargs)
+    
+    def get_full_name(self, obj):
+        """Return full name for display"""
+        return f"{obj.first_name} {obj.last_name}".strip()
+    
+    def get_department_name(self, obj):
+        """Return department name or null"""
+        return obj.department.name if obj.department else None
+    
+    def get_department_slug(self, obj):
+        """Return department slug or null"""
+        return obj.department.slug if obj.department else None
+    
+    def get_planned_shifts(self, obj):
+        """Count planned shifts (roster entries) in date range"""
+        if not (self.from_date and self.to_date):
+            return 0
+        return count_planned_shifts(obj, self.from_date, self.to_date)
+    
+    def get_worked_shifts(self, obj):
+        """Count completed shifts (approved clock logs) in date range"""
+        if not (self.from_date and self.to_date):
+            return 0
+        return count_worked_shifts(obj, self.from_date, self.to_date)
+    
+    def get_total_worked_minutes(self, obj):
+        """Calculate total worked minutes in date range"""
+        if not (self.from_date and self.to_date):
+            return 0
+        return calculate_worked_minutes(obj, self.from_date, self.to_date)
+    
+    def get_issues_count(self, obj):
+        """Count attendance issues in date range"""
+        if not (self.from_date and self.to_date):
+            return 0
+        return count_attendance_issues(obj, self.from_date, self.to_date)
+    
+    def get_attendance_status(self, obj):
+        """Calculate attendance status for dashboard"""
+        if not (self.from_date and self.to_date):
+            return 'no_log'
+        return calculate_attendance_status(obj, self.from_date, self.to_date)
+    
+    def get_duty_status_badge(self, obj):
+        """Get badge information for duty status"""
+        return get_status_badge_info(obj.duty_status)
+    
+    def get_attendance_status_badge(self, obj):
+        """Get badge information for attendance status"""
+        attendance_status = self.get_attendance_status(obj)
+        return get_attendance_status_badge_info(attendance_status)
     is_superuser = serializers.BooleanField()
     access_level = serializers.CharField(allow_null=True, required=False)
     hotel = serializers.DictField(required=False)

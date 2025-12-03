@@ -15,6 +15,7 @@ from .serializers import (
     StaffLoginOutputSerializer, StaffLoginInputSerializer,
     RegisterStaffSerializer, DepartmentSerializer, RoleSerializer,
     NavigationItemSerializer, RegistrationCodeSerializer,
+    StaffAttendanceSummarySerializer
 )
 from rest_framework.decorators import action
 from .pusher_utils import (
@@ -23,6 +24,8 @@ from .pusher_utils import (
     trigger_navigation_permission_update,
     trigger_department_role_update
 )
+from .attendance_utils import optimize_attendance_queryset
+from datetime import datetime, date
 
 from django.contrib.auth.tokens import default_token_generator
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
@@ -50,7 +53,12 @@ class StaffMetadataView(APIView):
     def get(self, request, hotel_slug=None):
 
         if hotel_slug:
-            departments = Department.objects.all()
+            # Fix: Return only departments that have active staff in this hotel
+            # This ensures the dropdown shows all ~12 departments used by the hotel
+            departments = Department.objects.filter(
+                staff_members__hotel__slug=hotel_slug,
+                staff_members__is_active=True
+            ).distinct()
 
             roles = Role.objects.filter(
                 staff_members__hotel__slug=hotel_slug
@@ -342,6 +350,140 @@ class StaffViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(staff_qs, many=True)
         return Response(serializer.data)
+    
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="attendance-summary",
+        permission_classes=[permissions.IsAuthenticated]
+    )
+    def attendance_summary(self, request, hotel_slug=None):
+        """
+        Enhanced staff attendance summary endpoint for dashboard.
+        
+        Query parameters:
+        - from: YYYY-MM-DD (required) - start date for attendance analysis
+        - to: YYYY-MM-DD (optional, defaults to 'from') - end date 
+        - department: department slug for filtering
+        - status: attendance status filter ('active', 'completed', 'no_log', 'issue')
+        
+        Returns staff with attendance aggregations including:
+        - planned_shifts, worked_shifts, total_worked_minutes
+        - issues_count, attendance_status
+        - Badge information for UI rendering
+        """
+        # Validate hotel slug
+        if not hotel_slug:
+            return Response(
+                {"detail": "Hotel slug is required in URL path."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate date range
+        from_date_str = request.query_params.get('from')
+        if not from_date_str:
+            return Response(
+                {"detail": "'from' date parameter is required (format: YYYY-MM-DD)."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from_date = datetime.strptime(from_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {"detail": "Invalid 'from' date format. Use YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        to_date_str = request.query_params.get('to', from_date_str)
+        try:
+            to_date = datetime.strptime(to_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {"detail": "Invalid 'to' date format. Use YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate date range logic
+        if to_date < from_date:
+            return Response(
+                {"detail": "'to' date cannot be earlier than 'from' date."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get hotel-scoped staff queryset
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Base queryset: active staff in hotel
+        staff_qs = Staff.objects.filter(
+            hotel=hotel,
+            is_active=True
+        )
+        
+        # Apply department filter if provided
+        department_param = request.query_params.get('department')
+        if department_param:
+            # Support both slug and ID filtering
+            if department_param.isdigit():
+                staff_qs = staff_qs.filter(department_id=department_param)
+            else:
+                staff_qs = staff_qs.filter(department__slug=department_param)
+        
+        # Optimize queryset with attendance prefetching
+        staff_qs = optimize_attendance_queryset(staff_qs, from_date, to_date)
+        
+        # Apply pagination
+        page = self.paginate_queryset(staff_qs)
+        if page is not None:
+            serializer = StaffAttendanceSummarySerializer(
+                page, 
+                many=True, 
+                context={'request': request}
+            )
+            paginated_response = self.get_paginated_response(serializer.data)
+            
+            # Apply attendance status filter after serialization if needed
+            status_filter = request.query_params.get('status')
+            if status_filter:
+                filtered_results = [
+                    item for item in paginated_response.data['results']
+                    if item.get('attendance_status') == status_filter
+                ]
+                paginated_response.data['results'] = filtered_results
+                paginated_response.data['count'] = len(filtered_results)
+            
+            return paginated_response
+        
+        # No pagination case
+        serializer = StaffAttendanceSummarySerializer(
+            staff_qs, 
+            many=True, 
+            context={'request': request}
+        )
+        
+        results = serializer.data
+        
+        # Apply attendance status filter if provided
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            results = [
+                item for item in results
+                if item.get('attendance_status') == status_filter
+            ]
+        
+        return Response({
+            'results': results,
+            'count': len(results),
+            'date_range': {
+                'from': from_date.isoformat(),
+                'to': to_date.isoformat()
+            },
+            'filters': {
+                'hotel': hotel_slug,
+                'department': department_param,
+                'status': status_filter
+            }
+        })
 
 
 class StaffRegisterAPIView(APIView):
