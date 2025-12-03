@@ -179,9 +179,18 @@ def has_overlaps_for_staff(shifts):
                 shift_date = datetime.strptime(shift_date, "%Y-%m-%d").date()
             elif isinstance(shift_date, datetime):
                 shift_date = shift_date.date()
+            
+            # Parse time strings to time objects
+            shift_start = shift["shift_start"]
+            shift_end = shift["shift_end"]
+            
+            if isinstance(shift_start, str):
+                shift_start = datetime.strptime(shift_start, "%H:%M").time()
+            if isinstance(shift_end, str):
+                shift_end = datetime.strptime(shift_end, "%H:%M").time()
                 
             start_dt, end_dt = shift_to_datetime_range(
-                shift_date, shift["shift_start"], shift["shift_end"]
+                shift_date, shift_start, shift_end
             )
             ranges.append((start_dt, end_dt, shift))
         
