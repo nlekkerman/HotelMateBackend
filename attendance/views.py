@@ -629,12 +629,21 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
             time_in__date=today
         ).select_related('staff__department', 'staff')
         
+        # Get ALL unrostered logs from today (regardless of clock-out status)
+        unrostered_logs = self.get_queryset().filter(
+            time_in__date=today,
+            is_unrostered=True,
+            is_approved=False,  # Only show pending ones
+            is_rejected=False
+        ).select_related('staff__department', 'staff')
+        
         # Group by department
         departments = defaultdict(lambda: {
             'currently_clocked_in': [],
             'unrostered': []
         })
         
+        # Add currently clocked in staff
         for log in active_logs:
             dept_slug = log.staff.department.slug if log.staff.department else 'unassigned'
             
@@ -642,22 +651,32 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
                 'staff_id': log.staff.id,
                 'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
                 'clock_in_time': log.time_in.strftime('%H:%M'),
+                'clock_out_time': log.time_out.strftime('%H:%M') if log.time_out else None,
                 'is_on_break': getattr(log, 'is_on_break', False),
                 'hours_worked': float(log.hours_worked or 0),
-                'is_approved': log.is_approved
+                'is_approved': log.is_approved,
+                'currently_active': True
             }
             
-            # Add to currently clocked in
             departments[dept_slug]['currently_clocked_in'].append(staff_data)
+        
+        # Add ALL unrostered logs (even if clocked out) - these stay until approved/rejected
+        for log in unrostered_logs:
+            dept_slug = log.staff.department.slug if log.staff.department else 'unassigned'
             
-            # Also add to unrostered if applicable
-            if log.is_unrostered:
-                unrostered_data = staff_data.copy()
-                unrostered_data.update({
-                    'is_unrostered': True,
-                    'needs_approval': not log.is_approved
-                })
-                departments[dept_slug]['unrostered'].append(unrostered_data)
+            unrostered_data = {
+                'staff_id': log.staff.id,
+                'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
+                'clock_in_time': log.time_in.strftime('%H:%M'),
+                'clock_out_time': log.time_out.strftime('%H:%M') if log.time_out else None,
+                'hours_worked': float(log.hours_worked or 0),
+                'is_unrostered': True,
+                'needs_approval': True,
+                'is_approved': log.is_approved,
+                'currently_active': log.time_out is None
+            }
+            
+            departments[dept_slug]['unrostered'].append(unrostered_data)
         
         return Response(dict(departments))
     
