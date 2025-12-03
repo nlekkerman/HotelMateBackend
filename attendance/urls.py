@@ -79,6 +79,11 @@ download_daily_plan_pdf = DailyPlanViewSet.as_view({'get': 'download_pdf'})
 copy_roster_bulk = CopyRosterViewSet.as_view({'post': 'copy_roster_bulk'})
 copy_roster_day_all = CopyRosterViewSet.as_view({'post': 'copy_roster_day_all'})
 copy_week_staff = CopyRosterViewSet.as_view({'post': 'copy_week_staff'})
+copy_entire_period = CopyRosterViewSet.as_view({'post': 'copy_entire_period'})
+
+# --------- Period Management ---------
+roster_create_custom = RosterPeriodViewSet.as_view({'post': 'create_custom_period'})
+roster_duplicate_period = RosterPeriodViewSet.as_view({'post': 'duplicate_period'})
 
 # --------- Face Management ---------
 face_register = FaceManagementViewSet.as_view({'post': 'register_face'})
@@ -152,6 +157,11 @@ urlpatterns = [
     path('shift-copy/copy-roster-day-all/', copy_roster_day_all, name='copy-roster-day-all'),
     path('shift-copy/copy-roster-bulk/', copy_roster_bulk, name='copy-roster-bulk'),
     path('shift-copy/copy-week-staff/', copy_week_staff, name='copy-week-staff'),
+    path('shift-copy/copy-entire-period/', copy_entire_period, name='copy-entire-period'),
+    
+    # --------- Enhanced Period Management ---------
+    path('periods/create-custom-period/', roster_create_custom, name='roster-create-custom'),
+    path('periods/<int:pk>/duplicate-period/', roster_duplicate_period, name='roster-duplicate-period'),
     
     # --------- Face Management Endpoints ---------
     path('face-management/register-face/', face_register, name='face-register'),

@@ -13,6 +13,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db import transaction
 
+# Import business rules for consistency
+from .business_rules import (
+    validate_copy_operation_constraints,
+    validate_shift_business_rules,
+    check_availability_conflicts,
+    align_with_clock_log_rules
+)
+
 # Security imports
 from common.mixins import HotelScopedViewSetMixin, AttendanceHotelScopedMixin
 from staff_chat.permissions import IsStaffMember, IsSameHotel
@@ -967,6 +975,257 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     # PHASE 4: PERIOD FINALIZATION ENDPOINTS
     # ═══════════════════════════════════════════════════════════
     
+    @action(detail=False, methods=['post'], url_path='create-custom-period')
+    def create_custom_period(self, request, *args, **kwargs):
+        """
+        Create a custom roster period with flexible start and end dates.
+        POST /attendance/<hotel_slug>/periods/create-custom-period/
+        {
+          "title": "Holiday Period",
+          "start_date": "2025-12-20",
+          "end_date": "2025-12-27",
+          "copy_from_period": 123  // optional: copy shifts from existing period
+        }
+        """
+        title = request.data.get("title")
+        start_date = request.data.get("start_date")
+        end_date = request.data.get("end_date")
+        copy_from_period = request.data.get("copy_from_period")
+        
+        if not all([title, start_date, end_date]):
+            return Response(
+                {"error": "title, start_date, and end_date are required."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            start_date = parse_date(start_date)
+            end_date = parse_date(end_date)
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid date format. Use YYYY-MM-DD."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if start_date >= end_date:
+            return Response(
+                {"error": "start_date must be before end_date."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        hotel = self.get_hotel()  # Use mixin method for consistent hotel scoping
+        staff_profile = self.request.user.staff_profile  # Ensure staff profile exists
+        
+        # Check for overlapping periods
+        existing_periods = RosterPeriod.objects.filter(
+            hotel=hotel,
+            start_date__lte=end_date,
+            end_date__gte=start_date
+        ).exists()
+        
+        if existing_periods:
+            return Response(
+                {"error": "Period overlaps with existing roster period."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create the period
+        period = RosterPeriod.objects.create(
+            hotel=hotel,
+            title=title,
+            start_date=start_date,
+            end_date=end_date,
+            created_by=staff_profile,
+            published=False
+        )
+        
+        # Copy shifts from existing period if requested
+        if copy_from_period:
+            try:
+                source_period = RosterPeriod.objects.get(
+                    id=copy_from_period, 
+                    hotel=hotel
+                )
+                
+                # Copy all shifts with date adjustment and hotel scoping
+                source_shifts = StaffRoster.objects.filter(
+                    hotel=hotel,  # Explicit hotel filter for safety
+                    period=source_period
+                )
+                date_offset = (period.start_date - source_period.start_date).days
+                
+                new_shifts = []
+                for shift in source_shifts:
+                    new_date = shift.shift_date + timedelta(days=date_offset)
+                    if period.start_date <= new_date <= period.end_date:
+                        new_shifts.append(
+                            StaffRoster(
+                                hotel=shift.hotel,
+                                staff=shift.staff,
+                                department=shift.department,
+                                period=period,
+                                shift_date=new_date,
+                                shift_start=shift.shift_start,
+                                shift_end=shift.shift_end,
+                                break_start=shift.break_start,
+                                break_end=shift.break_end,
+                                expected_hours=shift.expected_hours,
+                                shift_type=shift.shift_type,
+                                is_split_shift=shift.is_split_shift,
+                                is_night_shift=shift.is_night_shift,
+                                location=shift.location,
+                                notes=f"Copied from {source_period.title}"
+                            )
+                        )
+                
+                if new_shifts:
+                    StaffRoster.objects.bulk_create(new_shifts)
+                
+                # Log the copy operation
+                try:
+                    log_roster_operation(
+                        hotel=hotel,
+                        operation_type='create_period_with_copy',
+                        performed_by=staff_profile,
+                        affected_shifts_count=len(new_shifts),
+                        source_period=source_period,
+                        target_period=period,
+                        success=True,
+                        operation_details={
+                            'custom_period': True,
+                            'copied_shifts': len(new_shifts)
+                        }
+                    )
+                except AttributeError:
+                    pass
+                
+            except RosterPeriod.DoesNotExist:
+                return Response(
+                    {"error": f"Source period {copy_from_period} not found."}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        
+        serializer = self.get_serializer(period)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=True, methods=['post'], url_path='duplicate-period')
+    def duplicate_period(self, request, pk=None):
+        """
+        Duplicate an existing period with new dates.
+        POST /attendance/<hotel_slug>/periods/<pk>/duplicate-period/
+        {
+          "new_start_date": "2025-12-28",
+          "new_title": "Holiday Week 2" // optional
+        }
+        """
+        source_period = self.get_object()
+        new_start_date = request.data.get("new_start_date")
+        new_title = request.data.get("new_title")
+        
+        if not new_start_date:
+            return Response(
+                {"error": "new_start_date is required."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            new_start_date = parse_date(new_start_date)
+        except (ValueError, TypeError):
+            return Response(
+                {"error": "Invalid date format. Use YYYY-MM-DD."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Calculate period duration and new end date
+        period_duration = (source_period.end_date - source_period.start_date).days
+        new_end_date = new_start_date + timedelta(days=period_duration)
+        
+        # Generate title if not provided
+        if not new_title:
+            new_title = f"{source_period.title} (Copy)"
+        
+        hotel = source_period.hotel
+        
+        # Check for overlapping periods
+        existing_periods = RosterPeriod.objects.filter(
+            hotel=hotel,
+            start_date__lte=new_end_date,
+            end_date__gte=new_start_date
+        ).exists()
+        
+        if existing_periods:
+            return Response(
+                {"error": "New period dates overlap with existing roster period."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create the duplicate period
+        new_period = RosterPeriod.objects.create(
+            hotel=hotel,
+            title=new_title,
+            start_date=new_start_date,
+            end_date=new_end_date,
+            created_by=self.request.user.staff_profile,
+            published=False
+        )
+        
+        # Copy all shifts with date adjustment and hotel scoping
+        source_shifts = StaffRoster.objects.filter(
+            hotel=hotel,  # Explicit hotel filter for consistency
+            period=source_period
+        )
+        date_offset = (new_period.start_date - source_period.start_date).days
+        
+        new_shifts = []
+        for shift in source_shifts:
+            new_date = shift.shift_date + timedelta(days=date_offset)
+            new_shifts.append(
+                StaffRoster(
+                    hotel=shift.hotel,
+                    staff=shift.staff,
+                    department=shift.department,
+                    period=new_period,
+                    shift_date=new_date,
+                    shift_start=shift.shift_start,
+                    shift_end=shift.shift_end,
+                    break_start=shift.break_start,
+                    break_end=shift.break_end,
+                    expected_hours=shift.expected_hours,
+                    shift_type=shift.shift_type,
+                    is_split_shift=shift.is_split_shift,
+                    is_night_shift=shift.is_night_shift,
+                    location=shift.location,
+                    notes=f"Copied from {source_period.title}"
+                )
+            )
+        
+        if new_shifts:
+            StaffRoster.objects.bulk_create(new_shifts)
+        
+        # Log the duplication operation
+        try:
+            log_roster_operation(
+                hotel=hotel,
+                operation_type='duplicate_period',
+                performed_by=self.request.user.staff_profile,
+                affected_shifts_count=len(new_shifts),
+                source_period=source_period,
+                target_period=new_period,
+                success=True,
+                operation_details={
+                    'duplicated_shifts': len(new_shifts),
+                    'original_period': source_period.title
+                }
+            )
+        except AttributeError:
+            pass
+        
+        serializer = self.get_serializer(new_period)
+        return Response({
+            'period': serializer.data,
+            'shifts_copied': len(new_shifts)
+        }, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=['post'], url_path='finalize')
     def finalize_period(self, request, hotel_slug=None, pk=None):
         """
@@ -1518,11 +1777,12 @@ class DailyPlanEntryViewSet(viewsets.ModelViewSet):
         serializer.save(plan=daily_plan)   
 
 
-class CopyRosterViewSet(viewsets.ViewSet):
+class CopyRosterViewSet(AttendanceHotelScopedMixin, viewsets.ViewSet):
     """
     ViewSet to handle bulk roster copying using CopyWeekSerializer.
+    Hotel-scoped with proper permissions: IsAuthenticated + IsStaffMember + IsSameHotel
     """
-    permission_classes = [IsAuthenticated]
+    # Permissions inherited from AttendanceHotelScopedMixin
     
     # Rate limiting configuration
     MAX_SHIFTS_PER_COPY = 500  # Maximum shifts allowed in single copy operation
@@ -2048,4 +2308,265 @@ class CopyRosterViewSet(viewsets.ViewSet):
         return Response(
             {"copied_shifts_count": len(new_shifts)},
             status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=False, methods=['post'])
+    def copy_entire_period(self, request, hotel_slug=None):
+        """
+        Copy an entire roster period to a new period with all shifts.
+        Creates the target period if it doesn't exist.
+        """
+        # Check rate limiting
+        rate_limit_response = self._check_rate_limit(request, hotel_slug)
+        if rate_limit_response:
+            return rate_limit_response
+        
+        # Validate input data
+        source_period_id = request.data.get('source_period_id')
+        target_start_date = request.data.get('target_start_date')
+        target_title = request.data.get('target_title')
+        create_new_period = request.data.get('create_new_period', True)
+        copy_options = request.data.get('copy_options', {})
+        
+        if not source_period_id:
+            return Response(
+                {"detail": "source_period_id is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not target_start_date:
+            return Response(
+                {"detail": "target_start_date is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            target_start_date = datetime.strptime(target_start_date, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {"detail": "Invalid target_start_date format. Use YYYY-MM-DD."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get source period using hotel scoping
+        hotel = self.get_hotel()  # Use mixin method for consistent hotel scoping
+        source_period = get_object_or_404(
+            RosterPeriod, id=source_period_id, hotel=hotel
+        )
+        
+        # Calculate period duration
+        period_duration = (source_period.end_date - source_period.start_date).days
+        target_end_date = target_start_date + timedelta(days=period_duration)
+        
+        # Create or get target period
+        if create_new_period:
+            if not target_title:
+                # Auto-generate title based on date
+                week_number = target_start_date.isocalendar()[1]
+                target_title = f"Week {week_number} Roster ({target_start_date.year})"
+            
+            # Check if period already exists
+            existing_period = RosterPeriod.objects.filter(
+                hotel=hotel,
+                start_date=target_start_date,
+                end_date=target_end_date
+            ).first()
+            
+            if existing_period:
+                target_period = existing_period
+            else:
+                target_period = RosterPeriod.objects.create(
+                    hotel=hotel,
+                    title=target_title,
+                    start_date=target_start_date,
+                    end_date=target_end_date,
+                    created_by=self.request.user.staff_profile,  # Use proper staff profile
+                    published=False
+                )
+        else:
+            # Use existing period
+            target_period = RosterPeriod.objects.filter(
+                hotel=hotel,
+                start_date__lte=target_start_date,
+                end_date__gte=target_start_date
+            ).first()
+            
+            if not target_period:
+                return Response(
+                    {"detail": "No existing period found for target date. Set create_new_period=true to create one."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Check if target period is finalized
+        if target_period.published:
+            return Response(
+                {"detail": "Cannot copy to a published period."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get all shifts from source period with proper hotel scoping
+        source_shifts = StaffRoster.objects.filter(
+            hotel=hotel,  # Explicit hotel filter for safety
+            period=source_period
+        ).select_related('staff', 'department', 'location')
+        
+        # Apply copy options filters
+        departments = copy_options.get('departments', [])
+        staff_ids = copy_options.get('staff_ids', [])
+        locations = copy_options.get('locations', [])
+        exclude_weekends = copy_options.get('exclude_weekends', False)
+        
+        if departments:
+            source_shifts = source_shifts.filter(staff__department__slug__in=departments)
+        
+        if staff_ids:
+            source_shifts = source_shifts.filter(staff_id__in=staff_ids)
+        
+        if locations:
+            source_shifts = source_shifts.filter(location_id__in=locations)
+        
+        if exclude_weekends:
+            # Exclude Saturday (5) and Sunday (6)
+            source_shifts = source_shifts.exclude(shift_date__week_day__in=[1, 7])  # Django: Sun=1, Sat=7
+        
+        source_shifts = list(source_shifts)
+        
+        if not source_shifts:
+            return Response(
+                {"detail": "No shifts found in source period matching criteria."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Check operation size
+        size_check_response = self._check_operation_size(len(source_shifts), "Period copy")
+        if size_check_response:
+            return size_check_response
+        
+        # Calculate date offset
+        date_offset = (target_period.start_date - source_period.start_date).days
+        
+        new_shifts = []
+        skipped_shifts = []
+        
+        for shift in source_shifts:
+            new_date = shift.shift_date + timedelta(days=date_offset)
+            
+            # Ensure new date falls within target period
+            if target_period.start_date <= new_date <= target_period.end_date:
+                new_shifts.append(
+                    StaffRoster(
+                        hotel=shift.hotel,
+                        staff=shift.staff,
+                        department=shift.department,
+                        period=target_period,
+                        shift_date=new_date,
+                        shift_start=shift.shift_start,
+                        shift_end=shift.shift_end,
+                        break_start=shift.break_start,
+                        break_end=shift.break_end,
+                        expected_hours=shift.expected_hours,
+                        shift_type=shift.shift_type,
+                        is_split_shift=shift.is_split_shift,
+                        is_night_shift=shift.is_night_shift,
+                        location=shift.location,
+                        notes=f"Copied from {source_period.title}"
+                    )
+                )
+            else:
+                skipped_shifts.append({
+                    'staff': f"{shift.staff}",
+                    'original_date': shift.shift_date.isoformat(),
+                    'calculated_date': new_date.isoformat(),
+                    'reason': 'Date falls outside target period'
+                })
+        
+        if not new_shifts:
+            return Response(
+                {"detail": "No valid shifts to copy within target period range."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate business rules before copying
+        is_valid, errors, warnings = validate_copy_operation_constraints(
+            source_shifts, target_period, copy_options
+        )
+        
+        if not is_valid:
+            return Response(
+                {
+                    "detail": "Copy operation violates business rules.",
+                    "errors": errors,
+                    "warnings": warnings
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        actual_created = 0
+        with transaction.atomic():
+            # Check for overlaps
+            existing_shifts = list(
+                StaffRoster.objects.filter(
+                    hotel=hotel,
+                    shift_date__gte=target_period.start_date,
+                    shift_date__lte=target_period.end_date
+                ).values("staff_id", "shift_date", "shift_start", "shift_end")
+            )
+            
+            # Prepare new shifts for overlap checking
+            new_shifts_data = [
+                {
+                    "staff_id": shift.staff_id,
+                    "shift_date": shift.shift_date,
+                    "shift_start": shift.shift_start,
+                    "shift_end": shift.shift_end
+                } for shift in new_shifts
+            ]
+            
+            # Check for overlaps
+            all_combined = existing_shifts + new_shifts_data
+            
+            if has_overlaps_for_staff(all_combined):
+                return Response(
+                    {"detail": "Copying would create overlapping shifts. Operation cancelled."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Use bulk_create with ignore_conflicts to handle any remaining duplicates
+            created_shifts = StaffRoster.objects.bulk_create(new_shifts, ignore_conflicts=True)
+            actual_created = len(created_shifts)
+            
+            # Log successful operation
+            try:
+                staff_profile = self.request.user.staff_profile
+                log_roster_operation(
+                    hotel=hotel,
+                    operation_type='copy_entire_period',
+                    performed_by=staff_profile,
+                    affected_shifts_count=actual_created,
+                    source_period=source_period,
+                    target_period=target_period,
+                    success=True,
+                    operation_details={
+                        'period_created': create_new_period and 'created' not in locals(),
+                        'source_shifts_count': len(source_shifts),
+                        'skipped_shifts': len(skipped_shifts),
+                        'copy_options': copy_options
+                    }
+                )
+            except AttributeError:
+                pass
+        
+        return Response({
+            'success': True,
+            'target_period': {
+                'id': target_period.id,
+                'title': target_period.title,
+                'start_date': target_period.start_date.isoformat(),
+                'end_date': target_period.end_date.isoformat(),
+                'created': create_new_period and 'existing_period' not in locals()
+            },
+            'shifts_copied': actual_created,
+            'source_shifts_count': len(source_shifts),
+            'skipped_shifts': skipped_shifts
+        }, status=status.HTTP_201_CREATED
         )
