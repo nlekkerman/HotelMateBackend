@@ -38,6 +38,7 @@ roster_add_shift = RosterPeriodViewSet.as_view({'post': 'add_shift'})
 roster_create_department = RosterPeriodViewSet.as_view({'post': 'create_department_roster'})
 roster_create_for_week = RosterPeriodViewSet.as_view({'post': 'create_for_week'})
 roster_period_export_pdf = RosterPeriodViewSet.as_view({'get': 'export_pdf'})
+roster_period_finalize = RosterPeriodViewSet.as_view({'post': 'finalize_period'})
 
 # --------- Staff Roster PDF exports ---------
 staff_roster_daily_pdf = StaffRosterViewSet.as_view({'get': 'daily_pdf'})
@@ -105,6 +106,7 @@ urlpatterns = [
     path('periods/<int:pk>/', roster_period_detail, name='roster-period-detail'),
     path('periods/<int:pk>/add-shift/', roster_add_shift, name='roster-add-shift'),
     path('periods/<int:pk>/create-department-roster/', roster_create_department, name='roster-create-department'),
+    path('periods/<int:pk>/finalize/', roster_period_finalize, name='roster-period-finalize'),
     path('periods/create-for-week/', roster_create_for_week, name='roster-create-for-week'),
     
     # --------- Staff Shifts ---------
