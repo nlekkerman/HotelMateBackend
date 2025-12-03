@@ -57,16 +57,30 @@ class RosterAnalytics:
     def daily_by_department(hotel, start, end):
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end], department__isnull=False)
 
-        return qs.annotate(
-            date=F('shift_date'),
-            dept_id=F('department__id'),
-            department_name=F('department__name'),
-            department_slug=F('department__slug'),
-        ).values('date', 'dept_id').annotate(
+        results = qs.values(
+            'shift_date',
+            'department__id',
+            'department__name',
+            'department__slug'
+        ).annotate(
             total_rostered_hours=Sum('expected_hours'),
             shifts_count=Count('id'),
             unique_staff=Count('staff', distinct=True),
-        ).order_by('date', 'department_name')
+        ).order_by('shift_date', 'department__name')
+        
+        # Transform to expected format
+        return [
+            {
+                'date': row['shift_date'],
+                'dept_id': row['department__id'],
+                'department_name': row['department__name'],
+                'department_slug': row['department__slug'],
+                'total_rostered_hours': row['total_rostered_hours'],
+                'shifts_count': row['shifts_count'],
+                'unique_staff': row['unique_staff'],
+            }
+            for row in results
+        ]
 
     # Daily by staff
     @staticmethod
@@ -75,17 +89,34 @@ class RosterAnalytics:
         if department:
             qs = qs.filter(department__slug=department)
 
-        return qs.annotate(
-            date=F('shift_date'),
-            first_name=F('staff__first_name'),
-            last_name=F('staff__last_name'),
-            dept_id=F('department__id'),
-            department_name=F('department__name'),
-            department_slug=F('department__slug'),
-        ).values('date', 'staff_id').annotate(
+        results = qs.values(
+            'shift_date',
+            'staff_id',
+            'staff__first_name',
+            'staff__last_name',
+            'department__id',
+            'department__name',
+            'department__slug'
+        ).annotate(
             total_rostered_hours=Sum('expected_hours'),
             shifts_count=Count('id'),
-        ).order_by('date', 'department_name', 'last_name')
+        ).order_by('shift_date', 'department__name', 'staff__last_name')
+        
+        # Transform to expected format
+        return [
+            {
+                'date': row['shift_date'],
+                'staff_id': row['staff_id'],
+                'first_name': row['staff__first_name'],
+                'last_name': row['staff__last_name'],
+                'dept_id': row['department__id'],
+                'department_name': row['department__name'],
+                'department_slug': row['department__slug'],
+                'total_rostered_hours': row['total_rostered_hours'],
+                'shifts_count': row['shifts_count'],
+            }
+            for row in results
+        ]
 
     # Weekly totals
     @staticmethod
@@ -108,17 +139,32 @@ class RosterAnalytics:
     def weekly_by_department(hotel, start, end):
         qs = StaffRoster.objects.filter(hotel=hotel, shift_date__range=[start, end], department__isnull=False)
 
-        return qs.annotate(
+        results = qs.values(
+            'department__id',
+            'department__name', 
+            'department__slug'
+        ).annotate(
             year=ExtractYear('shift_date'),
             week=ExtractWeek('shift_date'),
-            dept_id=F('department__id'),
-            department_name=F('department__name'),
-            department_slug=F('department__slug'),
-        ).values('year', 'week', 'dept_id').annotate(
             total_rostered_hours=Sum('expected_hours'),
             shifts_count=Count('id'),
             unique_staff=Count('staff', distinct=True),
-        ).order_by('year', 'week', 'department_name')
+        ).order_by('year', 'week', 'department__name')
+        
+        # Transform to expected format
+        return [
+            {
+                'year': row['year'],
+                'week': row['week'],
+                'dept_id': row['department__id'],
+                'department_name': row['department__name'],
+                'department_slug': row['department__slug'],
+                'total_rostered_hours': row['total_rostered_hours'],
+                'shifts_count': row['shifts_count'],
+                'unique_staff': row['unique_staff'],
+            }
+            for row in results
+        ]
 
     # Weekly by staff
     @staticmethod
@@ -127,18 +173,36 @@ class RosterAnalytics:
         if department:
             qs = qs.filter(department__slug=department)
 
-        return qs.annotate(
+        results = qs.values(
+            'staff_id',
+            'staff__first_name',
+            'staff__last_name',
+            'department__id',
+            'department__name',
+            'department__slug'
+        ).annotate(
             year=ExtractYear('shift_date'),
             week=ExtractWeek('shift_date'),
-            first_name=F('staff__first_name'),
-            last_name=F('staff__last_name'),
-            dept_id=F('department__id'),
-            department_name=F('department__name'),
-            department_slug=F('department__slug'),
-        ).values('year', 'week', 'staff_id').annotate(
             total_rostered_hours=Sum('expected_hours'),
             shifts_count=Count('id'),
-        ).order_by('year', 'week', 'department_name', 'last_name')
+        ).order_by('year', 'week', 'department__name', 'staff__last_name')
+        
+        # Transform to expected format
+        return [
+            {
+                'year': row['year'],
+                'week': row['week'],
+                'staff_id': row['staff_id'],
+                'first_name': row['staff__first_name'],
+                'last_name': row['staff__last_name'],
+                'dept_id': row['department__id'],
+                'department_name': row['department__name'],
+                'department_slug': row['department__slug'],
+                'total_rostered_hours': row['total_rostered_hours'],
+                'shifts_count': row['shifts_count'],
+            }
+            for row in results
+        ]
 
     # KPIs method added here to avoid AttributeError
     @staticmethod
