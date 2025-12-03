@@ -136,9 +136,9 @@ def has_attendance_issues(staff, from_date, to_date, clock_logs=None, roster_shi
             return [log for log in logs if condition_func(log)]
     
     def _count_items(items):
-        if hasattr(items, 'count'):  # QuerySet
+        if hasattr(items, 'model'):  # Django QuerySet
             return items.count()
-        else:  # List
+        else:  # Python List
             return len(items)
     
     # Check for missing time_out (older than 24 hours)
@@ -242,10 +242,11 @@ def count_planned_shifts(staff, from_date, to_date, roster_shifts=None) -> int:
             )
     
     # Count items - handle both querysets and lists
-    if hasattr(roster_shifts, 'count'):
-        return roster_shifts.count()
+    # Check if it's a Django queryset (has model attribute) vs a Python list
+    if hasattr(roster_shifts, 'model'):
+        return roster_shifts.count()  # Django queryset
     else:
-        return len(roster_shifts)
+        return len(roster_shifts)  # Python list
 
 
 def count_worked_shifts(staff, from_date, to_date, clock_logs=None) -> int:
