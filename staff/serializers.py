@@ -396,9 +396,20 @@ class StaffAttendanceSummarySerializer(StaffSerializer):
         """Get badge information for attendance status"""
         attendance_status = self.get_attendance_status(obj)
         return get_attendance_status_badge_info(attendance_status)
+    
+    def get_hotel(self, obj):
+        """Get hotel information as dictionary"""
+        if obj.hotel:
+            return {
+                'id': obj.hotel.id,
+                'name': obj.hotel.name,
+                'slug': obj.hotel.slug
+            }
+        return None
+    
     is_superuser = serializers.BooleanField()
     access_level = serializers.CharField(allow_null=True, required=False)
-    hotel = serializers.DictField(required=False)
+    hotel = serializers.SerializerMethodField()
     allowed_navs = serializers.ListField(child=serializers.CharField(), default=list)
     profile_image_url = serializers.CharField(allow_null=True, required=False)
     role = serializers.CharField(allow_null=True, required=False)
