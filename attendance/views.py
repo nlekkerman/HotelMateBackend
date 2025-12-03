@@ -665,6 +665,7 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
             dept_slug = log.staff.department.slug if log.staff.department else 'unassigned'
             
             unrostered_data = {
+                'log_id': log.id,  # ← ADD THIS for approval API calls
                 'staff_id': log.staff.id,
                 'staff_name': f"{log.staff.first_name} {log.staff.last_name}",
                 'clock_in_time': log.time_in.strftime('%H:%M'),
