@@ -303,13 +303,17 @@ class StaffAttendanceSummarySerializer(StaffSerializer):
             'full_name', 'department_name', 'department_slug', 'avatar_url',
             'planned_shifts', 'worked_shifts', 'total_worked_minutes', 
             'issues_count', 'attendance_status',
-            'duty_status_badge', 'attendance_status_badge'
+            'duty_status_badge', 'attendance_status_badge',
+            'is_superuser', 'access_level', 'hotel', 'allowed_navs', 
+            'profile_image_url', 'role', 'department', 'staff_id'
         ]
         read_only_fields = StaffSerializer.Meta.read_only_fields + [
             'full_name', 'department_name', 'department_slug', 'avatar_url',
             'planned_shifts', 'worked_shifts', 'total_worked_minutes',
             'issues_count', 'attendance_status', 
-            'duty_status_badge', 'attendance_status_badge'
+            'duty_status_badge', 'attendance_status_badge',
+            'is_superuser', 'access_level', 'hotel', 'allowed_navs',
+            'profile_image_url', 'role', 'department', 'staff_id'
         ]
     
     def __init__(self, *args, **kwargs):
