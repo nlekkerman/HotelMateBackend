@@ -196,6 +196,7 @@ class ConversationSerializer(serializers.ModelSerializer):
     has_unread = serializers.BooleanField(read_only=True)
     
     # Guest information
+    guest_id = serializers.SerializerMethodField()
     guest_name = serializers.SerializerMethodField()
     guest_first_name = serializers.SerializerMethodField()
     guest_last_name = serializers.SerializerMethodField()
@@ -203,8 +204,10 @@ class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = [
+            'id',  # Add id field for frontend compatibility
             'conversation_id',
             'room_number',
+            'guest_id',
             'guest_name',
             'guest_first_name',
             'guest_last_name',
@@ -224,6 +227,11 @@ class ConversationSerializer(serializers.ModelSerializer):
         if last_msg:
             return last_msg.timestamp
         return None
+    
+    def get_guest_id(self, obj):
+        """Get guest ID"""
+        guest = obj.room.guests.first()
+        return guest.id if guest else None
     
     def get_guest_name(self, obj):
         """Get full guest name"""
