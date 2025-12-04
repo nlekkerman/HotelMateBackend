@@ -115,6 +115,17 @@ urlpatterns = [
     path('roster-periods/<int:pk>/finalized-rosters/', roster_period_finalized_rosters, name='roster-period-finalized-rosters'),
     path('roster-periods/create-for-week/', roster_create_for_week, name='roster-create-for-week'),
     
+    # --------- Alias URLs for backward compatibility (periods/ instead of roster-periods/) ---------
+    path('periods/', roster_period_list, name='periods-list'),
+    path('periods/<int:pk>/', roster_period_detail, name='periods-detail'),
+    path('periods/<int:pk>/add-shift/', roster_add_shift, name='periods-add-shift'),
+    path('periods/<int:pk>/create-department-roster/', roster_create_department, name='periods-create-department'),
+    path('periods/<int:pk>/finalize/', roster_period_finalize, name='periods-finalize'),
+    path('periods/<int:pk>/unfinalize/', roster_period_unfinalize, name='periods-unfinalize'),
+    path('periods/<int:pk>/finalization-status/', roster_period_finalization_status, name='periods-finalization-status'),
+    path('periods/<int:pk>/finalized-rosters/', roster_period_finalized_rosters, name='periods-finalized-rosters'),
+    path('periods/create-for-week/', roster_create_for_week, name='periods-create-for-week'),
+    
     # --------- Staff Shifts ---------
     path('shifts/', staff_roster_list, name='staff-roster-list'),
     path('shifts/<int:pk>/', staff_roster_detail, name='staff-roster-detail'),
