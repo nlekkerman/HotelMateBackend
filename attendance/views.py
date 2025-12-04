@@ -1480,6 +1480,42 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
             "validation_error": error_message if not is_valid else None,
             "can_force": getattr(request.user, 'is_staff', False),
         })
+    
+    @action(detail=True, methods=['get'], url_path='finalized-rosters')
+    def finalized_rosters_by_department(self, request, hotel_slug=None, pk=None):
+        """
+        Get finalized rosters for this period, optionally filtered by department.
+        """
+        period = self.get_object()
+        
+        if not period.is_finalized:
+            return Response({
+                "error": f"Period '{period.title}' is not finalized."
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Get rosters for this finalized period
+        rosters = StaffRoster.objects.filter(period=period).select_related(
+            'staff', 'department', 'location', 'approved_by'
+        )
+        
+        # Filter by department if provided
+        department = request.query_params.get('department')
+        if department:
+            rosters = rosters.filter(department__slug=department)
+        
+        serializer = StaffRosterSerializer(rosters, many=True)
+        
+        return Response({
+            "period": {
+                "id": period.id,
+                "title": period.title,
+                "is_finalized": period.is_finalized,
+                "finalized_by": period.finalized_by.first_name if period.finalized_by else None,
+                "finalized_at": period.finalized_at
+            },
+            "rosters": serializer.data,
+            "count": rosters.count()
+        })
 
 # ---------------------- Staff Roster ----------------------
 class StaffRosterViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
