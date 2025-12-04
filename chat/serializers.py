@@ -79,10 +79,13 @@ class RoomMessageSerializer(serializers.ModelSerializer):
     # Reply functionality
     reply_to_message = serializers.SerializerMethodField()
 
+    # Add conversation_id for frontend consistency
+    conversation_id = serializers.IntegerField(source='conversation.id', read_only=True)
+
     class Meta:
         model = RoomMessage
         fields = [
-            'id', 'conversation', 'room', 'room_number',
+            'id', 'conversation', 'conversation_id', 'room', 'room_number',
             'sender_type', 'staff', 'staff_name',
             'guest_name', 'staff_info',
             'message', 'timestamp',

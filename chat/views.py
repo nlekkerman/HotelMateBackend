@@ -334,6 +334,9 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         "conversation_id": conversation.id,
         "message": message_data
     }
+    
+    # Add conversation_id to message_data for consistency
+    message_data["conversation_id"] = conversation.id
 
     if sender_type == "staff":
         response_data["staff_info"] = get_staff_info(staff_instance)

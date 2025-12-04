@@ -272,7 +272,7 @@ class NotificationManager:
         
         # Build complete payload
         payload = {
-            'conversation_id': getattr(message, 'conversation_id', None) or f"room-{message.room.room_number}",
+            'conversation_id': message.conversation.id if message.conversation else f"room-{message.room.room_number}",
             'message_id': message.id,
             'sender_role': sender_role,
             'sender_id': sender_id,
