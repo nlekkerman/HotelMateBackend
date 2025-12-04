@@ -200,20 +200,30 @@ class ConversationSerializer(serializers.ModelSerializer):
     guest_name = serializers.SerializerMethodField()
     guest_first_name = serializers.SerializerMethodField()
     guest_last_name = serializers.SerializerMethodField()
+    
+    # CamelCase aliases for frontend compatibility
+    lastMessage = serializers.SerializerMethodField()
+    roomNumber = serializers.IntegerField(source='room.room_number', read_only=True)
+    guestId = serializers.SerializerMethodField()
+    guestName = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    unreadCountForStaff = serializers.SerializerMethodField()
+    unreadCountForGuest = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
         fields = [
             'id',  # Add id field for frontend compatibility
             'conversation_id',
-            'room_number',
-            'guest_id',
-            'guest_name',
+            'room_number', 'roomNumber',  # Both snake_case and camelCase
+            'guest_id', 'guestId',  # Both versions
+            'guest_name', 'guestName',  # Both versions
             'guest_first_name',
             'guest_last_name',
-            'last_message',
+            'last_message', 'lastMessage',  # Both versions
             'last_message_time',
             'has_unread',
+            'unread_count', 'unreadCountForStaff', 'unreadCountForGuest',
         ]
 
     def get_last_message(self, obj):
@@ -249,6 +259,31 @@ class ConversationSerializer(serializers.ModelSerializer):
         """Get guest last name"""
         guest = obj.room.guests.first()
         return guest.last_name if guest else None
+    
+    # CamelCase method implementations
+    def get_lastMessage(self, obj):
+        """CamelCase alias for last_message"""
+        return self.get_last_message(obj)
+    
+    def get_guestId(self, obj):
+        """CamelCase alias for guest_id"""
+        return self.get_guest_id(obj)
+    
+    def get_guestName(self, obj):
+        """CamelCase alias for guest_name"""
+        return self.get_guest_name(obj)
+    
+    def get_unread_count(self, obj):
+        """Get total unread count"""
+        return obj.messages.filter(read_by_staff=False, sender_type='guest').count()
+    
+    def get_unreadCountForStaff(self, obj):
+        """Get unread count for staff (guest messages not read by staff)"""
+        return obj.messages.filter(read_by_staff=False, sender_type='guest').count()
+    
+    def get_unreadCountForGuest(self, obj):
+        """Get unread count for guest (staff messages not read by guest)"""
+        return obj.messages.filter(read_by_guest=False, sender_type='staff').count()
 
 
 class ConversationUnreadCountSerializer(serializers.Serializer):
