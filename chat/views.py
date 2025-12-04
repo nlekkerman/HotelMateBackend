@@ -27,7 +27,7 @@ def get_active_conversations(request, hotel_slug):
     
     conversations = Conversation.objects.filter(
         room__hotel=hotel
-    ).order_by('-updated_at')
+    ).select_related('room').prefetch_related('room__guests', 'messages').order_by('-updated_at')
 
     serializer = ConversationSerializer(conversations, many=True)
     return Response(serializer.data)
