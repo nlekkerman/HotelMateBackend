@@ -39,6 +39,9 @@ roster_create_department = RosterPeriodViewSet.as_view({'post': 'create_departme
 roster_create_for_week = RosterPeriodViewSet.as_view({'post': 'create_for_week'})
 roster_period_export_pdf = RosterPeriodViewSet.as_view({'get': 'export_pdf'})
 roster_period_finalize = RosterPeriodViewSet.as_view({'post': 'finalize_period'})
+roster_period_unfinalize = RosterPeriodViewSet.as_view({'post': 'unfinalize_period'})
+roster_period_finalization_status = RosterPeriodViewSet.as_view({'get': 'finalization_status'})
+roster_period_finalized_rosters = RosterPeriodViewSet.as_view({'get': 'finalized_rosters_by_department'})
 
 # --------- Staff Roster PDF exports ---------
 staff_roster_daily_pdf = StaffRosterViewSet.as_view({'get': 'daily_pdf'})
@@ -102,12 +105,15 @@ urlpatterns = [
     path('', include(router.urls)),
 
     # --------- Roster Periods ---------
-    path('periods/', roster_period_list, name='roster-period-list'),
-    path('periods/<int:pk>/', roster_period_detail, name='roster-period-detail'),
-    path('periods/<int:pk>/add-shift/', roster_add_shift, name='roster-add-shift'),
-    path('periods/<int:pk>/create-department-roster/', roster_create_department, name='roster-create-department'),
-    path('periods/<int:pk>/finalize/', roster_period_finalize, name='roster-period-finalize'),
-    path('periods/create-for-week/', roster_create_for_week, name='roster-create-for-week'),
+    path('roster-periods/', roster_period_list, name='roster-period-list'),
+    path('roster-periods/<int:pk>/', roster_period_detail, name='roster-period-detail'),
+    path('roster-periods/<int:pk>/add-shift/', roster_add_shift, name='roster-add-shift'),
+    path('roster-periods/<int:pk>/create-department-roster/', roster_create_department, name='roster-create-department'),
+    path('roster-periods/<int:pk>/finalize/', roster_period_finalize, name='roster-period-finalize'),
+    path('roster-periods/<int:pk>/unfinalize/', roster_period_unfinalize, name='roster-period-unfinalize'),
+    path('roster-periods/<int:pk>/finalization-status/', roster_period_finalization_status, name='roster-period-finalization-status'),
+    path('roster-periods/<int:pk>/finalized-rosters/', roster_period_finalized_rosters, name='roster-period-finalized-rosters'),
+    path('roster-periods/create-for-week/', roster_create_for_week, name='roster-create-for-week'),
     
     # --------- Staff Shifts ---------
     path('shifts/', staff_roster_list, name='staff-roster-list'),

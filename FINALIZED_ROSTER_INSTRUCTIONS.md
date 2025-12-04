@@ -4,8 +4,10 @@
 
 ### 1. Fetch Finalized Periods
 ```http
-GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/?is_finalized=true
+GET http://localhost:8000/api/staff/hotel/{hotel_slug}/attendance/roster-periods/?is_finalized=true
 ```
+**Frontend should use:** `/api/staff/hotel/{hotel_slug}/attendance/roster-periods/?is_finalized=true`
+**Note:** Frontend dev server should proxy API calls to Django backend (port 8000)
 **Response:**
 ```json
 [
@@ -52,6 +54,24 @@ POST /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finaliz
 ```http
 GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finalized-rosters/
 GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finalized-rosters/?department=housekeeping
+```
+
+## Frontend Setup Required
+
+### Vite Proxy Configuration
+Add this to your `vite.config.js`:
+```javascript
+export default defineConfig({
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        secure: false,
+      }
+    }
+  }
+})
 ```
 **Response:**
 ```json
