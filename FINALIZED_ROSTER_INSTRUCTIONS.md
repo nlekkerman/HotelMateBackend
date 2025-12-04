@@ -2,13 +2,25 @@
 
 ## Backend API Endpoints
 
-### 1. Fetch Finalized Periods
+### 1. Fetch All Roster Periods
 ```http
-GET http://localhost:8000/api/staff/hotel/{hotel_slug}/attendance/roster-periods/?is_finalized=true
+GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/
 ```
-**Frontend should use:** `/api/staff/hotel/{hotel_slug}/attendance/roster-periods/?is_finalized=true`
-**Note:** Frontend dev server should proxy API calls to Django backend (port 8000)
-**Response:**
+**Use this for:** All roster management
+
+### 2. Fetch ONLY Finalized Periods (Filter)
+```http
+GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/?is_finalized=true
+```
+**Use this for:** Displaying completed/locked rosters only
+
+### 3. Fetch ONLY Editable Periods (Filter)  
+```http
+GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/?is_finalized=false
+```
+**Use this for:** Roster editing, active period management
+
+**Response Example:**
 ```json
 [
   {
@@ -24,7 +36,7 @@ GET http://localhost:8000/api/staff/hotel/{hotel_slug}/attendance/roster-periods
 ]
 ```
 
-### 2. Check Finalization Status
+### 4. Check Finalization Status
 ```http
 GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finalization-status/
 ```
@@ -38,7 +50,7 @@ GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finaliza
 }
 ```
 
-### 3. Finalize a Period
+### 5. Finalize a Period
 ```http
 POST /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finalize/
 ```
@@ -50,7 +62,7 @@ POST /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finaliz
 }
 ```
 
-### 4. Get Finalized Rosters by Department
+### 6. Get Finalized Rosters by Department
 ```http
 GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finalized-rosters/
 GET /api/staff/hotel/{hotel_slug}/attendance/roster-periods/{period_id}/finalized-rosters/?department=housekeeping
