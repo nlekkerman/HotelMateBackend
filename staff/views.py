@@ -117,11 +117,20 @@ class CustomAuthToken(ObtainAuthToken):
             profile_image_url = str(staff.profile_image)
         
         # Get allowed navigation slugs from database
-        allowed_navs = [
-            nav.slug for nav in staff.allowed_navigation_items.filter(
-                is_active=True
-            )
-        ]
+        # Superusers get ALL navigation items automatically
+        if user.is_superuser:
+            allowed_navs = [
+                nav.slug for nav in NavigationItem.objects.filter(
+                    hotel=staff.hotel,
+                    is_active=True
+                )
+            ]
+        else:
+            allowed_navs = [
+                nav.slug for nav in staff.allowed_navigation_items.filter(
+                    is_active=True
+                )
+            ]
 
         # Firebase FCM token handling has been removed
 
@@ -145,6 +154,18 @@ class CustomAuthToken(ObtainAuthToken):
             'role': staff.role.name if staff.role else None,
             'department': staff.department.name if staff.department else None,
         }
+
+        # Debug logging for superusers
+        if user.is_superuser:
+            print(f"=== SUPERUSER LOGIN DEBUG ===")
+            print(f"Username: {user.username}")
+            print(f"is_superuser: {user.is_superuser}")
+            print(f"Hotel: {hotel_name} ({hotel_slug})")
+            print(f"Access Level: {access_level}")
+            print(f"Navigation items count: {len(allowed_navs)}")
+            print(f"Navigation items: {allowed_navs}")
+            print(f"Staff ID: {staff.id}")
+            print("================================")
 
         output_serializer = StaffLoginOutputSerializer(data=data, context={'request': request})
         output_serializer.is_valid(raise_exception=True)
