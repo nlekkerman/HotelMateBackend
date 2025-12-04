@@ -438,7 +438,7 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
 @permission_classes([AllowAny])
 def get_active_rooms(request, hotel_slug):
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    conversations = Conversation.objects.filter(room__hotel=hotel).order_by('-updated_at')
+    conversations = Conversation.objects.filter(room__hotel=hotel).select_related('room').prefetch_related('room__guests', 'messages').order_by('-updated_at')
     serializer = ConversationSerializer(conversations, many=True)
     return Response(serializer.data)
 
