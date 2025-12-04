@@ -1493,7 +1493,7 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
                 "error": f"Period '{period.title}' is not finalized."
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get rosters for this finalized period
+        # Get rosters for this finalized periods
         rosters = StaffRoster.objects.filter(period=period).select_related(
             'staff', 'department', 'location', 'approved_by'
         )
