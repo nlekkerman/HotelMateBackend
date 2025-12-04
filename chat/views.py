@@ -12,6 +12,7 @@ from .models import Conversation, RoomMessage, GuestChatSession
 from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
 from notifications.fcm_service import send_fcm_notification
+from notifications.notification_manager import notification_manager
 import json
 from django.core.serializers.json import DjangoJSONEncoder
 import logging
@@ -224,16 +225,23 @@ def send_conversation_message(request, hotel_slug, conversation_id):
                 f"{guest_channel}: {e}"
             )
 
-        # Trigger Pusher for sidebar badge update
-        badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+        # Trigger unread update using NotificationManager
         try:
-            pusher_client.trigger(badge_channel, "conversation-unread", {
-                "conversation_id": conversation.id,
-                "room_number": room.room_number,
-            })
-            logger.info(f"Pusher triggered for badge update: channel={badge_channel}")
+            notification_manager.realtime_guest_chat_unread_updated(room, 1)  # Assume 1 new unread
+            logger.info(f"NotificationManager triggered unread update for room {room.room_number}")
         except Exception as e:
-            logger.error(f"Failed to trigger Pusher for badge update: {e}")
+            logger.error(f"NotificationManager failed for unread update: {e}")
+            
+            # Fallback to direct Pusher
+            badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+            try:
+                pusher_client.trigger(badge_channel, "conversation-unread", {
+                    "conversation_id": conversation.id,
+                    "room_number": room.room_number,
+                })
+                logger.info(f"Fallback badge update sent: {badge_channel}")
+            except Exception as fallback_e:
+                logger.error(f"Fallback badge update also failed: {fallback_e}")
 
         # Prefer Receptionists, fallback to Front Office
         reception_staff = Staff.objects.filter(
@@ -255,110 +263,57 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             print(f"⚠️ No reception staff. Targeting front-office: {target_staff.count()}")
             logger.info(f"No reception staff found. Targeting front-office staff: count={target_staff.count()}")
 
-        print(f"📬 Sending notifications to {target_staff.count()} staff members")
-        for staff in target_staff:
-            staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
+        print(f"📬 Using NotificationManager for guest message to {target_staff.count()} staff members")
+        
+        # Use NotificationManager for unified guest chat event
+        try:
+            # Set assigned_staff for FCM notification targeting
+            if target_staff.exists():
+                message.assigned_staff = target_staff.first()  # Use first staff for FCM
             
-            # Send Pusher event
-            try:
-                pusher_client.trigger(staff_channel, "new-guest-message", message_data)
-                print(f"✅ Pusher sent to staff {staff.id}: {staff_channel}")
-                logger.info(f"Pusher triggered: staff_channel={staff_channel}, event=new-guest-message, message_id={message.id}")
-            except Exception as e:
-                print(f"❌ Pusher FAILED for staff {staff.id}: {e}")
-                logger.error(f"Failed to trigger Pusher for staff_channel={staff_channel}: {e}")
+            notification_manager.realtime_guest_chat_message_created(message)
+            print(f"✅ NotificationManager sent guest chat event for message {message.id}")
+            logger.info(f"NotificationManager triggered realtime_guest_chat_message_created: message_id={message.id}")
+        except Exception as e:
+            print(f"❌ NotificationManager FAILED: {e}")
+            logger.error(f"Failed to trigger NotificationManager for guest message: {e}")
             
-            # Send FCM notification to staff
-            if staff.fcm_token:
-                print(f"🔔 Staff {staff.id} ({staff.user.username}) has FCM token, sending notification...")
+            # Fallback to direct notifications if NotificationManager fails
+            for staff in target_staff:
+                staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
                 try:
-                    fcm_title = f"💬 New Message - Room {room.room_number}"
-                    fcm_body = message_text[:100]  # Preview of message
-                    fcm_data = {
-                        "type": "new_chat_message",
-                        "conversation_id": str(conversation.id),
-                        "room_number": str(room.room_number),
-                        "message_id": str(message.id),
-                        "sender_type": "guest",
-                        "hotel_slug": hotel.slug,
-                        "click_action": f"/chat/{hotel.slug}/conversation/{conversation.id}",
-                        "url": f"https://hotelsmates.com/chat/{hotel.slug}/conversation/{conversation.id}"
-                    }
-                    send_fcm_notification(
-                        staff.fcm_token,
-                        fcm_title,
-                        fcm_body,
-                        data=fcm_data
-                    )
-                    print(f"✅ FCM sent to staff {staff.id} for message from room {room.room_number}")
-                    logger.info(
-                        f"FCM sent to staff {staff.id} "
-                        f"for message from room {room.room_number}"
-                    )
-                except Exception as fcm_error:
-                    print(f"❌ FCM FAILED for staff {staff.id}: {fcm_error}")
-                    logger.error(
-                        f"Failed to send FCM to staff {staff.id}: "
-                        f"{fcm_error}"
-                    )
-            else:
-                print(f"⚠️ Staff {staff.id} ({staff.user.username}) has NO FCM token")
+                    pusher_client.trigger(staff_channel, "new-guest-message", message_data)
+                    logger.info(f"Fallback Pusher sent to staff {staff.id}")
+                except Exception as fallback_e:
+                    logger.error(f"Fallback Pusher also failed for staff {staff.id}: {fallback_e}")
+            
+        # FCM notifications are now handled by NotificationManager in realtime_guest_chat_message_created
+        print(f"📱 FCM notifications handled by NotificationManager for {target_staff.count()} staff members")
 
     else:
-        # Staff sent a message - notify guest on room-specific channel
-        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
+        # Staff sent a message - use NotificationManager for unified handling
         try:
-            pusher_client.trigger(
-                guest_channel,
-                "new-staff-message",
-                message_data
-            )
+            notification_manager.realtime_guest_chat_message_created(message)
             logger.info(
-                f"Pusher triggered: guest_channel={guest_channel}, "
-                f"event=new-staff-message, message_id={message.id}"
+                f"NotificationManager triggered for staff message: "
+                f"message_id={message.id}, room={room.room_number}"
             )
         except Exception as e:
             logger.error(
-                f"Failed to trigger Pusher for "
-                f"guest_channel={guest_channel}: {e}"
+                f"NotificationManager failed for staff message {message.id}: {e}"
             )
-        
-        # Send FCM notification to guest
-        if room.guest_fcm_token:
+            
+            # Fallback to direct Pusher if NotificationManager fails
+            guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
             try:
-                staff_name = (
-                    message.staff_display_name 
-                    if message.staff_display_name 
-                    else "Hotel Staff"
+                pusher_client.trigger(
+                    guest_channel,
+                    "new-staff-message",
+                    message_data
                 )
-                fcm_title = f"💬 {staff_name}"
-                fcm_body = message_text[:100]  # Preview of message
-                fcm_data = {
-                    "type": "new_chat_message",
-                    "conversation_id": str(conversation.id),
-                    "room_number": str(room.room_number),
-                    "message_id": str(message.id),
-                    "sender_type": "staff",
-                    "staff_name": staff_name,
-                    "hotel_slug": hotel.slug,
-                    "click_action": f"/chat/{hotel.slug}/room/{room.room_number}",
-                    "url": f"https://hotelsmates.com/chat/{hotel.slug}/room/{room.room_number}"
-                }
-                send_fcm_notification(
-                    room.guest_fcm_token,
-                    fcm_title,
-                    fcm_body,
-                    data=fcm_data
-                )
-                logger.info(
-                    f"FCM sent to guest in room {room.room_number} "
-                    f"for message from staff"
-                )
-            except Exception as fcm_error:
-                logger.error(
-                    f"Failed to send FCM to guest room "
-                    f"{room.room_number}: {fcm_error}"
-                )
+                logger.info(f"Fallback Pusher sent to guest channel: {guest_channel}")
+            except Exception as fallback_e:
+                logger.error(f"Fallback Pusher also failed: {fallback_e}")
 
     # Trigger Pusher for the actual new message (for all listeners)
     message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"

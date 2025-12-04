@@ -5,6 +5,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly, IsAu
 # Add this at the top of your views.py
 from rest_framework.exceptions import PermissionDenied
 from chat.utils import pusher_client
+from notifications.notification_manager import notification_manager
 from rest_framework.pagination import PageNumberPagination
 from django.utils.text import slugify
 from staff.models import Staff
@@ -233,30 +234,37 @@ class GuestDinnerBookingView(APIView):
             booking = serializer.save()
             out = BookingSerializer(booking)
 
-            # ✅ Notify F&B staff
-            fnb_staff = Staff.get_by_department("food-and-beverage")
-            if fnb_staff.exists():
-                for staff in fnb_staff:
-                    staff_channel = f"{hotel.slug}-staff-{staff.id}-bookings"
-                    try:
-                        pusher_client.trigger(
-                            staff_channel,
-                            "new-dinner-booking",
-                            {
-                                "booking_id": booking.id,
-                                "room_number": room.room_number,
-                                "restaurant": restaurant.name,
-                                "start_time": str(booking.start_time),
-                                "end_time": str(booking.end_time),
-                                "adults": adults,
-                                "children": children,
-                                "infants": infants,
-                                "total_guests": total_guests,
-                            }
-                        )
-                        logger.info(f"Pusher triggered for F&B staff {staff.id}, booking={booking.id}")
-                    except Exception as e:
-                        logger.error(f"Failed to notify F&B staff_channel={staff_channel}: {e}")
+            # ✅ Notify F&B staff using NotificationManager
+            try:
+                notification_manager.realtime_booking_created(booking)
+                logger.info(f"NotificationManager triggered for new booking {booking.id}")
+            except Exception as e:
+                logger.error(f"NotificationManager failed for booking {booking.id}: {e}")
+                
+                # Fallback to direct staff notification
+                fnb_staff = Staff.get_by_department("food-and-beverage")
+                if fnb_staff.exists():
+                    for staff in fnb_staff:
+                        staff_channel = f"{hotel.slug}-staff-{staff.id}-bookings"
+                        try:
+                            pusher_client.trigger(
+                                staff_channel,
+                                "new-dinner-booking",
+                                {
+                                    "booking_id": booking.id,
+                                    "room_number": room.room_number,
+                                    "restaurant": restaurant.name,
+                                    "start_time": str(booking.start_time),
+                                    "end_time": str(booking.end_time),
+                                    "adults": adults,
+                                    "children": children,
+                                    "infants": infants,
+                                    "total_guests": total_guests,
+                                }
+                            )
+                            logger.info(f"Fallback: Pusher triggered for F&B staff {staff.id}")
+                        except Exception as fallback_e:
+                            logger.error(f"Fallback also failed for staff {staff.id}: {fallback_e}")
             else:
                 logger.warning("No Food & Beverage staff found to notify.")
 
@@ -513,9 +521,22 @@ def mark_bookings_seen(request, hotel_slug):
         category__subcategory__name__iexact="dinner"
     ).update(seen=True)
 
-    # Trigger Pusher event to update clients in real time
-    channel_name = f"{hotel_slug}-staff-bookings"
-    pusher_client.trigger(channel_name, "bookings-seen", {"updated": updated_count})
+    # Trigger booking update event using unified channel
+    try:
+        # Use the hotel booking channel for consistency
+        channel_name = f"hotel-{hotel_slug}.booking"
+        pusher_client.trigger(channel_name, "bookings-seen", {"updated": updated_count})
+        logger.info(f"Bookings-seen event sent to {channel_name}")
+    except Exception as e:
+        logger.error(f"Failed to send bookings-seen event: {e}")
+        
+        # Fallback to old channel
+        channel_name = f"{hotel_slug}-staff-bookings"
+        try:
+            pusher_client.trigger(channel_name, "bookings-seen", {"updated": updated_count})
+            logger.info(f"Fallback bookings-seen sent to {channel_name}")
+        except Exception as fallback_e:
+            logger.error(f"Fallback bookings-seen also failed: {fallback_e}")
 
     return Response({"marked_seen": updated_count})
 

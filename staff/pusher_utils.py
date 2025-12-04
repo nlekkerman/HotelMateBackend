@@ -1,85 +1,32 @@
 """
-Pusher utility functions for staff-related real-time events.
+Staff Pusher Utils - Refactored to use NotificationManager
+for attendance domain realtime events.
 
-This module centralizes all Pusher event broadcasting for staff operations
-to ensure consistent real-time updates across the application.
+This module now delegates to the unified NotificationManager for attendance events
+while maintaining backward compatibility.
 """
 
 from django.utils import timezone
-from chat.utils import pusher_client
 import logging
+from notifications.notification_manager import notification_manager
 
 logger = logging.getLogger(__name__)
 
 
 def trigger_clock_status_update(hotel_slug, staff, action):
     """
-    Broadcast clock in/out/break status change to all staff in the hotel.
+    Refactored to use NotificationManager for attendance events.
+    Maintains backward compatibility.
     
     Args:
         hotel_slug: Hotel identifier
-        staff: Staff instance
+        staff: Staff instance  
         action: 'clock_in', 'clock_out', 'start_break', 'end_break'
     """
-    channel = f'hotel-{hotel_slug}'
-    event = 'clock-status-updated'
+    logger.info(f"⏰ Delegating attendance update to NotificationManager: {staff.id} - {action}")
     
-    # Get current status details
-    current_status = staff.get_current_status()
-    
-    # Ensure duty_status and current_status.status are consistent
-    duty_status = staff.duty_status
-    if action == 'clock_in':
-        duty_status = 'on_duty'
-    elif action == 'clock_out':
-        duty_status = 'off_duty'
-    elif action == 'start_break':
-        duty_status = 'on_break'
-    elif action == 'end_break':
-        duty_status = 'on_duty'
-    
-    # Update current_status to match duty_status
-    current_status['status'] = duty_status
-    current_status['is_on_break'] = (duty_status == 'on_break')
-    
-    # Update labels to match the actual duty status
-    status_labels = {
-        'off_duty': 'Off Duty',
-        'on_duty': 'On Duty', 
-        'on_break': 'On Break'
-    }
-    status_label = status_labels.get(duty_status, 'Unknown')
-    current_status['label'] = status_label
-    
-    data = {
-        'user_id': staff.user.id if staff.user else None,
-        'staff_id': staff.id,
-        'duty_status': duty_status,
-        'is_on_duty': duty_status in ['on_duty', 'on_break'],
-        'is_on_break': duty_status == 'on_break',
-        'status_label': status_label,
-        'clock_time': timezone.now().isoformat(),
-        'first_name': staff.first_name,
-        'last_name': staff.last_name,
-        'action': action,
-        'department': staff.department.name if staff.department else None,
-        'department_slug': (
-            staff.department.slug if staff.department else None
-        ),
-        'current_status': current_status,
-    }
-    
-    try:
-        pusher_client.trigger(channel, event, data)
-        logger.info(
-            f"Pusher clock-status-updated → channel={channel} staff_id={staff.id} "
-            f"duty_status={duty_status} action={action}"
-        )
-    except Exception as e:
-        logger.error(
-            f"Pusher error: Failed to trigger {event} "
-            f"for staff {staff.id}: {e}"
-        )
+    # Use the unified realtime method
+    return notification_manager.realtime_attendance_clock_status_updated(staff, action)
 
 
 def trigger_staff_profile_update(hotel_slug, staff, action='updated'):
@@ -142,15 +89,69 @@ def trigger_staff_profile_update(hotel_slug, staff, action='updated'):
         )
 
 
+def trigger_face_attendance_update(hotel_slug, staff_id, attendance_data):
+    """
+    Face attendance updates - using NotificationManager.
+    """
+    try:
+        from staff.models import Staff
+        staff = Staff.objects.get(id=staff_id, hotel__slug=hotel_slug)
+        
+        # Determine action from attendance_data
+        action = attendance_data.get('action', 'clock_in')
+        
+        return notification_manager.realtime_attendance_clock_status_updated(staff, action)
+    except Exception as e:
+        logger.error(f"Face attendance update failed: {e}")
+        return False
+
+
+def trigger_duty_status_change(hotel_slug, staff_data):
+    """
+    Duty status changes - using NotificationManager.
+    """
+    try:
+        from staff.models import Staff
+        staff_id = staff_data.get('staff_id')
+        staff = Staff.objects.get(id=staff_id, hotel__slug=hotel_slug)
+        
+        # Determine action based on new status
+        new_status = staff_data.get('duty_status', staff.duty_status)
+        action = 'clock_in' if new_status == 'on_duty' else 'clock_out'
+        
+        return notification_manager.realtime_attendance_clock_status_updated(staff, action)
+    except Exception as e:
+        logger.error(f"Duty status change failed: {e}")
+        return False
+
+
+def trigger_roster_update(hotel_slug, roster_data, action='updated'):
+    """Legacy roster notifications - kept as-is for now."""
+    from chat.utils import pusher_client
+    
+    channel = f'hotel-{hotel_slug}'
+    event = f'roster-{event_type}'
+    
+    try:
+        pusher_client.trigger(channel, event, data)
+        logger.info(f"Pusher roster notification → {channel} → {event}")
+        return True
+    except Exception as e:
+        logger.error(f"Pusher roster notification failed: {e}")
+        return False
+
+
 def trigger_roster_update(hotel_slug, roster_data, action='updated'):
     """
-    Broadcast roster/schedule updates.
+    Broadcast roster/schedule updates - legacy method.
     
     Args:
         hotel_slug: Hotel identifier
         roster_data: Dict with roster information
         action: 'created', 'updated', 'deleted', or 'bulk_updated'
     """
+    from chat.utils import pusher_client
+    
     channel = f'hotel-{hotel_slug}'
     event = 'roster-updated'
     

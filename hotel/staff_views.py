@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
+from notifications.notification_manager import notification_manager
 from .models import (
     Hotel,
     HotelAccessConfig,
@@ -112,11 +113,13 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
                         except Exception:
                             photo_url = str(room_type.photo)
                     
-                    # Broadcast update via Pusher
+                    # Broadcast update via unified channel
                     try:
                         hotel_slug = self.request.user.staff_profile.hotel.slug
+                        # Use consistent hotel channel format
+                        channel = f'hotel-{hotel_slug}'
                         pusher_client.trigger(
-                            f'hotel-{hotel_slug}',
+                            channel,
                             'room-type-image-updated',
                             {
                                 'room_type_id': room_type.id,
@@ -124,8 +127,9 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
                                 'timestamp': str(room_type.updated_at) if hasattr(room_type, 'updated_at') else None
                             }
                         )
-                    except Exception:
-                        pass  # Don't fail if Pusher fails
+                        logger.info(f"Room type image update sent to {channel}")
+                    except Exception as e:
+                        logger.error(f"Failed to broadcast room type update: {e}")
                     
                     return Response({
                         'message': 'Image uploaded successfully',
@@ -1063,28 +1067,38 @@ class StaffBookingConfirmView(APIView):
         except Exception as e:
             logger.error(f"Failed to send confirmation email: {e}")
 
-        # Send FCM notification to guest if they have a token
+        # Send booking confirmation via NotificationManager (handles both FCM and realtime)
         try:
-            from notifications.fcm_service import send_booking_confirmation_notification
-            # Try to find guest FCM token from room if they're checked in
-            guest_fcm_token = None
+            notification_manager.realtime_booking_created(booking)
+            logger.info(f"NotificationManager sent booking confirmation for {booking.booking_id}")
+        except Exception as e:
+            logger.error(f"NotificationManager failed for booking confirmation {booking.booking_id}: {e}")
+            
+            # Fallback to direct FCM
             try:
-                from rooms.models import Room
-                guest_room = Room.objects.filter(
-                    hotel=booking.hotel,
-                    guests__isnull=False,
-                    is_occupied=True
-                ).first()
-                if guest_room and guest_room.guest_fcm_token:
-                    guest_fcm_token = guest_room.guest_fcm_token
-            except:
-                pass
-            
-            if guest_fcm_token:
-                send_booking_confirmation_notification(guest_fcm_token, booking)
-            
-        except ImportError:
-            logger.warning("FCM service not available for booking confirmation")
+                from notifications.fcm_service import send_booking_confirmation_notification
+                # Try to find guest FCM token from room if they're checked in
+                guest_fcm_token = None
+                try:
+                    from rooms.models import Room
+                    guest_room = Room.objects.filter(
+                        hotel=booking.hotel,
+                        guests__isnull=False,
+                        is_occupied=True
+                    ).first()
+                    if guest_room and guest_room.guest_fcm_token:
+                        guest_fcm_token = guest_room.guest_fcm_token
+                except:
+                    pass
+                
+                if guest_fcm_token:
+                    send_booking_confirmation_notification(guest_fcm_token, booking)
+                    logger.info("Fallback FCM booking confirmation sent")
+                
+            except ImportError:
+                logger.warning("FCM service not available for booking confirmation")
+            except Exception as fallback_e:
+                logger.error(f"Fallback FCM confirmation also failed: {fallback_e}")
 
         from .serializers import RoomBookingDetailSerializer
         serializer = RoomBookingDetailSerializer(booking)
@@ -1162,28 +1176,38 @@ class StaffBookingCancelView(APIView):
         except Exception as e:
             logger.error(f"Failed to send cancellation email: {e}")
 
-        # Send FCM notification to guest if they have a token
+        # Send booking cancellation via NotificationManager (handles both FCM and realtime)
         try:
-            from notifications.fcm_service import send_booking_cancellation_notification
-            # Try to find guest FCM token from room if they're checked in
-            guest_fcm_token = None
+            notification_manager.realtime_booking_cancelled(booking, cancellation_reason)
+            logger.info(f"NotificationManager sent booking cancellation for {booking.booking_id}")
+        except Exception as e:
+            logger.error(f"NotificationManager failed for booking cancellation {booking.booking_id}: {e}")
+            
+            # Fallback to direct FCM
             try:
-                from rooms.models import Room
-                guest_room = Room.objects.filter(
-                    hotel=booking.hotel,
-                    guests__isnull=False,
-                    is_occupied=True
-                ).first()
-                if guest_room and guest_room.guest_fcm_token:
-                    guest_fcm_token = guest_room.guest_fcm_token
-            except:
-                pass
-            
-            if guest_fcm_token:
-                send_booking_cancellation_notification(guest_fcm_token, booking, cancellation_reason)
-            
-        except ImportError:
-            logger.warning("FCM service not available for booking cancellation")
+                from notifications.fcm_service import send_booking_cancellation_notification
+                # Try to find guest FCM token from room if they're checked in
+                guest_fcm_token = None
+                try:
+                    from rooms.models import Room
+                    guest_room = Room.objects.filter(
+                        hotel=booking.hotel,
+                        guests__isnull=False,
+                        is_occupied=True
+                    ).first()
+                    if guest_room and guest_room.guest_fcm_token:
+                        guest_fcm_token = guest_room.guest_fcm_token
+                except:
+                    pass
+                
+                if guest_fcm_token:
+                    send_booking_cancellation_notification(guest_fcm_token, booking, cancellation_reason)
+                    logger.info("Fallback FCM booking cancellation sent")
+                
+            except ImportError:
+                logger.warning("FCM service not available for booking cancellation")
+            except Exception as fallback_e:
+                logger.error(f"Fallback FCM cancellation also failed: {fallback_e}")
 
         from .serializers import RoomBookingDetailSerializer
         serializer = RoomBookingDetailSerializer(booking)
