@@ -220,7 +220,6 @@ def upload_attachments(request, hotel_slug, conversation_id):
                     attachments[0],  # Pass actual attachment object
                     message  # Pass actual message object
                 )
-            )
             logger.info(
                 f"✅ Attachment upload broadcasted"
             )
