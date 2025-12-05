@@ -179,7 +179,7 @@ class NotificationManager:
         
         # Send to hotel attendance channel
         channel = f"hotel-{staff.hotel.slug}.attendance"
-        return self._safe_pusher_trigger(channel, "clock-status-updated", event_data)
+        return self._safe_pusher_trigger(channel, "clock_status_updated", event_data)
     
     # -------------------------------------------------------------------------
     # STAFF CHAT REALTIME METHODS
@@ -194,15 +194,14 @@ class NotificationManager:
         """
         self.logger.info(f"💬 Realtime staff chat: message {message.id} created")
         
-        # Build complete payload
+        # Build complete payload with correct field names for frontend
         payload = {
+            'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
-            'message_id': message.id,
+            'text': message.text,  # Keep 'text' as consistent field name
             'sender_id': message.sender.id,
-            'sender_name': f"{message.sender.first_name} {message.sender.last_name}",
-            'text': message.text,
-            'created_at': message.created_at.isoformat(),
-            'updated_at': message.updated_at.isoformat() if hasattr(message, 'updated_at') else message.created_at.isoformat(),
+            'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
+            'timestamp': message.created_at.isoformat(),  # Use 'timestamp' for consistency
             'attachments': getattr(message, 'attachments', []),
             'is_system_message': getattr(message, 'is_system_message', False)
         }
@@ -216,22 +215,22 @@ class NotificationManager:
             scope={'conversation_id': message.conversation.id, 'sender_id': message.sender.id}
         )
         
-        # Send to conversation channel
+        # Send to conversation channel with correct event name for frontend eventBus
         hotel_slug = message.sender.hotel.slug
         channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
-        return self._safe_pusher_trigger(channel, "message-created", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_created", event_data)
     
     def realtime_staff_chat_message_edited(self, message):
         """Emit normalized staff chat message edited event."""
         self.logger.info(f"✏️ Realtime staff chat: message {message.id} edited")
         
         payload = {
+            'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
-            'message_id': message.id,
-            'sender_id': message.sender.id,
-            'sender_name': f"{message.sender.first_name} {message.sender.last_name}",
             'text': message.text,
-            'created_at': message.created_at.isoformat(),
+            'sender_id': message.sender.id,
+            'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
+            'timestamp': message.created_at.isoformat(),
             'updated_at': message.updated_at.isoformat() if hasattr(message, 'updated_at') else timezone.now().isoformat(),
             'edited': True
         }
@@ -241,12 +240,12 @@ class NotificationManager:
             event_type="message_edited",
             payload=payload,
             hotel=message.sender.hotel,
-            scope={'conversation_id': message.conversation.id, 'message_id': message.id}
+            scope={'conversation_id': message.conversation.id, 'sender_id': message.sender.id}
         )
         
         hotel_slug = message.sender.hotel.slug
         channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
-        return self._safe_pusher_trigger(channel, "message-edited", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_edited", event_data)
     
     # -------------------------------------------------------------------------
     # GUEST CHAT REALTIME METHODS  
@@ -325,7 +324,7 @@ class NotificationManager:
             }
             send_fcm_notification(message.room.guest_fcm_token, fcm_title, fcm_body, fcm_data)
         
-        return self._safe_pusher_trigger(channel, "message-created", event_data)
+        return self._safe_pusher_trigger(channel, "message_created", event_data)
     
     def realtime_guest_chat_unread_updated(self, room, unread_count=None):
         """Emit normalized guest chat unread count update event."""
@@ -350,7 +349,7 @@ class NotificationManager:
         room_pin = room.pin if hasattr(room, 'pin') else room.room_number  
         channel = f"hotel-{hotel_slug}.guest-chat.{room_pin}"
         
-        return self._safe_pusher_trigger(channel, "unread-updated", event_data)
+        return self._safe_pusher_trigger(channel, "unread_updated", event_data)
     
     # -------------------------------------------------------------------------
     # ROOM SERVICE REALTIME METHODS
@@ -389,7 +388,7 @@ class NotificationManager:
         # Send FCM + Pusher to relevant staff
         self._notify_room_service_staff_of_new_order(order, event_data)
         
-        return self._safe_pusher_trigger(channel, "order-created", event_data)
+        return self._safe_pusher_trigger(channel, "order_created", event_data)
     
     def realtime_room_service_order_updated(self, order):
         """Emit normalized room service order updated event."""
@@ -417,7 +416,7 @@ class NotificationManager:
         
         hotel_slug = order.hotel.slug
         channel = f"hotel-{hotel_slug}.room-service"
-        return self._safe_pusher_trigger(channel, "order-updated", event_data)
+        return self._safe_pusher_trigger(channel, "order_updated", event_data)
     
     # -------------------------------------------------------------------------
     # BOOKING REALTIME METHODS
@@ -461,7 +460,7 @@ class NotificationManager:
         # Send FCM to guest if token available
         self._notify_guest_booking_confirmed(booking)
         
-        return self._safe_pusher_trigger(channel, "booking-created", event_data)
+        return self._safe_pusher_trigger(channel, "booking_created", event_data)
     
     def realtime_booking_updated(self, booking):
         """Emit normalized booking updated event."""
@@ -488,7 +487,7 @@ class NotificationManager:
         
         hotel_slug = booking.hotel.slug
         channel = f"hotel-{hotel_slug}.booking"
-        return self._safe_pusher_trigger(channel, "booking-updated", event_data)
+        return self._safe_pusher_trigger(channel, "booking_updated", event_data)
     
     def realtime_booking_cancelled(self, booking, reason=None):
         """Emit normalized booking cancelled event."""
@@ -519,7 +518,7 @@ class NotificationManager:
         
         hotel_slug = booking.hotel.slug
         channel = f"hotel-{hotel_slug}.booking"
-        return self._safe_pusher_trigger(channel, "booking-cancelled", event_data)
+        return self._safe_pusher_trigger(channel, "booking_cancelled", event_data)
     
     # -------------------------------------------------------------------------
     # HELPER METHODS
@@ -858,7 +857,7 @@ class NotificationManager:
         }
         
         try:
-            pusher_client.trigger(guest_channel, "staff-reply", message_data)
+            pusher_client.trigger(guest_channel, "staff_reply", message_data)
             results['pusher_sent'] = True
             self.logger.info(f"✅ Guest notification sent to room {message.room.room_number}")
         except Exception as e:
@@ -975,7 +974,7 @@ class NotificationManager:
         
         hotel_slug = hotel.slug
         channel = f"hotel-{hotel_slug}.staff-chat.{conversation_id}"
-        return self._safe_pusher_trigger(channel, "message-deleted", event_data)
+        return self._safe_pusher_trigger(channel, "message_deleted", event_data)
     
     def realtime_staff_chat_typing_indicator(self, staff, conversation_id, is_typing=True):
         """Emit staff chat typing indicator (ephemeral event)."""
@@ -1021,7 +1020,7 @@ class NotificationManager:
         
         hotel_slug = message.sender.hotel.slug
         channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
-        return self._safe_pusher_trigger(channel, "attachment-uploaded", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_attachment_uploaded", event_data)
     
     def realtime_staff_chat_attachment_deleted(self, attachment_id, conversation, staff):
         """Emit staff chat attachment deleted event."""
@@ -1045,7 +1044,7 @@ class NotificationManager:
         
         hotel_slug = staff.hotel.slug
         channel = f"hotel-{hotel_slug}.staff-chat.{conversation.id}"
-        return self._safe_pusher_trigger(channel, "attachment-deleted", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_attachment_deleted", event_data)
     
     def realtime_staff_chat_mention(self, staff, message, conversation_id):
         """Emit staff chat mention notification."""
@@ -1098,7 +1097,7 @@ class NotificationManager:
         # Send to conversation channel
         hotel_slug = staff.hotel.slug
         channel = f"hotel-{hotel_slug}.staff-chat.{conversation.id}"
-        return self._safe_pusher_trigger(channel, "messages-read", event_data)
+        return self._safe_pusher_trigger(channel, "messages_read", event_data)
     
     def realtime_staff_chat_message_delivered(self, message, staff):
         """Emit staff chat message delivered status event."""
@@ -1123,7 +1122,7 @@ class NotificationManager:
         # Send to conversation channel
         hotel_slug = staff.hotel.slug
         channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
-        return self._safe_pusher_trigger(channel, "message-delivered", event_data)
+        return self._safe_pusher_trigger(channel, "message_delivered", event_data)
 
     def get_notification_summary(self):
         """Get summary of notification capabilities and configuration."""

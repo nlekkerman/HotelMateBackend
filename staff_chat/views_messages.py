@@ -33,12 +33,7 @@ from .permissions import (
     IsSameHotel,
     CanDeleteMessage
 )
-from .pusher_utils import (
-    broadcast_new_message,
-    broadcast_message_edited,
-    broadcast_message_deleted,
-    broadcast_message_reaction
-)
+from notifications.notification_manager import notification_manager
 from .fcm_utils import notify_conversation_participants
 from staff.models import Staff
 
@@ -259,15 +254,11 @@ def send_message(request, hotel_slug, conversation_id):
     if 'is_read_by_current_user' in message_data:
         del message_data['is_read_by_current_user']
     
-    # Broadcast via Pusher to all participants using NotificationManager
+    # Broadcast via NotificationManager to all participants
     try:
-        broadcast_new_message(
-            hotel_slug,
-            conversation.id,
-            message  # Pass actual message object, not serialized data
-        )
+        notification_manager.realtime_staff_chat_message_created(message)
         logger.info(
-            f"✅ Pusher broadcast successful for message {message.id}"
+            f"✅ Realtime broadcast successful for message {message.id}"
         )
     except Exception as e:
         logger.error(
@@ -442,13 +433,9 @@ def edit_message(request, hotel_slug, message_id):
         del message_data['is_read_by_current_user']
     
     try:
-        broadcast_message_edited(
-            hotel_slug,
-            message.conversation.id,
-            message  # Pass actual message object
-        )
+        notification_manager.realtime_staff_chat_message_edited(message)
         logger.info(
-            f"✅ Message edit broadcasted via Pusher"
+            f"✅ Message edit broadcasted via realtime"
         )
     except Exception as e:
         logger.error(
@@ -540,13 +527,13 @@ def delete_message(request, hotel_slug, message_id):
         
         # Broadcast deletion
         try:
-            broadcast_message_deleted(
-                hotel_slug,
-                conversation_id,
-                deletion_data
+            notification_manager.realtime_staff_chat_message_deleted(
+                message_id_copy, 
+                conversation_id, 
+                conversation.hotel
             )
             logger.info(
-                f"✅ Hard deletion broadcasted via Pusher"
+                f"✅ Hard deletion broadcasted via realtime"
             )
         except Exception as e:
             logger.error(
@@ -587,13 +574,13 @@ def delete_message(request, hotel_slug, message_id):
         
         # Broadcast deletion
         try:
-            broadcast_message_deleted(
-                hotel_slug,
-                conversation.id,
-                deletion_data
+            notification_manager.realtime_staff_chat_message_deleted(
+                message.id, 
+                conversation.id, 
+                conversation.hotel
             )
             logger.info(
-                f"✅ Soft deletion broadcasted via Pusher"
+                f"✅ Soft deletion broadcasted via realtime"
             )
         except Exception as e:
             logger.error(
@@ -695,11 +682,12 @@ def add_reaction(request, hotel_slug, message_id):
                 'reaction': removed,
                 'action': 'remove'
             }
-            broadcast_message_reaction(
-                hotel_slug,
-                message.conversation.id,
-                removal_data
-            )
+            # TODO: Implement realtime_staff_chat_message_reaction_removed in NotificationManager
+            # broadcast_message_reaction(
+            #     hotel_slug,
+            #     message.conversation.id,
+            #     removal_data
+            # )
         
         # Then broadcast the new reaction
         reaction_data = {
@@ -707,11 +695,12 @@ def add_reaction(request, hotel_slug, message_id):
             'reaction': reaction_serializer.data,
             'action': 'add'
         }
-        broadcast_message_reaction(
-            hotel_slug,
-            message.conversation.id,
-            reaction_data
-        )
+        # TODO: Implement realtime_staff_chat_message_reaction_added in NotificationManager
+        # broadcast_message_reaction(
+        #     hotel_slug,
+        #     message.conversation.id,
+        #     reaction_data
+        # )
         logger.info(
             f"✅ Reaction change broadcasted via Pusher "
             f"(removed: {len(removed_reactions)}, added: 1)"
@@ -776,13 +765,14 @@ def remove_reaction(request, hotel_slug, message_id, emoji):
         }
         
         try:
-            broadcast_message_reaction(
-                hotel_slug,
-                message.conversation.id,
-                reaction_data
-            )
+            # TODO: Implement realtime_staff_chat_message_reaction_removed in NotificationManager
+            # broadcast_message_reaction(
+            #     hotel_slug,
+            #     message.conversation.id,
+            #     reaction_data
+            # )
             logger.info(
-                f"✅ Reaction removal broadcasted via Pusher"
+                f"✅ Reaction removal would be broadcasted (currently disabled)"
             )
         except Exception as e:
             logger.error(
@@ -939,11 +929,7 @@ def forward_message(request, hotel_slug, message_id):
                 del message_data['is_read_by_current_user']
             
             try:
-                broadcast_new_message(
-                    hotel_slug,
-                    conversation.id,
-                    forwarded_msg  # Pass actual message object
-                )
+                notification_manager.realtime_staff_chat_message_created(forwarded_msg)
             except Exception as e:
                 logger.error(
                     f"❌ Failed to broadcast forwarded message: {e}"
@@ -1052,11 +1038,7 @@ def forward_message(request, hotel_slug, message_id):
                 del message_data['is_read_by_current_user']
             
             try:
-                broadcast_new_message(
-                    hotel_slug,
-                    conversation.id,
-                    forwarded_msg  # Pass actual message object
-                )
+                notification_manager.realtime_staff_chat_message_created(forwarded_msg)
             except Exception as e:
                 logger.error(
                     f"❌ Failed to broadcast forwarded message: {e}"

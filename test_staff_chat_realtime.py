@@ -142,7 +142,7 @@ def test_new_message_realtime():
         assert channel == expected_channel, f"❌ Wrong channel: expected {expected_channel}, got {channel}"
         
         # Verify event type
-        assert event == "message-created", f"❌ Wrong event: expected 'message-created', got {event}"
+        assert event == "message_created", f"❌ Wrong event: expected 'message_created', got {event}"
         
         # Verify payload structure
         assert 'payload' in data, "❌ Missing payload in event data"
@@ -284,7 +284,7 @@ def test_message_edited_realtime():
         # Verify event details
         expected_channel = f"hotel-{hotel.slug}.staff-chat.{conversation.id}"
         assert channel == expected_channel, f"❌ Wrong channel for message edit"
-        assert event == "message-edited", f"❌ Wrong event type for message edit"
+        assert event == "message_edited", f"❌ Wrong event type for message edit"
         
         # Verify payload
         payload = data['payload']

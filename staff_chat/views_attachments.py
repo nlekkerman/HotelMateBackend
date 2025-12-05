@@ -23,11 +23,7 @@ from .serializers_attachments import (
     AttachmentUploadSerializer
 )
 from .permissions import IsStaffMember, IsSameHotel
-from .pusher_utils import (
-    broadcast_new_message,
-    broadcast_attachment_uploaded,
-    broadcast_attachment_deleted
-)
+from notifications.notification_manager import notification_manager
 from .fcm_utils import send_file_attachment_notification
 
 logger = logging.getLogger(__name__)
@@ -198,11 +194,7 @@ def upload_attachments(request, hotel_slug, conversation_id):
     if not message_id:
         # New message with files
         try:
-            broadcast_new_message(
-                hotel_slug,
-                conversation.id,
-                message  # Pass actual message object
-            )
+            notification_manager.realtime_staff_chat_message_created(message)
             logger.info(
                 f"✅ New message with attachments broadcasted"
             )
@@ -211,17 +203,14 @@ def upload_attachments(request, hotel_slug, conversation_id):
     else:
         # Files added to existing message
         try:
-            # Note: For multiple attachments, we'd need to call this for each one
-            # For now, calling with the first attachment if any exist
-            if attachments:
-                broadcast_attachment_uploaded(
-                    hotel_slug,
-                    conversation.id,
-                    attachments[0],  # Pass actual attachment object
-                    message  # Pass actual message object
+            # Broadcast for each attachment uploaded
+            for attachment in attachments:
+                notification_manager.realtime_staff_chat_attachment_uploaded(
+                    attachment, 
+                    message
                 )
             logger.info(
-                f"✅ Attachment upload broadcasted"
+                f"✅ Attachment upload broadcasted for {len(attachments)} attachments"
             )
         except Exception as e:
             logger.error(f"❌ Failed to broadcast attachment: {e}")
@@ -337,11 +326,10 @@ def delete_attachment(request, hotel_slug, attachment_id):
     }
     
     try:
-        broadcast_attachment_deleted(
-            hotel_slug,
-            conversation.id,
-            attachment_id_copy,  # Pass attachment ID
-            staff  # Pass staff object
+        notification_manager.realtime_staff_chat_attachment_deleted(
+            attachment_id_copy, 
+            conversation, 
+            staff
         )
         logger.info(
             f"✅ Attachment deletion broadcasted"

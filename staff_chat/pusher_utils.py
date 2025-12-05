@@ -1,9 +1,16 @@
 """
-Staff Chat Pusher Utils - Refactored to use NotificationManager
-for staff_chat domain realtime events.
+⚠️ DEPRECATED - Staff Chat Pusher Utils 
 
-This module now delegates to the unified NotificationManager for staff chat events
-while maintaining backward compatibility.
+This module is now DEPRECATED. All functions have been migrated to use NotificationManager directly.
+
+DO NOT USE these functions in new code. Use notification_manager.realtime_staff_chat_* methods directly:
+- notification_manager.realtime_staff_chat_message_created(message)
+- notification_manager.realtime_staff_chat_message_edited(message) 
+- notification_manager.realtime_staff_chat_message_deleted(message_id, conversation_id, hotel)
+- notification_manager.realtime_staff_chat_attachment_uploaded(attachment, message)
+- notification_manager.realtime_staff_chat_attachment_deleted(attachment_id, conversation, staff)
+
+This file is maintained for backward compatibility only and will be removed in future versions.
 """
 import logging
 from typing import List, Dict, Any
@@ -45,8 +52,9 @@ def trigger_staff_notification(hotel_slug, staff_id, event, data):
 
 def broadcast_new_message(hotel_slug, conversation_id, message):
     """
-    Broadcast new staff chat message using NotificationManager.
-    Expects message to be the actual StaffChatMessage object.
+    DEPRECATED: Use notification_manager.realtime_staff_chat_message_created(message) directly.
+    
+    This function is maintained for backward compatibility only.
     """
     try:
         if message:
@@ -61,8 +69,9 @@ def broadcast_new_message(hotel_slug, conversation_id, message):
 
 def broadcast_message_edited(hotel_slug, conversation_id, message):
     """
-    Broadcast edited staff chat message using NotificationManager.
-    Expects message to be the actual StaffChatMessage object.
+    DEPRECATED: Use notification_manager.realtime_staff_chat_message_edited(message) directly.
+    
+    This function is maintained for backward compatibility only.
     """
     try:
         if message:
@@ -77,7 +86,9 @@ def broadcast_message_edited(hotel_slug, conversation_id, message):
 
 def broadcast_message_deleted(hotel_slug, conversation_id, deletion_data):
     """
-    Broadcast message deletion using NotificationManager.
+    DEPRECATED: Use notification_manager.realtime_staff_chat_message_deleted(message_id, conversation_id, hotel) directly.
+    
+    This function is maintained for backward compatibility only.
     """
     try:
         message_id = deletion_data.get('message_id')
@@ -94,7 +105,11 @@ def broadcast_message_deleted(hotel_slug, conversation_id, deletion_data):
 
 
 def broadcast_message_reaction(hotel_slug, conversation_id, reaction_data):
-    """Broadcast message reaction to all conversation participants"""
+    """
+    DEPRECATED: Message reactions are currently broken. 
+    
+    TODO: Implement realtime_staff_chat_message_reaction_* methods in NotificationManager.
+    """
     return trigger_conversation_event(
         hotel_slug,
         conversation_id,
@@ -105,7 +120,9 @@ def broadcast_message_reaction(hotel_slug, conversation_id, reaction_data):
 
 def broadcast_typing_indicator(hotel_slug, conversation_id, typing_data):
     """
-    Broadcast typing indicator using NotificationManager.
+    DEPRECATED: Use NotificationManager typing methods directly when available.
+    
+    This function is maintained for backward compatibility only.
     """
     try:
         staff = typing_data.get('staff')  # Should be passed in typing_data
@@ -147,7 +164,7 @@ def trigger_conversation_event(hotel_slug, conversation_id, event, data):
         # Legacy callers may still pass serialized data, extract message if available
         message = data.get('message') if isinstance(data, dict) else data
         return broadcast_new_message(hotel_slug, conversation_id, message)
-    elif event == "message-edited":
+    elif event == "message_edited":
         message = data.get('message') if isinstance(data, dict) else data
         return broadcast_message_edited(hotel_slug, conversation_id, message)
     elif event == "message-deleted":
