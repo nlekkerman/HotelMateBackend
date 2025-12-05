@@ -309,13 +309,24 @@ class StaffViewSet(viewsets.ModelViewSet):
         # Save staff with hotel assigned
         staff = serializer.save(hotel=hotel)
 
-        # Set user flags if provided
+        # AUTOMATICALLY set user flags for all staff
         user = staff.user
+        
+        # All staff members should have is_staff=True
+        user.is_staff = True
+        
+        # Keep is_superuser=False for all staff (super_staff_admin is NOT Django superuser)
+        # Only actual Django superusers should have is_superuser=True
+        user.is_superuser = False
+            
+        # Allow manual override if explicitly provided in request
         if "is_staff" in request.data:
             user.is_staff = request.data["is_staff"]
         if "is_superuser" in request.data:
             user.is_superuser = request.data["is_superuser"]
+            
         user.save()
+        print(f"✅ Set User flags for {user.username}: is_staff={user.is_staff}, is_superuser={user.is_superuser}")
 
         return Response(
             self.get_serializer(staff).data,
@@ -1054,6 +1065,17 @@ class CreateStaffFromUserAPIView(APIView):
             is_active=is_active,
             is_on_duty=False
         )
+
+        # UPDATE USER FLAGS based on staff access_level
+        # All staff members should have is_staff=True
+        user.is_staff = True
+        
+        # Keep is_superuser=False for all staff (super_staff_admin is NOT Django superuser)
+        # Only actual Django superusers should have is_superuser=True
+        user.is_superuser = False
+            
+        user.save()
+        print(f"✅ Updated User flags for {user.username}: is_staff={user.is_staff}, is_superuser={user.is_superuser}")
 
         # Find and DELETE the registration code
         try:
