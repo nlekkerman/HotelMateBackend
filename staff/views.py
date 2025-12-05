@@ -119,18 +119,20 @@ class CustomAuthToken(ObtainAuthToken):
         # Get allowed navigation slugs from database
         # Superusers get ALL navigation items automatically
         if user.is_superuser:
-            allowed_navs = [
-                nav.slug for nav in NavigationItem.objects.filter(
-                    hotel=staff.hotel,
-                    is_active=True
-                )
-            ]
+            print(f"🔍 Fetching navigation items for superuser in hotel: {staff.hotel}")
+            nav_items = NavigationItem.objects.filter(
+                hotel=staff.hotel,
+                is_active=True
+            )
+            print(f"🔍 Found {nav_items.count()} active navigation items")
+            allowed_navs = [nav.slug for nav in nav_items]
+            print(f"🔍 Navigation slugs: {allowed_navs}")
         else:
-            allowed_navs = [
-                nav.slug for nav in staff.allowed_navigation_items.filter(
-                    is_active=True
-                )
-            ]
+            print(f"🔍 Fetching navigation items for regular staff: {staff.id}")
+            nav_items = staff.allowed_navigation_items.filter(is_active=True)
+            print(f"🔍 Found {nav_items.count()} allowed navigation items")
+            allowed_navs = [nav.slug for nav in nav_items]
+            print(f"🔍 Navigation slugs: {allowed_navs}")
 
         # Firebase FCM token handling has been removed
 
@@ -148,24 +150,44 @@ class CustomAuthToken(ObtainAuthToken):
             },
             'is_staff': user.is_staff,
             'is_superuser': user.is_superuser,
+            'isAdmin': user.is_superuser,  # Add isAdmin field for frontend compatibility
             'access_level': access_level,
             'allowed_navs': allowed_navs,
+            'navigation_items': allowed_navs,  # Provide same data in navigation_items field
             'profile_image_url': profile_image_url,
             'role': staff.role.name if staff.role else None,
             'department': staff.department.name if staff.department else None,
         }
 
-        # Debug logging for superusers
-        if user.is_superuser:
-            print(f"=== SUPERUSER LOGIN DEBUG ===")
-            print(f"Username: {user.username}")
-            print(f"is_superuser: {user.is_superuser}")
-            print(f"Hotel: {hotel_name} ({hotel_slug})")
-            print(f"Access Level: {access_level}")
-            print(f"Navigation items count: {len(allowed_navs)}")
-            print(f"Navigation items: {allowed_navs}")
-            print(f"Staff ID: {staff.id}")
-            print("================================")
+        # Comprehensive login debugging and validation
+        print(f"=== LOGIN DEBUG FOR USER: {user.username} ===")
+        print(f"User ID: {user.id}")
+        print(f"is_superuser: {user.is_superuser}")
+        print(f"is_staff: {user.is_staff}")
+        print(f"Staff ID: {staff.id}")
+        print(f"Hotel: {hotel_name} ({hotel_slug})")
+        print(f"Access Level: {access_level}")
+        print(f"allowed_navs count: {len(allowed_navs)}")
+        print(f"allowed_navs: {allowed_navs}")
+        print(f"Profile Image URL: {profile_image_url}")
+        print(f"Role: {staff.role.name if staff.role else None}")
+        print(f"Department: {staff.department.name if staff.department else None}")
+        
+        # Check for data consistency issues
+        if user.is_superuser != (access_level == 'super_staff_admin'):
+            print(f"⚠️ INCONSISTENCY: user.is_superuser={user.is_superuser} but access_level={access_level}")
+        
+        # Check if there are multiple staff records
+        staff_count = Staff.objects.filter(user=user).count()
+        if staff_count > 1:
+            print(f"⚠️ WARNING: User has {staff_count} staff records!")
+            for s in Staff.objects.filter(user=user):
+                print(f"  Staff {s.id}: {s.access_level} in {s.hotel.name}")
+        
+        print("=== COMPLETE DATA BEING SENT ===")
+        for key, value in data.items():
+            print(f"{key}: {value}")
+        print("===============================")
 
         output_serializer = StaffLoginOutputSerializer(data=data, context={'request': request})
         output_serializer.is_valid(raise_exception=True)

@@ -241,32 +241,9 @@ class GuestDinnerBookingView(APIView):
             except Exception as e:
                 logger.error(f"NotificationManager failed for booking {booking.id}: {e}")
                 
-                # Fallback to direct staff notification
-                fnb_staff = Staff.get_by_department("food-and-beverage")
-                if fnb_staff.exists():
-                    for staff in fnb_staff:
-                        staff_channel = f"{hotel.slug}-staff-{staff.id}-bookings"
-                        try:
-                            pusher_client.trigger(
-                                staff_channel,
-                                "new-dinner-booking",
-                                {
-                                    "booking_id": booking.id,
-                                    "room_number": room.room_number,
-                                    "restaurant": restaurant.name,
-                                    "start_time": str(booking.start_time),
-                                    "end_time": str(booking.end_time),
-                                    "adults": adults,
-                                    "children": children,
-                                    "infants": infants,
-                                    "total_guests": total_guests,
-                                }
-                            )
-                            logger.info(f"Fallback: Pusher triggered for F&B staff {staff.id}")
-                        except Exception as fallback_e:
-                            logger.error(f"Fallback also failed for staff {staff.id}: {fallback_e}")
-            else:
-                logger.warning("No Food & Beverage staff found to notify.")
+                # NotificationManager handles staff notifications via realtime_booking_created
+                # Unified architecture provides FCM + Pusher automatically to all relevant staff
+                logger.error(f"NotificationManager failed for booking {booking.id} - unified realtime architecture should handle F&B staff notifications")
 
             return Response(out.data, status=status.HTTP_201_CREATED)
         
@@ -521,22 +498,11 @@ def mark_bookings_seen(request, hotel_slug):
         category__subcategory__name__iexact="dinner"
     ).update(seen=True)
 
-    # Trigger booking update event using unified channel
-    try:
-        # Use the hotel booking channel for consistency
-        channel_name = f"hotel-{hotel_slug}.booking"
-        pusher_client.trigger(channel_name, "bookings-seen", {"updated": updated_count})
-        logger.info(f"Bookings-seen event sent to {channel_name}")
-    except Exception as e:
-        logger.error(f"Failed to send bookings-seen event: {e}")
-        
-        # Fallback to old channel
-        channel_name = f"{hotel_slug}-staff-bookings"
-        try:
-            pusher_client.trigger(channel_name, "bookings-seen", {"updated": updated_count})
-            logger.info(f"Fallback bookings-seen sent to {channel_name}")
-        except Exception as fallback_e:
-            logger.error(f"Fallback bookings-seen also failed: {fallback_e}")
+    # Bookings-seen events are staff interface updates, not core booking events
+    # These could be handled by a future realtime_booking_status_updated method
+    # For now, log the successful update without Pusher
+    logger.info(f"Marked {updated_count} bookings as seen for hotel {hotel_slug}")
+    # TODO: Add realtime_booking_status_updated to NotificationManager for UI status events
 
     return Response({"marked_seen": updated_count})
 

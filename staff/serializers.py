@@ -268,12 +268,39 @@ class StaffLoginInputSerializer(serializers.Serializer):
 
 
 class StaffLoginOutputSerializer(serializers.Serializer):
+    staff_id = serializers.IntegerField()
     username = serializers.CharField()
     token = serializers.CharField()
     hotel_id = serializers.IntegerField(allow_null=True, required=False)
     hotel_name = serializers.CharField(allow_null=True, required=False)
     hotel_slug = serializers.CharField(allow_null=True, required=False)
+    hotel = serializers.DictField()
     is_staff = serializers.BooleanField()
+    is_superuser = serializers.BooleanField()
+    isAdmin = serializers.BooleanField()
+    access_level = serializers.CharField(allow_null=True, required=False)
+    allowed_navs = serializers.ListField(child=serializers.CharField())
+    navigation_items = serializers.ListField(child=serializers.CharField(), required=False)
+    profile_image_url = serializers.CharField(allow_null=True, required=False)
+    role = serializers.CharField(allow_null=True, required=False)
+    department = serializers.CharField(allow_null=True, required=False)
+    
+    def validate(self, data):
+        """Add validation to catch data inconsistencies."""
+        # Validate is_superuser consistency with access_level
+        is_superuser = data.get('is_superuser', False)
+        access_level = data.get('access_level', '')
+        
+        if is_superuser and access_level != 'super_staff_admin':
+            print(f"🔍 Serializer validation: is_superuser=True but access_level='{access_level}'")
+        
+        if not is_superuser and access_level == 'super_staff_admin':
+            print(f"🔍 Serializer validation: is_superuser=False but access_level='{access_level}'")
+            
+        # Ensure isAdmin matches is_superuser
+        data['isAdmin'] = is_superuser
+        
+        return data
 
 
 class StaffAttendanceSummarySerializer(StaffSerializer):

@@ -951,6 +951,78 @@ class NotificationManager:
         
         return results
     
+    # -------------------------------------------------------------------------
+    # ADDITIONAL STAFF CHAT REALTIME METHODS
+    # -------------------------------------------------------------------------
+    
+    def realtime_staff_chat_message_deleted(self, message_id, conversation_id, hotel):
+        """Emit normalized staff chat message deleted event."""
+        self.logger.info(f"🗑️ Realtime staff chat: message {message_id} deleted")
+        
+        payload = {
+            'conversation_id': conversation_id,
+            'message_id': message_id,
+            'deleted_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="message_deleted",
+            payload=payload,
+            hotel=hotel,
+            scope={'conversation_id': conversation_id, 'message_id': message_id}
+        )
+        
+        hotel_slug = hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-chat.{conversation_id}"
+        return self._safe_pusher_trigger(channel, "message-deleted", event_data)
+    
+    def realtime_staff_chat_typing_indicator(self, staff, conversation_id, is_typing=True):
+        """Emit staff chat typing indicator (ephemeral event)."""
+        self.logger.info(f"✍️ Realtime staff chat: typing indicator for staff {staff.id}")
+        
+        # Typing indicators are ephemeral and don't need full normalization
+        # Use lightweight payload for performance
+        payload = {
+            'conversation_id': conversation_id,
+            'staff_id': staff.id,
+            'staff_name': f"{staff.first_name} {staff.last_name}",
+            'is_typing': is_typing,
+            'timestamp': timezone.now().isoformat()
+        }
+        
+        hotel_slug = staff.hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-chat.{conversation_id}"
+        return self._safe_pusher_trigger(channel, "typing", payload)
+    
+    def realtime_staff_chat_mention(self, staff, message, conversation_id):
+        """Emit staff chat mention notification."""
+        self.logger.info(f"📢 Realtime staff chat: mention for staff {staff.id}")
+        
+        payload = {
+            'conversation_id': conversation_id,
+            'message_id': message.id,
+            'mentioned_staff_id': staff.id,
+            'mentioned_staff_name': f"{staff.first_name} {staff.last_name}",
+            'sender_id': message.sender.id,
+            'sender_name': f"{message.sender.first_name} {message.sender.last_name}",
+            'text': message.text,
+            'created_at': message.created_at.isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="staff_mentioned",
+            payload=payload,
+            hotel=staff.hotel,
+            scope={'mentioned_staff_id': staff.id, 'conversation_id': conversation_id}
+        )
+        
+        # Send to staff's personal notification channel
+        hotel_slug = staff.hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-{staff.id}-notifications"
+        return self._safe_pusher_trigger(channel, "mentioned", event_data)
+
     def get_notification_summary(self):
         """Get summary of notification capabilities and configuration."""
         return {

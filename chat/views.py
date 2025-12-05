@@ -183,21 +183,17 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         f"reply_to_message: {message_data.get('reply_to_message')}"
     )
 
-    # Trigger message-delivered event
-    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+    # Trigger message-delivered event using NotificationManager
     try:
-        pusher_client.trigger(message_channel, "message-delivered", {
-            "message_id": message.id,
-            "delivered_at": message.delivered_at.isoformat(),
-            "status": "delivered"
-        })
+        # Use guest chat message created for delivered status updates
+        notification_manager.realtime_guest_chat_message_created(message)
         logger.info(
-            f"Pusher triggered for message delivered: "
+            f"NotificationManager triggered for message delivered: "
             f"message_id={message.id}"
         )
     except Exception as e:
         logger.error(
-            f"Failed to trigger Pusher for message-delivered: {e}"
+            f"Failed to trigger NotificationManager for message-delivered: {e}"
         )
 
     # Update conversation unread status if guest sends a message
@@ -232,16 +228,9 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         except Exception as e:
             logger.error(f"NotificationManager failed for unread update: {e}")
             
-            # Fallback to direct Pusher
-            badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
-            try:
-                pusher_client.trigger(badge_channel, "conversation-unread", {
-                    "conversation_id": conversation.id,
-                    "room_number": room.room_number,
-                })
-                logger.info(f"Fallback badge update sent: {badge_channel}")
-            except Exception as fallback_e:
-                logger.error(f"Fallback badge update also failed: {fallback_e}")
+            # NotificationManager handles unread updates via realtime_guest_chat_unread_updated
+            # No fallback needed - unified architecture manages this automatically
+            logger.info(f"Unread count update handled by NotificationManager for room {room.room_number}")
 
         # Prefer Receptionists, fallback to Front Office
         reception_staff = Staff.objects.filter(
@@ -278,14 +267,8 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             print(f"❌ NotificationManager FAILED: {e}")
             logger.error(f"Failed to trigger NotificationManager for guest message: {e}")
             
-            # Fallback to direct notifications if NotificationManager fails
-            for staff in target_staff:
-                staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
-                try:
-                    pusher_client.trigger(staff_channel, "new-guest-message", message_data)
-                    logger.info(f"Fallback Pusher sent to staff {staff.id}")
-                except Exception as fallback_e:
-                    logger.error(f"Fallback Pusher also failed for staff {staff.id}: {fallback_e}")
+            # Log NotificationManager failure - unified architecture handles staff notifications
+            logger.error(f"NotificationManager failed for guest message - unified realtime architecture should handle staff notifications automatically")
             
         # FCM notifications are now handled by NotificationManager in realtime_guest_chat_message_created
         print(f"📱 FCM notifications handled by NotificationManager for {target_staff.count()} staff members")
@@ -303,31 +286,15 @@ def send_conversation_message(request, hotel_slug, conversation_id):
                 f"NotificationManager failed for staff message {message.id}: {e}"
             )
             
-            # Fallback to direct Pusher if NotificationManager fails
-            guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
-            try:
-                pusher_client.trigger(
-                    guest_channel,
-                    "new-staff-message",
-                    message_data
-                )
-                logger.info(f"Fallback Pusher sent to guest channel: {guest_channel}")
-            except Exception as fallback_e:
-                logger.error(f"Fallback Pusher also failed: {fallback_e}")
+            # Log NotificationManager failure - no fallback needed for unified architecture
+            logger.error(f"NotificationManager failed for staff message - unified realtime architecture expects this method to work")
 
-    # Trigger Pusher for the actual new message (for all listeners)
-    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
-    try:
-        pusher_client.trigger(message_channel, "new-message", message_data)
-        logger.info(
-            f"Pusher triggered for new message: "
-            f"channel={message_channel}, message_id={message.id}"
-        )
-    except Exception as e:
-        logger.error(
-            f"Failed to trigger Pusher for "
-            f"message_channel={message_channel}: {e}"
-        )
+    # NotificationManager already handles the new message event in realtime_guest_chat_message_created
+    # No additional Pusher call needed - unified architecture provides this automatically
+    logger.info(
+        f"Message handling completed via NotificationManager: "
+        f"message_id={message.id}, room={room.room_number}"
+    )
 
     # Prepare response with staff info
     response_data = {
@@ -420,12 +387,9 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
     serializer = RoomMessageSerializer(messages, many=True)
 
     if created:
-        # Trigger Pusher for new conversation
-        channel_name = f"{hotel.slug}-new-conversation"
-        pusher_client.trigger(channel_name, "new-conversation", {
-            "conversation_id": conversation.id,
-            "room_number": room.room_number,
-        })
+        # New conversation events are handled by NotificationManager when messages are created
+        # The realtime_guest_chat_message_created method includes conversation context
+        logger.info(f"New conversation created: {conversation.id} for room {room.room_number}")
 
     return Response({
         "conversation_id": conversation.id,
@@ -524,15 +488,12 @@ def mark_conversation_read(request, conversation_id):
             conversation.has_unread = False
             conversation.save()
 
-            # Trigger Pusher to update sidebar badge
-            badge_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
+            # Update unread count via NotificationManager
             try:
-                pusher_client.trigger(badge_channel, "conversation-read", {
-                    "conversation_id": conversation.id,
-                    "room_number": room.room_number,
-                })
+                notification_manager.realtime_guest_chat_unread_updated(room, 0)  # 0 unread after reading
+                logger.info(f"Unread count reset for conversation {conversation.id}")
             except Exception as e:
-                logger.error(f"Failed to trigger conversation-read: {e}")
+                logger.error(f"Failed to update unread count via NotificationManager: {e}")
     
     else:
         # Guest reading staff messages

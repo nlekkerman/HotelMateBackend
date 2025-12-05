@@ -8,6 +8,7 @@ while maintaining backward compatibility.
 import logging
 from typing import List, Dict, Any
 from notifications.notification_manager import notification_manager
+from chat.utils import pusher_client
 
 logger = logging.getLogger(__name__)
 
@@ -95,18 +96,19 @@ def broadcast_message_edited(hotel_slug, conversation_id, message_data):
 
 def broadcast_message_deleted(hotel_slug, conversation_id, deletion_data):
     """
-    Broadcast message deletion - using direct Pusher for now.
-    TODO: Add realtime_staff_chat_message_deleted method to NotificationManager.
+    Broadcast message deletion using NotificationManager.
     """
-    from chat.utils import pusher_client
-    
-    channel = get_conversation_channel(hotel_slug, conversation_id)
     try:
-        pusher_client.trigger(channel, "message-deleted", deletion_data)
-        logger.info(f"Staff chat message deleted: {channel}")
-        return True
+        message_id = deletion_data.get('message_id')
+        hotel = deletion_data.get('hotel')  # Should be passed in deletion_data
+        
+        if message_id and hotel:
+            return notification_manager.realtime_staff_chat_message_deleted(message_id, conversation_id, hotel)
+        else:
+            logger.error("Missing message_id or hotel in deletion_data for staff chat message deletion")
+            return False
     except Exception as e:
-        logger.error(f"Failed to broadcast message deletion: {e}")
+        logger.error(f"Failed to broadcast staff chat message deletion: {e}")
         return False
 
 
@@ -122,32 +124,36 @@ def broadcast_message_reaction(hotel_slug, conversation_id, reaction_data):
 
 def broadcast_typing_indicator(hotel_slug, conversation_id, typing_data):
     """
-    Broadcast typing indicator - using direct Pusher for now.
-    Typing indicators are ephemeral and don't need full normalization.
+    Broadcast typing indicator using NotificationManager.
     """
-    from chat.utils import pusher_client
-    
-    channel = get_conversation_channel(hotel_slug, conversation_id)
     try:
-        pusher_client.trigger(channel, "typing", typing_data)
-        return True
+        staff = typing_data.get('staff')  # Should be passed in typing_data
+        is_typing = typing_data.get('is_typing', True)
+        
+        if staff:
+            return notification_manager.realtime_staff_chat_typing_indicator(staff, conversation_id, is_typing)
+        else:
+            logger.error("Missing staff in typing_data for staff chat typing indicator")
+            return False
     except Exception as e:
-        logger.error(f"Failed to broadcast typing indicator: {e}")
+        logger.error(f"Failed to broadcast staff chat typing indicator: {e}")
         return False
 
 
 def notify_staff_mentioned(hotel_slug, staff_id, mention_data):
     """
     Notify staff of @mentions in chat using NotificationManager.
-    TODO: Add realtime_staff_chat_mention method to NotificationManager.
     """
-    from chat.utils import pusher_client
-    
-    channel = get_staff_personal_channel(hotel_slug, staff_id)
     try:
-        pusher_client.trigger(channel, "mentioned", mention_data)
-        logger.info(f"Staff mention notification: {channel}")
-        return True
+        staff = mention_data.get('staff')  # Should be passed in mention_data
+        message = mention_data.get('message')  # Should be passed in mention_data
+        conversation_id = mention_data.get('conversation_id')
+        
+        if staff and message and conversation_id:
+            return notification_manager.realtime_staff_chat_mention(staff, message, conversation_id)
+        else:
+            logger.error("Missing staff, message, or conversation_id in mention_data for staff chat mention")
+            return False
     except Exception as e:
         logger.error(f"Failed to notify staff mention: {e}")
         return False
@@ -175,7 +181,7 @@ def trigger_staff_notification(hotel_slug, staff_id, event, data):
         return notify_staff_mentioned(hotel_slug, staff_id, data)
     else:
         # Generic staff notification using direct Pusher
-        from chat.utils import pusher_client
+
         channel = get_staff_personal_channel(hotel_slug, staff_id)
         try:
             pusher_client.trigger(channel, event, data)
