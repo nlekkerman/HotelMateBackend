@@ -286,18 +286,14 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                 message.status = 'read'
                 message.save(update_fields=['is_read', 'status'])
 
-        # Broadcast read receipt to other participants
+        # Broadcast read receipt to other participants using NotificationManager
         if marked_message_ids:
             try:
-                staff_name = f"{staff.first_name} {staff.last_name}".strip()
                 broadcast_read_receipt(
                     hotel_slug,
                     conversation.id,
-                    {
-                        'staff_id': staff.id,
-                        'staff_name': staff_name,
-                        'message_ids': marked_message_ids,
-                        'timestamp': timezone.now().isoformat()
+                    staff,
+                    marked_message_ids
                     }
                 )
             except Exception:

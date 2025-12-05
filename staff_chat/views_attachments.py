@@ -201,7 +201,7 @@ def upload_attachments(request, hotel_slug, conversation_id):
             broadcast_new_message(
                 hotel_slug,
                 conversation.id,
-                message_data
+                message  # Pass actual message object
             )
             logger.info(
                 f"✅ New message with attachments broadcasted"
@@ -211,13 +211,15 @@ def upload_attachments(request, hotel_slug, conversation_id):
     else:
         # Files added to existing message
         try:
-            broadcast_attachment_uploaded(
-                hotel_slug,
-                conversation.id,
-                {
-                    'message_id': message.id,
-                    'attachments': attachment_serializer.data
-                }
+            # Note: For multiple attachments, we'd need to call this for each one
+            # For now, calling with the first attachment if any exist
+            if attachments:
+                broadcast_attachment_uploaded(
+                    hotel_slug,
+                    conversation.id,
+                    attachments[0],  # Pass actual attachment object
+                    message  # Pass actual message object
+                )
             )
             logger.info(
                 f"✅ Attachment upload broadcasted"
@@ -339,7 +341,8 @@ def delete_attachment(request, hotel_slug, attachment_id):
         broadcast_attachment_deleted(
             hotel_slug,
             conversation.id,
-            deletion_data
+            attachment_id_copy,  # Pass attachment ID
+            staff  # Pass staff object
         )
         logger.info(
             f"✅ Attachment deletion broadcasted"

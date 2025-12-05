@@ -995,6 +995,58 @@ class NotificationManager:
         channel = f"hotel-{hotel_slug}.staff-chat.{conversation_id}"
         return self._safe_pusher_trigger(channel, "typing", payload)
     
+    def realtime_staff_chat_attachment_uploaded(self, attachment, message):
+        """Emit staff chat attachment uploaded event."""
+        self.logger.info(f"📎 Realtime staff chat: attachment {attachment.id} uploaded")
+        
+        payload = {
+            'conversation_id': message.conversation.id,
+            'message_id': message.id,
+            'attachment_id': attachment.id,
+            'attachment_name': getattr(attachment, 'name', 'Unknown'),
+            'attachment_type': getattr(attachment, 'file_type', 'file'),
+            'attachment_size': getattr(attachment, 'file_size', 0),
+            'uploaded_by_staff_id': message.sender.id,
+            'uploaded_by_staff_name': f"{message.sender.first_name} {message.sender.last_name}",
+            'uploaded_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="attachment_uploaded",
+            payload=payload,
+            hotel=message.conversation.hotel if hasattr(message.conversation, 'hotel') else message.sender.hotel,
+            scope={'conversation_id': message.conversation.id, 'attachment_id': attachment.id}
+        )
+        
+        hotel_slug = message.sender.hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
+        return self._safe_pusher_trigger(channel, "attachment-uploaded", event_data)
+    
+    def realtime_staff_chat_attachment_deleted(self, attachment_id, conversation, staff):
+        """Emit staff chat attachment deleted event."""
+        self.logger.info(f"🗑️ Realtime staff chat: attachment {attachment_id} deleted")
+        
+        payload = {
+            'conversation_id': conversation.id,
+            'attachment_id': attachment_id,
+            'deleted_by_staff_id': staff.id,
+            'deleted_by_staff_name': f"{staff.first_name} {staff.last_name}",
+            'deleted_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="attachment_deleted",
+            payload=payload,
+            hotel=conversation.hotel if hasattr(conversation, 'hotel') else staff.hotel,
+            scope={'conversation_id': conversation.id, 'attachment_id': attachment_id}
+        )
+        
+        hotel_slug = staff.hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-chat.{conversation.id}"
+        return self._safe_pusher_trigger(channel, "attachment-deleted", event_data)
+    
     def realtime_staff_chat_mention(self, staff, message, conversation_id):
         """Emit staff chat mention notification."""
         self.logger.info(f"📢 Realtime staff chat: mention for staff {staff.id}")
@@ -1022,6 +1074,56 @@ class NotificationManager:
         hotel_slug = staff.hotel.slug
         channel = f"hotel-{hotel_slug}.staff-{staff.id}-notifications"
         return self._safe_pusher_trigger(channel, "mentioned", event_data)
+    
+    def realtime_staff_chat_message_read(self, conversation, staff, message_ids):
+        """Emit staff chat message read receipt event."""
+        self.logger.info(f"👀 Realtime staff chat: messages read by staff {staff.id}")
+        
+        payload = {
+            'conversation_id': conversation.id,
+            'message_ids': message_ids,
+            'read_by_staff_id': staff.id,
+            'read_by_staff_name': f"{staff.first_name} {staff.last_name}",
+            'read_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="messages_read",
+            payload=payload,
+            hotel=conversation.hotel if hasattr(conversation, 'hotel') else staff.hotel,
+            scope={'conversation_id': conversation.id, 'read_by_staff_id': staff.id}
+        )
+        
+        # Send to conversation channel
+        hotel_slug = staff.hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-chat.{conversation.id}"
+        return self._safe_pusher_trigger(channel, "messages-read", event_data)
+    
+    def realtime_staff_chat_message_delivered(self, message, staff):
+        """Emit staff chat message delivered status event."""
+        self.logger.info(f"📬 Realtime staff chat: message {message.id} delivered to staff {staff.id}")
+        
+        payload = {
+            'conversation_id': message.conversation.id,
+            'message_id': message.id,
+            'delivered_to_staff_id': staff.id,
+            'delivered_to_staff_name': f"{staff.first_name} {staff.last_name}",
+            'delivered_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="message_delivered",
+            payload=payload,
+            hotel=message.conversation.hotel if hasattr(message.conversation, 'hotel') else staff.hotel,
+            scope={'conversation_id': message.conversation.id, 'message_id': message.id, 'delivered_to_staff_id': staff.id}
+        )
+        
+        # Send to conversation channel
+        hotel_slug = staff.hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
+        return self._safe_pusher_trigger(channel, "message-delivered", event_data)
 
     def get_notification_summary(self):
         """Get summary of notification capabilities and configuration."""

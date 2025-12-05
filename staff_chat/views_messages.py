@@ -259,12 +259,12 @@ def send_message(request, hotel_slug, conversation_id):
     if 'is_read_by_current_user' in message_data:
         del message_data['is_read_by_current_user']
     
-    # Broadcast via Pusher to all participants
+    # Broadcast via Pusher to all participants using NotificationManager
     try:
         broadcast_new_message(
             hotel_slug,
             conversation.id,
-            message_data
+            message  # Pass actual message object, not serialized data
         )
         logger.info(
             f"✅ Pusher broadcast successful for message {message.id}"
@@ -445,7 +445,7 @@ def edit_message(request, hotel_slug, message_id):
         broadcast_message_edited(
             hotel_slug,
             message.conversation.id,
-            message_data
+            message  # Pass actual message object
         )
         logger.info(
             f"✅ Message edit broadcasted via Pusher"
@@ -942,7 +942,7 @@ def forward_message(request, hotel_slug, message_id):
                 broadcast_new_message(
                     hotel_slug,
                     conversation.id,
-                    message_data
+                    forwarded_msg  # Pass actual message object
                 )
             except Exception as e:
                 logger.error(
@@ -1055,7 +1055,7 @@ def forward_message(request, hotel_slug, message_id):
                 broadcast_new_message(
                     hotel_slug,
                     conversation.id,
-                    message_data
+                    forwarded_msg  # Pass actual message object
                 )
             except Exception as e:
                 logger.error(

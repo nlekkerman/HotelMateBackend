@@ -25,49 +25,30 @@ def get_staff_personal_channel(hotel_slug, staff_id):
 
 def trigger_conversation_event(hotel_slug, conversation_id, event, data):
     """
-    Trigger event on conversation channel
-    All participants in conversation will receive this
+    Legacy function - deprecated. Use NotificationManager directly.
+    This is maintained for backward compatibility only.
     """
-    channel = get_conversation_channel(hotel_slug, conversation_id)
-    try:
-        pusher_client.trigger(channel, event, data)
-        logger.info(
-            f"Pusher: conversation channel={channel}, event={event}"
-        )
-        return True
-    except Exception as e:
-        logger.error(
-            f"Failed to trigger Pusher on {channel}: {e}"
-        )
-        return False
+    logger.warning(f"Legacy trigger_conversation_event called for event: {event}. Consider using NotificationManager directly.")
+    # Legacy events should be migrated to NotificationManager
+    return False
 
 
 def trigger_staff_notification(hotel_slug, staff_id, event, data):
     """
-    Trigger event on staff personal channel
-    Used for notifications, mentions, etc.
+    Legacy function - deprecated. Use NotificationManager directly.
+    This is maintained for backward compatibility only.
     """
-    channel = get_staff_personal_channel(hotel_slug, staff_id)
-    try:
-        pusher_client.trigger(channel, event, data)
-        logger.info(
-            f"Pusher: staff channel={channel}, event={event}"
-        )
-        return True
-    except Exception as e:
-        logger.error(
-            f"Failed to trigger Pusher on {channel}: {e}"
-        )
-        return False
+    logger.warning(f"Legacy trigger_staff_notification called for event: {event}. Consider using NotificationManager directly.")
+    # Legacy events should be migrated to NotificationManager
+    return False
 
 
-def broadcast_new_message(hotel_slug, conversation_id, message_data):
+def broadcast_new_message(hotel_slug, conversation_id, message):
     """
     Broadcast new staff chat message using NotificationManager.
-    Expects message_data to have a 'message' object.
+    Expects message to be the actual StaffChatMessage object.
     """
     try:
-        message = message_data.get('message')
         if message:
             return notification_manager.realtime_staff_chat_message_created(message)
         else:
@@ -78,12 +59,12 @@ def broadcast_new_message(hotel_slug, conversation_id, message_data):
         return False
 
 
-def broadcast_message_edited(hotel_slug, conversation_id, message_data):
+def broadcast_message_edited(hotel_slug, conversation_id, message):
     """
     Broadcast edited staff chat message using NotificationManager.
+    Expects message to be the actual StaffChatMessage object.
     """
     try:
-        message = message_data.get('message')
         if message:
             return notification_manager.realtime_staff_chat_message_edited(message)
         else:
@@ -163,9 +144,12 @@ def notify_staff_mentioned(hotel_slug, staff_id, mention_data):
 def trigger_conversation_event(hotel_slug, conversation_id, event, data):
     """Legacy function - redirects to appropriate new methods."""
     if event == "new-message":
-        return broadcast_new_message(hotel_slug, conversation_id, data)
+        # Legacy callers may still pass serialized data, extract message if available
+        message = data.get('message') if isinstance(data, dict) else data
+        return broadcast_new_message(hotel_slug, conversation_id, message)
     elif event == "message-edited":
-        return broadcast_message_edited(hotel_slug, conversation_id, data)
+        message = data.get('message') if isinstance(data, dict) else data
+        return broadcast_message_edited(hotel_slug, conversation_id, message)
     elif event == "message-deleted":
         return broadcast_message_deleted(hotel_slug, conversation_id, data)
     elif event == "typing":
@@ -180,32 +164,19 @@ def trigger_staff_notification(hotel_slug, staff_id, event, data):
     if event == "mentioned":
         return notify_staff_mentioned(hotel_slug, staff_id, data)
     else:
-        # Generic staff notification using direct Pusher
-
-        channel = get_staff_personal_channel(hotel_slug, staff_id)
-        try:
-            pusher_client.trigger(channel, event, data)
-            return True
-        except Exception as e:
-            logger.error(f"Failed staff notification: {e}")
-            return False
-    """Broadcast typing indicator to all conversation participants"""
-    return trigger_conversation_event(
-        hotel_slug,
-        conversation_id,
-        "user-typing",
-        typing_data
-    )
+        logger.warning(f"Legacy trigger_staff_notification called for event: {event}. Use NotificationManager directly.")
+        return False
 
 
-def broadcast_read_receipt(hotel_slug, conversation_id, read_data):
-    """Broadcast read receipt to all conversation participants"""
-    return trigger_conversation_event(
-        hotel_slug,
-        conversation_id,
-        "messages-read",
-        read_data
-    )
+def broadcast_read_receipt(hotel_slug, conversation_id, staff, message_ids):
+    """Broadcast read receipt using NotificationManager"""
+    try:
+        from .models import StaffConversation
+        conversation = StaffConversation.objects.get(id=conversation_id)
+        return notification_manager.realtime_staff_chat_message_read(conversation, staff, message_ids)
+    except Exception as e:
+        logger.error(f"Failed to broadcast read receipt: {e}")
+        return False
 
 
 def notify_staff_of_mention(hotel_slug, staff_id, mention_data):
@@ -256,21 +227,21 @@ def broadcast_conversation_updated(
     )
 
 
-def broadcast_attachment_uploaded(hotel_slug, conversation_id, attachment_data):
-    """Broadcast new file attachment to conversation"""
-    return trigger_conversation_event(
-        hotel_slug,
-        conversation_id,
-        "attachment-uploaded",
-        attachment_data
-    )
+def broadcast_attachment_uploaded(hotel_slug, conversation_id, attachment, message):
+    """Broadcast new file attachment using NotificationManager"""
+    try:
+        return notification_manager.realtime_staff_chat_attachment_uploaded(attachment, message)
+    except Exception as e:
+        logger.error(f"Failed to broadcast attachment upload: {e}")
+        return False
 
 
-def broadcast_attachment_deleted(hotel_slug, conversation_id, deletion_data):
-    """Broadcast attachment deletion to conversation"""
-    return trigger_conversation_event(
-        hotel_slug,
-        conversation_id,
-        "attachment-deleted",
-        deletion_data
-    )
+def broadcast_attachment_deleted(hotel_slug, conversation_id, attachment_id, staff):
+    """Broadcast attachment deletion using NotificationManager"""
+    try:
+        from .models import StaffConversation
+        conversation = StaffConversation.objects.get(id=conversation_id)
+        return notification_manager.realtime_staff_chat_attachment_deleted(attachment_id, conversation, staff)
+    except Exception as e:
+        logger.error(f"Failed to broadcast attachment deletion: {e}")
+        return False
