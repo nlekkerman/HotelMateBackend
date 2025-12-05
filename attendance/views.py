@@ -440,9 +440,10 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         return Response({"error": "Face not recognized."}, status=status.HTTP_401_UNAUTHORIZED)
 
     @action(detail=False, methods=["get"], url_path="status")
-    def current_status(self, request):
+    def current_status(self, request, hotel_slug=None):
         staff = getattr(request.user, "staff_profile", None)
-        hotel_slug = request.query_params.get("hotel_slug")
+        # Get hotel_slug from URL path or query params
+        hotel_slug = hotel_slug or self.kwargs.get('hotel_slug') or request.query_params.get("hotel_slug")
         if not staff or not hotel_slug:
             return Response({"error": "Missing staff or hotel."}, status=400)
             

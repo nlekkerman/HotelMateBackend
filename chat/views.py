@@ -1886,6 +1886,66 @@ def delete_attachment(request, attachment_id):
     })
 
 
+# ==================== FCM TOKEN MANAGEMENT ====================
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def save_fcm_token(request, hotel_slug):
+    """
+    Save FCM token for guest chat notifications.
+    Used to enable push notifications for guests using the chat system.
+    
+    POST /api/chat/{hotel_slug}/save-fcm-token/
+    Body: {"fcm_token": "device_token_here", "room_number": 101}
+    """
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    fcm_token = request.data.get('fcm_token')
+    room_number = request.data.get('room_number')
+    
+    if not fcm_token:
+        return Response(
+            {'error': 'fcm_token is required'},
+            status=400
+        )
+    
+    if not room_number:
+        return Response(
+            {'error': 'room_number is required'},
+            status=400
+        )
+    
+    try:
+        room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
+        
+        # Save FCM token to room
+        room.guest_fcm_token = fcm_token
+        room.save()
+        
+        logger.info(
+            f"Chat FCM token saved for room {room_number} "
+            f"at {hotel.name} via chat endpoint"
+        )
+        
+        return Response({
+            'success': True,
+            'message': 'FCM token saved successfully for chat notifications',
+            'room_number': room_number,
+            'hotel_slug': hotel_slug
+        })
+        
+    except Room.DoesNotExist:
+        return Response(
+            {'error': f'Room {room_number} not found in {hotel.name}'},
+            status=404
+        )
+    except Exception as e:
+        logger.error(f"Failed to save chat FCM token: {e}")
+        return Response(
+            {'error': 'Failed to save FCM token'},
+            status=500
+        )
+
+
 # ==================== TEST ENDPOINTS ====================
 
 @api_view(['POST'])

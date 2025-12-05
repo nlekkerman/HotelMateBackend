@@ -17,6 +17,7 @@ from .views import (
     delete_message,
     upload_message_attachment,
     delete_attachment,
+    save_fcm_token,
     test_deletion_broadcast,
 )
 
@@ -91,6 +92,13 @@ urlpatterns = [
         "attachments/<int:attachment_id>/delete/",
         delete_attachment,
         name="delete_attachment"
+    ),
+    
+    # --- FCM TOKEN MANAGEMENT ---
+    path(
+        "<slug:hotel_slug>/save-fcm-token/",
+        save_fcm_token,
+        name="save_fcm_token"
     ),
     
     # --- TEST ENDPOINTS (Development/Debug Only) ---
