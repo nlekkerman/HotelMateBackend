@@ -294,7 +294,6 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                     conversation.id,
                     staff,
                     marked_message_ids
-                    }
                 )
             except Exception:
                 # Log but don't fail the request
