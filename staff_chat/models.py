@@ -2,6 +2,8 @@ from django.db import models
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 from cloudinary.models import CloudinaryField
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 import os
 
 
@@ -480,3 +482,33 @@ class StaffMessageReaction(models.Model):
             f"{self.emoji} by {self.staff.first_name} "
             f"on message {self.message.id}"
         )
+
+
+# 🔥 AUTO-FIRE UNREAD COUNT UPDATES ON MESSAGE CREATION
+@receiver(post_save, sender=StaffChatMessage)
+def handle_staff_message_created(sender, instance, created, **kwargs):
+    """
+    Automatically fire unread count updates when messages are created.
+    This ensures unread counts update regardless of WHERE the message is created.
+    """
+    if created:  # Only for new messages, not updates
+        try:
+            from notifications.notification_manager import notification_manager
+            
+            # Update unread count for all recipients (excluding sender)
+            for recipient in instance.conversation.participants.exclude(id=instance.sender.id):
+                notification_manager.realtime_staff_chat_unread_updated(
+                    staff=recipient,
+                    conversation=instance.conversation,
+                    unread_count=instance.conversation.get_unread_count_for_staff(recipient)
+                )
+            
+            # Update total unread count for sender (their overall count across conversations)
+            notification_manager.realtime_staff_chat_unread_updated(
+                staff=instance.sender  # No conversation = calculates total across all
+            )
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to auto-update unread counts for new message {instance.id}: {e}")
