@@ -305,6 +305,19 @@ class StaffChatMessage(models.Model):
                 self.status = 'read'
                 self.save(update_fields=['is_read', 'status'])
             
+            # 🔥 FIRE UNREAD COUNT UPDATE for the reading staff
+            try:
+                from notifications.notification_manager import notification_manager
+                notification_manager.realtime_staff_chat_unread_updated(
+                    staff=staff,
+                    conversation=self.conversation,
+                    unread_count=self.conversation.get_unread_count_for_staff(staff)
+                )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to update unread count for staff {staff.id}: {e}")
+            
             return True
         return False
     
