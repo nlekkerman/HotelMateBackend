@@ -295,6 +295,15 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                     staff,
                     marked_message_ids
                 )
+                
+                # 🔥 UPDATE UNREAD COUNT after marking as read
+                from notifications.notification_manager import notification_manager
+                notification_manager.realtime_staff_chat_unread_updated(
+                    staff=staff,
+                    conversation=conversation,
+                    unread_count=0  # Now 0 after reading
+                )
+                
             except Exception:
                 # Log but don't fail the request
                 pass

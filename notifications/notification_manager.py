@@ -351,6 +351,40 @@ class NotificationManager:
         
         return self._safe_pusher_trigger(channel, "unread_updated", event_data)
     
+    def realtime_staff_chat_unread_updated(self, staff, conversation=None, unread_count=None):
+        """Emit normalized staff chat unread count update event."""
+        self.logger.info(f"🔢 Realtime staff chat: unread updated for staff {staff.id}")
+        
+        # Calculate total unread if not provided and no specific conversation
+        if unread_count is None and conversation is None:
+            from staff_chat.models import StaffConversation
+            conversations = StaffConversation.objects.filter(participants=staff)
+            total_unread = sum(conv.get_unread_count_for_staff(staff) for conv in conversations)
+            unread_count = total_unread
+        elif unread_count is None and conversation:
+            unread_count = conversation.get_unread_count_for_staff(staff)
+        
+        payload = {
+            'staff_id': staff.id,
+            'conversation_id': conversation.id if conversation else None,
+            'unread_count': unread_count,
+            'total_unread': unread_count if not conversation else None,
+            'updated_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="unread_updated",
+            payload=payload,
+            hotel=staff.hotel,
+            scope={'staff_id': staff.id, 'conversation_id': conversation.id if conversation else None}
+        )
+        
+        # Send to staff's personal notification channel
+        hotel_slug = staff.hotel.slug
+        channel = f"hotel-{hotel_slug}.staff-{staff.id}-notifications"
+        return self._safe_pusher_trigger(channel, "unread_updated", event_data)
+    
     # -------------------------------------------------------------------------
     # ROOM SERVICE REALTIME METHODS
     # -------------------------------------------------------------------------

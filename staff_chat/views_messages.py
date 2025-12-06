@@ -260,6 +260,14 @@ def send_message(request, hotel_slug, conversation_id):
         logger.info(
             f"✅ Realtime broadcast successful for message {message.id}"
         )
+        
+        # 🔥 UPDATE UNREAD COUNT for recipients (excluding sender)
+        for recipient in conversation.participants.exclude(id=staff.id):
+            notification_manager.realtime_staff_chat_unread_updated(
+                staff=recipient,
+                conversation=conversation
+            )
+        
     except Exception as e:
         logger.error(
             f"❌ Failed to broadcast message via Pusher: {e}"
