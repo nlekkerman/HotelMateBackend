@@ -198,10 +198,28 @@ class NotificationManager:
         self.logger.info(f"💬 Realtime staff chat: message {message.id} created by staff {message.sender.id}")
         
         # Build complete payload with correct field names for frontend
-        # Safely get attachments as a list of IDs to avoid serialization issues
+        # Safely get attachments with full data for frontend display
         try:
-            attachment_list = [{'id': att.id, 'filename': getattr(att, 'filename', 'Unknown')} for att in message.attachments.all()] if hasattr(message, 'attachments') else []
-        except:
+            attachment_list = []
+            if hasattr(message, 'attachments'):
+                for att in message.attachments.all():
+                    att_data = {
+                        'id': att.id,
+                        'file_name': att.file_name,  # Use correct field name
+                        'file_type': att.file_type,
+                        'file_size': att.file_size,
+                    }
+                    # Get the Cloudinary file URL
+                    if hasattr(att, 'file') and att.file:
+                        att_data['url'] = att.file.url
+                        # Also add some metadata that might be useful
+                        att_data['public_id'] = getattr(att.file, 'public_id', '')
+                    
+                    attachment_list.append(att_data)
+                    
+                self.logger.info(f"📎 Built attachment list with {len(attachment_list)} items: {attachment_list}")
+        except Exception as e:
+            self.logger.error(f"Error building attachment list: {e}")
             attachment_list = []
         
         payload = {
