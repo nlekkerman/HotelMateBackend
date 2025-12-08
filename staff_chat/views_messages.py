@@ -256,17 +256,19 @@ def send_message(request, hotel_slug, conversation_id):
     
     # Broadcast via NotificationManager to all participants
     try:
+        print(f"🚨🚨🚨 ABOUT TO CALL realtime_staff_chat_message_created for message {message.id}", flush=True)
+        print(f"🚨 Message details: sender={message.sender.id}, conversation={message.conversation.id}, text={message.message[:50]}", flush=True)
+        
         notification_manager.realtime_staff_chat_message_created(message)
-        print(
-            f"✅ Realtime broadcast successful for message {message.id}"
-        )
+        
+        print(f"✅✅✅ Realtime broadcast successful for message {message.id}", flush=True)
         
         # Unread count updates are now handled automatically by model signals
         
     except Exception as e:
-        print(
-            f"❌ Failed to broadcast message via Pusher: {e}"
-        )
+        print(f"❌❌❌ Failed to broadcast message via Pusher: {e}", flush=True)
+        import traceback
+        traceback.print_exc()
     
     # Send FCM notifications to participants (except sender)
     try:
