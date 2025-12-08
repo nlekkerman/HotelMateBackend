@@ -198,10 +198,10 @@ class NotificationManager:
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
-            'text': message.text,  # Keep 'text' as consistent field name
+            'text': message.message,  # Correct field name: 'message' not 'text'
             'sender_id': message.sender.id,
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
-            'timestamp': message.created_at.isoformat(),  # Use 'timestamp' for consistency
+            'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
             'attachments': getattr(message, 'attachments', []),
             'is_system_message': getattr(message, 'is_system_message', False)
         }
@@ -227,11 +227,11 @@ class NotificationManager:
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
-            'text': message.text,
+            'text': message.message,  # Correct field name: 'message' not 'text'
             'sender_id': message.sender.id,
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
-            'timestamp': message.created_at.isoformat(),
-            'updated_at': message.updated_at.isoformat() if hasattr(message, 'updated_at') else timezone.now().isoformat(),
+            'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
+            'updated_at': message.edited_at.isoformat() if hasattr(message, 'edited_at') and message.edited_at else timezone.now().isoformat(),
             'edited': True
         }
         
@@ -1091,8 +1091,8 @@ class NotificationManager:
             'mentioned_staff_name': f"{staff.first_name} {staff.last_name}",
             'sender_id': message.sender.id,
             'sender_name': f"{message.sender.first_name} {message.sender.last_name}",
-            'text': message.text,
-            'created_at': message.created_at.isoformat()
+            'text': message.message,  # Correct field name: 'message' not 'text'
+            'created_at': message.timestamp.isoformat()  # Correct field name: 'timestamp' not 'created_at'
         }
         
         event_data = self._create_normalized_event(

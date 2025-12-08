@@ -835,12 +835,11 @@ def create_issues():
         
         # Create the issue using GitHub CLI (if available) or GitKraken CLI
         try:
-            # Try GitHub CLI first
+            # Try GitHub CLI first - create without custom labels since they don't exist
             cmd = [
                 'gh', 'issue', 'create',
                 '--title', issue['title'],
-                '--body', issue['body'],
-                '--label', labels_str
+                '--body', issue['body']
             ]
             
             result = subprocess.run(cmd, capture_output=True, text=True, cwd='.')
