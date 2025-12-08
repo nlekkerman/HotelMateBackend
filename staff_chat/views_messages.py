@@ -172,11 +172,11 @@ def send_message(request, hotel_slug, conversation_id):
                 id=reply_to_id,
                 conversation=conversation
             )
-            logger.info(
+            print(
                 f"Message replying to message ID: {reply_to_id}"
             )
         except StaffChatMessage.DoesNotExist:
-            logger.warning(
+            print(
                 f"Reply target message {reply_to_id} not found"
             )
     
@@ -209,7 +209,7 @@ def send_message(request, hotel_slug, conversation_id):
             if mentioned and mentioned not in mentioned_staff:
                 mentioned_staff.append(mentioned)
     
-    logger.info(
+    print(
         f"🔵 NEW STAFF MESSAGE | Sender: {staff} | "
         f"Conversation: {conversation.id} | "
         f"Hotel: {hotel_slug} | "
@@ -233,7 +233,7 @@ def send_message(request, hotel_slug, conversation_id):
     conversation.has_unread = True
     conversation.save()
     
-    logger.info(
+    print(
         f"📝 Message created | ID: {message.id} | "
         f"Mentions: {[s.id for s in mentioned_staff]}"
     )
@@ -257,14 +257,14 @@ def send_message(request, hotel_slug, conversation_id):
     # Broadcast via NotificationManager to all participants
     try:
         notification_manager.realtime_staff_chat_message_created(message)
-        logger.info(
+        print(
             f"✅ Realtime broadcast successful for message {message.id}"
         )
         
         # Unread count updates are now handled automatically by model signals
         
     except Exception as e:
-        logger.error(
+        print(
             f"❌ Failed to broadcast message via Pusher: {e}"
         )
     
@@ -278,15 +278,15 @@ def send_message(request, hotel_slug, conversation_id):
             exclude_sender=True,
             mentions=mentioned_ids
         )
-        logger.info(
+        print(
             f"📱 FCM notifications sent: {success}/{total}"
         )
     except Exception as e:
-        logger.error(
+        print(
             f"❌ Failed to send FCM notifications: {e}"
         )
     
-    logger.info(
+    print(
         f"✅ MESSAGE COMPLETE | ID: {message.id} | "
         f"Sender: {staff} | Conversation: {conversation.id}"
     )
