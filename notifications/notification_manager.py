@@ -114,10 +114,13 @@ class NotificationManager:
     def _safe_pusher_trigger(self, channel: str, event: str, data: dict) -> bool:
         """Safely trigger Pusher event with error handling."""
         try:
+            print(f"🚨 ACTUALLY SENDING PUSHER EVENT: Channel={channel}, Event={event}", flush=True)
             pusher_client.trigger(channel, event, data)
+            print(f"✅ Pusher event CONFIRMED SENT: {channel} → {event}", flush=True)
             self.logger.info(f"✅ Pusher event sent: {channel} → {event}")
             return True
         except Exception as e:
+            print(f"❌ Pusher FAILED: {channel} → {event}: {e}", flush=True)
             self.logger.error(f"❌ Pusher failed: {channel} → {event}: {e}")
             return False
     
@@ -192,7 +195,7 @@ class NotificationManager:
         Args:
             message: Staff chat message instance
         """
-        
+        self.logger.info(f"💬 Realtime staff chat: message {message.id} created by staff {message.sender.id}")
         
         # Build complete payload with correct field names for frontend
         payload = {
@@ -220,19 +223,46 @@ class NotificationManager:
         conversation_channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
         
         # Send to conversation channel (for message display)
+        print(f"🔥 PUSHER DEBUG: Sending to conversation channel: {conversation_channel}", flush=True)
+        print(f"🔥 PUSHER DEBUG: Event name: realtime_staff_chat_message_created", flush=True)
+        print(f"🔥 PUSHER DEBUG: Event data structure: {list(event_data.keys())}", flush=True)
+        print(f"🔥 PUSHER DEBUG: Payload keys: {list(payload.keys())}", flush=True)
+        print(f"🔥 PUSHER DEBUG: Full event data: {event_data}", flush=True)
+        
         self.logger.info(f"🔥 PUSHER DEBUG: Sending to conversation channel: {conversation_channel}")
         self.logger.info(f"🔥 PUSHER DEBUG: Event data: {event_data}")
         conversation_sent = self._safe_pusher_trigger(conversation_channel, "realtime_staff_chat_message_created", event_data)
         
-        # Send to all participants' notification channels (for message notifications and unread counts)
+        # Send to all participants' notification channels (for unread count updates)
         notification_sent = 0
         participants = list(message.conversation.participants.exclude(id=message.sender.id))
         self.logger.info(f"🔥 PUSHER DEBUG: Found {len(participants)} participants to notify")
         
         for participant in participants:
             notification_channel = f"{hotel_slug}.staff-{participant.id}-notifications"
-            self.logger.info(f"🔥 PUSHER DEBUG: Sending to participant {participant.id} on channel: {notification_channel}")
-            if self._safe_pusher_trigger(notification_channel, "realtime_staff_chat_message_created", event_data):
+            
+            # Create separate unread update event
+            unread_payload = {
+                'staff_id': participant.id,
+                'conversation_id': message.conversation.id,
+                'unread_count': message.conversation.get_unread_count_for_staff(participant) if hasattr(message.conversation, 'get_unread_count_for_staff') else 1,
+                'updated_at': timezone.now().isoformat()
+            }
+            
+            unread_event_data = self._create_normalized_event(
+                category="staff_chat",
+                event_type="realtime_staff_chat_unread_updated",
+                payload=unread_payload,
+                hotel=message.sender.hotel,
+                scope={'staff_id': participant.id, 'conversation_id': message.conversation.id}
+            )
+            
+            print(f"🔥 PUSHER DEBUG: Sending unread update to participant {participant.id} on channel: {notification_channel}", flush=True)
+            print(f"🔥 PUSHER DEBUG: Unread event name: realtime_staff_chat_unread_updated", flush=True)
+            print(f"🔥 PUSHER DEBUG: Unread count: {unread_payload['unread_count']}", flush=True)
+            
+            self.logger.info(f"🔥 PUSHER DEBUG: Sending unread update to participant {participant.id} on channel: {notification_channel}")
+            if self._safe_pusher_trigger(notification_channel, "realtime_staff_chat_unread_updated", unread_event_data):
                 notification_sent += 1
         
         self.logger.info(f"🔥 PUSHER DEBUG: Final results - conversation={conversation_sent}, notifications={notification_sent}")
