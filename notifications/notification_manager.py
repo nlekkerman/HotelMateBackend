@@ -217,8 +217,20 @@ class NotificationManager:
         
         # Send to conversation channel with correct event name for frontend eventBus
         hotel_slug = message.sender.hotel.slug
-        channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
-        return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_created", event_data)
+        conversation_channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
+        
+        # Send to conversation channel (for message display)
+        conversation_sent = self._safe_pusher_trigger(conversation_channel, "realtime_staff_chat_message_created", event_data)
+        
+        # Send to all participants' notification channels (for unread counts)
+        notification_sent = 0
+        for participant in message.conversation.participants.exclude(id=message.sender.id):
+            notification_channel = f"hotel-{hotel_slug}.staff-{participant.id}-notifications"
+            if self._safe_pusher_trigger(notification_channel, "unread_updated", event_data):
+                notification_sent += 1
+        
+        self.logger.info(f"📡 Message broadcast: conversation={conversation_sent}, notifications={notification_sent}")
+        return conversation_sent and notification_sent > 0
     
     def realtime_staff_chat_message_edited(self, message):
         """Emit normalized staff chat message edited event."""
