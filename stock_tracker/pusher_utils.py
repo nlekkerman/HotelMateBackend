@@ -64,7 +64,7 @@ def broadcast_stocktake_created(hotel_identifier, stocktake_data):
     """Broadcast new stocktake creation to hotel stocktakes list"""
     return trigger_hotel_stocktakes_event(
         hotel_identifier,
-        "stocktake-created",
+        "stocktake_created",
         stocktake_data
     )
 
@@ -73,7 +73,7 @@ def broadcast_stocktake_deleted(hotel_identifier, stocktake_id):
     """Broadcast stocktake deletion to hotel stocktakes list"""
     return trigger_hotel_stocktakes_event(
         hotel_identifier,
-        "stocktake-deleted",
+        "stocktake_deleted",
         {"stocktake_id": stocktake_id}
     )
 
@@ -88,7 +88,7 @@ def broadcast_stocktake_status_changed(
     # Notify list view
     trigger_hotel_stocktakes_event(
         hotel_identifier,
-        "stocktake-status-changed",
+        "stocktake_status_changed",
         stocktake_data
     )
     
@@ -96,7 +96,7 @@ def broadcast_stocktake_status_changed(
     return trigger_stocktake_event(
         hotel_identifier,
         stocktake_id,
-        "stocktake-status-changed",
+        "stocktake_status_changed",
         stocktake_data
     )
 
@@ -115,7 +115,7 @@ def broadcast_line_counted_updated(
     return trigger_stocktake_event(
         hotel_identifier,
         stocktake_id,
-        "line-counted-updated",
+        "line_counted_updated",
         line_data
     )
 
@@ -130,7 +130,7 @@ def broadcast_line_movement_added(
     return trigger_stocktake_event(
         hotel_identifier,
         stocktake_id,
-        "line-movement-added",
+        "line_movement_added",
         movement_data
     )
 
@@ -145,7 +145,7 @@ def broadcast_line_movement_deleted(
     return trigger_stocktake_event(
         hotel_identifier,
         stocktake_id,
-        "line-movement-deleted",
+        "line_movement_deleted",
         deletion_data
     )
 
@@ -160,7 +160,7 @@ def broadcast_line_movement_updated(
     return trigger_stocktake_event(
         hotel_identifier,
         stocktake_id,
-        "line-movement-updated",
+        "line_movement_updated",
         update_data
     )
 
@@ -175,7 +175,7 @@ def broadcast_stocktake_populated(
     return trigger_stocktake_event(
         hotel_identifier,
         stocktake_id,
-        "stocktake-populated",
+        "stocktake_populated",
         populate_data
     )
 
@@ -192,7 +192,7 @@ def broadcast_bulk_lines_updated(hotel_identifier, stocktake_id, bulk_data):
     return trigger_stocktake_event(
         hotel_identifier,
         stocktake_id,
-        "bulk-lines-updated",
+        "bulk_lines_updated",
         bulk_data
     )
 

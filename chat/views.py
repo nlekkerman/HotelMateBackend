@@ -1001,12 +1001,12 @@ def update_message(request, message_id):
     try:
         pusher_client.trigger(
             message_channel,
-            "message-updated",
+            "message_updated",
             serializer.data
         )
-        logger.info(f"Pusher triggered: message-updated for message {message_id}")
+        logger.info(f"Pusher triggered: message_updated for message {message_id}")
     except Exception as e:
-        logger.error(f"Failed to trigger Pusher for message-updated: {e}")
+        logger.error(f"Failed to trigger Pusher for message_updated: {e}")
     
     return Response({
         "message": serializer.data,
@@ -1813,11 +1813,11 @@ def delete_attachment(request, attachment_id):
     try:
         pusher_client.trigger(
             message_channel,
-            "attachment-deleted",
+            "attachment_deleted",
             pusher_data
         )
         logger.info(
-            f"Pusher: attachment-deleted → {message_channel}"
+            f"Pusher: attachment_deleted → {message_channel}"
         )
     except Exception as e:
         logger.error(f"Failed to trigger Pusher: {e}")
@@ -1826,7 +1826,7 @@ def delete_attachment(request, attachment_id):
     try:
         pusher_client.trigger(
             deletion_channel,
-            "attachment-deleted",
+            "attachment_deleted",
             pusher_data
         )
         print(f"✅ Attachment deletion sent to {deletion_channel}")

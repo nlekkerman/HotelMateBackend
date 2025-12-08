@@ -192,7 +192,7 @@ class NotificationManager:
         Args:
             message: Staff chat message instance
         """
-        self.logger.info(f"💬 Realtime staff chat: message {message.id} created")
+        
         
         # Build complete payload with correct field names for frontend
         payload = {
@@ -209,7 +209,7 @@ class NotificationManager:
         # Create normalized event
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="message_created", 
+            event_type="realtime_staff_chat_message_created", 
             payload=payload,
             hotel=message.conversation.hotel if hasattr(message.conversation, 'hotel') else message.sender.hotel,
             scope={'conversation_id': message.conversation.id, 'sender_id': message.sender.id}
@@ -220,16 +220,22 @@ class NotificationManager:
         conversation_channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
         
         # Send to conversation channel (for message display)
+        self.logger.info(f"🔥 PUSHER DEBUG: Sending to conversation channel: {conversation_channel}")
+        self.logger.info(f"🔥 PUSHER DEBUG: Event data: {event_data}")
         conversation_sent = self._safe_pusher_trigger(conversation_channel, "realtime_staff_chat_message_created", event_data)
         
         # Send to all participants' notification channels (for message notifications and unread counts)
         notification_sent = 0
-        for participant in message.conversation.participants.exclude(id=message.sender.id):
+        participants = list(message.conversation.participants.exclude(id=message.sender.id))
+        self.logger.info(f"🔥 PUSHER DEBUG: Found {len(participants)} participants to notify")
+        
+        for participant in participants:
             notification_channel = f"{hotel_slug}.staff-{participant.id}-notifications"
+            self.logger.info(f"🔥 PUSHER DEBUG: Sending to participant {participant.id} on channel: {notification_channel}")
             if self._safe_pusher_trigger(notification_channel, "realtime_staff_chat_message_created", event_data):
                 notification_sent += 1
         
-        self.logger.info(f"📡 Message broadcast: conversation={conversation_sent}, notifications={notification_sent}")
+        self.logger.info(f"🔥 PUSHER DEBUG: Final results - conversation={conversation_sent}, notifications={notification_sent}")
         return conversation_sent and notification_sent > 0
     
     def realtime_staff_chat_message_edited(self, message):
@@ -249,7 +255,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="message_edited",
+            event_type="realtime_staff_chat_message_edited",
             payload=payload,
             hotel=message.sender.hotel,
             scope={'conversation_id': message.conversation.id, 'sender_id': message.sender.id}
@@ -386,7 +392,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="unread_updated",
+            event_type="realtime_staff_chat_unread_updated",
             payload=payload,
             hotel=staff.hotel,
             scope={'staff_id': staff.id, 'conversation_id': conversation.id if conversation else None}
@@ -395,7 +401,7 @@ class NotificationManager:
         # Send to staff's personal notification channel
         hotel_slug = staff.hotel.slug
         channel = f"{hotel_slug}.staff-{staff.id}-notifications"
-        return self._safe_pusher_trigger(channel, "unread_updated", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_unread_updated", event_data)
     
     # -------------------------------------------------------------------------
     # ROOM SERVICE REALTIME METHODS
@@ -866,7 +872,7 @@ class NotificationManager:
             # Pusher notification
             staff_channel = f"{message.room.hotel.slug}-staff-{staff.id}"
             try:
-                pusher_client.trigger(staff_channel, "new-guest-message", message_data)
+                pusher_client.trigger(staff_channel, "new_guest_message", message_data)
                 results['pusher_sent'] += 1
                 self.logger.info(f"✅ Pusher sent to staff {staff.id}")
             except Exception as e:
@@ -1012,7 +1018,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="message_deleted",
+            event_type="realtime_staff_chat_message_deleted",
             payload=payload,
             hotel=hotel,
             scope={'conversation_id': conversation_id, 'message_id': message_id}
@@ -1020,14 +1026,13 @@ class NotificationManager:
         
         hotel_slug = hotel.slug
         channel = f"{hotel_slug}.staff-chat.{conversation_id}"
-        return self._safe_pusher_trigger(channel, "message_deleted", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_deleted", event_data)
     
     def realtime_staff_chat_typing_indicator(self, staff, conversation_id, is_typing=True):
         """Emit staff chat typing indicator (ephemeral event)."""
         self.logger.info(f"✍️ Realtime staff chat: typing indicator for staff {staff.id}")
         
-        # Typing indicators are ephemeral and don't need full normalization
-        # Use lightweight payload for performance
+        # Typing indicators use normalized structure for consistency
         payload = {
             'conversation_id': conversation_id,
             'staff_id': staff.id,
@@ -1036,9 +1041,17 @@ class NotificationManager:
             'timestamp': timezone.now().isoformat()
         }
         
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="realtime_staff_chat_typing",
+            payload=payload,
+            hotel=staff.hotel,
+            scope={'conversation_id': conversation_id, 'staff_id': staff.id}
+        )
+        
         hotel_slug = staff.hotel.slug
         channel = f"{hotel_slug}.staff-chat.{conversation_id}"
-        return self._safe_pusher_trigger(channel, "typing", payload)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_typing", event_data)
     
     def realtime_staff_chat_attachment_uploaded(self, attachment, message):
         """Emit staff chat attachment uploaded event."""
@@ -1058,7 +1071,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="attachment_uploaded",
+            event_type="realtime_staff_chat_attachment_uploaded",
             payload=payload,
             hotel=message.conversation.hotel if hasattr(message.conversation, 'hotel') else message.sender.hotel,
             scope={'conversation_id': message.conversation.id, 'attachment_id': attachment.id}
@@ -1082,7 +1095,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="attachment_deleted",
+            event_type="realtime_staff_chat_attachment_deleted",
             payload=payload,
             hotel=conversation.hotel if hasattr(conversation, 'hotel') else staff.hotel,
             scope={'conversation_id': conversation.id, 'attachment_id': attachment_id}
@@ -1092,8 +1105,8 @@ class NotificationManager:
         channel = f"{hotel_slug}.staff-chat.{conversation.id}"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_attachment_deleted", event_data)
     
-    def realtime_staff_chat_mention(self, staff, message, conversation_id):
-        """Emit staff chat mention notification."""
+    def realtime_staff_chat_staff_mentioned(self, staff, message, conversation_id):
+        """Emit staff chat staff mentioned notification."""
         self.logger.info(f"📢 Realtime staff chat: mention for staff {staff.id}")
         
         payload = {
@@ -1109,7 +1122,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="staff_mentioned",
+            event_type="realtime_staff_chat_staff_mentioned",
             payload=payload,
             hotel=staff.hotel,
             scope={'mentioned_staff_id': staff.id, 'conversation_id': conversation_id}
@@ -1118,10 +1131,10 @@ class NotificationManager:
         # Send to staff's personal notification channel
         hotel_slug = staff.hotel.slug
         channel = f"{hotel_slug}.staff-{staff.id}-notifications"
-        return self._safe_pusher_trigger(channel, "mentioned", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_staff_mentioned", event_data)
     
-    def realtime_staff_chat_message_read(self, conversation, staff, message_ids):
-        """Emit staff chat message read receipt event."""
+    def realtime_staff_chat_messages_read(self, conversation, staff, message_ids):
+        """Emit staff chat messages read receipt event."""
         self.logger.info(f"👀 Realtime staff chat: messages read by staff {staff.id}")
         
         payload = {
@@ -1134,7 +1147,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="messages_read",
+            event_type="realtime_staff_chat_messages_read",
             payload=payload,
             hotel=conversation.hotel if hasattr(conversation, 'hotel') else staff.hotel,
             scope={'conversation_id': conversation.id, 'read_by_staff_id': staff.id}
@@ -1143,7 +1156,7 @@ class NotificationManager:
         # Send to conversation channel
         hotel_slug = staff.hotel.slug
         channel = f"{hotel_slug}.staff-chat.{conversation.id}"
-        return self._safe_pusher_trigger(channel, "messages_read", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_messages_read", event_data)
     
     def realtime_staff_chat_message_delivered(self, message, staff):
         """Emit staff chat message delivered status event."""
@@ -1159,7 +1172,7 @@ class NotificationManager:
         
         event_data = self._create_normalized_event(
             category="staff_chat",
-            event_type="message_delivered",
+            event_type="realtime_staff_chat_message_delivered",
             payload=payload,
             hotel=message.conversation.hotel if hasattr(message.conversation, 'hotel') else staff.hotel,
             scope={'conversation_id': message.conversation.id, 'message_id': message.id, 'delivered_to_staff_id': staff.id}
@@ -1168,7 +1181,7 @@ class NotificationManager:
         # Send to conversation channel
         hotel_slug = staff.hotel.slug
         channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
-        return self._safe_pusher_trigger(channel, "message_delivered", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_delivered", event_data)
 
     def get_notification_summary(self):
         """Get summary of notification capabilities and configuration."""

@@ -148,7 +148,7 @@ def notify_staff_mentioned(hotel_slug, staff_id, mention_data):
         conversation_id = mention_data.get('conversation_id')
         
         if staff and message and conversation_id:
-            return notification_manager.realtime_staff_chat_mention(staff, message, conversation_id)
+            return notification_manager.realtime_staff_chat_staff_mentioned(staff, message, conversation_id)
         else:
             logger.error("Missing staff, message, or conversation_id in mention_data for staff chat mention")
             return False
@@ -160,14 +160,14 @@ def notify_staff_mentioned(hotel_slug, staff_id, mention_data):
 # Legacy compatibility functions
 def trigger_conversation_event(hotel_slug, conversation_id, event, data):
     """Legacy function - redirects to appropriate new methods."""
-    if event == "new-message":
+    if event == "message_created" or event == "new-message":  # Support both new and legacy names
         # Legacy callers may still pass serialized data, extract message if available
         message = data.get('message') if isinstance(data, dict) else data
         return broadcast_new_message(hotel_slug, conversation_id, message)
     elif event == "message_edited":
         message = data.get('message') if isinstance(data, dict) else data
         return broadcast_message_edited(hotel_slug, conversation_id, message)
-    elif event == "message-deleted":
+    elif event == "message_deleted":
         return broadcast_message_deleted(hotel_slug, conversation_id, data)
     elif event == "typing":
         return broadcast_typing_indicator(hotel_slug, conversation_id, data)
@@ -190,7 +190,7 @@ def broadcast_read_receipt(hotel_slug, conversation_id, staff, message_ids):
     try:
         from .models import StaffConversation
         conversation = StaffConversation.objects.get(id=conversation_id)
-        return notification_manager.realtime_staff_chat_message_read(conversation, staff, message_ids)
+        return notification_manager.realtime_staff_chat_messages_read(conversation, staff, message_ids)
     except Exception as e:
         logger.error(f"Failed to broadcast read receipt: {e}")
         return False

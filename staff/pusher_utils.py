@@ -9,6 +9,7 @@ while maintaining backward compatibility.
 from django.utils import timezone
 import logging
 from notifications.notification_manager import notification_manager
+from chat.utils import pusher_client
 
 logger = logging.getLogger(__name__)
 
@@ -38,8 +39,8 @@ def trigger_staff_profile_update(hotel_slug, staff, action='updated'):
         staff: Staff instance or dict with staff data
         action: 'created', 'updated', or 'deleted'
     """
-    channel = f'hotel-{hotel_slug}'
-    event = 'staff-profile-updated'
+    channel = f'{hotel_slug}'
+    event = 'staff_profile_updated'
     
     # Handle both Staff instance and dict
     if isinstance(staff, dict):
@@ -126,22 +127,6 @@ def trigger_duty_status_change(hotel_slug, staff_data):
 
 
 def trigger_roster_update(hotel_slug, roster_data, action='updated'):
-    """Legacy roster notifications - kept as-is for now."""
-    from chat.utils import pusher_client
-    
-    channel = f'hotel-{hotel_slug}'
-    event = f'roster-{event_type}'
-    
-    try:
-        pusher_client.trigger(channel, event, data)
-        logger.info(f"Pusher roster notification → {channel} → {event}")
-        return True
-    except Exception as e:
-        logger.error(f"Pusher roster notification failed: {e}")
-        return False
-
-
-def trigger_roster_update(hotel_slug, roster_data, action='updated'):
     """
     Broadcast roster/schedule updates - legacy method.
     
@@ -150,10 +135,9 @@ def trigger_roster_update(hotel_slug, roster_data, action='updated'):
         roster_data: Dict with roster information
         action: 'created', 'updated', 'deleted', or 'bulk_updated'
     """
-    from chat.utils import pusher_client
     
-    channel = f'hotel-{hotel_slug}'
-    event = 'roster-updated'
+    channel = f'{hotel_slug}'
+    event = 'roster_updated'
     
     data = {
         'action': action,
@@ -189,8 +173,8 @@ def trigger_attendance_log(hotel_slug, log_data, action='clock_in'):
         log_data: Dict with clock log information
         action: 'clock_in' or 'clock_out'
     """
-    channel = f'hotel-{hotel_slug}'
-    event = 'attendance-logged'
+    channel = f'{hotel_slug}'
+    event = 'attendance_logged'
     
     data = {
         'action': action,
@@ -224,8 +208,8 @@ def trigger_registration_update(hotel_slug, registration_data, action):
         registration_data: Dict with registration information
         action: 'pending', 'approved', 'rejected'
     """
-    channel = f'hotel-{hotel_slug}'
-    event = 'staff-registration-updated'
+    channel = f'{hotel_slug}'
+    event = 'staff_registration_updated'
     
     data = {
         'action': action,
@@ -256,8 +240,8 @@ def trigger_navigation_permission_update(hotel_slug, staff_id, nav_items):
         staff_id: Staff member ID
         nav_items: List of navigation item slugs
     """
-    channel = f'hotel-{hotel_slug}-staff-{staff_id}'
-    event = 'navigation-permissions-updated'
+    channel = f'{hotel_slug}-staff-{staff_id}'
+    event = 'navigation_permissions_updated'
     
     data = {
         'staff_id': staff_id,
@@ -288,8 +272,8 @@ def trigger_department_role_update(hotel_slug, data_type, data, action):
         data: Dict with department/role information
         action: 'created', 'updated', 'deleted'
     """
-    channel = f'hotel-{hotel_slug}'
-    event = f'{data_type}-updated'
+    channel = f'{hotel_slug}'
+    event = f'{data_type}_updated'
     
     payload = {
         'action': action,

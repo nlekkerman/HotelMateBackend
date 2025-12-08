@@ -173,7 +173,7 @@ def test_read_receipt_realtime():
         mock_trigger.return_value = True
         
         # Trigger read receipt for staff2 reading the message
-        result = notification_manager.realtime_staff_chat_message_read(
+        result = notification_manager.realtime_staff_chat_messages_read(
             conversation, staff2, [message.id]
         )
         
