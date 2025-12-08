@@ -127,6 +127,8 @@ def send_message(request, hotel_slug, conversation_id):
         "reply_to": <message_id>  // optional
     }
     """
+    print(f"🔥🔥🔥 SEND_MESSAGE ENDPOINT CALLED: hotel={hotel_slug}, conv={conversation_id}", flush=True)
+    print(f"🔥 Request data: {request.data}", flush=True)
     conversation = get_object_or_404(
         StaffConversation,
         id=conversation_id,

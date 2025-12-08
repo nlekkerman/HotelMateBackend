@@ -198,6 +198,12 @@ class NotificationManager:
         self.logger.info(f"💬 Realtime staff chat: message {message.id} created by staff {message.sender.id}")
         
         # Build complete payload with correct field names for frontend
+        # Safely get attachments as a list of IDs to avoid serialization issues
+        try:
+            attachment_list = [{'id': att.id, 'filename': getattr(att, 'filename', 'Unknown')} for att in message.attachments.all()] if hasattr(message, 'attachments') else []
+        except:
+            attachment_list = []
+        
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
@@ -205,7 +211,7 @@ class NotificationManager:
             'sender_id': message.sender.id,
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
-            'attachments': getattr(message, 'attachments', []),
+            'attachments': attachment_list,
             'is_system_message': getattr(message, 'is_system_message', False)
         }
         
