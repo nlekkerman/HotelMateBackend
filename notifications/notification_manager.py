@@ -198,7 +198,7 @@ class NotificationManager:
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
-            'text': message.message,  # Correct field name: 'message' not 'text'
+            'message': message.message,  # Match serializer field name: 'message'
             'sender_id': message.sender.id,
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
@@ -245,7 +245,7 @@ class NotificationManager:
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
-            'text': message.message,  # Correct field name: 'message' not 'text'
+            'message': message.message,  # Match serializer field name: 'message'
             'sender_id': message.sender.id,
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
@@ -290,12 +290,12 @@ class NotificationManager:
         # Build complete payload
         payload = {
             'conversation_id': message.conversation.id if message.conversation else f"room-{message.room.room_number}",
-            'message_id': message.id,
+            'id': message.id,  # Match serializer field name: 'id'
             'sender_role': sender_role,
             'sender_id': sender_id,
             'sender_name': sender_name,
-            'text': message.message,
-            'created_at': message.timestamp.isoformat(),
+            'message': message.message,  # Match serializer field name: 'message'
+            'timestamp': message.timestamp.isoformat(),  # Match serializer field name: 'timestamp'
             'room_number': message.room.room_number,
             'is_staff_reply': sender_role == "staff",
             'attachments': getattr(message, 'attachments', []),
@@ -1116,8 +1116,8 @@ class NotificationManager:
             'mentioned_staff_name': f"{staff.first_name} {staff.last_name}",
             'sender_id': message.sender.id,
             'sender_name': f"{message.sender.first_name} {message.sender.last_name}",
-            'text': message.message,  # Correct field name: 'message' not 'text'
-            'created_at': message.timestamp.isoformat()  # Correct field name: 'timestamp' not 'created_at'
+            'message': message.message,  # Match serializer field name: 'message'
+            'timestamp': message.timestamp.isoformat()  # Match serializer field name: 'timestamp'
         }
         
         event_data = self._create_normalized_event(
