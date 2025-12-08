@@ -532,7 +532,7 @@ class NotificationManager:
         )
         
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = f"hotel-{hotel_slug}.booking"
         return self._safe_pusher_trigger(channel, "booking_updated", event_data)
     
     def realtime_booking_cancelled(self, booking, reason=None):
@@ -563,7 +563,7 @@ class NotificationManager:
         self._notify_guest_booking_cancelled(booking, reason)
         
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = f"hotel-{hotel_slug}.booking"
         return self._safe_pusher_trigger(channel, "booking_cancelled", event_data)
     
     # -------------------------------------------------------------------------
@@ -1019,7 +1019,7 @@ class NotificationManager:
         )
         
         hotel_slug = hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{conversation_id}"
+        channel = f"hotel-{hotel_slug}.staff-chat.{conversation_id}"
         return self._safe_pusher_trigger(channel, "message_deleted", event_data)
     
     def realtime_staff_chat_typing_indicator(self, staff, conversation_id, is_typing=True):
@@ -1037,7 +1037,7 @@ class NotificationManager:
         }
         
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{conversation_id}"
+        channel = f"hotel-{hotel_slug}.staff-chat.{conversation_id}"
         return self._safe_pusher_trigger(channel, "typing", payload)
     
     def realtime_staff_chat_attachment_uploaded(self, attachment, message):
@@ -1065,7 +1065,7 @@ class NotificationManager:
         )
         
         hotel_slug = message.sender.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
+        channel = f"hotel-{hotel_slug}.staff-chat.{message.conversation.id}"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_attachment_uploaded", event_data)
     
     def realtime_staff_chat_attachment_deleted(self, attachment_id, conversation, staff):
@@ -1089,7 +1089,7 @@ class NotificationManager:
         )
         
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{conversation.id}"
+        channel = f"hotel-{hotel_slug}.staff-chat.{conversation.id}"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_attachment_deleted", event_data)
     
     def realtime_staff_chat_mention(self, staff, message, conversation_id):
@@ -1117,7 +1117,7 @@ class NotificationManager:
         
         # Send to staff's personal notification channel
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-{staff.id}-notifications"
+        channel = f"hotel-{hotel_slug}.staff-{staff.id}-notifications"
         return self._safe_pusher_trigger(channel, "mentioned", event_data)
     
     def realtime_staff_chat_message_read(self, conversation, staff, message_ids):
