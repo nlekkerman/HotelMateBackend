@@ -410,6 +410,49 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
     
+    @action(detail=False, methods=['post'])
+    def sync_unread_counts(self, request, hotel_slug=None):
+        """
+        Force synchronize unread counts for debugging count discrepancies.
+        POST /api/staff-chat/<hotel_slug>/conversations/sync-unread-counts/
+        """
+        try:
+            staff = Staff.objects.get(user=request.user)
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get all conversations for this staff member
+        conversations = StaffConversation.objects.filter(
+            hotel__slug=hotel_slug,
+            participants=staff
+        )
+        
+        synced_count = 0
+        results = []
+        
+        for conversation in conversations:
+            # Force sync this conversation
+            conversation.sync_unread_counts_for_all_participants()
+            
+            # Get the updated count
+            unread_count = conversation.get_unread_count_for_staff(staff)
+            
+            results.append({
+                'conversation_id': conversation.id,
+                'unread_count': unread_count,
+                'title': conversation.title or f"Conversation {conversation.id}"
+            })
+            synced_count += 1
+        
+        return Response({
+            'message': f'Synchronized unread counts for {synced_count} conversations',
+            'conversations': results,
+            'timestamp': timezone.now().isoformat()
+        }, status=status.HTTP_200_OK)
+
     @action(detail=False, methods=['get'])
     def unread_count(self, request, hotel_slug=None):
         """

@@ -187,10 +187,59 @@ class StaffConversation(models.Model):
         return participants.first() if participants.exists() else None
     
     def get_unread_count_for_staff(self, staff):
-        """Get unread message count for a specific staff member"""
-        return self.messages.filter(
+        """
+        Get unread message count for a specific staff member.
+        Enhanced with debug logging to identify count discrepancies.
+        """
+        from django.db import connection
+        
+        # Get count with detailed logging
+        unread_messages = self.messages.filter(
             is_deleted=False
-        ).exclude(sender=staff).exclude(read_by=staff).count()
+        ).exclude(sender=staff).exclude(read_by=staff)
+        
+        count = unread_messages.count()
+        
+        # Debug logging for unread count calculation
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if count > 0:
+            message_ids = list(unread_messages.values_list('id', flat=True))
+            logger.info(f"📊 Unread count for staff {staff.id} in conversation {self.id}: {count} messages (IDs: {message_ids})")
+        else:
+            logger.info(f"📊 No unread messages for staff {staff.id} in conversation {self.id}")
+        
+        return count
+    
+    def sync_unread_counts_for_all_participants(self):
+        """
+        Force synchronize unread counts for all participants.
+        Call this when you suspect count inconsistencies.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            from notifications.notification_manager import notification_manager
+            
+            logger.info(f"🔄 Synchronizing unread counts for conversation {self.id}")
+            
+            for participant in self.participants.all():
+                # Get fresh, accurate count from database
+                accurate_count = self.get_unread_count_for_staff(participant)
+                
+                # Fire unread count update event
+                notification_manager.realtime_staff_chat_unread_updated(
+                    staff=participant,
+                    conversation=self,
+                    unread_count=accurate_count
+                )
+                
+                logger.info(f"📊 Synced unread count for staff {participant.id}: {accurate_count}")
+                
+        except Exception as e:
+            logger.error(f"❌ Failed to sync unread counts for conversation {self.id}: {e}")
 
 
 class StaffChatMessage(models.Model):
@@ -298,23 +347,43 @@ class StaffChatMessage(models.Model):
     def mark_as_read_by(self, staff):
         """Mark message as read by a specific staff member"""
         if staff != self.sender and not self.read_by.filter(id=staff.id).exists():
+            # Mark as read FIRST (atomic operation)
             self.read_by.add(staff)
             
-            # Check if ALL participants (except sender) have read
-            all_participants = self.conversation.participants.exclude(id=self.sender.id)
-            if self.read_by.count() >= all_participants.count():
-                self.is_read = True
-                self.status = 'read'
-                self.save(update_fields=['is_read', 'status'])
+            # Refresh conversation from DB to get accurate count
+            from django.db import transaction
+            with transaction.atomic():
+                # Check if ALL participants (except sender) have read
+                all_participants = self.conversation.participants.exclude(id=self.sender.id)
+                if self.read_by.count() >= all_participants.count():
+                    self.is_read = True
+                    self.status = 'read'
+                    self.save(update_fields=['is_read', 'status'])
             
-            # 🔥 FIRE UNREAD COUNT UPDATE for the reading staff
+            # 🔥 FIRE UNREAD COUNT UPDATE for the reading staff (AFTER marking as read)
             try:
                 from notifications.notification_manager import notification_manager
+                # Force refresh conversation to get accurate unread count
+                conversation_fresh = StaffConversation.objects.get(id=self.conversation.id)
+                accurate_unread_count = conversation_fresh.get_unread_count_for_staff(staff)
+                
                 notification_manager.realtime_staff_chat_unread_updated(
                     staff=staff,
-                    conversation=self.conversation,
-                    unread_count=self.conversation.get_unread_count_for_staff(staff)
+                    conversation=conversation_fresh,
+                    unread_count=accurate_unread_count
                 )
+                
+                # Also calculate and update total unread count for consistency
+                from staff_chat.models import StaffConversation
+                all_conversations = StaffConversation.objects.filter(participants=staff)
+                total_unread = sum(conv.get_unread_count_for_staff(staff) for conv in all_conversations)
+                
+                notification_manager.realtime_staff_chat_unread_updated(
+                    staff=staff,
+                    conversation=None,  # Total count across all conversations
+                    unread_count=total_unread
+                )
+                
             except Exception as e:
                 import logging
                 logger = logging.getLogger(__name__)

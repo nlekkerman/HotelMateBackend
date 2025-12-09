@@ -191,6 +191,7 @@ class NotificationManager:
     def realtime_staff_chat_message_created(self, message):
         """
         Emit normalized staff chat message created event.
+        Enhanced with reply-to-attachment detection and specialized notifications.
         
         Args:
             message: Staff chat message instance
@@ -222,6 +223,61 @@ class NotificationManager:
             self.logger.error(f"Error building attachment list: {e}")
             attachment_list = []
         
+        # Enhanced reply-to-attachment detection and data
+        reply_to_data = None
+        is_reply_to_attachment = False
+        original_attachment_previews = []
+        
+        if message.reply_to:
+            try:
+                original_message = message.reply_to
+                self.logger.info(f"🔗 Processing reply to message {original_message.id}")
+                
+                # Check if original message has attachments
+                if hasattr(original_message, 'attachments') and original_message.attachments.exists():
+                    is_reply_to_attachment = True
+                    self.logger.info(f"📎 Reply targets message with {original_message.attachments.count()} attachments")
+                    
+                    # Build attachment previews (limit to first 3 for performance)
+                    for att in original_message.attachments.all()[:3]:
+                        preview_data = {
+                            'id': att.id,
+                            'file_name': att.file_name,
+                            'file_type': att.file_type,
+                            'mime_type': getattr(att, 'mime_type', ''),
+                        }
+                        
+                        # Add URLs if available
+                        if hasattr(att, 'file') and att.file:
+                            preview_data['file_url'] = att.file.url
+                        if hasattr(att, 'thumbnail') and att.thumbnail:
+                            preview_data['thumbnail_url'] = att.thumbnail.url
+                            
+                        original_attachment_previews.append(preview_data)
+                
+                # Build reply_to_data with enhanced attachment info
+                reply_to_data = {
+                    'id': original_message.id,
+                    'message': original_message.message[:100],  # Truncated preview
+                    'sender_id': original_message.sender.id,
+                    'sender_name': f"{original_message.sender.first_name} {original_message.sender.last_name}",
+                    'timestamp': original_message.timestamp.isoformat(),
+                    'has_attachments': is_reply_to_attachment,
+                    'attachments_preview': original_attachment_previews,
+                    'attachment_count': len(original_attachment_previews)
+                }
+                
+                self.logger.info(f"🔗 Built reply_to_data with {len(original_attachment_previews)} attachment previews")
+                
+            except Exception as e:
+                self.logger.error(f"Error processing reply-to data: {e}")
+                reply_to_data = {
+                    'id': message.reply_to.id,
+                    'message': 'Error loading original message',
+                    'has_attachments': False,
+                    'attachments_preview': []
+                }
+        
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
@@ -230,7 +286,9 @@ class NotificationManager:
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
             'attachments': attachment_list,
-            'is_system_message': getattr(message, 'is_system_message', False)
+            'is_system_message': getattr(message, 'is_system_message', False),
+            'reply_to': reply_to_data,
+            'is_reply_to_attachment': is_reply_to_attachment
         }
         
         # Create normalized event
@@ -264,6 +322,12 @@ class NotificationManager:
         
         for participant in participants:
             notification_channel = f"{hotel_slug}.staff-{participant.id}-notifications"
+            
+            # Send specialized FCM notification for attachment replies
+            if participant.fcm_token:
+                fcm_success = self._send_attachment_reply_fcm(message, participant, is_reply_to_attachment, original_attachment_previews)
+                if fcm_success:
+                    self.logger.info(f"📱 FCM sent to staff {participant.id} for message {message.id}")
             
             # Create separate unread update event
             unread_payload = {
@@ -427,22 +491,42 @@ class NotificationManager:
         """Emit normalized staff chat unread count update event."""
         self.logger.info(f"🔢 Realtime staff chat: unread updated for staff {staff.id}")
         
-        # Calculate total unread if not provided and no specific conversation
-        if unread_count is None and conversation is None:
-            from staff_chat.models import StaffConversation
-            conversations = StaffConversation.objects.filter(participants=staff)
-            total_unread = sum(conv.get_unread_count_for_staff(staff) for conv in conversations)
-            unread_count = total_unread
-        elif unread_count is None and conversation:
-            unread_count = conversation.get_unread_count_for_staff(staff)
+        # Always calculate BOTH conversation-specific AND total unread counts for consistency
+        from staff_chat.models import StaffConversation
         
+        # Get conversation-specific unread count
+        conversation_unread = 0
+        if conversation:
+            conversation_unread = conversation.get_unread_count_for_staff(staff)
+            if unread_count is None:
+                unread_count = conversation_unread
+        
+        # ALWAYS calculate total unread across all conversations for consistency
+        all_conversations = StaffConversation.objects.filter(participants=staff)
+        total_unread_calculated = sum(conv.get_unread_count_for_staff(staff) for conv in all_conversations)
+        
+        # If no specific conversation, use the total
+        if conversation is None and unread_count is None:
+            unread_count = total_unread_calculated
+        
+        # Enhanced payload with explicit counts to prevent frontend confusion
         payload = {
             'staff_id': staff.id,
             'conversation_id': conversation.id if conversation else None,
-            'unread_count': unread_count,
-            'total_unread': unread_count if not conversation else None,
-            'updated_at': timezone.now().isoformat()
+            'unread_count': unread_count,  # Specific to this conversation OR total if no conversation
+            'conversation_unread': conversation_unread,  # Always the conversation-specific count
+            'total_unread': total_unread_calculated,  # Always the total across all conversations
+            'is_total_update': conversation is None,  # Flag to indicate if this is a total count update
+            'updated_at': timezone.now().isoformat(),
+            'debug_info': {
+                'conversation_provided': conversation is not None,
+                'unread_count_provided': unread_count is not None,
+                'calculation_source': 'conversation' if conversation else 'total'
+            }
         }
+        
+        # Debug logging for troubleshooting
+        self.logger.info(f"🔢 Pusher unread payload: staff={staff.id}, conv={conversation.id if conversation else 'ALL'}, conv_unread={conversation_unread}, total_unread={total_unread_calculated}")
         
         event_data = self._create_normalized_event(
             category="staff_chat",
@@ -629,6 +713,86 @@ class NotificationManager:
     # -------------------------------------------------------------------------
     # HELPER METHODS
     # -------------------------------------------------------------------------
+    
+    def _send_attachment_reply_fcm(self, message, recipient_staff, is_reply_to_attachment, attachment_previews):
+        """
+        Send specialized FCM notification for messages that reply to attachments.
+        
+        Args:
+            message: The reply message instance
+            recipient_staff: Staff member receiving the notification
+            is_reply_to_attachment: Boolean indicating if replying to message with attachments
+            attachment_previews: List of attachment preview data
+            
+        Returns:
+            bool: Success status
+        """
+        if not recipient_staff.fcm_token:
+            return False
+            
+        try:
+            sender_name = message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}"
+            
+            # Build title and body based on attachment reply context
+            if is_reply_to_attachment:
+                # Check if original message had images
+                has_images = any(att.get('file_type') == 'image' or 
+                               att.get('mime_type', '').startswith('image/') 
+                               for att in attachment_previews)
+                
+                if has_images:
+                    title = f"💬 {sender_name} replied to your photo"
+                    if len(attachment_previews) > 1:
+                        title = f"💬 {sender_name} replied to your photos"
+                else:
+                    # Non-image attachments (docs, etc.)
+                    title = f"💬 {sender_name} replied to your file"
+                    if len(attachment_previews) > 1:
+                        title = f"💬 {sender_name} replied to your files"
+            else:
+                # Standard message notification
+                title = f"💬 {sender_name}"
+            
+            # Message body (truncated)
+            body = message.message[:100] if message.message else "📎 Sent an attachment"
+            
+            # Enhanced FCM data payload
+            fcm_data = {
+                'type': 'staff_chat_message',
+                'message_id': str(message.id),
+                'conversation_id': str(message.conversation.id),
+                'sender_id': str(message.sender.id),
+                'sender_name': sender_name,
+                'is_reply': str(bool(message.reply_to)),
+                'is_reply_to_attachment': str(is_reply_to_attachment),
+                'reply_to_message_id': str(message.reply_to.id) if message.reply_to else '',
+                'attachment_count': str(len(attachment_previews)) if is_reply_to_attachment else '0',
+                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+                'route': '/staff-chat/conversation',
+                'hotel_slug': message.sender.hotel.slug
+            }
+            
+            # Add attachment preview data for rich notifications
+            if is_reply_to_attachment and attachment_previews:
+                # Include first attachment info for rich notification display
+                first_attachment = attachment_previews[0]
+                fcm_data.update({
+                    'original_attachment_id': str(first_attachment.get('id', '')),
+                    'original_attachment_name': first_attachment.get('file_name', ''),
+                    'original_attachment_type': first_attachment.get('file_type', ''),
+                    'original_attachment_url': first_attachment.get('file_url', ''),
+                    'original_thumbnail_url': first_attachment.get('thumbnail_url', '')
+                })
+            
+            self.logger.info(f"📱 Sending attachment-aware FCM to staff {recipient_staff.id}: {title}")
+            
+            # Import and send FCM notification
+            from .fcm_service import send_fcm_notification
+            return send_fcm_notification(recipient_staff.fcm_token, title, body, fcm_data)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Failed to send attachment reply FCM to staff {recipient_staff.id}: {e}")
+            return False
     
     def _build_order_items_payload(self, order):
         """Build order items payload for room service orders."""
