@@ -1,33 +1,36 @@
 """
 Auto Clock-Out Management Command for Heroku Scheduler
-Forces clock-out for staff with excessive hours (24+ hours).
+Forces clock-out for staff with excessive hours based on hotel's AttendanceSettings.
 
 Usage on Heroku Scheduler (run every 30 minutes):
     python manage.py auto_clock_out_excessive
 
 Usage with options:
     python manage.py auto_clock_out_excessive --max-hours=20 --dry-run
+    
+Note: --max-hours overrides hotel AttendanceSettings.hard_limit_hours (default: 12.0)
 """
 
 from django.core.management.base import BaseCommand
 from django.utils.timezone import now
 from hotel.models import Hotel
 from attendance.models import ClockLog
+from attendance.utils import get_attendance_settings
 from staff.pusher_utils import trigger_clock_status_update
 from staff.pusher_utils import trigger_attendance_log
 
 
 class Command(BaseCommand):
-    help = 'Automatically clock-out staff with excessive hours (24+ by default)'
+    help = 'Automatically clock-out staff with excessive hours (uses hotel AttendanceSettings.hard_limit_hours)'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--max-hours',
             type=float,
-            default=24.0,
-            help='Maximum allowed hours before auto clock-out (default: 24.0)',
+            default=None,
+            help='Maximum allowed hours before auto clock-out (default: use hotel AttendanceSettings.hard_limit_hours)',
         )
-        parser.add_argument(
+        parser.add_argument( 
             '--hotel',
             type=str,
             help='Only process specific hotel slug',
@@ -44,11 +47,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        max_hours = options['max_hours']
+        max_hours_override = options['max_hours']
         dry_run = options['dry_run']
         force = options['force']
         
-        self.stdout.write(f"🤖 Auto Clock-Out System - Max Hours: {max_hours}")
+        if max_hours_override:
+            self.stdout.write(f"🤖 Auto Clock-Out System - Override Max Hours: {max_hours_override}")
+        else:
+            self.stdout.write(f"🤖 Auto Clock-Out System - Using hotel-specific AttendanceSettings")
+            
         if dry_run:
             self.stdout.write("🧪 DRY RUN MODE - No actual changes will be made")
         
@@ -68,13 +75,20 @@ class Command(BaseCommand):
         total_found = 0
         
         for hotel in hotels:
+            # Use hotel's AttendanceSettings unless overridden
+            if max_hours_override:
+                max_hours = max_hours_override
+            else:
+                settings = get_attendance_settings(hotel)
+                max_hours = float(settings.hard_limit_hours)
+                
             clocked_out = self.process_hotel(hotel, max_hours, dry_run, force)
             total_clocked_out += clocked_out['clocked_out']
             total_found += clocked_out['found']
             
             if clocked_out['found'] > 0:
                 self.stdout.write(
-                    f"  {hotel.name}: {clocked_out['found']} excessive, "
+                    f"  {hotel.name} ({max_hours}h limit): {clocked_out['found']} excessive, "
                     f"{clocked_out['clocked_out']} auto-clocked-out"
                 )
         
