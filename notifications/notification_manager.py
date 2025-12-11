@@ -242,11 +242,19 @@ class NotificationManager:
                     total_attachments = original_message.attachments.count()
                     self.logger.info(f"🔍 Total attachments on original message: {total_attachments}")
                     
+                    # Debug: Show all attachments
+                    all_attachments = list(original_message.attachments.values('id', 'file_name', 'file_type'))
+                    self.logger.info(f"🔍 All attachments: {all_attachments}")
+                    
                     if original_message.attachments.exists():
                         # Filter for images only
                         image_attachments = original_message.attachments.filter(file_type='image')
                         image_count = image_attachments.count()
                         self.logger.info(f"🔍 Image attachments found: {image_count}")
+                        
+                        # Debug: Show filtered image attachments
+                        image_attachment_data = list(image_attachments.values('id', 'file_name', 'file_type', 'file'))
+                        self.logger.info(f"🔍 Image attachment data: {image_attachment_data}")
                         
                         if image_attachments.exists():
                             is_reply_to_attachment = True
@@ -274,6 +282,7 @@ class NotificationManager:
                                     self.logger.warning(f"⚠️ Image {img.id} has no file attribute or file is None")
                                     
                                 original_attachment_previews.append(preview_data)
+                                self.logger.info(f"✅ Added preview data: {preview_data}")
                         else:
                             self.logger.info("🔍 No image attachments found (only non-image attachments)")
                     else:
