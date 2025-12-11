@@ -323,11 +323,7 @@ class NotificationManager:
         for participant in participants:
             notification_channel = f"{hotel_slug}.staff-{participant.id}-notifications"
             
-            # Send specialized FCM notification for attachment replies
-            if participant.fcm_token:
-                fcm_success = self._send_attachment_reply_fcm(message, participant, is_reply_to_attachment, original_attachment_previews)
-                if fcm_success:
-                    self.logger.info(f"📱 FCM sent to staff {participant.id} for message {message.id}")
+            # FCM is handled by staff_chat/fcm_utils.py, not here
             
             # Get current unread count for this conversation
             current_unread_count = message.conversation.get_unread_count_for_staff(participant) if hasattr(message.conversation, 'get_unread_count_for_staff') else 1
@@ -760,85 +756,7 @@ class NotificationManager:
     # HELPER METHODS
     # -------------------------------------------------------------------------
     
-    def _send_attachment_reply_fcm(self, message, recipient_staff, is_reply_to_attachment, attachment_previews):
-        """
-        Send specialized FCM notification for messages that reply to attachments.
-        
-        Args:
-            message: The reply message instance
-            recipient_staff: Staff member receiving the notification
-            is_reply_to_attachment: Boolean indicating if replying to message with attachments
-            attachment_previews: List of attachment preview data
-            
-        Returns:
-            bool: Success status
-        """
-        if not recipient_staff.fcm_token:
-            return False
-            
-        try:
-            sender_name = message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}"
-            
-            # Build title and body based on attachment reply context
-            if is_reply_to_attachment:
-                # Check if original message had images
-                has_images = any(att.get('file_type') == 'image' or 
-                               att.get('mime_type', '').startswith('image/') 
-                               for att in attachment_previews)
-                
-                if has_images:
-                    title = f"💬 {sender_name} replied to your photo"
-                    if len(attachment_previews) > 1:
-                        title = f"💬 {sender_name} replied to your photos"
-                else:
-                    # Non-image attachments (docs, etc.)
-                    title = f"💬 {sender_name} replied to your file"
-                    if len(attachment_previews) > 1:
-                        title = f"💬 {sender_name} replied to your files"
-            else:
-                # Standard message notification
-                title = f"💬 {sender_name}"
-            
-            # Message body (truncated)
-            body = message.message[:100] if message.message else "📎 Sent an attachment"
-            
-            # Enhanced FCM data payload
-            fcm_data = {
-                'type': 'staff_chat_message',
-                'message_id': str(message.id),
-                'conversation_id': str(message.conversation.id),
-                'sender_id': str(message.sender.id),
-                'sender_name': sender_name,
-                'is_reply': str(bool(message.reply_to)),
-                'is_reply_to_attachment': str(is_reply_to_attachment),
-                'reply_to_message_id': str(message.reply_to.id) if message.reply_to else '',
-                'attachment_count': str(len(attachment_previews)) if is_reply_to_attachment else '0',
-                'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-                'route': '/staff-chat/conversation',
-                'hotel_slug': message.sender.hotel.slug
-            }
-            
-            # Add attachment preview data for rich notifications
-            if is_reply_to_attachment and attachment_previews:
-                # Include first attachment info for rich notification display
-                first_attachment = attachment_previews[0]
-                fcm_data.update({
-                    'original_attachment_id': str(first_attachment.get('id', '')),
-                    'original_attachment_name': first_attachment.get('file_name', ''),
-                    'original_attachment_type': first_attachment.get('file_type', ''),
-                    'original_attachment_url': first_attachment.get('file_url', ''),
-                    'original_thumbnail_url': first_attachment.get('thumbnail_url', '')
-                })
-            
-            self.logger.info(f"📱 Sending attachment-aware FCM to staff {recipient_staff.id}: {title}")
-            
-            # Import and send FCM notification
-            from .fcm_service import send_fcm_notification
-            return send_fcm_notification(recipient_staff.fcm_token, title, body, fcm_data)
-            
-        except Exception as e:
-            self.logger.error(f"❌ Failed to send attachment reply FCM to staff {recipient_staff.id}: {e}")
-            return False
+
     
     def _build_order_items_payload(self, order):
         """Build order items payload for room service orders."""

@@ -31,6 +31,11 @@ def initialize_firebase():
         
         # Parse JSON credentials
         cred_dict = json.loads(firebase_creds_json)
+        
+        # Fix private key newlines (convert \n to actual newlines)
+        if 'private_key' in cred_dict:
+            cred_dict['private_key'] = cred_dict['private_key'].replace('\\n', '\n')
+        
         cred = credentials.Certificate(cred_dict)
         
         # Initialize Firebase app

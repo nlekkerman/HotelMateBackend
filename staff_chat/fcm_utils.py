@@ -53,6 +53,7 @@ def send_new_message_notification(
     # Notification data
     data = {
         "type": "staff_chat_message",
+        "message_id": str(message.id),  # ← MISSING MESSAGE ID!
         "conversation_id": str(conversation.id),
         "sender_id": str(sender_staff.id),
         "sender_name": sender_name,
