@@ -16,7 +16,8 @@ def send_new_message_notification(
     recipient_staff,
     sender_staff,
     conversation,
-    message_text
+    message_text,
+    message=None
 ):
     """
     Send FCM notification for new staff chat message
@@ -26,6 +27,7 @@ def send_new_message_notification(
         sender_staff: Staff instance who sent the message
         conversation: StaffConversation instance
         message_text: Preview text of the message
+        message: Message object (optional, for message_id)
     
     Returns:
         bool: True if sent successfully
@@ -53,7 +55,7 @@ def send_new_message_notification(
     # Notification data
     data = {
         "type": "staff_chat_message",
-        "message_id": str(message.id),  # ← MISSING MESSAGE ID!
+        "message_id": str(message.id) if message else "unknown",
         "conversation_id": str(conversation.id),
         "sender_id": str(sender_staff.id),
         "sender_name": sender_name,
@@ -308,6 +310,7 @@ def notify_conversation_participants(
     conversation,
     sender_staff,
     message_text,
+    message=None,
     exclude_sender=True,
     mentions=None
 ):
@@ -318,6 +321,7 @@ def notify_conversation_participants(
         conversation: StaffConversation instance
         sender_staff: Staff instance who sent the message
         message_text: Message preview text
+        message: Message object (optional, for message_id)
         exclude_sender: If True, don't notify the sender
         mentions: List of staff IDs who were mentioned (get priority)
     
@@ -350,7 +354,8 @@ def notify_conversation_participants(
                 participant,
                 sender_staff,
                 conversation,
-                message_text
+                message_text,
+                message
             )
         
         if result:

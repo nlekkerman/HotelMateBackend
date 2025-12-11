@@ -279,6 +279,7 @@ def send_message(request, hotel_slug, conversation_id):
             conversation,
             staff,
             message_text,
+            message=message,
             exclude_sender=True,
             mentions=mentioned_ids
         )
