@@ -347,6 +347,9 @@ class StaffChatMessage(models.Model):
     def mark_as_read_by(self, staff):
         """Mark message as read by a specific staff member"""
         if staff != self.sender and not self.read_by.filter(id=staff.id).exists():
+            # Check if conversation had unread messages BEFORE marking as read
+            conversation_had_unread = self.conversation.get_unread_count_for_staff(staff) > 0
+            
             # Mark as read FIRST (atomic operation)
             self.read_by.add(staff)
             
@@ -367,6 +370,9 @@ class StaffChatMessage(models.Model):
                 conversation_fresh = StaffConversation.objects.get(id=self.conversation.id)
                 accurate_unread_count = conversation_fresh.get_unread_count_for_staff(staff)
                 
+                # Check if conversation went from unread to fully read
+                conversation_now_fully_read = accurate_unread_count == 0
+                
                 notification_manager.realtime_staff_chat_unread_updated(
                     staff=staff,
                     conversation=conversation_fresh,
@@ -383,6 +389,11 @@ class StaffChatMessage(models.Model):
                     conversation=None,  # Total count across all conversations
                     unread_count=total_unread
                 )
+                
+                # 🔢 UPDATE CONVERSATION COUNT if conversation went from unread to fully read
+                if conversation_had_unread and conversation_now_fully_read:
+                    print(f"🔢 CONVERSATION COUNT: Conversation {conversation_fresh.id} went from unread to fully read for staff {staff.id}", flush=True)
+                    notification_manager.realtime_staff_chat_conversations_with_unread(staff)
                 
             except Exception as e:
                 import logging

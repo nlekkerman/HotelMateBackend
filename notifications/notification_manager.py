@@ -329,11 +329,18 @@ class NotificationManager:
                 if fcm_success:
                     self.logger.info(f"📱 FCM sent to staff {participant.id} for message {message.id}")
             
+            # Get current unread count for this conversation
+            current_unread_count = message.conversation.get_unread_count_for_staff(participant) if hasattr(message.conversation, 'get_unread_count_for_staff') else 1
+            
+            # Check if this is creating a new conversation with unread messages (was 0, now > 0)
+            # This happens when current count is 1 (meaning this is the first unread message in this conversation for this participant)
+            is_new_conversation_with_unread = current_unread_count == 1
+            
             # Create separate unread update event
             unread_payload = {
                 'staff_id': participant.id,
                 'conversation_id': message.conversation.id,
-                'unread_count': message.conversation.get_unread_count_for_staff(participant) if hasattr(message.conversation, 'get_unread_count_for_staff') else 1,
+                'unread_count': current_unread_count,
                 'updated_at': timezone.now().isoformat()
             }
             
@@ -352,6 +359,12 @@ class NotificationManager:
             self.logger.info(f"🔥 PUSHER DEBUG: Sending unread update to participant {participant.id} on channel: {notification_channel}")
             if self._safe_pusher_trigger(notification_channel, "realtime_staff_chat_unread_updated", unread_event_data):
                 notification_sent += 1
+                
+                # Send conversation count update only if this is a new conversation with unread messages
+                if is_new_conversation_with_unread:
+                    print(f"🔥 PUSHER DEBUG: Sending conversation count update for NEW conversation with unread to participant {participant.id}", flush=True)
+                    self.logger.info(f"🔥 PUSHER DEBUG: Sending conversation count update for participant {participant.id} - new conversation with unread")
+                    self.realtime_staff_chat_conversations_with_unread(participant)
         
         self.logger.info(f"🔥 PUSHER DEBUG: Final results - conversation={conversation_sent}, notifications={notification_sent}")
         return conversation_sent and notification_sent > 0
@@ -540,6 +553,39 @@ class NotificationManager:
         hotel_slug = staff.hotel.slug
         channel = f"{hotel_slug}.staff-{staff.id}-notifications"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_unread_updated", event_data)
+    
+    def realtime_staff_chat_conversations_with_unread(self, staff):
+        """Emit normalized staff chat conversations with unread count event."""
+        self.logger.info(f"🔢 Realtime staff chat: conversations with unread for staff {staff.id}")
+        
+        # Calculate number of conversations that have unread messages for this staff
+        from staff_chat.models import StaffConversation
+        
+        all_conversations = StaffConversation.objects.filter(participants=staff)
+        conversations_with_unread = sum(1 for conv in all_conversations if conv.get_unread_count_for_staff(staff) > 0)
+        
+        # Build payload for frontend conversation count badge
+        payload = {
+            'staff_id': staff.id,
+            'conversations_with_unread': conversations_with_unread,
+            'updated_at': timezone.now().isoformat()
+        }
+        
+        # Debug logging for troubleshooting
+        self.logger.info(f"🔢 Pusher conversations payload: staff={staff.id}, conversations_with_unread={conversations_with_unread}")
+        
+        event_data = self._create_normalized_event(
+            category="staff_chat",
+            event_type="realtime_staff_chat_conversations_with_unread",
+            payload=payload,
+            hotel=staff.hotel,
+            scope={'staff_id': staff.id}
+        )
+        
+        # Send to staff's personal notification channel
+        hotel_slug = staff.hotel.slug
+        channel = f"{hotel_slug}.staff-{staff.id}-notifications"
+        return self._safe_pusher_trigger(channel, "realtime_staff_chat_conversations_with_unread", event_data)
     
     # -------------------------------------------------------------------------
     # ROOM SERVICE REALTIME METHODS

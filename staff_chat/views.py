@@ -267,6 +267,9 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        # Check if conversation had unread messages BEFORE marking as read
+        conversation_had_unread = conversation.get_unread_count_for_staff(staff) > 0
+        
         # Mark all unread messages as read
         unread_messages = conversation.messages.filter(
             is_deleted=False
@@ -297,6 +300,17 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                 )
                 
                 # Unread count updates are now handled automatically by model
+                
+                # 🔢 UPDATE CONVERSATION COUNT if conversation had unread messages and now has 0
+                if conversation_had_unread:
+                    # Refresh conversation to get accurate count after all messages marked as read
+                    conversation.refresh_from_db()
+                    conversation_now_fully_read = conversation.get_unread_count_for_staff(staff) == 0
+                    
+                    if conversation_now_fully_read:
+                        from notifications.notification_manager import notification_manager
+                        print(f"🔢 CONVERSATION COUNT: Conversation {conversation.id} went from unread to fully read for staff {staff.id}", flush=True)
+                        notification_manager.realtime_staff_chat_conversations_with_unread(staff)
                 
             except Exception:
                 # Log but don't fail the request
@@ -357,8 +371,12 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
         
         total_marked = 0
         marked_conversations = 0
+        conversations_that_became_fully_read = 0
         
         for conversation in conversations:
+            # Check if conversation had unread messages BEFORE marking as read
+            conversation_had_unread = conversation.get_unread_count_for_staff(staff) > 0
+            
             # Get unread messages in this conversation
             unread_messages = conversation.messages.filter(
                 is_deleted=False
@@ -382,6 +400,13 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                 total_marked += len(marked_message_ids)
                 marked_conversations += 1
                 
+                # Check if conversation went from unread to fully read
+                if conversation_had_unread:
+                    conversation.refresh_from_db()
+                    conversation_now_fully_read = conversation.get_unread_count_for_staff(staff) == 0
+                    if conversation_now_fully_read:
+                        conversations_that_became_fully_read += 1
+                
                 # Broadcast read receipt for this conversation
                 try:
                     staff_name = (
@@ -401,11 +426,24 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                     # Log but don't fail the request
                     pass
         
+        # 🔢 UPDATE CONVERSATION COUNT if any conversations became fully read
+        if conversations_that_became_fully_read > 0:
+            try:
+                from notifications.notification_manager import notification_manager
+                print(f"🔢 BULK CONVERSATION COUNT: {conversations_that_became_fully_read} conversations went from unread to fully read for staff {staff.id}", flush=True)
+                notification_manager.realtime_staff_chat_conversations_with_unread(staff)
+            except Exception as e:
+                # Log but don't fail the request
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to update conversation count for bulk mark-as-read: {e}")
+        
         return Response(
             {
                 'success': True,
                 'marked_conversations': marked_conversations,
-                'total_messages_marked': total_marked
+                'total_messages_marked': total_marked,
+                'conversations_became_fully_read': conversations_that_became_fully_read
             },
             status=status.HTTP_200_OK
         )
