@@ -37,9 +37,27 @@ Complete CRUD management for menu items (Room Service & Breakfast) via staff das
 
 ---
 
-## 📋 Data Structures
+## 🚨 URL Pattern Fix Required
+
+**Frontend Error:** Your frontend is calling:
+```
+POST /api/staff/hotel/hotel-killarney/room_services/items/
+```
+
+**Backend Implementation:** Our endpoints are:
+```
+POST /api/staff/hotel/hotel-killarney/room-service-items/
+```
+
+**⚠️ Action Required:** Update your frontend API calls to use the correct URLs above.
+
+---
+
+## 📋 Data Structures & Serializers
 
 ### Room Service Item
+
+**Serializer:** `RoomServiceItemStaffSerializer`
 
 ```json
 {
@@ -54,16 +72,28 @@ Complete CRUD management for menu items (Room Service & Breakfast) via staff das
 }
 ```
 
-**Fields:**
-- `name` (string, required) - Item name
-- `price` (decimal, required) - Item price in EUR
-- `image` (string, optional) - Cloudinary image URL
-- `description` (text, required) - Item description
-- `category` (choices) - `Starters`, `Mains`, `Desserts`, `Drinks`, `Others`
-- `is_on_stock` (boolean) - Availability status
-- `hotel` (read-only) - Auto-assigned from staff profile
+**Model Field Requirements:**
+| Field | Type | Required | Max Length | Choices | Default | Notes |
+|-------|------|----------|------------|---------|---------|-------|
+| `id` | Integer | Auto | - | - | - | Read-only, auto-generated |
+| `name` | CharField | ✅ Yes | 255 | - | - | Item display name |
+| `price` | DecimalField | ✅ Yes | 6 digits, 2 decimal | - | - | Price in EUR (e.g., "12.50") |
+| `image` | ImageField | ❌ No | - | - | null | Cloudinary URL or file upload |
+| `description` | TextField | ✅ Yes | Unlimited | - | - | Item description/ingredients |
+| `category` | CharField | ❌ No | 50 | See below | "Others" | Item category |
+| `is_on_stock` | BooleanField | ❌ No | - | - | True | Availability status |
+| `hotel` | ForeignKey | ❌ No | - | - | null | Read-only, auto-assigned |
+
+**Category Choices:**
+- `"Starters"` - Appetizers and starters
+- `"Mains"` - Main course dishes  
+- `"Desserts"` - Desserts and sweets
+- `"Drinks"` - Beverages
+- `"Others"` - Miscellaneous items (default)
 
 ### Breakfast Item
+
+**Serializer:** `BreakfastItemStaffSerializer`
 
 ```json
 {
@@ -78,14 +108,85 @@ Complete CRUD management for menu items (Room Service & Breakfast) via staff das
 }
 ```
 
-**Fields:**
-- `name` (string, required) - Item name
-- `image` (string, optional) - Cloudinary image URL
-- `description` (text, required) - Item description
-- `category` (choices) - `Mains`, `Hot Buffet`, `Cold Buffet`, `Breads`, `Condiments`, `Drinks`
-- `quantity` (integer) - Default serving quantity
-- `is_on_stock` (boolean) - Availability status
-- `hotel` (read-only) - Auto-assigned from staff profile
+**Model Field Requirements:**
+| Field | Type | Required | Max Length | Choices | Default | Notes |
+|-------|------|----------|------------|---------|---------|-------|
+| `id` | Integer | Auto | - | - | - | Read-only, auto-generated |
+| `name` | CharField | ✅ Yes | 255 | - | - | Item display name |
+| `image` | ImageField | ❌ No | - | - | null | Cloudinary URL or file upload |
+| `description` | TextField | ✅ Yes | Unlimited | - | - | Item description/contents |
+| `category` | CharField | ❌ No | 50 | See below | "Mains" | Item category |
+| `quantity` | PositiveIntegerField | ❌ No | - | - | 1 | Default serving quantity |
+| `is_on_stock` | BooleanField | ❌ No | - | - | True | Availability status |
+| `hotel` | ForeignKey | ❌ No | - | - | null | Read-only, auto-assigned |
+
+**Category Choices:**
+- `"Mains"` - Main breakfast items (default)
+- `"Hot Buffet"` - Hot buffet items
+- `"Cold Buffet"` - Cold buffet items  
+- `"Breads"` - Breads and pastries
+- `"Condiments"` - Condiments and spreads
+- `"Drinks"` - Breakfast beverages
+
+---
+
+## 🔧 Complete Serializer Implementation
+
+### RoomServiceItemStaffSerializer
+
+```python
+class RoomServiceItemStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD serializer for room service menu items"""
+    class Meta:
+        model = RoomServiceItem
+        fields = [
+            'id', 'name', 'price', 'image', 'description', 
+            'category', 'is_on_stock', 'hotel'
+        ]
+        read_only_fields = ['id', 'hotel']
+```
+
+**Serialized Fields:**
+- All model fields included
+- `hotel` automatically set from staff profile  
+- `id` auto-generated primary key
+- Image field accepts both file uploads and Cloudinary URLs
+
+### BreakfastItemStaffSerializer
+
+```python
+class BreakfastItemStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD serializer for breakfast menu items"""
+    class Meta:
+        model = BreakfastItem
+        fields = [
+            'id', 'name', 'image', 'description', 'category', 
+            'quantity', 'is_on_stock', 'hotel'
+        ]
+        read_only_fields = ['id', 'hotel']
+```
+
+**Serialized Fields:**
+- All model fields included
+- `hotel` automatically set from staff profile
+- `quantity` field specific to breakfast items
+- No `price` field (breakfast items don't have individual pricing)
+
+### Validation Rules
+
+**Automatic Validations:**
+- `name`: Required, max 255 characters
+- `description`: Required, unlimited length
+- `price` (room service only): Required, max 6 digits with 2 decimals
+- `category`: Must be valid choice from model options
+- `quantity` (breakfast only): Must be positive integer
+- `is_on_stock`: Boolean, defaults to True
+- `image`: Optional, accepts file or URL
+
+**Custom Behavior:**
+- Images automatically uploaded to Cloudinary via model `save()` method
+- Hotel field populated from authenticated staff's hotel
+- Category defaults applied if not specified
 
 ---
 
@@ -167,6 +268,23 @@ channel.bind('menu_item_updated', function(data) {
   "timestamp": "2025-12-11T15:30:00Z"
 }
 ```
+
+---
+
+## 🚨 Frontend URL Fix Required
+
+**Your current frontend error:**
+```
+Request URL: https://hotel-porter-d25ad83b12cf.herokuapp.com/api/staff/hotel/hotel-killarney/room_services/items/
+Request Method: POST
+Status Code: 404 Not Found
+```
+
+**Problem:** Frontend expects `/room_services/items/` but backend implements `/room-service-items/`
+
+**Solution:** Update your frontend API calls to use:
+- ✅ `/api/staff/hotel/{hotel_slug}/room-service-items/` (for room service)
+- ✅ `/api/staff/hotel/{hotel_slug}/breakfast-items/` (for breakfast)
 
 ---
 
