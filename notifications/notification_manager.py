@@ -235,54 +235,34 @@ class NotificationManager:
                 self.logger.info(f"🔗 Processing reply to message {original_message.id}")
                 
                 # Check if original message has image attachments (only handle images)
-                self.logger.info(f"🔍 Checking attachments for original message {original_message.id}")
-                self.logger.info(f"🔍 Original message has attachments attr: {hasattr(original_message, 'attachments')}")
-                
-                if hasattr(original_message, 'attachments'):
-                    total_attachments = original_message.attachments.count()
-                    self.logger.info(f"🔍 Total attachments on original message: {total_attachments}")
+                if hasattr(original_message, 'attachments') and original_message.attachments.exists():
+                    # Filter for images only
+                    image_attachments = original_message.attachments.filter(file_type='image')
                     
-                    # Debug: Show all attachments
-                    all_attachments = list(original_message.attachments.values('id', 'file_name', 'file_type'))
-                    self.logger.info(f"🔍 All attachments: {all_attachments}")
-                    
-                    if original_message.attachments.exists():
-                        # Filter for images only
-                        image_attachments = original_message.attachments.filter(file_type='image')
-                        image_count = image_attachments.count()
-                        self.logger.info(f"🔍 Image attachments found: {image_count}")
-                        
-                        # Debug: Show filtered image attachments
-                        image_attachment_data = list(image_attachments.values('id', 'file_name', 'file_type', 'file'))
-                        self.logger.info(f"🔍 Image attachment data: {image_attachment_data}")
-                        
-                        if image_attachments.exists():
-                            is_reply_to_attachment = True
-                            self.logger.info(f"🖼️ Reply targets message with {image_count} images")
+                    if image_attachments.exists():
+                        is_reply_to_attachment = True
+                        self.logger.info(f"🖼️ Reply targets message with {image_attachments.count()} images")
                             
-                            # Build image previews (limit to first 3 for performance)
-                            for img in image_attachments[:3]:
-                                self.logger.info(f"🖼️ Processing image attachment {img.id}: {img.file_name}")
-                                preview_data = {
-                                    'id': img.id,
-                                    'file_name': img.file_name,
-                                    'file_type': 'image',
-                                    'is_image': True,
-                                }
+                        # Build image previews (limit to first 3 for performance)
+                        for img in image_attachments[:3]:
+                            preview_data = {
+                                'id': img.id,
+                                'file_name': img.file_name,
+                                'file_type': 'image',
+                                'is_image': True,
+                            }
+                            
+                            # Add image URLs with multiple field variants
+                            if hasattr(img, 'file') and img.file:
+                                url = img.file.url
+                                preview_data['image_url'] = url
+                                preview_data['thumbnail_url'] = url
+                                preview_data['file_url'] = url  # Legacy compatibility
+                                preview_data['url'] = url  # Generic URL field
+                            else:
+                                self.logger.warning(f"⚠️ Image {img.id} has no file attribute")
                                 
-                                # Add image URLs with multiple field variants
-                                if hasattr(img, 'file') and img.file:
-                                    url = img.file.url
-                                    preview_data['image_url'] = url
-                                    preview_data['thumbnail_url'] = url
-                                    preview_data['file_url'] = url  # Legacy compatibility
-                                    preview_data['url'] = url  # Generic URL field
-                                    self.logger.info(f"🖼️ Added image URL: {url}")
-                                else:
-                                    self.logger.warning(f"⚠️ Image {img.id} has no file attribute or file is None")
-                                    
-                                original_attachment_previews.append(preview_data)
-                                self.logger.info(f"✅ Added preview data: {preview_data}")
+                            original_attachment_previews.append(preview_data)
                         else:
                             self.logger.info("🔍 No image attachments found (only non-image attachments)")
                     else:
@@ -318,11 +298,7 @@ class NotificationManager:
                     'attachment_count': len(original_attachment_previews)
                 }
                 
-                self.logger.info(f"🔗 Built reply_to_data with {len(original_attachment_previews)} attachment previews")
-                self.logger.info(f"🔗 Reply data has_images: {is_reply_to_attachment}")
-                self.logger.info(f"🔗 Reply data images: {original_attachment_previews}")
-                if original_attachment_previews:
-                    self.logger.info(f"🔗 First image preview: {original_attachment_previews[0]}")
+                self.logger.info(f"🔗 Built reply_to_data with {len(original_attachment_previews)} images")
                 
             except Exception as e:
                 self.logger.error(f"Error processing reply-to data: {e}")
@@ -386,24 +362,7 @@ class NotificationManager:
         hotel_slug = message.sender.hotel.slug
         conversation_channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
         
-        # Debug logging for reply_to data
-        if reply_to_data:
-            self.logger.info(f"🔥 REPLY DEBUG: reply_to_data structure: {list(reply_to_data.keys())}")
-            self.logger.info(f"🔥 REPLY DEBUG: has_images = {reply_to_data.get('has_images')}")
-            self.logger.info(f"🔥 REPLY DEBUG: images count = {len(reply_to_data.get('images', []))}")
-            self.logger.info(f"🔥 REPLY DEBUG: attachments_preview count = {len(reply_to_data.get('attachments_preview', []))}")
-            if reply_to_data.get('images'):
-                self.logger.info(f"🔥 REPLY DEBUG: First image: {reply_to_data['images'][0]}")
-        
         # Send to conversation channel (for message display)
-        print(f"🔥 PUSHER DEBUG: Sending to conversation channel: {conversation_channel}", flush=True)
-        print(f"🔥 PUSHER DEBUG: Event name: realtime_staff_chat_message_created", flush=True)
-        print(f"🔥 PUSHER DEBUG: Event data structure: {list(event_data.keys())}", flush=True)
-        print(f"🔥 PUSHER DEBUG: Payload keys: {list(payload.keys())}", flush=True)
-        print(f"🔥 PUSHER DEBUG: is_reply_to_attachment: {is_reply_to_attachment}", flush=True)
-        if reply_to_data:
-            print(f"🔥 PUSHER DEBUG: reply_to has images: {reply_to_data.get('has_images')}", flush=True)
-            print(f"🔥 PUSHER DEBUG: reply_to images: {reply_to_data.get('images', [])}", flush=True)
         
         self.logger.info(f"🔥 PUSHER DEBUG: Sending to conversation channel: {conversation_channel}")
         self.logger.info(f"🔥 PUSHER DEBUG: Event data: {event_data}")
