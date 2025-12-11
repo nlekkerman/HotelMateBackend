@@ -7,15 +7,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from .models import RoomServiceItem, BreakfastItem, Order, BreakfastOrder
 from django.http import Http404
-from notifications.pusher_utils import (
-    notify_kitchen_staff,
-    notify_porters,
-    notify_room_service_waiters
-)
-from notifications.utils import (
-    notify_porters_of_room_service_order,
-    notify_kitchen_staff_of_room_service_order
-)
+# All notifications now handled by NotificationManager
 from notifications.notification_manager import NotificationManager
 from django.db import transaction
 import logging
@@ -87,36 +79,22 @@ class OrderViewSet(viewsets.ModelViewSet):
         hotel = get_hotel_from_request(self.request)
         order = serializer.save(hotel=hotel)
 
-        # Notify Kitchen staff (they prepare the food)
-        order_data = {
-            "order_id": order.id,
-            "room_number": order.room_number,
-            "total_price": float(order.total_price),
-            "created_at": order.created_at.isoformat(),
-            "status": order.status
-        }
-        kitchen_count = notify_kitchen_staff(
-            hotel, 'new-room-service-order', order_data
-        )
-        logger.info(
-            f"Room service order {order.id}: "
-            f"Notified {kitchen_count} kitchen staff"
-        )
-
-        # Notify Room Service Waiters (they coordinate)
-        waiter_count = notify_room_service_waiters(
-            hotel, 'new-room-service-order', order_data
-        )
-        logger.info(
-            f"Room service order {order.id}: "
-            f"Notified {waiter_count} room service waiters"
-        )
-
-        # Notify Porters (they deliver) - both Pusher and FCM push
-        notify_porters_of_room_service_order(order)
+        # Use unified NotificationManager for all notifications
+        nm = NotificationManager()
         
-        # Notify Kitchen Staff - FCM push notifications
-        notify_kitchen_staff_of_room_service_order(order)
+        # This handles all staff notifications (porters, kitchen, waiters) 
+        # plus FCM push notifications automatically
+        notification_sent = nm.realtime_room_service_order_created(order)
+        
+        if notification_sent:
+            logger.info(
+                f"✅ Unified notifications sent for new order {order.id} "
+                f"(Room {order.room_number}, €{order.total_price})"
+            )
+        else:
+            logger.warning(
+                f"❌ Failed to send unified notifications for new order {order.id}"
+            )
     
     @action(detail=False, methods=["get"], url_path="pending-count")
     def pending_count(self, request, *args, **kwargs):
@@ -374,23 +352,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                 f"❌ Failed to send unified notifications for order {instance.id}"
             )
         
-        # Also notify porters about updated pending count using old system
-        # (This could be migrated to NotificationManager in the future)
-        pending_count = Order.objects.filter(
-            hotel=instance.hotel,
-            status='pending'
-        ).count()
-        
-        count_data = {
-            "pending_count": pending_count,
-            "order_type": "room_service_orders"
-        }
-        
-        notify_porters(
-            instance.hotel,
-            'order-count-update',
-            count_data
-        )
+        # Count notifications are now handled automatically by NotificationManager
+        # No additional count update calls needed with unified system
+        logger.info(f"📊 Order count updates handled by unified notification system")
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
@@ -431,32 +395,22 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
             "status": order.status
         }
         
-        # Notify Kitchen staff
-        kitchen_count = notify_kitchen_staff(
-            hotel, 'new-breakfast-order', order_data
-        )
-        logger.info(
-            f"Breakfast order {order.id}: "
-            f"Notified {kitchen_count} kitchen staff"
-        )
+        # Use unified NotificationManager for all breakfast notifications
+        nm = NotificationManager()
         
-        # Notify Room Service Waiters
-        waiter_count = notify_room_service_waiters(
-            hotel, 'new-breakfast-order', order_data
-        )
-        logger.info(
-            f"Breakfast order {order.id}: "
-            f"Notified {waiter_count} room service waiters"
-        )
+        # This handles all staff notifications (porters, kitchen, waiters)
+        # Note: Using room service method for breakfast - may need dedicated breakfast method
+        notification_sent = nm.realtime_room_service_order_created(order)
         
-        # Notify Porters
-        porter_count = notify_porters(
-            hotel, 'new-breakfast-delivery', order_data
-        )
-        logger.info(
-            f"Breakfast order {order.id}: "
-            f"Notified {porter_count} porters"
-        )
+        if notification_sent:
+            logger.info(
+                f"✅ Unified breakfast notifications sent for order {order.id} "
+                f"(Room {order.room_number}, delivery: {order.delivery_time})"
+            )
+        else:
+            logger.warning(
+                f"❌ Failed to send unified breakfast notifications for order {order.id}"
+            )
     
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()

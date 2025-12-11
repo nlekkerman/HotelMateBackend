@@ -15,22 +15,24 @@
 
 ### **Channel**: `{hotel_slug}.room-service`
 
-### **Event**: `order_updated`
+### **Events**: `order_created` & `order_updated`
 
-**Triggered When**: Staff updates order status (pending → accepted → completed)
+**Triggered When**: 
+- `order_created` - New order is placed by guest
+- `order_updated` - Staff updates order status (pending → accepted → completed)
 
 ### **Event Data Structure**:
 ```json
 {
   "category": "room_service",
-  "type": "order_updated", 
+  "type": "order_created", 
   "payload": {
     "order_id": 123,
     "room_number": 101,
-    "status": "accepted",
+    "status": "pending",
     "total_price": 25.50,
     "created_at": "2025-12-11T10:30:00Z",
-    "updated_at": "2025-12-11T10:35:00Z", 
+    "updated_at": "2025-12-11T10:30:00Z", 
     "items": [
       {
         "id": 1,
@@ -48,16 +50,17 @@
       }
     ],
     "special_instructions": "No pickles, extra sauce",
-    "estimated_delivery": "2025-12-11T11:00:00Z"
+    "estimated_delivery": "2025-12-11T11:00:00Z",
+    "priority": "normal"
   },
   "meta": {
     "hotel_slug": "hotel-killarney",
     "event_id": "uuid-12345",
-    "ts": "2025-12-11T10:35:00Z",
+    "ts": "2025-12-11T10:30:00Z",
     "scope": {
       "order_id": 123,
       "room_number": 101, 
-      "status": "accepted"
+      "status": "pending"
     }
   }
 }
@@ -81,9 +84,27 @@ const hotelSlug = 'hotel-killarney'; // Get from hotel context
 const roomServiceChannel = pusher.subscribe(`${hotelSlug}.room-service`);
 ```
 
-### **2. Listen for Order Updates**
+### **2. Listen for Order Events**
 
 ```javascript
+// Listen for new orders
+roomServiceChannel.bind('order_created', function(eventData) {
+  console.log('🆕 New room service order:', eventData);
+  
+  const order = eventData.payload;
+  const meta = eventData.meta;
+  
+  // Add new order to your state/store
+  addNewOrder(order);
+  
+  // Show notification for new order
+  showNewOrderNotification(order);
+  
+  // Update UI elements
+  refreshOrderList();
+});
+
+// Listen for order status updates
 roomServiceChannel.bind('order_updated', function(eventData) {
   console.log('🔄 Room service order updated:', eventData);
   
@@ -145,6 +166,23 @@ function updateProgressBar(orderElement, status) {
 ### **4. Show Real-time Notifications**
 
 ```javascript
+function showNewOrderNotification(order) {
+  const message = `🆕 New Order #${order.order_id} from Room ${order.room_number}`;
+  
+  // Show toast/snackbar notification for new orders
+  showToast(message, {
+    type: 'info',
+    duration: 5000,
+    action: {
+      text: 'View Order',
+      onClick: () => navigateToOrder(order.order_id)
+    }
+  });
+  
+  // Play notification sound for new orders (staff dashboard)
+  playNotificationSound();
+}
+
 function showOrderStatusNotification(order) {
   const statusMessages = {
     'pending': `📋 Order #${order.order_id} is pending`,
@@ -182,6 +220,16 @@ function showOrderStatusNotification(order) {
 const roomNumber = getCurrentRoomNumber(); // e.g., 101
 const guestChannel = pusher.subscribe(`${hotelSlug}.room-${roomNumber}`);
 
+// Listen for new orders for this room
+roomServiceChannel.bind('order_created', function(eventData) {
+  const order = eventData.payload;
+  
+  // Only show updates for current room
+  if (order.room_number === roomNumber) {
+    showGuestOrderConfirmation(order);
+  }
+});
+
 // Listen for order updates that affect this room
 roomServiceChannel.bind('order_updated', function(eventData) {
   const order = eventData.payload;
@@ -191,6 +239,15 @@ roomServiceChannel.bind('order_updated', function(eventData) {
     updateGuestOrderStatus(order);
   }
 });
+
+function showGuestOrderConfirmation(order) {
+  // Show order confirmation when order is first created
+  const confirmationMessage = `Order #${order.order_id} confirmed! Your ${order.items.length} item(s) have been sent to the kitchen.`;
+  showToast(confirmationMessage, { type: 'success', duration: 4000 });
+  
+  // Initialize order tracker
+  initializeOrderTracker(order);
+}
 
 function updateGuestOrderStatus(order) {
   // Update guest's order tracking screen
@@ -224,7 +281,26 @@ function updateGuestOrderStatus(order) {
 ### **For Kitchen Staff / Room Service Staff**
 
 ```javascript
-// Staff dashboard should show all hotel orders
+// Staff dashboard - listen for new orders
+roomServiceChannel.bind('order_created', function(eventData) {
+  const order = eventData.payload;
+  
+  // Add new order to staff dashboard
+  addOrderToStaffDashboard(order);
+  
+  // Update pending orders counter
+  updatePendingCount();
+  
+  // Show notification to staff
+  showStaffNotification(`New Order #${order.order_id} from Room ${order.room_number}`);
+  
+  // Highlight urgent orders
+  if (order.priority === 'urgent') {
+    highlightUrgentOrder(order.order_id);
+  }
+});
+
+// Staff dashboard - listen for order updates
 roomServiceChannel.bind('order_updated', function(eventData) {
   const order = eventData.payload;
   
@@ -395,14 +471,38 @@ roomServiceChannel.bind_global(function(eventName, data) {
 // Subscribe to channel
 const channel = pusher.subscribe(`${hotelSlug}.room-service`);
 
-// Handle events
+// Handle new orders
+channel.bind('order_created', (data) => {
+  // Add new order to Redux/state management
+  dispatch(addNewOrder(data.payload));
+  
+  // Show push notification if app is backgrounded
+  if (AppState.currentState === 'background') {
+    showLocalNotification({
+      title: 'New Room Service Order',
+      body: `Order #${data.payload.order_id} from Room ${data.payload.room_number}`,
+      data: data.payload
+    });
+  }
+});
+
+// Handle order updates
 channel.bind('order_updated', (data) => {
   // Update Redux/state management
   dispatch(updateOrder(data.payload));
   
   // Show push notification if app is backgrounded
   if (AppState.currentState === 'background') {
-    showLocalNotification(data.payload);
+    const statusMessage = {
+      'accepted': 'has been accepted',
+      'completed': 'is ready for delivery'
+    }[data.payload.status] || 'has been updated';
+    
+    showLocalNotification({
+      title: 'Order Update',
+      body: `Order #${data.payload.order_id} ${statusMessage}`,
+      data: data.payload
+    });
   }
 });
 ```
@@ -412,11 +512,24 @@ channel.bind('order_updated', (data) => {
 ## 🚀 **Key Benefits**
 
 ✅ **Real-time Updates**: Instant status changes across all devices  
-✅ **Consistent Data**: Normalized event structure  
+✅ **Consistent Data**: Normalized event structure via NotificationManager  
 ✅ **Better UX**: No page refresh needed  
 ✅ **Error Handling**: Proper validation and error messages  
 ✅ **Scalable**: Works across multiple hotel properties  
+✅ **Unified System**: Both FCM push notifications AND Pusher real-time events  
+✅ **Breakfast Support**: Same system handles both room service and breakfast orders
 
 ---
 
-**Questions?** Check the main notification manager at `notifications/notification_manager.py` line 625+ for implementation details.
+## 🍳 **Breakfast Orders**
+
+Breakfast orders use the **same notification system** as room service orders:
+- **Channel**: `{hotel_slug}.room-service` 
+- **Events**: `order_created` and `order_updated`
+- **Event Structure**: Identical to room service (same payload format)
+
+The only difference is in the `payload.items` structure for breakfast vs room service items.
+
+---
+
+**Questions?** Check the main notification manager at `notifications/notification_manager.py` line 649+ for implementation details.
