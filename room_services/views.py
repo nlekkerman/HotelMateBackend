@@ -16,6 +16,7 @@ from notifications.utils import (
     notify_porters_of_room_service_order,
     notify_kitchen_staff_of_room_service_order
 )
+from notifications.notification_manager import NotificationManager
 from django.db import transaction
 import logging
 
@@ -333,6 +334,21 @@ class OrderViewSet(viewsets.ModelViewSet):
         old_status = instance.status
         new_status = request.data.get("status")
 
+        # Validate status transitions - enforce proper workflow
+        valid_transitions = {
+            "pending": ["accepted"],
+            "accepted": ["completed"],
+            "completed": [],  # no further change allowed
+        }
+
+        if new_status and new_status != instance.status:
+            allowed = valid_transitions.get(instance.status, [])
+            if new_status not in allowed:
+                return Response(
+                    {"error": f"Invalid status transition from '{instance.status}' to '{new_status}'. Allowed: {allowed}"},
+                    status=400
+                )
+
         logger.info(
             f"🔄 Order {instance.id} status update: "
             f"{old_status} → {new_status} (Room {instance.room_number})"
@@ -341,84 +357,25 @@ class OrderViewSet(viewsets.ModelViewSet):
         instance.status = new_status
         instance.save()
         
-        # Get all active orders for the hotel (not completed)
-        all_hotel_orders = Order.objects.filter(
-            hotel=instance.hotel
-        ).exclude(status='completed').order_by('-created_at')
+        # Use unified NotificationManager for real-time notifications
+        nm = NotificationManager()
         
-        # Serialize all hotel orders
-        from .serializers import OrderSerializer
-        serializer = OrderSerializer(all_hotel_orders, many=True)
+        # Send normalized room service order updated event
+        # This handles both Pusher real-time events and FCM notifications automatically
+        notification_sent = nm.realtime_room_service_order_updated(instance)
         
-        # Prepare notification data with all orders
-        order_data = {
-            "updated_order_id": instance.id,
-            "room_number": instance.room_number,
-            "old_status": old_status,
-            "new_status": instance.status,
-            "updated_at": instance.updated_at.isoformat(),
-            "all_orders": serializer.data  # Send ALL orders for the entire hotel
-        }
-        
-        logger.info(
-            f"📤 Sending notifications for order {instance.id}: "
-            f"channel={instance.hotel.slug}-room-{instance.room_number}, "
-            f"total hotel orders: {all_hotel_orders.count()}"
-        )
-        
-        # Notify guest in room via Pusher (browser open)
-        from notifications.pusher_utils import notify_guest_in_room
-        guest_notified = notify_guest_in_room(
-            instance.hotel,
-            str(instance.room_number),  # Convert to string for channel name
-            'order-status-update',
-            order_data
-        )
-        
-        # Send FCM push notification to guest (browser closed)
-        from notifications.fcm_service import send_fcm_notification
-        room = Room.objects.filter(
-            hotel=instance.hotel,
-            room_number=instance.room_number
-        ).first()
-        
-        if room and room.guest_fcm_token:
-            title = "🔔 Order Status Update"
-            body = f"Your order #{instance.id} is now {instance.status}"
-            
-            # FCM data must contain only strings
-            fcm_data = {
-                "type": "order_status_update",
-                "updated_order_id": str(instance.id),
-                "order_id": str(instance.id),
-                "room_number": str(instance.room_number),
-                "new_status": instance.status,
-                "old_status": old_status,
-                "updated_at": instance.updated_at.isoformat(),
-                "total_orders": str(all_hotel_orders.count())
-            }
-            
-            send_fcm_notification(
-                room.guest_fcm_token,
-                title,
-                body,
-                data=fcm_data
-            )
+        if notification_sent:
             logger.info(
-                f"FCM sent to guest in room {instance.room_number} "
-                f"for order #{instance.id}"
-            )
-        
-        if guest_notified:
-            logger.info(
-                f"✅ Pusher notification sent successfully to guest in room {instance.room_number}"
+                f"✅ Unified notifications sent successfully for order {instance.id} "
+                f"(status: {old_status} → {instance.status})"
             )
         else:
             logger.warning(
-                f"❌ Failed to send Pusher notification to room {instance.room_number}"
+                f"❌ Failed to send unified notifications for order {instance.id}"
             )
         
-        # Also notify porters about updated pending count
+        # Also notify porters about updated pending count using old system
+        # (This could be migrated to NotificationManager in the future)
         pending_count = Order.objects.filter(
             hotel=instance.hotel,
             status='pending'
