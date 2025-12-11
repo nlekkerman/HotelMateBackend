@@ -1382,7 +1382,14 @@ class NotificationManager:
             'read_by_staff_id': staff.id,
             'read_by_staff_name': f"{staff.first_name} {staff.last_name}",
             'read_by_staff_avatar': staff_avatar_url,  # Include staff's profile image URL
-            'read_at': timezone.now().isoformat()
+            'read_at': timezone.now().isoformat(),
+            # Frontend compatibility fields - match expected field names
+            'id': staff.id,  # Frontend expects 'id' for staff ID
+            'staff_id': staff.id,  # Backend compatibility
+            'name': f"{staff.first_name} {staff.last_name}",  # Frontend expects 'name'
+            'staff_name': f"{staff.first_name} {staff.last_name}",  # Backend compatibility  
+            'avatar': staff_avatar_url,  # Frontend expects 'avatar'
+            'staff_avatar': staff_avatar_url  # Backend compatibility
         }
         
         event_data = self._create_normalized_event(
