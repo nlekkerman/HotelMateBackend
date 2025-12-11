@@ -709,6 +709,35 @@ class NotificationManager:
         channel = f"{hotel_slug}.room-service"
         return self._safe_pusher_trigger(channel, "order_updated", event_data)
     
+    def realtime_menu_item_updated(self, hotel, menu_type: str, item_data: dict, action: str):
+        """Emit normalized menu item update event for staff dashboards."""
+        self.logger.info(f"🍽️ Realtime menu: {menu_type} item {item_data.get('name')} {action}")
+        
+        payload = {
+            'menu_type': menu_type,  # 'room_service' or 'breakfast'
+            'item_id': item_data.get('id'),
+            'name': item_data.get('name'),
+            'category': item_data.get('category'),
+            'price': item_data.get('price'),  # Only for room service
+            'quantity': item_data.get('quantity'),  # Only for breakfast
+            'is_on_stock': item_data.get('is_on_stock'),
+            'action': action  # 'created', 'updated', 'deleted'
+        }
+        
+        event_data = self._create_normalized_event(
+            category="menu_management",
+            event_type="menu_item_updated",
+            payload=payload,
+            hotel=hotel,
+            scope={'menu_type': menu_type, 'item_id': item_data.get('id')}
+        )
+        
+        # Send to staff management channel for real-time dashboard updates
+        hotel_slug = hotel.slug
+        channel = f"{hotel_slug}.staff-menu-management"
+        
+        return self._safe_pusher_trigger(channel, "menu_item_updated", event_data)
+    
     # -------------------------------------------------------------------------
     # BOOKING REALTIME METHODS
     # -------------------------------------------------------------------------

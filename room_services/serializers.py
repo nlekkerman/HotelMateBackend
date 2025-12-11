@@ -9,6 +9,34 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# ============================================================================
+# STAFF SERIALIZERS FOR MENU ITEM MANAGEMENT
+# ============================================================================
+
+class RoomServiceItemStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD serializer for room service menu items"""
+    class Meta:
+        model = RoomServiceItem
+        fields = [
+            'id', 'name', 'price', 'image', 'description', 
+            'category', 'is_on_stock', 'hotel'
+        ]
+        read_only_fields = ['id', 'hotel']
+
+class BreakfastItemStaffSerializer(serializers.ModelSerializer):
+    """Staff CRUD serializer for breakfast menu items"""
+    class Meta:
+        model = BreakfastItem
+        fields = [
+            'id', 'name', 'image', 'description', 'category', 
+            'quantity', 'is_on_stock', 'hotel'
+        ]
+        read_only_fields = ['id', 'hotel']
+
+# ============================================================================
+# PUBLIC/GUEST SERIALIZERS
+# ============================================================================
+
 # RoomServiceItem Serializer
 class RoomServiceItemSerializer(serializers.ModelSerializer):
     class Meta:

@@ -512,24 +512,11 @@ channel.bind('order_updated', (data) => {
 ## 🚀 **Key Benefits**
 
 ✅ **Real-time Updates**: Instant status changes across all devices  
-✅ **Consistent Data**: Normalized event structure via NotificationManager  
+✅ **Consistent Data**: Normalized event structure  
 ✅ **Better UX**: No page refresh needed  
 ✅ **Error Handling**: Proper validation and error messages  
 ✅ **Scalable**: Works across multiple hotel properties  
-✅ **Unified System**: Both FCM push notifications AND Pusher real-time events  
-✅ **Breakfast Support**: Same system handles both room service and breakfast orders
 
 ---
 
-## 🍳 **Breakfast Orders**
-
-Breakfast orders use the **same notification system** as room service orders:
-- **Channel**: `{hotel_slug}.room-service` 
-- **Events**: `order_created` and `order_updated`
-- **Event Structure**: Identical to room service (same payload format)
-
-The only difference is in the `payload.items` structure for breakfast vs room service items.
-
----
-
-**Questions?** Check the main notification manager at `notifications/notification_manager.py` line 649+ for implementation details.
+**Questions?** Check the main notification manager at `notifications/notification_manager.py` line 625+ for implementation details.
