@@ -566,6 +566,42 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK
         )
 
+    @action(detail=False, methods=['get'])
+    def conversations_with_unread_count(self, request, hotel_slug=None):
+        """
+        Get just the count of conversations with unread messages (for chat widget badge)
+        GET /api/staff-chat/<hotel_slug>/conversations/conversations-with-unread-count/
+        
+        Returns:
+        {
+            "conversations_with_unread": 5,
+            "updated_at": "2025-12-11T10:30:00Z"
+        }
+        """
+        try:
+            staff = Staff.objects.get(user=request.user)
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Staff profile not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Calculate conversation count using the same logic as the NotificationManager
+        conversations = StaffConversation.objects.filter(
+            hotel__slug=hotel_slug,
+            participants=staff
+        )
+        
+        conversations_with_unread = sum(1 for conv in conversations if conv.get_unread_count_for_staff(staff) > 0)
+        
+        return Response(
+            {
+                'conversations_with_unread': conversations_with_unread,
+                'updated_at': timezone.now().isoformat()
+            },
+            status=status.HTTP_200_OK
+        )
+
     @action(detail=True, methods=['get'])
     def messages(self, request, pk=None, hotel_slug=None):
         """

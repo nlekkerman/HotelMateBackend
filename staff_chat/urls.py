@@ -39,6 +39,13 @@ urlpatterns = [
         name='conversation-unread-count'
     ),
     path(
+        'conversations/conversations-with-unread-count/',
+        StaffConversationViewSet.as_view({
+            'get': 'conversations_with_unread_count'
+        }),
+        name='conversations-with-unread-count'
+    ),
+    path(
         'conversations/bulk-mark-as-read/',
         StaffConversationViewSet.as_view({
             'post': 'bulk_mark_as_read'
