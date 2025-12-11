@@ -2,7 +2,7 @@
 
 ## API Endpoints
 
-### Get Initial Conversation Count
+### Get Initial Conversation Counted
 **GET** `/api/staff-chat/{hotel_slug}/conversations/conversations-with-unread-count/`
 
 **Response:**
