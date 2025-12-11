@@ -140,7 +140,28 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
 "message_preview": "Here are the room inspection photos from this morning. Room 101 needs attention..."
 ```
 
-### 2. Avatar Support Added
+### 2. Image-Only Attachment Support  
+**Current Implementation**: Only image attachments supported
+```json
+"images": [
+  {
+    "id": 1,
+    "file_name": "room_photo.jpg",
+    "file_type": "image", 
+    "image_url": "https://cloudinary.com/.../room_photo.jpg",
+    "thumbnail_url": "https://cloudinary.com/.../room_photo.jpg"
+  }
+],
+"has_images": true,
+"image_count": 1
+
+// Legacy fields maintained for backward compatibility
+"attachments": [...], // Same data as images
+"has_attachments": true,
+"attachment_count": 1
+```
+
+### 3. Avatar Support Added
 **Added to all reply contexts**:
 - Original message sender avatar
 - Current message sender avatar
@@ -159,7 +180,7 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
 "attachment_count": 2
 ```
 
-### 4. Rich Image Previews
+### 5. Rich Image Previews
 **Enhanced image data (images only)**:
 ```json
 "images": [
@@ -306,7 +327,9 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
 
 ## Performance Optimizations
 
-1. **Attachment Previews**: Limited to first 3 attachments
-2. **Message Preview**: 150 character limit with ellipsis
-3. **Lazy Loading**: Attachments loaded on-demand
-4. **Caching**: Avatar URLs cached in serializer context
+1. **Image Previews**: Limited to first 3 images per message
+2. **Message Preview**: 150 character limit with ellipsis  
+3. **Image-Only Processing**: Simplified attachment handling (images only)
+4. **Lazy Loading**: Images loaded on-demand
+5. **Caching**: Avatar URLs cached in serializer context
+6. **Dual Format Support**: Both new image format and legacy attachment format for backward compatibility
