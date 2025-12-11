@@ -409,18 +409,11 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
                 
                 # Broadcast read receipt for this conversation
                 try:
-                    staff_name = (
-                        f"{staff.first_name} {staff.last_name}".strip()
-                    )
                     broadcast_read_receipt(
                         hotel_slug,
                         conversation.id,
-                        {
-                            'staff_id': staff.id,
-                            'staff_name': staff_name,
-                            'message_ids': marked_message_ids,
-                            'timestamp': timezone.now().isoformat()
-                        }
+                        staff,  # Pass staff object, not dictionary
+                        marked_message_ids  # Pass message IDs as separate parameter
                     )
                 except Exception:
                     # Log but don't fail the request

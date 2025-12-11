@@ -255,12 +255,18 @@ class NotificationManager:
                             
                         original_attachment_previews.append(preview_data)
                 
+                # Get original sender avatar
+                original_sender_avatar = None
+                if original_message.sender.profile_image and hasattr(original_message.sender.profile_image, 'url'):
+                    original_sender_avatar = original_message.sender.profile_image.url
+                
                 # Build reply_to_data with enhanced attachment info
                 reply_to_data = {
                     'id': original_message.id,
                     'message': original_message.message[:100],  # Truncated preview
                     'sender_id': original_message.sender.id,
                     'sender_name': f"{original_message.sender.first_name} {original_message.sender.last_name}",
+                    'sender_avatar': original_sender_avatar,  # Include original sender's avatar
                     'timestamp': original_message.timestamp.isoformat(),
                     'has_attachments': is_reply_to_attachment,
                     'attachments_preview': original_attachment_previews,
@@ -274,9 +280,17 @@ class NotificationManager:
                 reply_to_data = {
                     'id': message.reply_to.id,
                     'message': 'Error loading original message',
+                    'sender_id': message.reply_to.sender.id if message.reply_to.sender else None,
+                    'sender_name': 'Unknown User',
+                    'sender_avatar': None,
                     'has_attachments': False,
                     'attachments_preview': []
                 }
+        
+        # Get sender avatar URL
+        sender_avatar_url = None
+        if message.sender.profile_image and hasattr(message.sender.profile_image, 'url'):
+            sender_avatar_url = message.sender.profile_image.url
         
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
@@ -284,6 +298,7 @@ class NotificationManager:
             'message': message.message,  # Match serializer field name: 'message'
             'sender_id': message.sender.id,
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
+            'sender_avatar': sender_avatar_url,  # Include sender's profile image URL
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
             'attachments': attachment_list,
             'is_system_message': getattr(message, 'is_system_message', False),
@@ -369,12 +384,18 @@ class NotificationManager:
         """Emit normalized staff chat message edited event."""
         self.logger.info(f"✏️ Realtime staff chat: message {message.id} edited")
         
+        # Get sender avatar URL
+        sender_avatar_url = None
+        if message.sender.profile_image and hasattr(message.sender.profile_image, 'url'):
+            sender_avatar_url = message.sender.profile_image.url
+        
         payload = {
             'id': message.id,  # Frontend expects 'id', not 'message_id'
             'conversation_id': message.conversation.id,
             'message': message.message,  # Match serializer field name: 'message'
             'sender_id': message.sender.id,
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
+            'sender_avatar': sender_avatar_url,  # Include sender's profile image URL
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
             'updated_at': message.edited_at.isoformat() if hasattr(message, 'edited_at') and message.edited_at else timezone.now().isoformat(),
             'edited': True
@@ -1214,11 +1235,17 @@ class NotificationManager:
         """Emit staff chat typing indicator (ephemeral event)."""
         self.logger.info(f"✍️ Realtime staff chat: typing indicator for staff {staff.id}")
         
+        # Get staff avatar URL
+        staff_avatar_url = None
+        if staff.profile_image and hasattr(staff.profile_image, 'url'):
+            staff_avatar_url = staff.profile_image.url
+        
         # Typing indicators use normalized structure for consistency
         payload = {
             'conversation_id': conversation_id,
             'staff_id': staff.id,
             'staff_name': f"{staff.first_name} {staff.last_name}",
+            'staff_avatar': staff_avatar_url,  # Include staff's profile image URL
             'is_typing': is_typing,
             'timestamp': timezone.now().isoformat()
         }
@@ -1291,13 +1318,24 @@ class NotificationManager:
         """Emit staff chat staff mentioned notification."""
         self.logger.info(f"📢 Realtime staff chat: mention for staff {staff.id}")
         
+        # Get avatar URLs
+        mentioned_staff_avatar = None
+        if staff.profile_image and hasattr(staff.profile_image, 'url'):
+            mentioned_staff_avatar = staff.profile_image.url
+        
+        sender_avatar = None
+        if message.sender.profile_image and hasattr(message.sender.profile_image, 'url'):
+            sender_avatar = message.sender.profile_image.url
+        
         payload = {
             'conversation_id': conversation_id,
             'message_id': message.id,
             'mentioned_staff_id': staff.id,
             'mentioned_staff_name': f"{staff.first_name} {staff.last_name}",
+            'mentioned_staff_avatar': mentioned_staff_avatar,  # Include mentioned staff's avatar
             'sender_id': message.sender.id,
             'sender_name': f"{message.sender.first_name} {message.sender.last_name}",
+            'sender_avatar': sender_avatar,  # Include sender's avatar
             'message': message.message,  # Match serializer field name: 'message'
             'timestamp': message.timestamp.isoformat()  # Match serializer field name: 'timestamp'
         }
@@ -1319,11 +1357,17 @@ class NotificationManager:
         """Emit staff chat messages read receipt event."""
         self.logger.info(f"👀 Realtime staff chat: messages read by staff {staff.id}")
         
+        # Get staff avatar URL
+        staff_avatar_url = None
+        if staff.profile_image and hasattr(staff.profile_image, 'url'):
+            staff_avatar_url = staff.profile_image.url
+        
         payload = {
             'conversation_id': conversation.id,
             'message_ids': message_ids,
             'read_by_staff_id': staff.id,
             'read_by_staff_name': f"{staff.first_name} {staff.last_name}",
+            'read_by_staff_avatar': staff_avatar_url,  # Include staff's profile image URL
             'read_at': timezone.now().isoformat()
         }
         

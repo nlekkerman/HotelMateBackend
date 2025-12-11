@@ -79,18 +79,13 @@ def mark_message_as_read(request, hotel_slug, message_id):
     if was_unread and staff.id != message.sender.id:
         message.mark_as_read_by(staff)
         
-        # Broadcast read receipt
+        # Broadcast read receipt using correct parameters
         try:
-            staff_name = f"{staff.first_name} {staff.last_name}".strip()
             broadcast_read_receipt(
                 hotel_slug,
                 message.conversation.id,
-                {
-                    'staff_id': staff.id,
-                    'staff_name': staff_name,
-                    'message_ids': [message.id],
-                    'timestamp': timezone.now().isoformat()
-                }
+                staff,  # Pass staff object, not dictionary
+                [message.id]  # Pass message IDs as separate parameter
             )
             logger.info(
                 f"✅ Read receipt broadcasted for message {message.id}"
