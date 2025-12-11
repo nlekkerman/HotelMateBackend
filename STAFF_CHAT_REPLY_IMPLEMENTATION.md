@@ -74,6 +74,16 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
     "sender_avatar": "https://cloudinary.com/.../staff67.jpg",
     "timestamp": "2025-12-11T15:30:00Z",
     
+    // Current message images (images only)
+    "images": [],
+    "has_images": false,
+    "image_count": 0,
+    
+    // Legacy format for backward compatibility
+    "attachments": [],
+    "has_attachments": false,
+    "attachment_count": 0,
+    
     "reply_to": {
       "id": 120,
       "message": "Here are the room inspection photos from this morning. Room 101 needs attention.",
@@ -84,17 +94,29 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
       "timestamp": "2025-12-11T15:25:00Z",
       "is_deleted": false,
       "is_edited": false,
+      "has_images": true,
+      "images": [
+        {
+          "id": 1,
+          "file_name": "room_101_bathroom.jpg",
+          "file_type": "image",
+          "image_url": "https://cloudinary.com/.../room_101_bathroom.jpg",
+          "thumbnail_url": "https://cloudinary.com/.../room_101_bathroom.jpg"
+        }
+      ],
+      "image_count": 1,
+      // Legacy fields for backward compatibility
       "has_attachments": true,
-      "attachment_count": 3,
       "attachments_preview": [
         {
           "id": 1,
           "file_name": "room_101_bathroom.jpg",
           "file_type": "image",
-          "file_url": "https://cloudinary.com/.../room_101_bathroom.jpg",
-          "thumbnail_url": "https://cloudinary.com/.../c_thumb/room_101_bathroom.jpg"
+          "image_url": "https://cloudinary.com/.../room_101_bathroom.jpg",
+          "thumbnail_url": "https://cloudinary.com/.../room_101_bathroom.jpg"
         }
-      ]
+      ],
+      "attachment_count": 1
     },
     
     "is_reply_to_attachment": true
