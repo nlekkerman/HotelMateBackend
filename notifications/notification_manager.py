@@ -198,30 +198,28 @@ class NotificationManager:
         """
         self.logger.info(f"💬 Realtime staff chat: message {message.id} created by staff {message.sender.id}")
         
-        # Build complete payload with correct field names for frontend
-        # Safely get attachments with full data for frontend display
+        # Build image list for frontend display (images only)
         try:
-            attachment_list = []
+            image_list = []
             if hasattr(message, 'attachments'):
-                for att in message.attachments.all():
-                    att_data = {
-                        'id': att.id,
-                        'file_name': att.file_name,  # Use correct field name
-                        'file_type': att.file_type,
-                        'file_size': att.file_size,
+                # Filter for images only
+                for img in message.attachments.filter(file_type='image'):
+                    img_data = {
+                        'id': img.id,
+                        'file_name': img.file_name,
+                        'file_type': 'image',
                     }
-                    # Get the Cloudinary file URL
-                    if hasattr(att, 'file') and att.file:
-                        att_data['url'] = att.file.url
-                        # Also add some metadata that might be useful
-                        att_data['public_id'] = getattr(att.file, 'public_id', '')
+                    # Get the Cloudinary image URL
+                    if hasattr(img, 'file') and img.file:
+                        img_data['image_url'] = img.file.url
+                        img_data['thumbnail_url'] = img.file.url  # Use same URL for thumbnail
                     
-                    attachment_list.append(att_data)
+                    image_list.append(img_data)
                     
-                self.logger.info(f"📎 Built attachment list with {len(attachment_list)} items: {attachment_list}")
+                self.logger.info(f"🖼️ Built image list with {len(image_list)} items")
         except Exception as e:
-            self.logger.error(f"Error building attachment list: {e}")
-            attachment_list = []
+            self.logger.error(f"Error building image list: {e}")
+            image_list = []
         
         # Enhanced reply-to-attachment detection and data
         reply_to_data = None
@@ -233,58 +231,72 @@ class NotificationManager:
                 original_message = message.reply_to
                 self.logger.info(f"🔗 Processing reply to message {original_message.id}")
                 
-                # Check if original message has attachments
+                # Check if original message has image attachments (only handle images)
                 if hasattr(original_message, 'attachments') and original_message.attachments.exists():
-                    is_reply_to_attachment = True
-                    self.logger.info(f"📎 Reply targets message with {original_message.attachments.count()} attachments")
+                    # Filter for images only
+                    image_attachments = original_message.attachments.filter(file_type='image')
                     
-                    # Build attachment previews (limit to first 3 for performance)
-                    for att in original_message.attachments.all()[:3]:
-                        preview_data = {
-                            'id': att.id,
-                            'file_name': att.file_name,
-                            'file_type': att.file_type,
-                            'mime_type': getattr(att, 'mime_type', ''),
-                        }
+                    if image_attachments.exists():
+                        is_reply_to_attachment = True
+                        self.logger.info(f"🖼️ Reply targets message with {image_attachments.count()} images")
                         
-                        # Add URLs if available
-                        if hasattr(att, 'file') and att.file:
-                            preview_data['file_url'] = att.file.url
-                        if hasattr(att, 'thumbnail') and att.thumbnail:
-                            preview_data['thumbnail_url'] = att.thumbnail.url
+                        # Build image previews (limit to first 3 for performance)
+                        for img in image_attachments[:3]:
+                            preview_data = {
+                                'id': img.id,
+                                'file_name': img.file_name,
+                                'file_type': 'image',
+                                'is_image': True,
+                            }
                             
-                        original_attachment_previews.append(preview_data)
+                            # Add image URLs
+                            if hasattr(img, 'file') and img.file:
+                                preview_data['image_url'] = img.file.url
+                                preview_data['thumbnail_url'] = img.file.url  # Use same URL for thumbnail
+                                
+                            original_attachment_previews.append(preview_data)
                 
                 # Get original sender avatar
                 original_sender_avatar = None
                 if original_message.sender.profile_image and hasattr(original_message.sender.profile_image, 'url'):
                     original_sender_avatar = original_message.sender.profile_image.url
                 
-                # Build reply_to_data with enhanced attachment info
+                # Build reply_to_data for images and text only
+                original_message_text = original_message.message or ""
+                
                 reply_to_data = {
                     'id': original_message.id,
-                    'message': original_message.message[:100],  # Truncated preview
+                    'message': original_message_text,  # Full text message content
+                    'message_preview': original_message_text[:150] + ('...' if len(original_message_text) > 150 else ''),  # Text preview
                     'sender_id': original_message.sender.id,
                     'sender_name': f"{original_message.sender.first_name} {original_message.sender.last_name}",
                     'sender_avatar': original_sender_avatar,  # Include original sender's avatar
                     'timestamp': original_message.timestamp.isoformat(),
-                    'has_attachments': is_reply_to_attachment,
-                    'attachments_preview': original_attachment_previews,
-                    'attachment_count': len(original_attachment_previews)
+                    'is_deleted': getattr(original_message, 'is_deleted', False),
+                    'is_edited': getattr(original_message, 'is_edited', False),
+                    'has_images': is_reply_to_attachment,  # Only track images now
+                    'images': original_attachment_previews,  # Image attachments only
+                    'image_count': len(original_attachment_previews)
                 }
                 
                 self.logger.info(f"🔗 Built reply_to_data with {len(original_attachment_previews)} attachment previews")
                 
             except Exception as e:
                 self.logger.error(f"Error processing reply-to data: {e}")
+                error_message = 'Error loading original message'
                 reply_to_data = {
                     'id': message.reply_to.id,
-                    'message': 'Error loading original message',
+                    'message': error_message,
+                    'message_preview': error_message,
                     'sender_id': message.reply_to.sender.id if message.reply_to.sender else None,
                     'sender_name': 'Unknown User',
                     'sender_avatar': None,
-                    'has_attachments': False,
-                    'attachments_preview': []
+                    'timestamp': None,
+                    'is_deleted': True,  # Treat error as deleted for UI purposes
+                    'is_edited': False,
+                    'has_images': False,
+                    'images': [],
+                    'image_count': 0
                 }
         
         # Get sender avatar URL
@@ -300,7 +312,9 @@ class NotificationManager:
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
             'sender_avatar': sender_avatar_url,  # Include sender's profile image URL
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
-            'attachments': attachment_list,
+            'images': image_list,
+            'has_images': bool(image_list),
+            'image_count': len(image_list),
             'is_system_message': getattr(message, 'is_system_message', False),
             'reply_to': reply_to_data,
             'is_reply_to_attachment': is_reply_to_attachment
