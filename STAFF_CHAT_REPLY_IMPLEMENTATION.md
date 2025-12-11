@@ -147,13 +147,16 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
 - Read receipt avatars
 - Typing indicator avatars
 
-### 3. Message Status Information
+### Message Status Information
 **Added metadata**:
 ```json
 "is_deleted": false,
 "is_edited": false,
-"has_attachments": true,
-"attachment_count": 3
+"has_images": true,
+"image_count": 2,
+// Legacy fields
+"has_attachments": true, 
+"attachment_count": 2
 ```
 
 ### 4. Rich Image Previews
@@ -199,9 +202,10 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
         "message": "Full original message content here",
         "sender_name": "Jane Doe",
         "sender_avatar": "https://...",
-        "attachments_preview": [...]
+        "images": [...],
+        "attachments_preview": [...]  // Legacy compatibility
       },
-      "attachments": [],
+      "images": [],
       "timestamp": "2025-12-11T15:30:00Z"
     }
   ]
