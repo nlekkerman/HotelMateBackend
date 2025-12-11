@@ -134,17 +134,27 @@ class StaffChatMessageSerializer(serializers.ModelSerializer):
 "attachment_count": 3
 ```
 
-### 4. Rich Attachment Previews
-**Enhanced attachment data**:
+### 4. Rich Image Previews
+**Enhanced image data (images only)**:
 ```json
+"images": [
+  {
+    "id": 1,
+    "file_name": "room_photo.jpg",
+    "file_type": "image",
+    "image_url": "https://cloudinary.com/.../room_photo.jpg",
+    "thumbnail_url": "https://cloudinary.com/.../room_photo.jpg"
+  }
+]
+
+// Legacy format for backward compatibility
 "attachments_preview": [
   {
     "id": 1,
-    "file_name": "document.pdf",
-    "file_type": "document", 
-    "mime_type": "application/pdf",
-    "file_url": "https://cloudinary.com/.../document.pdf",
-    "thumbnail_url": "https://cloudinary.com/.../c_thumb/document.jpg"
+    "file_name": "room_photo.jpg", 
+    "file_type": "image",
+    "image_url": "https://cloudinary.com/.../room_photo.jpg",
+    "thumbnail_url": "https://cloudinary.com/.../room_photo.jpg"
   }
 ]
 ```

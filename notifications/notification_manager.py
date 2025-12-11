@@ -274,9 +274,14 @@ class NotificationManager:
                     'timestamp': original_message.timestamp.isoformat(),
                     'is_deleted': getattr(original_message, 'is_deleted', False),
                     'is_edited': getattr(original_message, 'is_edited', False),
-                    'has_images': is_reply_to_attachment,  # Only track images now
-                    'images': original_attachment_previews,  # Image attachments only
-                    'image_count': len(original_attachment_previews)
+                    # New format (images only)
+                    'has_images': is_reply_to_attachment,
+                    'images': original_attachment_previews,
+                    'image_count': len(original_attachment_previews),
+                    # Legacy format for backward compatibility
+                    'has_attachments': is_reply_to_attachment,
+                    'attachments_preview': original_attachment_previews,
+                    'attachment_count': len(original_attachment_previews)
                 }
                 
                 self.logger.info(f"🔗 Built reply_to_data with {len(original_attachment_previews)} attachment previews")
@@ -294,9 +299,14 @@ class NotificationManager:
                     'timestamp': None,
                     'is_deleted': True,  # Treat error as deleted for UI purposes
                     'is_edited': False,
+                    # New format
                     'has_images': False,
                     'images': [],
-                    'image_count': 0
+                    'image_count': 0,
+                    # Legacy format for backward compatibility
+                    'has_attachments': False,
+                    'attachments_preview': [],
+                    'attachment_count': 0
                 }
         
         # Get sender avatar URL
@@ -312,9 +322,14 @@ class NotificationManager:
             'sender_name': message.sender.get_full_name() if hasattr(message.sender, 'get_full_name') else f"{message.sender.first_name} {message.sender.last_name}",
             'sender_avatar': sender_avatar_url,  # Include sender's profile image URL
             'timestamp': message.timestamp.isoformat(),  # Correct field name: 'timestamp' not 'created_at'
+            # New format (images only)
             'images': image_list,
             'has_images': bool(image_list),
             'image_count': len(image_list),
+            # Legacy format for backward compatibility
+            'attachments': image_list,  # Same data, different field name
+            'has_attachments': bool(image_list),
+            'attachment_count': len(image_list),
             'is_system_message': getattr(message, 'is_system_message', False),
             'reply_to': reply_to_data,
             'is_reply_to_attachment': is_reply_to_attachment
