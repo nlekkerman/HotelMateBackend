@@ -196,7 +196,7 @@ class RoomBookingAdmin(admin.ModelAdmin):
     list_display = (
         'booking_id',
         'confirmation_number',
-        'guest_name',
+        'primary_guest_name',
         'hotel',
         'room_type',
         'check_in',
@@ -206,13 +206,16 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'created_at',
         'cancellation_info'
     )
-    list_filter = ('status', 'hotel', 'check_in', 'created_at')
+    list_filter = ('status', 'hotel', 'check_in', 'created_at', 'booker_type')
     search_fields = (
         'booking_id',
         'confirmation_number',
-        'guest_email',
-        'guest_first_name',
-        'guest_last_name'
+        'primary_email',
+        'primary_first_name',
+        'primary_last_name',
+        'booker_email',
+        'booker_first_name',
+        'booker_last_name'
     )
     readonly_fields = (
         'booking_id',

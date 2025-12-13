@@ -425,23 +425,31 @@ class RoomBooking(models.Model):
         help_text="Check-out date"
     )
 
-    # Guest information
-    guest_first_name = models.CharField(
-        max_length=100,
-        help_text="Guest first name"
+    # Phase 2: Booker vs Primary Staying Guest
+    BOOKER_TYPE_CHOICES = [
+        ('SELF', 'Booker is staying'),
+        ('THIRD_PARTY', 'Third-party (gift/agent)'),
+        ('COMPANY', 'Company booking'),
+    ]
+    booker_type = models.CharField(
+        max_length=20, 
+        choices=BOOKER_TYPE_CHOICES, 
+        default='SELF',
+        help_text="Relationship between booker and primary staying guest"
     )
-    guest_last_name = models.CharField(
-        max_length=100,
-        help_text="Guest last name"
-    )
-    guest_email = models.EmailField(
-        help_text="Guest email for confirmation"
-    )
-    guest_phone = models.CharField(
-        max_length=30,
-        blank=True,
-        help_text="Guest contact phone"
-    )
+
+    # Booker (payer / company / agent) - may NOT stay
+    booker_first_name = models.CharField(max_length=100, blank=True, help_text="Booker first name (if different from guest)")
+    booker_last_name = models.CharField(max_length=100, blank=True, help_text="Booker last name (if different from guest)")
+    booker_email = models.EmailField(blank=True, help_text="Booker email for payment/confirmation")
+    booker_phone = models.CharField(max_length=30, blank=True, help_text="Booker contact phone")
+    booker_company = models.CharField(max_length=150, blank=True, help_text="Company name for corporate bookings")
+
+    # Primary staying guest (REQUIRED)
+    primary_first_name = models.CharField(max_length=100, help_text="Primary guest first name (person staying)")
+    primary_last_name = models.CharField(max_length=100, help_text="Primary guest last name (person staying)")
+    primary_email = models.EmailField(blank=True, help_text="Primary guest email")
+    primary_phone = models.CharField(max_length=30, blank=True, help_text="Primary guest contact phone")
 
     # Occupancy
     adults = models.PositiveIntegerField(
@@ -516,6 +524,23 @@ class RoomBooking(models.Model):
         help_text="Internal staff notes (not visible to guest)"
     )
 
+    # Phase 2: Assignment / check-in state
+    assigned_room = models.ForeignKey(
+        'rooms.Room',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='room_bookings',
+        help_text="Room assigned during check-in process"
+    )
+    checked_in_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when guest checked in"
+    )
+    checked_out_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when guest checked out"
+    )
+
     class Meta:
         ordering = ['-created_at']
         verbose_name = "Room Booking"
@@ -523,8 +548,9 @@ class RoomBooking(models.Model):
         indexes = [
             models.Index(fields=['hotel', 'check_in', 'check_out']),
             models.Index(fields=['booking_id']),
-            models.Index(fields=['guest_email']),
+            models.Index(fields=['primary_email']),
             models.Index(fields=['status']),
+            models.Index(fields=['assigned_room']),
         ]
 
     def save(self, *args, **kwargs):
@@ -547,6 +573,55 @@ class RoomBooking(models.Model):
             self.confirmation_number = f'{hotel_code}-{year}-{count + 1:04d}'
 
         super().save(*args, **kwargs)
+        
+        # Phase 3: Sync PRIMARY BookingGuest with booking primary_* fields
+        self._sync_primary_booking_guest()
+
+    def _sync_primary_booking_guest(self):
+        """
+        Ensure PRIMARY BookingGuest exists and matches booking primary_* fields.
+        Called after booking save to maintain consistency.
+        """
+        if not self.primary_first_name or not self.primary_last_name:
+            return  # Skip if primary fields are empty
+            
+        try:
+            # Get or create PRIMARY BookingGuest
+            primary_guest, created = self.party.get_or_create(
+                role='PRIMARY',
+                defaults={
+                    'first_name': self.primary_first_name,
+                    'last_name': self.primary_last_name,
+                    'email': self.primary_email or '',
+                    'phone': self.primary_phone or '',
+                    'is_staying': True,
+                }
+            )
+            
+            # Update existing PRIMARY guest if fields changed
+            if not created:
+                updated = False
+                if primary_guest.first_name != self.primary_first_name:
+                    primary_guest.first_name = self.primary_first_name
+                    updated = True
+                if primary_guest.last_name != self.primary_last_name:
+                    primary_guest.last_name = self.primary_last_name
+                    updated = True
+                if primary_guest.email != (self.primary_email or ''):
+                    primary_guest.email = self.primary_email or ''
+                    updated = True
+                if primary_guest.phone != (self.primary_phone or ''):
+                    primary_guest.phone = self.primary_phone or ''
+                    updated = True
+                    
+                if updated:
+                    primary_guest.save()
+                    
+        except Exception as e:
+            # Log error but don't break booking save
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to sync PRIMARY BookingGuest for {self.booking_id}: {e}")
 
     @property
     def nights(self):
@@ -554,12 +629,110 @@ class RoomBooking(models.Model):
         return (self.check_out - self.check_in).days
 
     @property
-    def guest_name(self):
-        """Full guest name"""
-        return f"{self.guest_first_name} {self.guest_last_name}"
+    def primary_guest_name(self):
+        """Full primary guest name"""
+        return f"{self.primary_first_name} {self.primary_last_name}"
+
+    @property
+    def booker_name(self):
+        """Full booker name (if different from primary guest)"""
+        if self.booker_first_name and self.booker_last_name:
+            return f"{self.booker_first_name} {self.booker_last_name}"
+        return ""
+
+    def clean(self):
+        """Validation for booker vs primary guest fields"""
+        from django.core.exceptions import ValidationError
+        
+        # Primary guest fields are always required
+        if not self.primary_first_name or not self.primary_last_name:
+            raise ValidationError("Primary guest first name and last name are required.")
+        
+        # For COMPANY bookings, recommend booker_company
+        if self.booker_type == 'COMPANY' and not self.booker_company:
+            # This is a soft warning, not a hard error
+            pass
 
     def __str__(self):
-        return f"{self.booking_id} - {self.guest_name} @ {self.hotel.name}"
+        return f"{self.booking_id} - {self.primary_guest_name} @ {self.hotel.name}"
+
+
+class BookingGuest(models.Model):
+    """
+    Phase 3: Booking party members (staying guests).
+    Represents each person who will be staying in the room during the booking.
+    """
+    booking = models.ForeignKey(
+        'hotel.RoomBooking', 
+        on_delete=models.CASCADE, 
+        related_name='party',
+        help_text="The booking this guest belongs to"
+    )
+
+    ROLE_CHOICES = [
+        ('PRIMARY', 'Primary Staying Guest'),
+        ('COMPANION', 'Companion'),
+    ]
+    role = models.CharField(
+        max_length=20, 
+        choices=ROLE_CHOICES, 
+        default='COMPANION',
+        help_text="Role of this guest in the booking party"
+    )
+
+    # Guest information
+    first_name = models.CharField(max_length=100, help_text="Guest first name")
+    last_name = models.CharField(max_length=100, help_text="Guest last name")
+    email = models.EmailField(blank=True, help_text="Guest email (optional)")
+    phone = models.CharField(max_length=30, blank=True, help_text="Guest phone (optional)")
+
+    # Party member is always staying (unlike booker who might not be)
+    is_staying = models.BooleanField(
+        default=True, 
+        help_text="Always true for party members - they are all staying guests"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['booking', 'role']),
+            models.Index(fields=['booking', 'created_at']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['booking'],
+                condition=models.Q(role='PRIMARY'),
+                name='unique_primary_per_booking'
+            )
+        ]
+        ordering = ['role', 'created_at']  # PRIMARY first, then by creation time
+
+    @property
+    def full_name(self):
+        """Full guest name"""
+        return f"{self.first_name} {self.last_name}".strip()
+
+    def clean(self):
+        """Validation for booking guest"""
+        from django.core.exceptions import ValidationError
+        
+        # Ensure first and last names are provided
+        if not self.first_name or not self.last_name:
+            raise ValidationError("Guest first name and last name are required.")
+        
+        # For PRIMARY role, ensure it matches booking primary_* fields
+        if self.role == 'PRIMARY' and self.booking_id:
+            if (self.first_name != self.booking.primary_first_name or 
+                self.last_name != self.booking.primary_last_name):
+                raise ValidationError(
+                    "PRIMARY guest name must match booking primary guest name. "
+                    "Update booking primary fields instead."
+                )
+
+    def __str__(self):
+        role_display = "👑" if self.role == 'PRIMARY' else "👥"
+        return f"{role_display} {self.full_name} ({self.booking.booking_id})"
 
 
 class PricingQuote(models.Model):

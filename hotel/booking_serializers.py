@@ -3,7 +3,7 @@ Booking-related serializers for availability, pricing, and reservations.
 Public endpoints - no authentication required.
 """
 from rest_framework import serializers
-from .models import RoomBooking, PricingQuote, BookingOptions
+from .models import RoomBooking, PricingQuote, BookingOptions, BookingGuest
 from rooms.models import RoomType
 
 
@@ -19,6 +19,29 @@ class BookingOptionsSerializer(serializers.ModelSerializer):
             'terms_url',
             'policies_url'
         ]
+
+
+class BookingGuestSerializer(serializers.ModelSerializer):
+    """Serializer for booking party members"""
+    full_name = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = BookingGuest
+        fields = [
+            'id',
+            'role',
+            'first_name',
+            'last_name',
+            'full_name',
+            'email',
+            'phone',
+            'is_staying',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'created_at']
+    
+    def get_full_name(self, obj):
+        return obj.full_name
 
 
 class RoomTypeSerializer(serializers.ModelSerializer):
@@ -95,6 +118,7 @@ class RoomBookingListSerializer(serializers.ModelSerializer):
     )
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     nights = serializers.SerializerMethodField()
+    assigned_room_number = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -105,8 +129,10 @@ class RoomBookingListSerializer(serializers.ModelSerializer):
             'hotel_name',
             'room_type_name',
             'guest_name',
-            'guest_email',
-            'guest_phone',
+            'primary_email',
+            'primary_phone',
+            'booker_type',
+            'assigned_room_number',
             'check_in',
             'check_out',
             'nights',
@@ -115,13 +141,18 @@ class RoomBookingListSerializer(serializers.ModelSerializer):
             'total_amount',
             'currency',
             'status',
+            'checked_in_at',
+            'checked_out_at',
             'created_at',
             'paid_at',
         ]
         read_only_fields = fields
 
     def get_guest_name(self, obj):
-        return obj.guest_name
+        return obj.primary_guest_name
+        
+    def get_assigned_room_number(self, obj):
+        return obj.assigned_room.room_number if obj.assigned_room else None
 
     def get_nights(self, obj):
         return obj.nights
@@ -144,6 +175,8 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
     cancellation_details = serializers.SerializerMethodField()
     room_photo_url = serializers.SerializerMethodField()
     booking_summary = serializers.SerializerMethodField()
+    assigned_room_number = serializers.SerializerMethodField()
+    party = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -156,10 +189,18 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             'room_type_name',
             'room_photo_url',
             'guest_name',
-            'guest_first_name',
-            'guest_last_name',
-            'guest_email',
-            'guest_phone',
+            'primary_first_name',
+            'primary_last_name',
+            'primary_email',
+            'primary_phone',
+            'booker_type',
+            'booker_first_name',
+            'booker_last_name',
+            'booker_email',
+            'booker_phone',
+            'booker_company',
+            'assigned_room',
+            'assigned_room_number',
             'check_in',
             'check_out',
             'nights',
@@ -173,20 +214,26 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             'payment_reference',
             'payment_provider',
             'paid_at',
+            'checked_in_at',
+            'checked_out_at',
             'created_at',
             'updated_at',
             'internal_notes',
             'cancellation_details',
             'booking_summary',
+            'party',
         ]
         read_only_fields = [
             'id', 'booking_id', 'confirmation_number', 'hotel_name', 'hotel_preset',
-            'room_type_name', 'guest_name', 'created_at', 'updated_at',
+            'room_type_name', 'guest_name', 'assigned_room_number', 'created_at', 'updated_at',
             'nights'
         ]
 
     def get_guest_name(self, obj):
-        return obj.guest_name
+        return obj.primary_guest_name
+        
+    def get_assigned_room_number(self, obj):
+        return obj.assigned_room.room_number if obj.assigned_room else None
 
     def get_nights(self, obj):
         return obj.nights
@@ -279,4 +326,25 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             "total_formatted": f"{obj.currency} {obj.total_amount}",
             "created_formatted": obj.created_at.strftime('%B %d, %Y at %I:%M %p'),
             "room_description": obj.room_type.short_description if obj.room_type else ""
+        }
+    
+    def get_party(self, obj):
+        """Get booking party information grouped by role"""
+        party_members = obj.party_members.all().order_by('role', 'first_name')
+        
+        primary_guest = None
+        companions = []
+        
+        for member in party_members:
+            member_data = BookingGuestSerializer(member).data
+            
+            if member.role == 'PRIMARY':
+                primary_guest = member_data
+            else:
+                companions.append(member_data)
+        
+        return {
+            'primary': primary_guest,
+            'companions': companions,
+            'total_party_size': len(party_members)
         }

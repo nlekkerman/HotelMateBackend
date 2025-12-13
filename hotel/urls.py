@@ -46,6 +46,10 @@ from .staff_views import (
     HotelStatusCheckView,
     PublicPageBootstrapView,
     SectionCreateView,
+    # Phase 2: Booking Assignment
+    BookingAssignmentView,
+    # Phase 3: Booking Party Management
+    BookingPartyManagementView,
 )
 
 # Payment views
@@ -225,6 +229,33 @@ urlpatterns = [
         "public/page/<slug:slug>/",
         HotelPublicPageView.as_view(),
         name="hotel-legacy-public-page"
+    ),
+    
+    # Phase 2: Staff booking assignment endpoints
+    path(
+        "staff/<slug:slug>/bookings/<str:booking_id>/assign-room/",
+        BookingAssignmentView.as_view(),
+        {"action": "assign-room"},
+        name="staff-booking-assign-room"
+    ),
+    path(
+        "staff/<slug:slug>/bookings/<str:booking_id>/checkout/",
+        BookingAssignmentView.as_view(),
+        {"action": "checkout"}, 
+        name="staff-booking-checkout"
+    ),
+    
+    # Phase 3: Staff booking party management endpoints
+    path(
+        "staff/<slug:slug>/bookings/<str:booking_id>/party/",
+        BookingPartyManagementView.as_view(),
+        name="staff-booking-party-list"
+    ),
+    path(
+        "staff/<slug:slug>/bookings/<str:booking_id>/party/companions/",
+        BookingPartyManagementView.as_view(),
+        {"action": "companions"},
+        name="staff-booking-party-companions"
     ),
     
     # Internal/admin endpoints

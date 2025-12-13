@@ -78,17 +78,19 @@ def create_room_booking_from_request(
     # Apply taxes using pricing service
     total, taxes = apply_taxes(subtotal_after_promo)
     
-    # Create RoomBooking instance
+    # Create RoomBooking instance with Phase 2 primary_* fields
     # Uses existing auto-generation logic for booking_id and confirmation_number
     booking = RoomBooking.objects.create(
         hotel=hotel,
         room_type=room_type,
         check_in=check_in,
         check_out=check_out,
-        guest_first_name=guest_data['first_name'],
-        guest_last_name=guest_data['last_name'],
-        guest_email=guest_data['email'],
-        guest_phone=guest_data['phone'],
+        # Phase 2: Use primary_* fields instead of guest_*
+        primary_first_name=guest_data['first_name'],
+        primary_last_name=guest_data['last_name'],
+        primary_email=guest_data['email'],
+        primary_phone=guest_data['phone'],
+        booker_type='SELF',  # Default to self-booking for public API
         adults=adults,
         children=children,
         total_amount=total,
@@ -97,5 +99,8 @@ def create_room_booking_from_request(
         special_requests=special_requests,
         promo_code=promo_code if promo_code else ''
     )
+    
+    # Phase 3: The PRIMARY BookingGuest will be auto-created by the save() method
+    # Additional party members can be added separately via staff API
     
     return booking

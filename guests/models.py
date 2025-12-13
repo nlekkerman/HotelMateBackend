@@ -44,6 +44,16 @@ class Guest(models.Model):
         help_text='For COMPANION guests, links to the primary guest who made the booking'
     )
     
+    # Phase 3: Link to booking party member for perfect idempotency
+    booking_guest = models.ForeignKey(
+        'hotel.BookingGuest',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='in_house_guest',
+        help_text='Links to the BookingGuest this in-house guest was created from (Phase 3 idempotency)'
+    )
+    
     def delete(self, *args, **kwargs):
         # Set room to unoccupied if this guest is assigned a room
         if self.room:

@@ -11,6 +11,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.db import transaction
 import logging
 
 logger = logging.getLogger(__name__)
@@ -37,6 +39,7 @@ from .models import (
     RoomBooking,
 )
 from rooms.models import RoomType, Room
+from guests.models import Guest
 from .serializers import (
     RoomTypeStaffSerializer,
     HotelAccessConfigStaffSerializer,
@@ -1022,8 +1025,8 @@ class StaffBookingsListView(APIView):
             except ValueError:
                 return Response({'error': 'Invalid end_date format'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from .serializers import RoomBookingListSerializer
-        serializer = RoomBookingListSerializer(bookings, many=True)
+        from .canonical_serializers import StaffRoomBookingListSerializer
+        serializer = StaffRoomBookingListSerializer(bookings, many=True)
         return Response(serializer.data)
 
 
@@ -1236,15 +1239,19 @@ class StaffBookingDetailView(APIView):
             return Response({'error': 'You can only view bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            booking = RoomBooking.objects.select_related('hotel', 'room_type').get(
+            booking = RoomBooking.objects.select_related(
+                'hotel', 'room_type', 'assigned_room__room_type'
+            ).prefetch_related(
+                'party', 'guests__room'
+            ).get(
                 booking_id=booking_id, 
                 hotel=staff.hotel
             )
         except RoomBooking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        from .serializers import RoomBookingDetailSerializer
-        serializer = RoomBookingDetailSerializer(booking)
+        from .canonical_serializers import StaffRoomBookingDetailSerializer
+        serializer = StaffRoomBookingDetailSerializer(booking)
         return Response(serializer.data)
 
 
@@ -1474,3 +1481,425 @@ class SectionCreateView(APIView):
             description="",
             style_variant=1
         )
+
+
+# ============================================================================
+# PHASE 2: BOOKING ASSIGNMENT ENDPOINTS
+# ============================================================================
+
+class BookingAssignmentView(APIView):
+    """
+    Staff endpoints for booking room assignment (check-in) and checkout.
+    
+    POST /api/staff/hotels/{slug}/bookings/{booking_id}/assign-room/
+    POST /api/staff/hotels/{slug}/bookings/{booking_id}/checkout/
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_hotel_and_booking(self, hotel_slug, booking_id):
+        """Helper to get hotel and booking with validation"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        booking = get_object_or_404(RoomBooking, hotel=hotel, booking_id=booking_id)
+        return hotel, booking
+
+    def post(self, request, hotel_slug, booking_id, action=None):
+        """Route to specific action"""
+        if action == 'assign-room':
+            return self.assign_room(request, hotel_slug, booking_id)
+        elif action == 'checkout':
+            return self.checkout_booking(request, hotel_slug, booking_id)
+        else:
+            return Response(
+                {"error": "Invalid action. Use 'assign-room' or 'checkout'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    def assign_room(self, request, hotel_slug, booking_id):
+        """
+        Assign room to booking (check-in process).
+        
+        POST /api/staff/hotels/{slug}/bookings/{booking_id}/assign-room/
+        Body: { "room_number": 203 }
+        """
+        try:
+            hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
+            
+            # Validate booking status
+            if booking.status != 'CONFIRMED':
+                return Response(
+                    {"error": f"Booking must be CONFIRMED to assign room. Current status: {booking.status}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate primary guest exists
+            if not booking.primary_first_name or not booking.primary_last_name:
+                return Response(
+                    {"error": "Booking must have primary guest name to check-in"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get room number from request
+            room_number = request.data.get('room_number')
+            if not room_number:
+                return Response(
+                    {"error": "room_number is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Find and validate room
+            try:
+                room = Room.objects.get(hotel=hotel, room_number=room_number)
+            except Room.DoesNotExist:
+                return Response(
+                    {"error": f"Room {room_number} not found in {hotel.name}"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Validate room state
+            if not room.is_active:
+                return Response(
+                    {"error": f"Room {room_number} is not active"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if room.is_out_of_order:
+                return Response(
+                    {"error": f"Room {room_number} is out of order"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if room.is_occupied:
+                return Response(
+                    {"error": f"Room {room_number} is already occupied"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Capacity validation
+            if room.room_type and hasattr(room.room_type, 'max_occupancy') and room.room_type.max_occupancy:
+                party_total_count = booking.party.count()
+                if party_total_count > room.room_type.max_occupancy:
+                    return Response(
+                        {
+                            "error": "capacity_exceeded",
+                            "message": f"Party size ({party_total_count}) exceeds room capacity ({room.room_type.max_occupancy})",
+                            "party_total_count": party_total_count,
+                            "max_occupancy": room.room_type.max_occupancy
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+            
+            # Perform assignment atomically
+            with transaction.atomic():
+                # Update booking
+                booking.assigned_room = room
+                if not booking.checked_in_at:
+                    booking.checked_in_at = timezone.now()
+                booking.save()
+                
+                # Get all booking party members
+                booking_guests = booking.party_members.all().select_related()
+                
+                # Convert all party members to in-house Guests
+                primary_guest = None
+                party_guest_objects = []
+                
+                for booking_guest in booking_guests:
+                    # Create/update Guest record idempotently using booking_guest FK
+                    guest, created = Guest.objects.get_or_create(
+                        booking_guest=booking_guest,
+                        defaults={
+                            'hotel': hotel,
+                            'first_name': booking_guest.first_name,
+                            'last_name': booking_guest.last_name,
+                            'room': room,
+                            'check_in_date': booking.check_in,
+                            'check_out_date': booking.check_out,
+                            'days_booked': (booking.check_out - booking.check_in).days,
+                            'guest_type': booking_guest.role,
+                            'primary_guest': None,  # Will be set after we find primary
+                            'booking': booking,
+                        }
+                    )
+                    
+                    if not created:
+                        # Update existing guest
+                        guest.hotel = hotel
+                        guest.first_name = booking_guest.first_name
+                        guest.last_name = booking_guest.last_name
+                        guest.room = room
+                        guest.check_in_date = booking.check_in
+                        guest.check_out_date = booking.check_out
+                        guest.days_booked = (booking.check_out - booking.check_in).days
+                        guest.guest_type = booking_guest.role
+                        guest.booking = booking
+                        guest.save()
+                    
+                    party_guest_objects.append(guest)
+                    
+                    # Track primary guest
+                    if booking_guest.role == 'PRIMARY':
+                        primary_guest = guest
+                
+                # Update companion references to point to primary guest
+                if primary_guest:
+                    for guest in party_guest_objects:
+                        if guest.guest_type == 'COMPANION':
+                            guest.primary_guest = primary_guest
+                            guest.save()
+                
+                # Update room occupancy
+                room.is_occupied = True
+                room.save()
+                
+                # Trigger realtime notifications
+                notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
+                notification_manager.realtime_room_occupancy_updated(room)
+            
+            # Return success response with canonical serializer
+            from .canonical_serializers import StaffRoomBookingDetailSerializer
+            
+            # Refresh booking with related data for serializer
+            booking.refresh_from_db()
+            
+            return Response({
+                "message": f"Successfully assigned room {room_number} to booking {booking_id}",
+                **StaffRoomBookingDetailSerializer(booking).data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error assigning room to booking {booking_id}: {str(e)}")
+            return Response(
+                {"error": "Internal server error during room assignment"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def checkout_booking(self, request, hotel_slug, booking_id):
+        """
+        Checkout booking (detach guests from room).
+        
+        POST /api/staff/hotels/{slug}/bookings/{booking_id}/checkout/
+        """
+        try:
+            hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
+            
+            # Validate booking has assigned room
+            if not booking.assigned_room:
+                return Response(
+                    {"error": "Booking has no assigned room to checkout from"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            room = booking.assigned_room
+            
+            # Perform checkout atomically
+            with transaction.atomic():
+                # Find guests linked to this booking and room
+                guests = Guest.objects.filter(
+                    booking=booking, 
+                    room=room
+                )
+                
+                # Detach guests from room (do NOT delete)
+                for guest in guests:
+                    guest.room = None
+                    guest.save()
+                
+                # Update booking
+                booking.checked_out_at = timezone.now()
+                booking.status = 'COMPLETED'
+                booking.save()
+                
+                # Update room
+                room.is_occupied = False
+                room.save()
+                
+                # Trigger realtime notifications
+                notification_manager.realtime_booking_checked_out(booking, room.room_number)
+                notification_manager.realtime_room_occupancy_updated(room)
+            
+            # Return success response with canonical serializer
+            from .canonical_serializers import StaffRoomBookingDetailSerializer
+            
+            # Refresh booking with related data for serializer
+            booking.refresh_from_db()
+            
+            return Response({
+                "message": f"Successfully checked out booking {booking_id} from room {room.room_number}",
+                "guests_detached": len(guests),
+                **StaffRoomBookingDetailSerializer(booking).data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error checking out booking {booking_id}: {str(e)}")
+            return Response(
+                {"error": "Internal server error during checkout"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+# ============================================================================
+# PHASE 3: BOOKING PARTY MANAGEMENT ENDPOINTS
+# ============================================================================
+
+class BookingPartyManagementView(APIView):
+    """
+    Staff endpoints for managing booking party lists.
+    
+    GET /api/staff/hotels/{slug}/bookings/{booking_id}/party/
+    PUT /api/staff/hotels/{slug}/bookings/{booking_id}/party/companions/
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_hotel_and_booking(self, hotel_slug, booking_id):
+        """Helper to get hotel and booking with validation"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        booking = get_object_or_404(RoomBooking, hotel=hotel, booking_id=booking_id)
+        return hotel, booking
+
+    def get(self, request, hotel_slug, booking_id):
+        """
+        Get booking party information.
+        
+        GET /api/staff/hotels/{slug}/bookings/{booking_id}/party/
+        
+        Returns:
+        {
+          "primary": {...},
+          "companions": [...]
+        }
+        """
+        try:
+            hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
+            
+            # Use canonical serializer for consistent output
+            from .canonical_serializers import BookingPartyGroupedSerializer
+            serializer = BookingPartyGroupedSerializer()
+            party_data = serializer.to_representation(booking)
+            
+            # Auto-heal if no PRIMARY exists
+            if not party_data['primary'] and booking.primary_first_name:
+                from hotel.services.booking_integrity import heal_booking_party
+                heal_booking_party(booking, notify=True)
+                # Re-serialize after healing
+                party_data = serializer.to_representation(booking)
+            
+            return Response({
+                'booking_id': booking.booking_id,
+                **party_data
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error retrieving party for booking {booking_id}: {str(e)}")
+            return Response(
+                {"error": "Internal server error retrieving party"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def put(self, request, hotel_slug, booking_id, action=None):
+        """Route to specific party action"""
+        if action == 'companions':
+            return self.update_companions(request, hotel_slug, booking_id)
+        else:
+            return Response(
+                {"error": "Invalid action. Use 'companions'"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    def update_companions(self, request, hotel_slug, booking_id):
+        """
+        Replace companions list (PRIMARY remains controlled by booking).
+        
+        PUT /api/staff/hotels/{slug}/bookings/{booking_id}/party/companions/
+        
+        Body:
+        {
+          "companions": [
+            {"id": 12, "first_name":"Jane","last_name":"Doe"},
+            {"first_name":"Kid","last_name":"Doe"}  // new companion
+          ]
+        }
+        """
+        try:
+            hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
+            
+            # Validate booking not checked in yet (optional restriction)
+            if booking.checked_in_at:
+                return Response(
+                    {"error": "Cannot modify party after check-in. Use guest management instead."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            companions_data = request.data.get('companions', [])
+            
+            with transaction.atomic():
+                from .models import BookingGuest
+                
+                # Get current companions (excluding PRIMARY)
+                current_companions = booking.party.filter(role='COMPANION')
+                current_companion_ids = set(current_companions.values_list('id', flat=True))
+                
+                # Process new companions list
+                updated_companion_ids = set()
+                
+                for companion_data in companions_data:
+                    first_name = companion_data.get('first_name', '').strip()
+                    last_name = companion_data.get('last_name', '').strip()
+                    
+                    if not first_name or not last_name:
+                        return Response(
+                            {"error": "All companions must have first_name and last_name"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    companion_id = companion_data.get('id')
+                    
+                    if companion_id:
+                        # Update existing companion
+                        try:
+                            companion = current_companions.get(id=companion_id)
+                            companion.first_name = first_name
+                            companion.last_name = last_name
+                            companion.email = companion_data.get('email', '')
+                            companion.phone = companion_data.get('phone', '')
+                            companion.save()
+                            updated_companion_ids.add(companion_id)
+                        except BookingGuest.DoesNotExist:
+                            return Response(
+                                {"error": f"Companion with id {companion_id} not found"},
+                                status=status.HTTP_404_NOT_FOUND
+                            )
+                    else:
+                        # Create new companion
+                        companion = BookingGuest.objects.create(
+                            booking=booking,
+                            role='COMPANION',
+                            first_name=first_name,
+                            last_name=last_name,
+                            email=companion_data.get('email', ''),
+                            phone=companion_data.get('phone', ''),
+                            is_staying=True
+                        )
+                        updated_companion_ids.add(companion.id)
+                
+                # Delete companions not in the updated list
+                companions_to_delete = current_companion_ids - updated_companion_ids
+                if companions_to_delete:
+                    BookingGuest.objects.filter(
+                        id__in=companions_to_delete,
+                        booking=booking,
+                        role='COMPANION'
+                    ).delete()
+                
+                # Trigger realtime notification
+                updated_party = booking.party_members.all()
+                notification_manager.realtime_booking_party_updated(booking, updated_party)
+            
+            # Return updated party
+            return self.get(request, hotel_slug, booking_id)
+            
+        except Exception as e:
+            logger.error(f"Error updating companions for booking {booking_id}: {str(e)}")
+            return Response(
+                {"error": "Internal server error updating companions"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

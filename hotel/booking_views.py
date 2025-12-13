@@ -186,6 +186,8 @@ class HotelBookingCreateView(APIView):
         guest_data = request.data.get('guest', {})
         special_requests = request.data.get('special_requests', '')
         promo_code = request.data.get('promo_code', '')
+        # Phase 3: Optional party list
+        party_data = request.data.get('party', [])
         
         # Validate required fields
         required_fields = [room_type_code, check_in_str, check_out_str]
@@ -243,6 +245,63 @@ class HotelBookingCreateView(APIView):
             special_requests=special_requests,
             promo_code=promo_code
         )
+        
+        # Phase 3: Handle optional party list
+        if party_data:
+            try:
+                from django.db import transaction
+                from .models import BookingGuest
+                
+                with transaction.atomic():
+                    # Validate party list
+                    primary_count = sum(1 for p in party_data if p.get('role') == 'PRIMARY')
+                    if primary_count != 1:
+                        return Response(
+                            {"detail": "Party must include exactly one PRIMARY guest"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Create party members
+                    for party_member in party_data:
+                        role = party_member.get('role', 'COMPANION')
+                        first_name = party_member.get('first_name', '').strip()
+                        last_name = party_member.get('last_name', '').strip()
+                        
+                        if not first_name or not last_name:
+                            return Response(
+                                {"detail": "All party members must have first_name and last_name"},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+                        
+                        # For PRIMARY, ensure it matches booking primary_* fields
+                        if role == 'PRIMARY':
+                            if (first_name != booking.primary_first_name or 
+                                last_name != booking.primary_last_name):
+                                # Auto-normalize: update booking to match party PRIMARY
+                                booking.primary_first_name = first_name
+                                booking.primary_last_name = last_name
+                                booking.primary_email = party_member.get('email', '')
+                                booking.primary_phone = party_member.get('phone', '')
+                                booking.save()
+                        
+                        # Create BookingGuest (PRIMARY will be updated by save() method)
+                        BookingGuest.objects.get_or_create(
+                            booking=booking,
+                            role=role,
+                            defaults={
+                                'first_name': first_name,
+                                'last_name': last_name,
+                                'email': party_member.get('email', ''),
+                                'phone': party_member.get('phone', ''),
+                                'is_staying': True,
+                            }
+                        )
+                        
+            except Exception as e:
+                return Response(
+                    {"detail": f"Failed to create party: {str(e)}"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
         
         # Calculate pricing breakdown for response (reuse service logic)
         from hotel.services.pricing import (

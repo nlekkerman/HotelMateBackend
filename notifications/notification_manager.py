@@ -749,16 +749,16 @@ class NotificationManager:
         payload = {
             'booking_id': booking.booking_id,
             'confirmation_number': getattr(booking, 'confirmation_number', None),
-            'guest_name': f"{booking.first_name} {booking.last_name}",
-            'guest_email': booking.email,
-            'guest_phone': getattr(booking, 'phone', ''),
-            'room': booking.room_number if hasattr(booking, 'room_number') else None,
-            'room_type': getattr(booking, 'room_type', None),
+            'primary_guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
+            'primary_email': booking.primary_email,
+            'primary_phone': getattr(booking, 'primary_phone', ''),
+            'booker_type': getattr(booking, 'booker_type', 'SELF'),
+            'room_type': str(booking.room_type) if booking.room_type else None,
             'check_in': booking.check_in.isoformat(),
             'check_out': booking.check_out.isoformat(),
             'nights': (booking.check_out - booking.check_in).days,
-            'total_price': float(getattr(booking, 'total_price', 0)),
-            'status': getattr(booking, 'status', 'pending'),
+            'total_amount': float(getattr(booking, 'total_amount', 0)),
+            'status': getattr(booking, 'status', 'PENDING_PAYMENT'),
             'created_at': booking.created_at.isoformat() if hasattr(booking, 'created_at') else timezone.now().isoformat(),
             'special_requests': getattr(booking, 'special_requests', ''),
             'adults': getattr(booking, 'adults', 1),
@@ -770,7 +770,7 @@ class NotificationManager:
             event_type="booking_created",
             payload=payload,
             hotel=booking.hotel,
-            scope={'booking_id': booking.booking_id, 'guest_email': booking.email}
+            scope={'booking_id': booking.booking_id, 'primary_email': booking.primary_email}
         )
         
         # Send to booking channel
@@ -789,11 +789,11 @@ class NotificationManager:
         payload = {
             'booking_id': booking.booking_id,
             'confirmation_number': getattr(booking, 'confirmation_number', None),
-            'guest_name': f"{booking.first_name} {booking.last_name}",
-            'room': booking.room_number if hasattr(booking, 'room_number') else None,
+            'primary_guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
+            'assigned_room_number': booking.assigned_room.room_number if booking.assigned_room else None,
             'check_in': booking.check_in.isoformat(),
             'check_out': booking.check_out.isoformat(),
-            'status': getattr(booking, 'status', 'confirmed'),
+            'status': getattr(booking, 'status', 'CONFIRMED'),
             'updated_at': timezone.now().isoformat()
         }
         
@@ -808,6 +808,42 @@ class NotificationManager:
         hotel_slug = booking.hotel.slug
         channel = f"{hotel_slug}.booking"
         return self._safe_pusher_trigger(channel, "booking_updated", event_data)
+    
+    def realtime_booking_party_updated(self, booking, party_members=None):
+        """
+        Emit normalized booking party updated event.
+        
+        Args:
+            booking: RoomBooking instance
+            party_members: Optional QuerySet or list of BookingGuest instances (deprecated - will fetch from booking)
+        """
+        self.logger.info(f"👥 Realtime booking party: {booking.booking_id} updated")
+        
+        # Use canonical serializer for consistent output
+        from hotel.canonical_serializers import BookingPartyGroupedSerializer
+        serializer = BookingPartyGroupedSerializer()
+        party_data = serializer.to_representation(booking)
+        
+        payload = {
+            'booking_id': booking.booking_id,
+            'confirmation_number': getattr(booking, 'confirmation_number', None),
+            'status': booking.status,
+            'assigned_room_number': booking.assigned_room.room_number if booking.assigned_room else None,
+            **party_data,
+            'updated_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="booking",
+            event_type="booking_party_updated", 
+            payload=payload,
+            hotel=booking.hotel,
+            scope={'booking_id': booking.booking_id}
+        )
+        
+        hotel_slug = booking.hotel.slug
+        channel = f"{hotel_slug}.booking"
+        return self._safe_pusher_trigger(channel, "booking_party_updated", event_data)
     
     def realtime_booking_cancelled(self, booking, reason=None):
         """Emit normalized booking cancelled event."""
@@ -906,6 +942,288 @@ class NotificationManager:
             
         if guest_fcm_token:
             send_booking_cancellation_notification(guest_fcm_token, booking, reason)
+
+    # -------------------------------------------------------------------------
+    # PHASE 2: NEW BOOKING REALTIME METHODS
+    # -------------------------------------------------------------------------
+
+    def realtime_booking_checked_in(self, booking, room=None, primary_guest=None, party_guests=None):
+        """
+        Emit normalized booking checked-in event.
+        
+        Args:
+            booking: RoomBooking instance
+            room: Room instance (deprecated - uses booking.assigned_room)
+            primary_guest: Guest instance (deprecated - fetched from booking)
+            party_guests: List of all Guest instances (deprecated - fetched from booking)
+        """
+        room_number = (room.room_number if room 
+                      else booking.assigned_room.room_number if booking.assigned_room 
+                      else None)
+        
+        self.logger.info(f"🏨 Realtime booking checked-in: {booking.booking_id} → Room {room_number}")
+        
+        # Use canonical serializer for complete booking data
+        from hotel.canonical_serializers import StaffRoomBookingDetailSerializer
+        serializer = StaffRoomBookingDetailSerializer()
+        booking_data = serializer.to_representation(booking)
+        
+        payload = {
+            'event': 'booking_checked_in',
+            'checked_in_at': booking.checked_in_at.isoformat() if booking.checked_in_at else timezone.now().isoformat(),
+            **booking_data
+        }
+        
+        event_data = self._create_normalized_event(
+            category="booking",
+            event_type="booking_checked_in",
+            payload=payload,
+            hotel=booking.hotel,
+            scope={'booking_id': booking.booking_id, 'room_number': room.room_number}
+        )
+        
+        # Send to booking channel
+        hotel_slug = booking.hotel.slug
+        channel = f"{hotel_slug}.booking"
+        
+        return self._safe_pusher_trigger(channel, "booking_checked_in", event_data)
+
+    def realtime_booking_checked_out(self, booking, room_number=None):
+        """
+        Emit normalized booking checked-out event.
+        
+        Args:
+            booking: RoomBooking instance
+            room_number: int - room number (deprecated - uses booking.assigned_room)
+        """
+        room_num = (room_number if room_number 
+                   else booking.assigned_room.room_number if booking.assigned_room 
+                   else None)
+        
+        self.logger.info(f"🏨 Realtime booking checked-out: {booking.booking_id} from Room {room_num}")
+        
+        # Use canonical serializer for complete booking data
+        from hotel.canonical_serializers import StaffRoomBookingDetailSerializer
+        serializer = StaffRoomBookingDetailSerializer()
+        booking_data = serializer.to_representation(booking)
+        
+        payload = {
+            'event': 'booking_checked_out',
+            'checked_out_at': booking.checked_out_at.isoformat() if booking.checked_out_at else timezone.now().isoformat(),
+            **booking_data
+        }
+        
+        event_data = self._create_normalized_event(
+            category="booking",
+            event_type="booking_checked_out", 
+            payload=payload,
+            hotel=booking.hotel,
+            scope={'booking_id': booking.booking_id, 'room_number': room_num}
+        )
+        
+        # Send to booking channel
+        hotel_slug = booking.hotel.slug
+        channel = f"{hotel_slug}.booking"
+        
+        return self._safe_pusher_trigger(channel, "booking_checked_out", event_data)
+
+    def realtime_room_occupancy_updated(self, room):
+        """
+        Emit normalized room occupancy updated event.
+        
+        Args:
+            room: Room instance
+        """
+        self.logger.info(f"🏨 Realtime room occupancy updated: Room {room.room_number} → {room.is_occupied}")
+        
+        # Get current booking for this room if any
+        current_booking = room.current_bookings.filter(
+            status__in=['checked_in', 'confirmed']
+        ).first()
+        
+        # Use canonical serializer if there's a booking
+        booking_data = None
+        if current_booking:
+            from hotel.canonical_serializers import StaffRoomBookingDetailSerializer
+            serializer = StaffRoomBookingDetailSerializer()
+            booking_data = serializer.to_representation(current_booking)
+        
+        # Get minimal guest info for compatibility
+        guests_data = []
+        for guest in room.guests_in_room.all():
+            guests_data.append({
+                'id': guest.id,
+                'first_name': guest.first_name,
+                'last_name': guest.last_name,
+                'guest_type': guest.guest_type,
+                'id_pin': guest.id_pin
+            })
+        
+        payload = {
+            'room_number': room.room_number,
+            'is_occupied': room.is_occupied,
+            'room_type': room.room_type.name if room.room_type else None,
+            'max_occupancy': room.room_type.max_occupancy if room.room_type else None,
+            'current_occupancy': room.guests_in_room.count(),
+            'guests_in_room': guests_data,
+            'current_booking': booking_data
+        }
+        
+        event_data = self._create_normalized_event(
+            category="guest_management",
+            event_type="room_occupancy_updated",
+            payload=payload,
+            hotel=room.hotel,
+            scope={'room_number': room.room_number}
+        )
+        
+        # Send to rooms channel
+        hotel_slug = room.hotel.slug
+        channel = f"{hotel_slug}.rooms"
+        
+        return self._safe_pusher_trigger(channel, "room_occupancy_updated", event_data)
+
+    # -------------------------------------------------------------------------
+    # PHASE 3.5: BOOKING INTEGRITY HEALING REALTIME METHODS
+    # -------------------------------------------------------------------------
+    
+    def realtime_booking_integrity_healed(self, hotel, healing_report):
+        """
+        Emit normalized booking integrity healed event.
+        Called when the auto-heal service fixes booking data issues.
+        
+        Args:
+            hotel: Hotel instance
+            healing_report: Dict with healing results from booking_integrity service
+        """
+        self.logger.info(f"🛡️ Realtime booking integrity healed: {hotel.slug} - {healing_report['bookings_processed']} bookings")
+        
+        payload = {
+            'hotel_slug': hotel.slug,
+            'hotel_name': hotel.name,
+            'summary': {
+                'bookings_processed': healing_report['bookings_processed'],
+                'total_fixes': sum(healing_report[k] for k in ['created', 'updated', 'deleted', 'demoted']),
+                'created': healing_report['created'],
+                'updated': healing_report['updated'],
+                'deleted': healing_report['deleted'],
+                'demoted': healing_report['demoted']
+            },
+            'healed_at': timezone.now().isoformat(),
+            'significant_changes': healing_report['created'] + healing_report['demoted'] > 0
+        }
+        
+        event_data = self._create_normalized_event(
+            category="booking",
+            event_type="integrity_healed",
+            payload=payload,
+            hotel=hotel,
+            scope={'healing_type': 'auto_heal', 'changes_count': payload['summary']['total_fixes']}
+        )
+        
+        # Send to hotel booking channel
+        channel = f"{hotel.slug}.booking"
+        return self._safe_pusher_trigger(channel, "booking_integrity_healed", event_data)
+    
+    def realtime_booking_party_healed(self, booking):
+        """
+        Emit normalized booking party healed event.
+        Called when party integrity issues are fixed for a specific booking.
+        
+        Args:
+            booking: RoomBooking instance that was healed
+        """
+        self.logger.info(f"👥 Realtime booking party healed: {booking.booking_id}")
+        
+        # Get current party state after healing
+        party_members = list(booking.party.all())
+        primary_guest = next((p for p in party_members if p.role == 'PRIMARY'), None)
+        companions = [p for p in party_members if p.role == 'COMPANION']
+        
+        payload = {
+            'booking_id': booking.booking_id,
+            'confirmation_number': getattr(booking, 'confirmation_number', None),
+            'party': {
+                'primary': {
+                    'id': primary_guest.id,
+                    'first_name': primary_guest.first_name,
+                    'last_name': primary_guest.last_name,
+                    'role': primary_guest.role
+                } if primary_guest else None,
+                'companions': [
+                    {
+                        'id': companion.id,
+                        'first_name': companion.first_name,
+                        'last_name': companion.last_name,
+                        'role': companion.role
+                    } for companion in companions
+                ],
+                'total_members': len(party_members)
+            },
+            'healed_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="booking",
+            event_type="party_healed",
+            payload=payload,
+            hotel=booking.hotel,
+            scope={'booking_id': booking.booking_id, 'party_size': len(party_members)}
+        )
+        
+        # Send to hotel booking channel
+        channel = f"{booking.hotel.slug}.booking"
+        return self._safe_pusher_trigger(channel, "booking_party_healed", event_data)
+    
+    def realtime_booking_guests_healed(self, booking, primary_guest):
+        """
+        Emit normalized booking in-house guests healed event.
+        Called when in-house guest integrity issues are fixed for a checked-in booking.
+        
+        Args:
+            booking: RoomBooking instance that was healed
+            primary_guest: Primary Guest instance after healing
+        """
+        self.logger.info(f"🏠 Realtime booking guests healed: {booking.booking_id} - Room {booking.assigned_room.room_number if booking.assigned_room else 'None'}")
+        
+        # Get current in-house guests after healing
+        inhouse_guests = list(booking.guests.all())
+        companions = [g for g in inhouse_guests if g.guest_type == 'COMPANION']
+        
+        payload = {
+            'booking_id': booking.booking_id,
+            'confirmation_number': getattr(booking, 'confirmation_number', None),
+            'room_number': booking.assigned_room.room_number if booking.assigned_room else None,
+            'primary_guest': {
+                'id': primary_guest.id,
+                'first_name': primary_guest.first_name,
+                'last_name': primary_guest.last_name,
+                'guest_type': primary_guest.guest_type,
+                'id_pin': primary_guest.id_pin
+            },
+            'companion_guests': [
+                {
+                    'id': companion.id,
+                    'first_name': companion.first_name,
+                    'last_name': companion.last_name,
+                    'guest_type': companion.guest_type
+                } for companion in companions
+            ],
+            'total_guests': len(inhouse_guests),
+            'healed_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="booking",
+            event_type="guests_healed",
+            payload=payload,
+            hotel=booking.hotel,
+            scope={'booking_id': booking.booking_id, 'room_number': payload['room_number']}
+        )
+        
+        # Send to hotel booking channel
+        channel = f"{booking.hotel.slug}.booking"
+        return self._safe_pusher_trigger(channel, "booking_guests_healed", event_data)
     
     # =============================================================================
     # EXISTING LEGACY ORDER NOTIFICATIONS (updated to use realtime methods)
