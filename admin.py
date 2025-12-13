@@ -30,7 +30,7 @@ class RoomAdmin(admin.ModelAdmin):
     list_filter = ('is_occupied',)
 
     def get_guests_count(self, obj):
-        return obj.guests.count()
+        return obj.guests_in_room.count()
     get_guests_count.short_description = 'Number of Guests'
 
     def room_service_qr_link(self, obj):

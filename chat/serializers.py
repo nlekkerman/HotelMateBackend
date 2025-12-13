@@ -104,7 +104,7 @@ class RoomMessageSerializer(serializers.ModelSerializer):
 
     def get_guest_name(self, obj):
         # Since only one guest per room, grab the first (if any)
-        guest = obj.room.guests.first()  # ManyToManyField
+        guest = obj.room.guests_in_room.first()  # Using single source of truth
         if guest:
             return f"{guest.first_name} {guest.last_name}".strip()
         return None
@@ -240,24 +240,24 @@ class ConversationSerializer(serializers.ModelSerializer):
     
     def get_guest_id(self, obj):
         """Get guest ID"""
-        guest = obj.room.guests.first()
+        guest = obj.room.guests_in_room.first()
         return guest.id if guest else None
     
     def get_guest_name(self, obj):
         """Get full guest name"""
-        guest = obj.room.guests.first()
+        guest = obj.room.guests_in_room.first()
         if guest:
             return f"{guest.first_name} {guest.last_name}".strip()
         return None
     
     def get_guest_first_name(self, obj):
         """Get guest first name"""
-        guest = obj.room.guests.first()
+        guest = obj.room.guests_in_room.first()
         return guest.first_name if guest else None
     
     def get_guest_last_name(self, obj):
         """Get guest last name"""
-        guest = obj.room.guests.first()
+        guest = obj.room.guests_in_room.first()
         return guest.last_name if guest else None
     
     # CamelCase method implementations

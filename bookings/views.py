@@ -139,7 +139,7 @@ class GuestDinnerBookingView(APIView):
         })
 
         # --- Inject guest if exists ---
-        guest = room.guests.first()
+        guest = room.guests_in_room.first()
         if guest:
             data["guest"] = guest.id
 

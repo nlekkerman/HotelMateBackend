@@ -261,8 +261,8 @@ class Command(BaseCommand):
 
                 # Create or get guest
                 guest = None
-                if room.guests.exists():
-                    guest = room.guests.first()
+                if room.guests_in_room.exists():
+                    guest = room.guests_in_room.first()
                 else:
                     # Create temporary guest
                     first_name = random.choice(first_names)

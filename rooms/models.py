@@ -11,7 +11,6 @@ class Room(models.Model):
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE)
     room_number = models.IntegerField()
     guest_id_pin = models.CharField(max_length=4, unique=True, null=True, blank=True)
-    guests = models.ManyToManyField('guests.Guest', related_name='rooms', blank=True)
     is_occupied = models.BooleanField(default=False)
 
     room_service_qr_code = models.URLField(blank=True, null=True)

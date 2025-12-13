@@ -153,7 +153,7 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         # Auto-assign guest from room
         room = validated_data.get("room")
         if "guest" not in validated_data and room:
-            validated_data["guest"] = room.guests.first()
+            validated_data["guest"] = room.guests_in_room.first()
 
         booking = Booking.objects.create(**validated_data)
         Seats.objects.create(booking=booking, **seats_data)

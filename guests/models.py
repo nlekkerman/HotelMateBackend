@@ -3,6 +3,7 @@ from django.utils import timezone
 from django.core.exceptions import ValidationError
 
 class Guest(models.Model):
+    # Core guest information
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, null=True, blank=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
@@ -11,6 +12,37 @@ class Guest(models.Model):
     check_in_date = models.DateField(null=True, blank=True)  # The date the guest checked in
     check_out_date = models.DateField(null=True, blank=True)  # The date the guest checked out
     id_pin = models.CharField(max_length=4, unique=True, null=True, blank=True)  # Unique PIN for the guest
+    
+    # Phase 1: Booking connection fields
+    booking = models.ForeignKey(
+        'hotel.RoomBooking',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='guests',
+        help_text='Links guest to their original booking (if applicable)'
+    )
+    
+    GUEST_TYPE_CHOICES = [
+        ('PRIMARY', 'Primary Guest'),
+        ('COMPANION', 'Companion Guest'),
+        ('WALKIN', 'Walk-in / Manual'),
+    ]
+    guest_type = models.CharField(
+        max_length=20,
+        choices=GUEST_TYPE_CHOICES,
+        default='WALKIN',
+        help_text='Type of guest: PRIMARY (booking holder), COMPANION (linked to primary), WALKIN (staff-created)'
+    )
+    
+    primary_guest = models.ForeignKey(
+        'self',
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='companions',
+        help_text='For COMPANION guests, links to the primary guest who made the booking'
+    )
     
     def delete(self, *args, **kwargs):
         # Set room to unoccupied if this guest is assigned a room

@@ -108,8 +108,7 @@ class AddGuestToRoomView(APIView):
 
         serializer = GuestSerializer(data=guest_data)
         if serializer.is_valid():
-            guest = serializer.save()
-            room.guests.add(guest)
+            guest = serializer.save(room=room)  # Set room directly on guest
             room.is_occupied = True
             room.save()
             return Response(GuestSerializer(guest).data, status=status.HTTP_201_CREATED)
@@ -151,9 +150,6 @@ def checkout_rooms(request, hotel_slug):
 
     with transaction.atomic():
         for room in rooms:
-            # Remove M2M links
-            room.guests.clear()
-
             # Delete all Guest objects linked to this room
             Guest.objects.filter(room=room).delete()
 

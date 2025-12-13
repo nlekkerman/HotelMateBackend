@@ -26,7 +26,7 @@ class GuestSerializer(serializers.ModelSerializer):
             'id',
             'first_name',
             'last_name',
-            'full_name',  # 👈 Include this
+            'full_name',
             'id_pin',
             'check_in_date',
             'check_out_date',
@@ -34,9 +34,13 @@ class GuestSerializer(serializers.ModelSerializer):
             'hotel', 'hotel_slug', 'hotel_name',
             'room', 'room_number', 'room_label',
             'in_house',
+            # Phase 1: Booking connection fields
+            'booking',
+            'guest_type',
+            'primary_guest',
         ]
         read_only_fields = [
             'hotel_slug', 'hotel_name',
             'room_number', 'room_label',
-            'in_house', 'full_name'  # 👈 Mark as read-only
+            'in_house', 'full_name'
         ]

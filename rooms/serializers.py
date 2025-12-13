@@ -6,7 +6,6 @@ from guests.serializers import GuestSerializer
 
 class RoomSerializer(serializers.ModelSerializer):
     guests_in_room = GuestSerializer(many=True, read_only=True)
-    # or use a nested serializer if you want details
     hotel = serializers.PrimaryKeyRelatedField(
         queryset=Hotel.objects.all()
     )
@@ -16,6 +15,23 @@ class RoomSerializer(serializers.ModelSerializer):
         slug_field='slug'
     )
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
+    
+    # Phase 1: Grouped guest output
+    primary_guest = serializers.SerializerMethodField()
+    companions = serializers.SerializerMethodField()
+    walkins = serializers.SerializerMethodField()
+
+    def get_primary_guest(self, obj):
+        primary = obj.guests_in_room.filter(guest_type='PRIMARY').first()
+        return GuestSerializer(primary).data if primary else None
+    
+    def get_companions(self, obj):
+        companions = obj.guests_in_room.filter(guest_type='COMPANION')
+        return GuestSerializer(companions, many=True).data
+    
+    def get_walkins(self, obj):
+        walkins = obj.guests_in_room.filter(guest_type='WALKIN')
+        return GuestSerializer(walkins, many=True).data
 
     class Meta:
         model = Room
@@ -25,9 +41,11 @@ class RoomSerializer(serializers.ModelSerializer):
             'hotel_name',
             'room_number',
             'hotel_slug',
-            'guests_in_room',
+            'guests_in_room',  # Keep for backward compatibility temporarily
+            'primary_guest',   # Phase 1: Grouped output
+            'companions',      # Phase 1: Grouped output  
+            'walkins',         # Phase 1: Grouped output
             'guest_id_pin',
-            'guests',
             'is_occupied',
             'room_service_qr_code',
             'in_room_breakfast_qr_code',
