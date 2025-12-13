@@ -160,7 +160,6 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     """
     nights = serializers.SerializerMethodField()
     assigned_room_number = serializers.SerializerMethodField()
-    booker_type = serializers.CharField(source='booker_type')
     booker_summary = serializers.SerializerMethodField()
     primary_guest_name = serializers.SerializerMethodField()
     party_total_count = serializers.SerializerMethodField()

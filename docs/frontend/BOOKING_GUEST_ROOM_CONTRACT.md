@@ -113,7 +113,7 @@ RoomBooking.primary_phone
 | Property | Value |
 |----------|-------|
 | **Method** | `GET` |
-| **Path** | `/api/staff/hotels/{hotel_slug}/hotel/bookings/` |
+| **Path** | `/api/staff/hotel/{hotel_slug}/bookings/` |
 | **Query Params** | `status`, `start_date`, `end_date` (all optional) |
 | **Success** | `200 OK` |
 | **Response** | Array of `StaffRoomBookingListSerializer` objects |
@@ -123,12 +123,10 @@ RoomBooking.primary_phone
 | Property | Value |
 |----------|-------|
 | **Method** | `GET` |
-| **Path** | `/api/staff/hotels/{hotel_slug}/hotel/bookings/{booking_id}/detail/` |
+| **Path** | `/api/staff/hotel/{hotel_slug}/bookings/{booking_id}/` |
 | **Success** | `200 OK` |
 | **Error** | `404 Not Found` if booking doesn't exist |
 | **Response** | `StaffRoomBookingDetailSerializer` object |
-
-**REQUIRES CONFIRMATION:** Verify exact URL path for booking detail endpoint.
 
 ### 3.3 Party List
 
@@ -179,7 +177,7 @@ RoomBooking.primary_phone
 | Property | Value |
 |----------|-------|
 | **Method** | `GET` |
-| **Path** | `/api/staff/hotels/{hotel_slug}/hotel/staff/rooms/` |
+| **Path** | `/api/staff/hotel/{hotel_slug}/rooms/` |
 | **Success** | `200 OK` |
 | **Response** | Paginated list of rooms with occupancy state |
 
@@ -212,169 +210,129 @@ For capacity errors specifically:
 
 ### 4.1 StaffRoomBookingListSerializer
 
-Minimal data for list views.
+Minimal data for list views. **Real Django serializer output:**
 
-```typescript
-interface BookingListItem {
-  booking_id: string;            // "BK-2025-0001"
-  confirmation_number: string;   // "KIL-2025-0001"
-  status: BookingStatus;
-  check_in: string;              // ISO date "2025-01-15"
-  check_out: string;             // ISO date "2025-01-18"
-  nights: number;                // Computed: check_out - check_in
-  assigned_room_number: number | null;
-  booker_type: BookerType;
-  booker_summary: string;        // Human readable: "John Doe" or "Company Name"
-  primary_guest_name: string;    // "Jane Doe"
-  party_total_count: number;     // Count of BookingGuest records
-  created_at: string;            // ISO datetime
-  updated_at: string;            // ISO datetime
+```json
+{
+  "booking_id": "BK-2025-0005",
+  "confirmation_number": "HOT-2025-0005",
+  "status": "PENDING_PAYMENT",
+  "check_in": "2025-12-01",
+  "check_out": "2025-12-07",
+  "nights": 6,
+  "assigned_room_number": null,
+  "booker_type": "SELF",
+  "booker_summary": "Self",
+  "primary_guest_name": "Nikola Simic",
+  "party_total_count": 1,
+  "created_at": "2025-12-01T11:29:35.934635Z",
+  "updated_at": "2025-12-13T13:26:16.793982Z"
 }
-
-type BookingStatus = 'PENDING_PAYMENT' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW';
-type BookerType = 'SELF' | 'THIRD_PARTY' | 'COMPANY';
 ```
+
+**Field Types:**
+- `booking_id`, `confirmation_number`, `status`, `booker_type`, `booker_summary`, `primary_guest_name`: string
+- `check_in`, `check_out`: ISO date string
+- `nights`, `party_total_count`: number
+- `assigned_room_number`: number | null
+- `created_at`, `updated_at`: ISO datetime string
 
 ### 4.2 StaffRoomBookingDetailSerializer
 
-Full data for detail views. All fields are **read-only**.
+Full data for detail views. All fields are **read-only**. **Real Django serializer output:**
 
-```typescript
-interface BookingDetail {
-  // Identifiers
-  booking_id: string;
-  confirmation_number: string;
-  
-  // Status & Dates
-  status: BookingStatus;
-  check_in: string;              // ISO date
-  check_out: string;             // ISO date
-  nights: number;
-  
-  // Occupancy
-  adults: number;
-  children: number;
-  
-  // Pricing
-  total_amount: string;          // Decimal as string "199.99"
-  currency: string;              // "EUR"
-  
-  // Optional booking info
-  special_requests: string;
-  promo_code: string;
-  payment_reference: string;
-  payment_provider: string;
-  paid_at: string | null;        // ISO datetime
-  
-  // Check-in/out timestamps
-  checked_in_at: string | null;  // ISO datetime
-  checked_out_at: string | null; // ISO datetime
-  
-  // Audit
-  created_at: string;
-  updated_at: string;
-  internal_notes: string;
-  
-  // Nested objects (see below)
-  booker: BookerInfo;
-  primary_guest: PrimaryGuestInfo;
-  party: PartyGrouped;
-  in_house: InHouseGuestsGrouped;
-  room: RoomSummary | null;
-  flags: ActionFlags;
-}
-
-interface BookerInfo {
-  type: BookerType;
-  first_name: string;            // May be empty
-  last_name: string;             // May be empty
-  company: string;               // May be empty
-  email: string;                 // May be empty
-  phone: string;                 // May be empty
-}
-
-interface PrimaryGuestInfo {
-  first_name: string;            // Required
-  last_name: string;             // Required
-  email: string;                 // May be empty
-  phone: string;                 // May be empty
-}
-```
-
-### 4.3 BookingPartyGroupedSerializer (party field)
-
-```typescript
-interface PartyGrouped {
-  primary: BookingPartyGuest | null;
-  companions: BookingPartyGuest[];
-  total_count: number;
-}
-
-interface BookingPartyGuest {
-  id: number;
-  role: 'PRIMARY' | 'COMPANION';
-  first_name: string;
-  last_name: string;
-  full_name: string;             // Computed: "First Last"
-  email: string;
-  phone: string;
-  is_staying: boolean;           // Always true for party members
-  created_at: string;            // ISO datetime
+```json
+{
+  "booking_id": "BK-2025-0005",
+  "confirmation_number": "HOT-2025-0005",
+  "status": "PENDING_PAYMENT",
+  "check_in": "2025-12-01",
+  "check_out": "2025-12-07",
+  "nights": 6,
+  "adults": 2,
+  "children": 0,
+  "total_amount": "850.20",
+  "currency": "EUR",
+  "special_requests": "",
+  "promo_code": "",
+  "payment_reference": "",
+  "payment_provider": "",
+  "paid_at": null,
+  "checked_in_at": null,
+  "checked_out_at": null,
+  "created_at": "2025-12-01T11:29:35.934635Z",
+  "updated_at": "2025-12-13T13:26:16.793982Z",
+  "internal_notes": "",
+  "booker": {
+    "type": "SELF",
+    "first_name": "",
+    "last_name": "",
+    "company": "",
+    "email": "",
+    "phone": ""
+  },
+  "primary_guest": {
+    "first_name": "Nikola",
+    "last_name": "Simic",
+    "email": "nlekkerman@gmail.com",
+    "phone": "0830945102"
+  },
+  "party": {
+    "primary": {
+      "id": 1,
+      "role": "PRIMARY",
+      "first_name": "Nikola",
+      "last_name": "Simic",
+      "full_name": "Nikola Simic",
+      "email": "nlekkerman@gmail.com",
+      "phone": "0830945102",
+      "is_staying": true,
+      "created_at": "2025-12-13T13:58:39.259842Z"
+    },
+    "companions": [],
+    "total_count": 1
+  },
+  "in_house": {
+    "primary": null,
+    "companions": [],
+    "walkins": [],
+    "total_count": 0
+  },
+  "room": null,
+  "flags": {
+    "is_checked_in": false,
+    "can_check_in": false,
+    "can_check_out": false,
+    "can_edit_party": true
+  }
 }
 ```
-
-### 4.4 InHouseGuestsGroupedSerializer (in_house field)
-
-Only populated after check-in.
-
-```typescript
-interface InHouseGuestsGrouped {
-  primary: InHouseGuest | null;
-  companions: InHouseGuest[];
-  walkins: InHouseGuest[];       // Manual additions by staff
-  total_count: number;
-}
-
-interface InHouseGuest {
-  id: number;
-  first_name: string;
-  last_name: string;
-  full_name: string;
-  guest_type: 'PRIMARY' | 'COMPANION' | 'WALKIN';
-  id_pin: string | null;
-  room_number: number | null;
-  check_in_date: string;         // ISO date
-  check_out_date: string;        // ISO date
-}
 ```
 
-### 4.5 RoomSummary (room field)
+### 4.3 Field Structure Notes
 
-Only populated after room assignment.
+The detail serializer includes nested objects as shown in the real output above:
 
-```typescript
-interface RoomSummary {
-  room_number: number;
-  is_occupied: boolean;
-  is_active: boolean;
-  is_out_of_order: boolean;
-  room_type_id: number | null;
-  room_type_name: string | null;
-}
-```
+**party object structure** (from BookingPartyGroupedSerializer):
+- `primary`: Single PRIMARY party member object or null
+- `companions`: Array of COMPANION party member objects  
+- `total_count`: Total number of party members
 
-### 4.6 ActionFlags (flags field)
+**in_house object structure** (from InHouseGuestsGroupedSerializer):
+- `primary`: Primary in-house guest object or null (only after check-in)
+- `companions`: Array of companion in-house guests
+- `walkins`: Array of walk-in guests (manual additions by staff)
+- `total_count`: Total in-house guests
 
-Computed booleans for UI state management.
+**room object structure** (from RoomSummary):
+- Only populated after room assignment
+- Contains: `room_number`, `is_occupied`, `is_active`, `is_out_of_order`, `room_type_id`, `room_type_name`
 
-```typescript
-interface ActionFlags {
-  is_checked_in: boolean;        // Has room + checked_in_at, no checked_out_at
-  can_check_in: boolean;         // CONFIRMED status, not checked in, not checked out
-  can_check_out: boolean;        // Is checked in, not checked out
-  can_edit_party: boolean;       // Not CANCELLED/COMPLETED, not checked out
-}
-```
+**flags object structure** (computed booleans):
+- `is_checked_in`: Has assigned room + checked_in_at timestamp, no checked_out_at
+- `can_check_in`: Status is CONFIRMED, not checked in, not checked out
+- `can_check_out`: Is checked in, not checked out  
+- `can_edit_party`: Status not CANCELLED/COMPLETED, not checked out
 
 ---
 
@@ -419,7 +377,7 @@ interface ActionFlags {
 
 ### 5.4 UI Must Disable/Enable Based on flags
 
-```typescript
+```javascript
 // Button states derived from flags
 const canShowCheckInButton = flags.can_check_in;
 const canShowCheckOutButton = flags.can_check_out;
@@ -500,21 +458,24 @@ The `booking_integrity` service runs guardrails that may auto-fix:
 
 ALL events use this structure:
 
-```typescript
-interface RealtimeEvent<T = any> {
-  category: 'booking' | 'guest_management' | 'attendance' | 'staff_chat' | 'guest_chat' | 'room_service';
-  type: string;                  // Event type constant
-  payload: T;                    // Domain-specific data
+```javascript
+// RealtimeEvent object structure
+{
+  category: 'booking', // or 'guest_management', 'attendance', 'staff_chat', 'guest_chat', 'room_service'
+  type: 'string',      // Event type constant
+  payload: {},         // Domain-specific data
   meta: {
-    hotel_slug: string;
-    event_id: string;            // UUID for deduplication
-    ts: string;                  // ISO timestamp
-    scope: Record<string, any>;  // Targeting info
-  };
+    hotel_slug: 'string',
+    event_id: 'string',    // UUID for deduplication
+    ts: 'string',          // ISO timestamp
+    scope: {}              // Targeting info
+  }
 }
 ```
 
 ### 7.3 Booking Channel Events
+
+**Verified event types from NotificationManager:**
 
 | Event Type | Channel | When Emitted | Minimal Payload Fields |
 |------------|---------|--------------|------------------------|
@@ -529,6 +490,8 @@ interface RealtimeEvent<T = any> {
 | `booking_integrity_healed` | `{slug}.booking` | Batch integrity run | bookings_processed, changes summary |
 
 ### 7.4 Rooms Channel Events
+
+**Verified event types from NotificationManager:**
 
 | Event Type | Channel | When Emitted | Minimal Payload Fields |
 |------------|---------|--------------|------------------------|
@@ -602,10 +565,10 @@ interface RealtimeEvent<T = any> {
 
 Use `meta.event_id` (UUID) to deduplicate:
 
-```typescript
-const processedEventIds = new Set<string>();
+```javascript
+const processedEventIds = new Set();
 
-function handleEvent(event: RealtimeEvent) {
+function handleEvent(event) {
   if (processedEventIds.has(event.meta.event_id)) {
     return; // Already processed
   }
@@ -660,8 +623,7 @@ function handleEvent(event: RealtimeEvent) {
 
 | Item | Question | Impact |
 |------|----------|--------|
-| **Booking Detail URL** | Is the exact path `/api/staff/hotels/{slug}/hotel/bookings/{booking_id}/detail/` or different? | Frontend routing |
-| **Party Endpoint Base** | Confirm if party endpoints are under `/api/hotel/staff/` or `/api/staff/hotels/` | URL configuration |
+
 | **Rooms List for Selection** | What endpoint should frontend use to get available rooms for check-in selection? | Check-in flow UI |
 | **Room Availability Filter** | Should room list endpoint support filtering by `is_occupied=false`? | Room selection UX |
 | **NO_SHOW Status** | Is there a staff action to mark booking as NO_SHOW? What endpoint? | State machine completeness |
@@ -675,51 +637,47 @@ function handleEvent(event: RealtimeEvent) {
 
 ### Endpoint Cheat Sheet
 
+**Factual Django URLs from staff_urls.py and hotel/urls.py:**
+
 ```
-# Bookings
-GET  /api/staff/hotels/{slug}/hotel/bookings/                    → List
-GET  /api/staff/hotels/{slug}/hotel/bookings/{id}/detail/        → Detail
-POST /api/staff/hotels/{slug}/hotel/bookings/{id}/confirm/       → Confirm
+# Bookings (from staff_urls.py)
+GET  /api/staff/hotel/{slug}/bookings/                          → List
+GET  /api/staff/hotel/{slug}/bookings/{id}/                     → Detail
+POST /api/staff/hotel/{slug}/bookings/{id}/confirm/             → Confirm
 
-# Party
-GET  /api/hotel/staff/{slug}/bookings/{id}/party/                → Get party
-PUT  /api/hotel/staff/{slug}/bookings/{id}/party/companions/     → Update companions
+# Party (from hotel/urls.py)
+GET  /api/hotel/staff/{slug}/bookings/{id}/party/               → Get party
+PUT  /api/hotel/staff/{slug}/bookings/{id}/party/companions/    → Update companions
 
-# Check-in/out
-POST /api/hotel/staff/{slug}/bookings/{id}/assign-room/          → Check-in
-POST /api/hotel/staff/{slug}/bookings/{id}/checkout/             → Check-out
+# Check-in/out (from hotel/urls.py)
+POST /api/hotel/staff/{slug}/bookings/{id}/assign-room/         → Check-in
+POST /api/hotel/staff/{slug}/bookings/{id}/checkout/            → Check-out
+
+# Rooms (from staff_hotel_router)
+GET  /api/staff/hotel/{slug}/rooms/                             → List rooms
 ```
 
 ### Pusher Channel Pattern
 
-```typescript
+```javascript
 const bookingChannel = `${hotelSlug}.booking`;
 const roomsChannel = `${hotelSlug}.rooms`;
 ```
 
 ### Status Values
 
-```typescript
-type BookingStatus = 
-  | 'PENDING_PAYMENT'
-  | 'CONFIRMED'
-  | 'CANCELLED'
-  | 'COMPLETED'
-  | 'NO_SHOW';
+```javascript
+// BookingStatus possible values:
+// 'PENDING_PAYMENT', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW'
 
-type BookerType = 
-  | 'SELF'
-  | 'THIRD_PARTY'
-  | 'COMPANY';
+// BookerType possible values:
+// 'SELF', 'THIRD_PARTY', 'COMPANY'
 
-type BookingGuestRole = 
-  | 'PRIMARY'
-  | 'COMPANION';
+// BookingGuestRole possible values:
+// 'PRIMARY', 'COMPANION'
 
-type GuestType = 
-  | 'PRIMARY'
-  | 'COMPANION'
-  | 'WALKIN';
+// GuestType possible values:
+// 'PRIMARY', 'COMPANION', 'WALKIN'
 ```
 
 ---
