@@ -1,3 +1,4 @@
+
 #!/bin/bash
 # Heroku Scheduler Auto Clock-Out Setup Script
 
