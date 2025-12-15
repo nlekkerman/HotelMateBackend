@@ -14,6 +14,13 @@ from hotel.booking_views import (
     HotelPricingQuoteView,
     HotelBookingCreateView,
 )
+from hotel.payment_views import (
+    CreatePaymentSessionView,
+    VerifyPaymentView,
+    StripeWebhookView,
+)
+
+app_name = "public"
 
 urlpatterns = [
     # Presets for frontend styling (no auth required)
@@ -39,25 +46,49 @@ urlpatterns = [
     
     # Individual hotel public page structure
     path(
-        "hotel/<slug:slug>/page/",
+        "hotel/<str:hotel_slug>/page/",
         HotelPublicPageView.as_view(),
         name="public-hotel-page"
     ),
+    
     # Public booking endpoints (availability, pricing, booking)
-    # These mirror the hotel endpoints but are exposed under the public namespace
     path(
-        "hotel/<slug:slug>/availability/",
+        "hotel/<str:hotel_slug>/availability/",
         HotelAvailabilityView.as_view(),
         name="public-hotel-availability",
     ),
     path(
-        "hotel/<slug:slug>/pricing/quote/",
+        "hotel/<str:hotel_slug>/pricing/quote/",
         HotelPricingQuoteView.as_view(),
         name="public-hotel-pricing-quote",
     ),
     path(
-        "hotel/<slug:slug>/bookings/",
+        "hotel/<str:hotel_slug>/bookings/",
         HotelBookingCreateView.as_view(),
         name="public-hotel-booking-create",
+    ),
+    
+    # Payment endpoints
+    path(
+        "hotel/<str:hotel_slug>/room-bookings/<str:booking_id>/payment/",
+        CreatePaymentSessionView.as_view(),
+        name="public-hotel-booking-payment"
+    ),
+    path(
+        "hotel/<str:hotel_slug>/room-bookings/<str:booking_id>/payment/session/",
+        CreatePaymentSessionView.as_view(),
+        name="public-hotel-booking-payment-session"
+    ),
+    path(
+        "hotel/<str:hotel_slug>/room-bookings/<str:booking_id>/payment/verify/",
+        VerifyPaymentView.as_view(),
+        name="public-hotel-booking-payment-verify"
+    ),
+    
+    # Stripe webhook (no hotel slug needed)
+    path(
+        "hotel/room-bookings/stripe-webhook/",
+        StripeWebhookView.as_view(),
+        name="public-stripe-webhook"
     ),
 ]

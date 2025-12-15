@@ -137,19 +137,6 @@ staff_router.register(
 )
 
 urlpatterns = [
-    # Staff bookings endpoints
-    # Accessed via: /api/staff/hotels/<slug>/hotel/bookings/
-    path(
-        "bookings/",
-        StaffBookingsListView.as_view(),
-        name="hotel-staff-bookings-list"
-    ),
-    path(
-        "bookings/<str:booking_id>/confirm/",
-        StaffBookingConfirmView.as_view(),
-        name="hotel-staff-booking-confirm"
-    ),
-    
     # Staff CRUD endpoints (B5)
     # Accessed via: /api/staff/hotels/<slug>/hotel/offers/, etc.
     path(
@@ -180,83 +167,7 @@ urlpatterns = [
         name="section-create"
     ),
     
-    # Availability check endpoint
-    path(
-        "<slug:slug>/availability/",
-        HotelAvailabilityView.as_view(),
-        name="hotel-availability"
-    ),
-    
-    # Pricing quote endpoint
-    path(
-        "<slug:slug>/pricing/quote/",
-        HotelPricingQuoteView.as_view(),
-        name="hotel-pricing-quote"
-    ),
-    
-    # Booking creation endpoint
-    path(
-        "<slug:slug>/bookings/",
-        HotelBookingCreateView.as_view(),
-        name="hotel-booking-create"
-    ),
-    
-    # Payment endpoints - MUST include hotel slug
-    path(
-        "<slug:slug>/bookings/<str:booking_id>/payment/",
-        CreatePaymentSessionView.as_view(),
-        name="hotel-booking-payment"
-    ),
-    path(
-        "<slug:slug>/bookings/<str:booking_id>/payment/session/",
-        CreatePaymentSessionView.as_view(),
-        name="hotel-booking-payment-session"
-    ),
-    path(
-        "<slug:slug>/bookings/<str:booking_id>/payment/verify/",
-        VerifyPaymentView.as_view(),
-        name="hotel-booking-payment-verify"
-    ),
-    path(
-        "bookings/stripe-webhook/",
-        StripeWebhookView.as_view(),
-        name="stripe-webhook"
-    ),
-    
-    # Legacy public page route (for backward compatibility)
-    # This supports the old frontend URL pattern: /api/hotel/public/page/{slug}/
-    path(
-        "public/page/<slug:slug>/",
-        HotelPublicPageView.as_view(),
-        name="hotel-legacy-public-page"
-    ),
-    
-    # Phase 2: Staff booking assignment endpoints
-    path(
-        "staff/<slug:slug>/bookings/<str:booking_id>/assign-room/",
-        BookingAssignmentView.as_view(),
-        {"action": "assign-room"},
-        name="staff-booking-assign-room"
-    ),
-    path(
-        "staff/<slug:slug>/bookings/<str:booking_id>/checkout/",
-        BookingAssignmentView.as_view(),
-        {"action": "checkout"}, 
-        name="staff-booking-checkout"
-    ),
-    
-    # Phase 3: Staff booking party management endpoints
-    path(
-        "staff/<slug:slug>/bookings/<str:booking_id>/party/",
-        BookingPartyManagementView.as_view(),
-        name="staff-booking-party-list"
-    ),
-    path(
-        "staff/<slug:slug>/bookings/<str:booking_id>/party/companions/",
-        BookingPartyManagementView.as_view(),
-        {"action": "companions"},
-        name="staff-booking-party-companions"
-    ),
+
     
     # Internal/admin endpoints
     path("", include(router.urls)),

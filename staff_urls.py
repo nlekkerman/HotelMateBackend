@@ -12,10 +12,6 @@ from rest_framework.routers import DefaultRouter
 from hotel.staff_views import (
     # Management views
     HotelSettingsView,
-    StaffBookingsListView,
-    StaffBookingConfirmView,
-    StaffBookingCancelView,
-    StaffBookingDetailView,
     PublicPageBuilderView,
     PublicPageBootstrapView,
     HotelStatusCheckView,
@@ -47,7 +43,6 @@ from room_services.staff_views import (
 # Note: 'hotel' removed to avoid double nesting (using direct routes above)
 STAFF_APPS = [
     'attendance',
-    'bookings',
     'chat',
     'common',
     'entertainment',
@@ -150,26 +145,10 @@ urlpatterns = [
         name='staff-profile-me'
     ),
     
-    # Bookings management
+    # Room bookings management - Phase 2 routing
     path(
-        'hotel/<str:hotel_slug>/bookings/',
-        StaffBookingsListView.as_view(),
-        name='staff-hotel-bookings'
-    ),
-    path(
-        'hotel/<str:hotel_slug>/bookings/<str:booking_id>/confirm/',
-        StaffBookingConfirmView.as_view(),
-        name='staff-hotel-booking-confirm'
-    ),
-    path(
-        'hotel/<str:hotel_slug>/bookings/<str:booking_id>/cancel/',
-        StaffBookingCancelView.as_view(),
-        name='staff-hotel-booking-cancel'
-    ),
-    path(
-        'hotel/<str:hotel_slug>/bookings/<str:booking_id>/',
-        StaffBookingDetailView.as_view(),
-        name='staff-hotel-booking-detail'
+        'hotel/<str:hotel_slug>/room-bookings/',
+        include('room_bookings.staff_urls')
     ),
     
     # Hotel Settings

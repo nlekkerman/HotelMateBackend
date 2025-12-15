@@ -151,9 +151,9 @@ class HotelPublicPageView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def get(self, request, slug):
+    def get(self, request, hotel_slug):
         # Get hotel
-        hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
+        hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
         
         # Get or create HotelPublicPage to access preset
         public_page, created = hotel.public_page, False

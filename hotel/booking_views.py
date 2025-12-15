@@ -33,9 +33,9 @@ class HotelAvailabilityView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def get(self, request, slug):
+    def get(self, request, hotel_slug):
         # Get hotel
-        hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
+        hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
         
         # Parse query parameters
         check_in_str = request.query_params.get('check_in')
@@ -96,9 +96,9 @@ class HotelPricingQuoteView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def post(self, request, slug):
+    def post(self, request, hotel_slug):
         # Get hotel
-        hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
+        hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
         
         # Parse request data
         room_type_code = request.data.get('room_type_code')
@@ -172,9 +172,9 @@ class HotelBookingCreateView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def post(self, request, slug):
+    def post(self, request, hotel_slug):
         # Get hotel
-        hotel = get_object_or_404(Hotel, slug=slug, is_active=True)
+        hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
         
         # Parse request data
         quote_id = request.data.get('quote_id', '')
@@ -363,7 +363,7 @@ class HotelBookingCreateView(APIView):
             "quote_id": quote_id if quote_id else None,
             "payment_required": True,
             "payment_url": (
-                f"/api/hotel/{hotel.slug}/bookings/{booking.booking_id}/payment/session/"
+                f"/api/public/hotel/{hotel.slug}/room-bookings/{booking.booking_id}/payment/session/"
             )
         }
         

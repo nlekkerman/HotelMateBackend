@@ -38,9 +38,9 @@ class CreatePaymentSessionView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def post(self, request, booking_id, slug):
+    def post(self, request, booking_id, hotel_slug):
         # Validate hotel slug is provided
-        if not slug:
+        if not hotel_slug:
             return Response(
                 {"detail": "Hotel slug is required"},
                 status=status.HTTP_400_BAD_REQUEST
@@ -325,9 +325,9 @@ class VerifyPaymentView(APIView):
     """
     permission_classes = [AllowAny]
     
-    def get(self, request, booking_id, slug):
+    def get(self, request, booking_id, hotel_slug):
         # Validate hotel slug is provided
-        if not slug:
+        if not hotel_slug:
             return Response(
                 {"detail": "Hotel slug is required"},
                 status=status.HTTP_400_BAD_REQUEST
