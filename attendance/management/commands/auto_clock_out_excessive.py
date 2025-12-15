@@ -1,6 +1,8 @@
 """
 Auto Clock-Out Management Command for Heroku Scheduler
 Forces clock-out for staff with excessive hours based on hotel's AttendanceSettings.
+Processes ALL open sessions (approved or not) for worker protection - staff shouldn't
+work excessive hours just because management forgot to approve their session.
 
 Usage on Heroku Scheduler (run every 30 minutes):
     python manage.py auto_clock_out_excessive
@@ -9,6 +11,7 @@ Usage with options:
     python manage.py auto_clock_out_excessive --max-hours=20 --dry-run
     
 Note: --max-hours overrides hotel AttendanceSettings.hard_limit_hours (default: 12.0)
+Safety: Processes unapproved sessions to prevent excessive work due to admin oversight
 """
 
 from django.core.management.base import BaseCommand
@@ -104,12 +107,11 @@ class Command(BaseCommand):
         """Process excessive sessions for a specific hotel"""
         current_time = now()
         
-        # Find open logs with excessive hours
+        # Find open logs with excessive hours (regardless of approval status for safety)
         open_logs = ClockLog.objects.filter(
             hotel=hotel,
             time_out__isnull=True,
-            is_approved=True,  # Only process approved logs
-            is_rejected=False
+            is_rejected=False  # Only exclude explicitly rejected logs
         ).select_related('staff')
         
         excessive_logs = []
