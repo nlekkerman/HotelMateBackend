@@ -1,10 +1,39 @@
 from django.contrib import admin
+from django import forms
 from .models import (
     Booking, BookingCategory, BookingSubcategory, Seats,
     Restaurant, RestaurantBlueprint, BlueprintArea,
     BlueprintObjectType, BlueprintObject
 )
 from django.utils.html import format_html
+
+# -------------------------
+# Custom Forms with Validation
+# -------------------------
+class BookingAdminForm(forms.ModelForm):
+    class Meta:
+        model = Booking
+        fields = '__all__'
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        # Create temporary instance for validation
+        instance = Booking(**cleaned_data)
+        instance.full_clean()
+        return cleaned_data
+
+class BookingCategoryAdminForm(forms.ModelForm):
+    class Meta:
+        model = BookingCategory
+        fields = '__all__'
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        # Create temporary instance for validation
+        instance = BookingCategory(**cleaned_data)
+        instance.full_clean()
+        return cleaned_data
+
 # -------------------------
 # Inlines
 # -------------------------
@@ -28,6 +57,7 @@ class BookingSubcategoryAdmin(admin.ModelAdmin):
 
 @admin.register(BookingCategory)
 class BookingCategoryAdmin(admin.ModelAdmin):
+    form = BookingCategoryAdminForm
     list_display = ('name', 'subcategory', 'hotel')
     list_filter = ('subcategory', 'hotel')
     search_fields = ('name', 'subcategory__name')
@@ -35,6 +65,7 @@ class BookingCategoryAdmin(admin.ModelAdmin):
 
 @admin.register(Booking)
 class BookingAdmin(admin.ModelAdmin):
+    form = BookingAdminForm
     list_display = (
         'category',
         'hotel',

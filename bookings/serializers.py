@@ -24,6 +24,19 @@ class BookingCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = BookingCategory
         fields = ["id", "name", "hotel", "subcategory"]
+    
+    def create(self, validated_data):
+        instance = BookingCategory(**validated_data)
+        instance.full_clean()  # Triggers model.clean() for hotel consistency
+        instance.save()
+        return instance
+    
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.full_clean()  # Triggers model.clean() for hotel consistency
+        instance.save()
+        return instance
 
 
 
@@ -155,7 +168,11 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         if "guest" not in validated_data and room:
             validated_data["guest"] = room.guests_in_room.first()
 
-        booking = Booking.objects.create(**validated_data)
+        # Create booking and trigger validation
+        booking = Booking(**validated_data)
+        booking.full_clean()  # Triggers model.clean() for cross-hotel validation
+        booking.save()
+        
         Seats.objects.create(booking=booking, **seats_data)
 
         for table in tables:

@@ -8,7 +8,15 @@ from decimal import Decimal
 class BookingSubcategory(models.Model):
     name = models.CharField(max_length=100)
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='subcategories')
-    slug = models.SlugField(unique=True, blank=True, null=True)
+    slug = models.SlugField(blank=True, null=True)
+    
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["hotel", "slug"], 
+                name="uniq_booking_subcategory_hotel_slug"
+            )
+        ]
     
     def __str__(self):
         return self.name
@@ -19,6 +27,13 @@ class BookingCategory(models.Model):
     subcategory = models.ForeignKey('bookings.BookingSubcategory', on_delete=models.CASCADE, related_name='categories')
     
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='categories')
+
+    def clean(self):
+        """Validate hotel consistency between category and subcategory."""
+        if self.subcategory_id and self.hotel_id != self.subcategory.hotel_id:
+            raise ValidationError({
+                'hotel': "Category hotel must match subcategory hotel."
+            })
 
     def __str__(self):
         return f"{self.name} → {self.subcategory.name}"
@@ -66,9 +81,28 @@ class Booking(models.Model):
         return self.seats.total if hasattr(self, 'seats') else 0
 
     def clean(self):
-        """Extra validation to ensure end_time is after start_time."""
+        """Validate time constraints and cross-hotel FK consistency."""
+        errors = {}
+        
+        # Existing time validation
         if self.start_time and self.end_time and self.end_time <= self.start_time:
-            raise ValidationError("End time must be later than start time.")
+            errors['end_time'] = "End time must be later than start time."
+        
+        # Cross-hotel FK validation
+        if self.restaurant_id and self.restaurant.hotel_id != self.hotel_id:
+            errors['restaurant'] = "Restaurant belongs to a different hotel."
+        
+        if self.category_id and self.category.hotel_id != self.hotel_id:
+            errors['category'] = "Category belongs to a different hotel."
+        
+        if self.category_id and self.category.subcategory.hotel_id != self.hotel_id:
+            errors['subcategory'] = "Subcategory belongs to a different hotel."
+        
+        if self.room_id and self.room.hotel_id != self.hotel_id:
+            errors['room'] = "Room belongs to a different hotel."
+        
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return f"{self.category.name} / {self.category.subcategory.name} @ {self.date} {self.start_time}–{self.end_time}"
@@ -86,7 +120,7 @@ class Seats(models.Model):
 
 class Restaurant(models.Model):
     name = models.CharField(max_length=100)
-    slug = models.SlugField(unique=True, help_text="Slug used in URLs (e.g., strawberry-tree)")
+    slug = models.SlugField(help_text="Slug used in URLs (e.g., strawberry-tree)")
     hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='restaurants')
     capacity = models.PositiveIntegerField(default=30, help_text="Max number of guests")
     description = models.TextField(blank=True, null=True)
@@ -99,6 +133,14 @@ class Restaurant(models.Model):
     max_group_size = models.PositiveIntegerField(default=12)
 
     taking_bookings = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["hotel", "slug"], 
+                name="uniq_restaurant_hotel_slug"
+            )
+        ]
 
     def __str__(self):
         return f"{self.name} at {self.hotel.name}"
