@@ -390,6 +390,12 @@ def create_booking(request, hotel_slug):
 
 
 urlpatterns = [
+    # Base guest hotel endpoint
+    path(
+        'hotels/<str:hotel_slug>/',
+        guest_home,
+        name='guest-hotel-detail'
+    ),
     path(
         'hotels/<str:hotel_slug>/site/home/',
         guest_home,

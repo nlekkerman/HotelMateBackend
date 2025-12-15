@@ -58,11 +58,6 @@ urlpatterns = [
     path('api/public/', include('public_urls')),
 ]
 
-# Legacy routes - kept for backward compatibility  
-# Exclude 'attendance' to avoid namespace conflict with staff zone
-legacy_apps = [app for app in apps if app != 'attendance']
-urlpatterns += [path(f'api/{app}/', include(f'{app}.urls')) for app in legacy_apps]
-
 # Serve media files in development
 if settings.DEBUG:
     urlpatterns += static(

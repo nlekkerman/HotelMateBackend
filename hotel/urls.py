@@ -171,9 +171,4 @@ urlpatterns = [
     
     # Internal/admin endpoints
     path("", include(router.urls)),
-    path(
-        "<slug:slug>/",
-        HotelBySlugView.as_view(),
-        name="hotel-by-slug"
-    ),
 ]
