@@ -151,6 +151,12 @@ urlpatterns = [
         include('room_bookings.staff_urls')
     ),
     
+    # Service bookings management - Phase 4A routing  
+    path(
+        'hotel/<str:hotel_slug>/service-bookings/',
+        include('bookings.staff_urls')
+    ),
+    
     # Hotel Settings
     path(
         'hotel/<str:hotel_slug>/settings/',
