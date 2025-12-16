@@ -8,6 +8,7 @@ from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.core.mail import send_mail
+from decimal import Decimal, ROUND_HALF_UP
 import stripe
 
 from .payment_cache import (
@@ -30,7 +31,7 @@ class CreatePaymentSessionView(APIView):
     """
     Create a Stripe Checkout session for a booking.
     
-    POST /api/bookings/<booking_id>/payment/session/
+    POST /api/public/hotel/<hotel_slug>/room-bookings/<booking_id>/payment/session/
     
     Request body:
     - success_url: URL to redirect after successful payment
@@ -49,18 +50,13 @@ class CreatePaymentSessionView(APIView):
         # Load booking from database
         from .models import Hotel, RoomBooking
         
-        try:
-            hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
-            booking = get_object_or_404(
-                RoomBooking,
-                booking_id=booking_id,
-                hotel=hotel
-            )
-        except:
-            return Response(
-                {"detail": "Booking not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Load booking from database (get_object_or_404 handles Http404 automatically)
+        hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
+        booking = get_object_or_404(
+            RoomBooking,
+            booking_id=booking_id,
+            hotel=hotel
+        )
         
         # Validate booking can accept payment
         if booking.status not in ['PENDING_PAYMENT']:
@@ -92,13 +88,24 @@ class CreatePaymentSessionView(APIView):
                     existing_session_id
                 )
                 
+                # Check if session is already paid
+                if existing_session.payment_status == 'paid':
+                    return Response({
+                        'session_id': existing_session.id,
+                        'payment_url': None,
+                        'status': 'paid',
+                        'amount': str(Decimal(existing_session.amount_total) / 100),
+                        'currency': existing_session.currency.upper(),
+                        'message': 'Booking already paid'
+                    }, status=status.HTTP_200_OK)
+                
                 # Check if session is still valid (not expired)
-                if existing_session.status in ['open', 'complete']:
+                if existing_session.status == 'open':
                     return Response({
                         'session_id': existing_session.id,
                         'payment_url': existing_session.url,
                         'status': 'existing',
-                        'amount': existing_session.amount_total / 100,
+                        'amount': str(Decimal(existing_session.amount_total) / 100),
                         'currency': existing_session.currency.upper(),
                         'message': 'Returning existing payment session'
                     }, status=status.HTTP_200_OK)
@@ -118,20 +125,27 @@ class CreatePaymentSessionView(APIView):
         
         try:
             # Get canonical booking totals from model
-            total_amount = booking.total
-            currency = booking.room_type.currency.lower()
+            total_amount = booking.total_amount
+            currency = (booking.currency or "EUR").lower()
+
             
-            # Convert total to cents/smallest currency unit
-            amount = int(float(total_amount) * 100)
+            # Convert total to cents/smallest currency unit (Decimal-safe)
+            amount = int((Decimal(total_amount) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
             
             # Extract booking details for Stripe session
             hotel_data = {
                 'name': hotel.name,
                 'slug': hotel.slug
             }
+            
+            # Null-safe room_type access
+            room_type = booking.room_type
+            room_name = room_type.name if room_type else "Room Booking"
+            room_photo = room_type.photo.url if (room_type and room_type.photo) else None
+            
             room_data = {
-                'type': booking.room_type.name,
-                'photo': booking.room_type.photo.url if booking.room_type.photo else None
+                'type': room_name,
+                'photo': room_photo
             }
             dates_data = {
                 'check_in': booking.check_in.isoformat(),
@@ -189,8 +203,8 @@ class CreatePaymentSessionView(APIView):
                 'session_id': session.id,
                 'booking_id': booking_id,
                 'idempotency_key': idempotency_key,
-                'amount': total,
-                'currency': currency,
+                'amount': str(total_amount),
+                'currency': currency.upper(),
                 'status': 'created',
             }
             store_payment_session(booking_id, session_data)
@@ -227,7 +241,7 @@ class StripeWebhookView(APIView):
     """
     Handle Stripe webhook events for payment confirmation.
     
-    POST /api/bookings/stripe-webhook/
+    POST /api/public/hotel/room-bookings/stripe-webhook/
     """
     permission_classes = [AllowAny]
     
@@ -330,7 +344,7 @@ class VerifyPaymentView(APIView):
     """
     Verify payment status for a booking.
     
-    GET /api/bookings/<booking_id>/payment/verify/?session_id=<session_id>
+    GET /api/public/hotel/<hotel_slug>/room-bookings/<booking_id>/payment/verify/?session_id=<session_id>
     """
     permission_classes = [AllowAny]
     
