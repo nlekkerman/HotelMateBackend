@@ -113,10 +113,14 @@ def check_availability(request, hotel_slug):
     
     available_rooms = []
     for room_type in room_types:
-        # Count total rooms of this type
+        # Count total bookable rooms of this type
+        # Updated for Room Turnover Workflow - only count bookable rooms
         total_rooms = Room.objects.filter(
             room_type=room_type,
-            is_active=True
+            room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+            is_active=True,
+            maintenance_required=False,
+            is_out_of_order=False
         ).count()
         
         # Count booked rooms for this date range

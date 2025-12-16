@@ -206,4 +206,9 @@ urlpatterns += [
     for app in STAFF_APPS
 ]
 
+# Add Room Turnover Workflow Staff URLs
+urlpatterns += [
+    path('', include('rooms.staff_urls')),
+]
+
 

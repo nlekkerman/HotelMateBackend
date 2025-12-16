@@ -1647,8 +1647,9 @@ class BookingAssignmentView(APIView):
                             guest.primary_guest = primary_guest
                             guest.save()
                 
-                # Update room occupancy
+                # Update room occupancy - Room Turnover Workflow
                 room.is_occupied = True
+                room.room_status = 'OCCUPIED'  # NEW - maintain status consistency
                 room.save()
                 
                 # Trigger realtime notifications
@@ -1709,13 +1710,31 @@ class BookingAssignmentView(APIView):
                 booking.status = 'COMPLETED'
                 booking.save()
                 
-                # Update room
+                # Update room - Room Turnover Workflow
                 room.is_occupied = False
+                room.room_status = 'CHECKOUT_DIRTY'  # NEW
+                room.add_turnover_note(
+                    f"Checked out at {timezone.now().strftime('%Y-%m-%d %H:%M')} by {request.user.staff.get_full_name()}",
+                    request.user.staff
+                )  # NEW
                 room.save()
                 
                 # Trigger realtime notifications
                 notification_manager.realtime_booking_checked_out(booking, room.room_number)
                 notification_manager.realtime_room_occupancy_updated(room)
+                
+                # NEW: Room status notification
+                from pusher import pusher_client
+                pusher_client.trigger(
+                    f'hotel-{hotel.slug}',
+                    'room-status-changed',
+                    {
+                        'room_number': room.room_number,
+                        'old_status': 'OCCUPIED',
+                        'new_status': 'CHECKOUT_DIRTY',
+                        'timestamp': timezone.now().isoformat()
+                    }
+                )  # NEW
             
             # Return success response with canonical serializer
             from .canonical_serializers import StaffRoomBookingDetailSerializer

@@ -18,6 +18,10 @@ from chat.models import Conversation, RoomMessage
 from rest_framework.decorators import api_view, permission_classes
 from django.db import transaction
 from django.utils.timezone import now
+from django.utils import timezone
+from staff_chat.permissions import IsStaffMember, IsSameHotel
+from django.db.models import Count
+from pusher import pusher_client
 
 
 class RoomPagination(PageNumberPagination):
@@ -163,8 +167,9 @@ def checkout_rooms(request, hotel_slug):
             # Optionally, if RoomMessage has FK to Room separately, delete explicitly:
             RoomMessage.objects.filter(room=room).delete()
 
-            # Mark room unoccupied & regenerate guest PIN
+            # Mark room unoccupied & regenerate guest PIN - Room Turnover Workflow
             room.is_occupied = False
+            room.room_status = 'CHECKOUT_DIRTY'  # NEW
             room.generate_guest_pin()
             
             # Clear guest FCM token to prevent old guest
@@ -181,7 +186,26 @@ def checkout_rooms(request, hotel_slug):
                 room_number=room.room_number
             ).delete()
 
+            # NEW: Add turnover note
+            room.add_turnover_note(
+                f"Bulk checkout at {now().strftime('%Y-%m-%d %H:%M')} by {request.user.staff.get_full_name()}",
+                request.user.staff  
+            )  # NEW
+
             room.save()
+            
+            # NEW: Real-time notification
+            from pusher import pusher_client
+            pusher_client.trigger(
+                f'hotel-{hotel_slug}',
+                'room-status-changed',
+                {
+                    'room_number': room.room_number,
+                    'old_status': 'OCCUPIED',
+                    'new_status': 'CHECKOUT_DIRTY',
+                    'timestamp': now().isoformat()
+                }
+            )
 
     return Response(
         {
@@ -206,3 +230,303 @@ def checkout_needed(request, hotel_slug):
 
     serializer = RoomSerializer(rooms, many=True)
     return Response(serializer.data)
+
+
+# ============================================================================
+# ROOM TURNOVER WORKFLOW ENDPOINTS (Staff-Only)
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def start_cleaning(request, hotel_slug, room_number):
+    """Transition room to CLEANING_IN_PROGRESS"""
+    # Check canonical navigation permission
+    if not request.user.staff.allowed_navigation_items.filter(slug='rooms').exists():
+        return Response({'error': 'Rooms permission required'}, status=403)
+    
+    room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
+    
+    if not room.can_transition_to('CLEANING_IN_PROGRESS'):
+        return Response(
+            {'error': f'Cannot transition from {room.room_status} to CLEANING_IN_PROGRESS'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    old_status = room.room_status
+    room.room_status = 'CLEANING_IN_PROGRESS'
+    room.add_turnover_note("Cleaning started", request.user.staff)
+    room.save()
+    
+    # Real-time notification
+    pusher_client.trigger(
+        f'hotel-{hotel_slug}',
+        'room-status-changed',
+        {
+            'room_number': room.room_number,
+            'old_status': old_status,
+            'new_status': 'CLEANING_IN_PROGRESS',
+            'timestamp': timezone.now().isoformat()
+        }
+    )
+    
+    return Response({'message': 'Room cleaning started'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def mark_cleaned(request, hotel_slug, room_number):
+    """Mark room as cleaned, transition to CLEANED_UNINSPECTED"""
+    # Check canonical navigation permission
+    if not request.user.staff.allowed_navigation_items.filter(slug='rooms').exists():
+        return Response({'error': 'Rooms permission required'}, status=403)
+    
+    room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
+    
+    if not room.can_transition_to('CLEANED_UNINSPECTED'):
+        return Response(
+            {'error': f'Cannot transition from {room.room_status} to CLEANED_UNINSPECTED'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    notes = request.data.get('notes', '')
+    old_status = room.room_status
+    
+    room.room_status = 'CLEANED_UNINSPECTED'
+    room.last_cleaned_at = timezone.now()
+    room.cleaned_by_staff = request.user.staff
+    
+    note_text = "Room cleaned"
+    if notes:
+        note_text += f" - {notes}"
+    room.add_turnover_note(note_text, request.user.staff)
+    room.save()
+    
+    # Real-time notification
+    pusher_client.trigger(
+        f'hotel-{hotel_slug}',
+        'room-status-changed',
+        {
+            'room_number': room.room_number,
+            'old_status': old_status,
+            'new_status': 'CLEANED_UNINSPECTED',
+            'timestamp': timezone.now().isoformat()
+        }
+    )
+    
+    return Response({'message': 'Room marked as cleaned'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def inspect_room(request, hotel_slug, room_number):
+    """Inspect room - pass -> READY_FOR_GUEST, fail -> CHECKOUT_DIRTY"""
+    # Check canonical navigation permission
+    if not request.user.staff.allowed_navigation_items.filter(slug='rooms').exists():
+        return Response({'error': 'Rooms permission required'}, status=403)
+    
+    room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
+    
+    if room.room_status != 'CLEANED_UNINSPECTED':
+        return Response(
+            {'error': f'Cannot inspect room in {room.room_status} status'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    passed = request.data.get('passed', False)
+    notes = request.data.get('notes', '')
+    old_status = room.room_status
+    
+    room.last_inspected_at = timezone.now()
+    room.inspected_by_staff = request.user.staff
+    
+    if passed:
+        room.room_status = 'READY_FOR_GUEST'
+        note_text = "Inspection passed - ready for guest"
+    else:
+        room.room_status = 'CHECKOUT_DIRTY'
+        note_text = "Inspection failed - needs re-cleaning"
+    
+    if notes:
+        note_text += f" - {notes}"
+    room.add_turnover_note(note_text, request.user.staff)
+    room.save()
+    
+    # Real-time notification
+    pusher_client.trigger(
+        f'hotel-{hotel_slug}',
+        'room-status-changed',
+        {
+            'room_number': room.room_number,
+            'old_status': old_status,
+            'new_status': room.room_status,
+            'timestamp': timezone.now().isoformat()
+        }
+    )
+    
+    return Response({
+        'message': 'Room inspection completed',
+        'passed': passed,
+        'status': room.room_status
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def mark_maintenance(request, hotel_slug, room_number):
+    """Mark room as requiring maintenance - requires maintenance navigation permission"""
+    # Check canonical navigation permission
+    if not request.user.staff.allowed_navigation_items.filter(slug='maintenance').exists():
+        return Response({'error': 'Maintenance permission required'}, status=403)
+    
+    room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
+    
+    if not room.can_transition_to('MAINTENANCE_REQUIRED'):
+        return Response(
+            {'error': f'Cannot transition from {room.room_status} to MAINTENANCE_REQUIRED'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    priority = request.data.get('priority', 'MED')
+    notes = request.data.get('notes', '')
+    
+    if priority not in ['LOW', 'MED', 'HIGH']:
+        return Response(
+            {'error': 'Priority must be LOW, MED, or HIGH'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    old_status = room.room_status
+    room.room_status = 'MAINTENANCE_REQUIRED'
+    room.maintenance_required = True
+    room.maintenance_priority = priority
+    room.maintenance_notes = notes
+    room.add_turnover_note(f"Maintenance required ({priority} priority): {notes}", request.user.staff)
+    room.save()
+    
+    # Real-time notification
+    pusher_client.trigger(
+        f'hotel-{hotel_slug}',
+        'room-status-changed',
+        {
+            'room_number': room.room_number,
+            'old_status': old_status,
+            'new_status': 'MAINTENANCE_REQUIRED',
+            'priority': priority,
+            'timestamp': timezone.now().isoformat()
+        }
+    )
+    
+    return Response({'message': 'Room marked for maintenance'})
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def complete_maintenance(request, hotel_slug, room_number):
+    """Mark maintenance as completed - requires maintenance navigation permission"""
+    # Check canonical navigation permission
+    if not request.user.staff.allowed_navigation_items.filter(slug='maintenance').exists():
+        return Response({'error': 'Maintenance permission required'}, status=403)
+    
+    room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
+    
+    if room.room_status != 'MAINTENANCE_REQUIRED':
+        return Response(
+            {'error': f'Room is not in maintenance status'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    old_status = room.room_status
+    room.maintenance_required = False
+    room.maintenance_priority = None
+    room.maintenance_notes = ''
+    
+    # If room was cleaned and inspected, go to ready, otherwise back to dirty
+    if room.last_cleaned_at and room.last_inspected_at:
+        # Check if cleaning/inspection happened after last checkout
+        # For now, default to ready if both exist
+        room.room_status = 'READY_FOR_GUEST'
+    else:
+        room.room_status = 'CHECKOUT_DIRTY'
+    
+    room.add_turnover_note("Maintenance completed", request.user.staff)
+    room.save()
+    
+    # Real-time notification  
+    pusher_client.trigger(
+        f'hotel-{hotel_slug}',
+        'room-status-changed',
+        {
+            'room_number': room.room_number,
+            'old_status': old_status,
+            'new_status': room.room_status,
+            'timestamp': timezone.now().isoformat()
+        }
+    )
+    
+    return Response({
+        'message': 'Maintenance completed',
+        'new_status': room.room_status
+    })
+
+
+# ============================================================================
+# ROOM TURNOVER DASHBOARD ENDPOINTS (Staff-Only)
+# ============================================================================
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def turnover_rooms(request, hotel_slug):
+    """Get rooms grouped by turnover status"""
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    
+    rooms_by_status = {}
+    for status_code, status_label in Room.ROOM_STATUS_CHOICES:
+        rooms = Room.objects.filter(
+            hotel=hotel,
+            room_status=status_code
+        ).select_related('room_type', 'cleaned_by_staff', 'inspected_by_staff')
+        
+        rooms_by_status[status_code] = {
+            'label': status_label,
+            'count': rooms.count(),
+            'rooms': RoomSerializer(rooms, many=True).data
+        }
+    
+    return Response(rooms_by_status)
+
+
+@api_view(['GET']) 
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+def turnover_stats(request, hotel_slug):
+    """Get turnover statistics and metrics"""
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    
+    total_rooms = hotel.rooms.filter(is_active=True).count()
+    
+    stats = {
+        'total_rooms': total_rooms,
+        'bookable_rooms': hotel.rooms.filter(
+            room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+            is_active=True,
+            is_out_of_order=False,  # Hard override flag
+            maintenance_required=False
+        ).count(),
+        'occupied_rooms': hotel.rooms.filter(room_status='OCCUPIED').count(),
+        'dirty_rooms': hotel.rooms.filter(room_status='CHECKOUT_DIRTY').count(),
+        'cleaning_in_progress': hotel.rooms.filter(room_status='CLEANING_IN_PROGRESS').count(),
+        'awaiting_inspection': hotel.rooms.filter(room_status='CLEANED_UNINSPECTED').count(),
+        'maintenance_required': hotel.rooms.filter(maintenance_required=True).count(),
+        'out_of_order': hotel.rooms.filter(room_status='OUT_OF_ORDER').count(),
+    }
+    
+    # Add maintenance breakdown
+    maintenance_by_priority = hotel.rooms.filter(
+        maintenance_required=True
+    ).values('maintenance_priority').annotate(count=Count('id'))
+    
+    stats['maintenance_by_priority'] = {
+        item['maintenance_priority']: item['count'] 
+        for item in maintenance_by_priority
+    }
+    
+    return Response(stats)

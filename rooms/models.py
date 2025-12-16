@@ -44,12 +44,121 @@ class Room(models.Model):
         help_text="Temporarily out of service (maintenance, repair, etc.)"
     )
     
+    # Room Turnover Workflow Status
+    ROOM_STATUS_CHOICES = [
+        ('AVAILABLE', 'Available'),
+        ('OCCUPIED', 'Occupied'),
+        ('CHECKOUT_DIRTY', 'Checkout Dirty'),
+        ('CLEANING_IN_PROGRESS', 'Cleaning in Progress'),
+        ('CLEANED_UNINSPECTED', 'Cleaned Uninspected'), 
+        ('MAINTENANCE_REQUIRED', 'Maintenance Required'),
+        ('OUT_OF_ORDER', 'Out of Order'),
+        ('READY_FOR_GUEST', 'Ready for Guest'),
+    ]
+    
+    room_status = models.CharField(
+        max_length=20,
+        choices=ROOM_STATUS_CHOICES,
+        default='AVAILABLE',
+        help_text='Current turnover workflow status of the room'
+    )
+    
+    # Cleaning tracking
+    last_cleaned_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When room was last cleaned'
+    )
+    cleaned_by_staff = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='cleaned_rooms',
+        help_text='Staff member who cleaned the room'
+    )
+    
+    # Inspection tracking  
+    last_inspected_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When room was last inspected'
+    )
+    inspected_by_staff = models.ForeignKey(
+        'staff.Staff', 
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='inspected_rooms',
+        help_text='Staff member who inspected the room'
+    )
+    
+    # Notes and maintenance
+    turnover_notes = models.TextField(
+        blank=True,
+        help_text='Internal turnover workflow notes and history'
+    )
+    maintenance_required = models.BooleanField(
+        default=False,
+        help_text='Room requires maintenance before next guest'
+    )
+    
+    MAINTENANCE_PRIORITY_CHOICES = [
+        ('LOW', 'Low Priority'),
+        ('MED', 'Medium Priority'), 
+        ('HIGH', 'High Priority'),
+    ]
+    maintenance_priority = models.CharField(
+        max_length=4,
+        choices=MAINTENANCE_PRIORITY_CHOICES,
+        null=True, blank=True,
+        help_text='Priority level for maintenance'
+    )
+    maintenance_notes = models.TextField(
+        blank=True,
+        help_text='Specific maintenance requirements and notes'
+    )
+    
     class Meta:
         unique_together = ('hotel', 'room_number')
 
     def __str__(self):
         hotel_name = self.hotel.name if self.hotel else "No Hotel"
         return f"Room {self.room_number} at {hotel_name}"
+    
+    def is_bookable(self):
+        """Single source of truth for room availability"""
+        # is_out_of_order is hard flag that overrides everything
+        if self.is_out_of_order:
+            return False
+            
+        return (
+            self.room_status in {'AVAILABLE', 'READY_FOR_GUEST'} and
+            self.is_active and
+            not self.maintenance_required
+        )
+    
+    def can_transition_to(self, new_status):
+        """Validate state machine transitions"""
+        valid_transitions = {
+            'AVAILABLE': ['OCCUPIED', 'MAINTENANCE_REQUIRED', 'OUT_OF_ORDER'],
+            'OCCUPIED': ['CHECKOUT_DIRTY'],
+            'CHECKOUT_DIRTY': ['CLEANING_IN_PROGRESS', 'CLEANED_UNINSPECTED', 'MAINTENANCE_REQUIRED'],
+            'CLEANING_IN_PROGRESS': ['CLEANED_UNINSPECTED', 'CHECKOUT_DIRTY', 'MAINTENANCE_REQUIRED'],
+            'CLEANED_UNINSPECTED': ['READY_FOR_GUEST', 'CHECKOUT_DIRTY', 'MAINTENANCE_REQUIRED'],
+            'MAINTENANCE_REQUIRED': ['CHECKOUT_DIRTY', 'OUT_OF_ORDER'],
+            'OUT_OF_ORDER': ['CHECKOUT_DIRTY'],
+            'READY_FOR_GUEST': ['OCCUPIED', 'MAINTENANCE_REQUIRED', 'OUT_OF_ORDER'],
+        }
+        return new_status in valid_transitions.get(self.room_status, [])
+    
+    def add_turnover_note(self, note, staff_member=None):
+        """Add timestamped note to turnover history"""
+        from django.utils import timezone
+        timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
+        staff_info = f" by {staff_member.get_full_name()}" if staff_member else ""
+        new_note = f"[{timestamp}]{staff_info}: {note}"
+        
+        if self.turnover_notes:
+            self.turnover_notes += f"\n{new_note}"
+        else:
+            self.turnover_notes = new_note
 
     def generate_guest_pin(self):
         characters = string.ascii_lowercase + string.digits

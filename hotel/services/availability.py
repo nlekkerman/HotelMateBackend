@@ -75,11 +75,21 @@ def _inventory_for_date(room_type: RoomType, day: date) -> int:
     except RoomTypeInventory.DoesNotExist:
         pass
     
-    # Fallback: count physical rooms for this hotel
+    # Fallback: count physical rooms for this hotel that are bookable
+    # Updated for Room Turnover Workflow - only count bookable rooms
     # Note: Room model doesn't have room_type FK, so we use hotel-wide count
-    # This is a limitation of the current schema but matches Phase 1 behavior
-    room_count = Room.objects.filter(
+    bookable_rooms = Room.objects.filter(
         hotel=room_type.hotel
+    )
+    
+    # Apply is_bookable() logic inline since we can't call method in QuerySet
+    # is_bookable() checks: room_status in {'AVAILABLE', 'READY_FOR_GUEST'} 
+    # and is_active and not maintenance_required and not is_out_of_order
+    room_count = bookable_rooms.filter(
+        room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+        is_active=True,
+        maintenance_required=False,
+        is_out_of_order=False
     ).count()
     
     return room_count
