@@ -69,7 +69,7 @@ class CreatePaymentSessionView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        guest_email = booking.guest_email
+        guest_email = booking.primary_email
         if not guest_email:
             return Response(
                 {"detail": "Booking has no guest email"},
@@ -134,13 +134,13 @@ class CreatePaymentSessionView(APIView):
                 'photo': booking.room_type.photo.url if booking.room_type.photo else None
             }
             dates_data = {
-                'check_in': booking.check_in_date.isoformat(),
-                'check_out': booking.check_out_date.isoformat(),
+                'check_in': booking.check_in.isoformat(),
+                'check_out': booking.check_out.isoformat(),
                 'nights': booking.nights
             }
             guest_data = {
-                'name': booking.guest_name,
-                'email': booking.guest_email
+                'name': booking.primary_guest_name,
+                'email': booking.primary_email
             }
             
             # Create line items for Stripe

@@ -150,12 +150,12 @@ def send_booking_confirmation_email(booking):
             subject=subject,
             message=plain_content,
             from_email=settings.EMAIL_HOST_USER,
-            recipient_list=[booking.guest_email],
+            recipient_list=[booking.primary_email],
             html_message=html_content,
             fail_silently=False
         )
         
-        logger.info(f"📧 Confirmation email sent to {booking.guest_email} for booking {booking.booking_id}")
+        logger.info(f"📧 Confirmation email sent to {booking.primary_email} for booking {booking.booking_id}")
         return True
         
     except Exception as e:
@@ -305,12 +305,12 @@ def send_booking_cancellation_email(booking, reason=None, cancelled_by=None):
             subject=subject,
             message=plain_content,
             from_email=settings.EMAIL_HOST_USER,
-            recipient_list=[booking.guest_email],
+            recipient_list=[booking.primary_email],
             html_message=html_content,
             fail_silently=False
         )
         
-        logger.info(f"📧 Cancellation email sent to {booking.guest_email} for booking {booking.booking_id}")
+        logger.info(f"📧 Cancellation email sent to {booking.primary_email} for booking {booking.booking_id}")
         return True
         
     except Exception as e:

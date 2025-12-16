@@ -339,16 +339,17 @@ def create_booking(request, hotel_slug):
         taxes = subtotal * Decimal('0.09')
         total_amount = subtotal + taxes
     
-    # Create booking
+    # Create booking using NEW field structure
     booking = RoomBooking.objects.create(
         hotel=hotel,
         room_type=room_type,
         check_in=check_in,
         check_out=check_out,
-        guest_first_name=guest_data['first_name'],
-        guest_last_name=guest_data['last_name'],
-        guest_email=guest_data['email'],
-        guest_phone=guest_data.get('phone', ''),
+        primary_first_name=primary_first_name,
+        primary_last_name=primary_last_name,
+        primary_email=primary_email,
+        primary_phone=primary_phone,
+        booker_type='SELF',  # Default to self-booking for this endpoint
         adults=adults,
         children=children,
         total_amount=total_amount,
@@ -376,9 +377,9 @@ def create_booking(request, hotel_slug):
             'nights': booking.nights
         },
         'guest': {
-            'name': booking.guest_name,
-            'email': booking.guest_email,
-            'phone': booking.guest_phone
+            'name': booking.primary_guest_name,
+            'email': booking.primary_email,
+            'phone': booking.primary_phone
         },
         'pricing': {
             'total': str(booking.total_amount),
