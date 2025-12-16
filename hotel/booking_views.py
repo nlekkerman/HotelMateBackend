@@ -8,14 +8,13 @@ from rest_framework import status
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import models
-from datetime import datetime
-from decimal import Decimal
-from django.utils import timezone
 
-from .models import Hotel, RoomBooking, PricingQuote
+from .models import Hotel, BookerType, BookingGuest
 
 # Import service layer functions
-from hotel.services.availability import validate_dates, get_room_type_availability
+from hotel.services.availability import (
+    validate_dates, get_room_type_availability
+)
 from hotel.services.pricing import build_pricing_quote_data
 from hotel.services.booking import create_room_booking_from_request
 
@@ -52,7 +51,9 @@ class HotelAvailabilityView(APIView):
         
         # Validate and parse dates using service layer
         try:
-            check_in, check_out, nights = validate_dates(check_in_str, check_out_str)
+            check_in, check_out, nights = validate_dates(
+                check_in_str, check_out_str
+            )
         except ValueError as e:
             return Response(
                 {"detail": str(e)},
@@ -120,7 +121,9 @@ class HotelPricingQuoteView(APIView):
         
         # Validate and parse dates using service layer
         try:
-            check_in, check_out, nights = validate_dates(check_in_str, check_out_str)
+            check_in, check_out, nights = validate_dates(
+                check_in_str, check_out_str
+            )
         except ValueError as e:
             return Response(
                 {"detail": str(e)},
@@ -156,19 +159,25 @@ class HotelPricingQuoteView(APIView):
 
 class HotelBookingCreateView(APIView):
     """
-    Create a new room booking.
-    Uses service layer for consistent pricing calculation.
+    Create a new room booking using NEW canonical fields only.
+    NO LEGACY SUPPORT - fails fast if old guest{} payload is used.
     
-    POST body:
-    - quote_id: optional quote reference
+    POST body (REQUIRED):
     - room_type_code: code or name of room type
     - check_in: YYYY-MM-DD
     - check_out: YYYY-MM-DD
-    - adults: number of adults
-    - children: number of children
-    - guest: {first_name, last_name, email, phone}
-    - special_requests: optional text
-    - promo_code: optional promo code
+    - primary_first_name, primary_last_name, primary_email, primary_phone
+    - booker_type: SELF | THIRD_PARTY | COMPANY
+    
+    POST body (CONDITIONAL):
+    - If booker_type != SELF: booker_first_name, booker_last_name,
+      booker_email, booker_phone
+    - If booker_type == COMPANY: booker_company
+    
+    POST body (OPTIONAL):
+    - adults, children (defaults to 2, 0)
+    - special_requests, promo_code
+    - party: [{role, first_name, last_name, email?, phone?}]
     """
     permission_classes = [AllowAny]
     
@@ -176,44 +185,98 @@ class HotelBookingCreateView(APIView):
         # Get hotel
         hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
         
-        # Parse request data
-        quote_id = request.data.get('quote_id', '')
+        # ❌ HARD RULE: Reject legacy guest{} payload
+        if 'guest' in request.data:
+            return Response(
+                {
+                    "detail": "Legacy guest payload is not supported. "
+                    "Use primary_* fields."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse REQUIRED fields
         room_type_code = request.data.get('room_type_code')
         check_in_str = request.data.get('check_in')
         check_out_str = request.data.get('check_out')
+        
+        primary_first_name = request.data.get('primary_first_name')
+        primary_last_name = request.data.get('primary_last_name')
+        primary_email = request.data.get('primary_email')
+        primary_phone = request.data.get('primary_phone')
+        
+        booker_type = request.data.get('booker_type')
+        
+        # Validate REQUIRED fields
+        required_fields = [
+            room_type_code, check_in_str, check_out_str,
+            primary_first_name, primary_last_name, primary_email,
+            primary_phone, booker_type
+        ]
+        if not all(field for field in required_fields):
+            return Response(
+                {
+                    "detail": "Required fields: room_type_code, check_in, "
+                    "check_out, primary_first_name, primary_last_name, "
+                    "primary_email, primary_phone, booker_type"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate booker_type
+        if booker_type not in BookerType.values():
+            return Response(
+                {
+                    "detail": f"booker_type must be one of: "
+                    f"{BookerType.values()}"
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Parse CONDITIONAL booker fields
+        booker_first_name = request.data.get('booker_first_name', '')
+        booker_last_name = request.data.get('booker_last_name', '')
+        booker_email = request.data.get('booker_email', '')
+        booker_phone = request.data.get('booker_phone', '')
+        booker_company = request.data.get('booker_company', '')
+        
+        # Validate CONDITIONAL fields based on booker_type
+        if booker_type != BookerType.SELF:
+            required_booker = [
+                booker_first_name, booker_last_name, booker_email, booker_phone
+            ]
+            if not all(required_booker):
+                return Response(
+                    {
+                        "detail": "For THIRD_PARTY or COMPANY bookings, "
+                        "booker_first_name, booker_last_name, booker_email, "
+                        "and booker_phone are required"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        if booker_type == BookerType.COMPANY:
+            if not booker_company:
+                return Response(
+                    {
+                        "detail": "booker_company is required for "
+                        "COMPANY bookings"
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        # Parse OPTIONAL fields
         adults = int(request.data.get('adults', 2))
         children = int(request.data.get('children', 0))
-        guest_data = request.data.get('guest', {})
         special_requests = request.data.get('special_requests', '')
         promo_code = request.data.get('promo_code', '')
-        # Phase 3: Optional party list
         party_data = request.data.get('party', [])
-        
-        # Validate required fields
-        required_fields = [room_type_code, check_in_str, check_out_str]
-        if not all(required_fields):
-            return Response(
-                {
-                    "detail": "room_type_code, check_in, and check_out "
-                    "are required"
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Validate guest data
-        required_guest = ['first_name', 'last_name', 'email', 'phone']
-        if not all(guest_data.get(field) for field in required_guest):
-            return Response(
-                {
-                    "detail": "Guest first_name, last_name, email, and "
-                    "phone are required"
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
         
         # Validate and parse dates using service layer
         try:
-            check_in, check_out, nights = validate_dates(check_in_str, check_out_str)
+            check_in, check_out, nights = validate_dates(
+                check_in_str, check_out_str
+            )
         except ValueError as e:
             return Response(
                 {"detail": str(e)},
@@ -233,7 +296,7 @@ class HotelBookingCreateView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Create booking using service layer
+        # Create booking using NEW field structure (NO LEGACY!)
         booking = create_room_booking_from_request(
             hotel=hotel,
             room_type=room_type,
@@ -241,23 +304,55 @@ class HotelBookingCreateView(APIView):
             check_out=check_out,
             adults=adults,
             children=children,
-            guest_data=guest_data,
+            primary_first_name=primary_first_name,
+            primary_last_name=primary_last_name,
+            primary_email=primary_email,
+            primary_phone=primary_phone,
+            booker_type=booker_type,
+            booker_first_name=booker_first_name,
+            booker_last_name=booker_last_name,
+            booker_email=booker_email,
+            booker_phone=booker_phone,
+            booker_company=booker_company,
             special_requests=special_requests,
             promo_code=promo_code
         )
         
-        # Phase 3: Handle optional party list
-        if party_data:
-            try:
-                from django.db import transaction
-                from .models import BookingGuest
-                
-                with transaction.atomic():
-                    # Validate party list
-                    primary_count = sum(1 for p in party_data if p.get('role') == 'PRIMARY')
+        # Handle party creation with MANDATORY alignment
+        try:
+            from django.db import transaction
+            
+            with transaction.atomic():
+                if party_data:
+                    # Validate party list structure
+                    primary_count = sum(
+                        1 for p in party_data if p.get('role') == 'PRIMARY'
+                    )
                     if primary_count != 1:
                         return Response(
-                            {"detail": "Party must include exactly one PRIMARY guest"},
+                            {
+                                "detail": "Party must include exactly one "
+                                "PRIMARY guest"
+                            },
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Validate PRIMARY guest matches primary_* fields
+                    primary_party = next(
+                        p for p in party_data if p.get('role') == 'PRIMARY'
+                    )
+                    first_name_match = (
+                        primary_party.get('first_name') == primary_first_name
+                    )
+                    last_name_match = (
+                        primary_party.get('last_name') == primary_last_name
+                    )
+                    if not (first_name_match and last_name_match):
+                        return Response(
+                            {
+                                "detail": "PRIMARY party member must match "
+                                "primary_first_name and primary_last_name"
+                            },
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     
@@ -269,105 +364,60 @@ class HotelBookingCreateView(APIView):
                         
                         if not first_name or not last_name:
                             return Response(
-                                {"detail": "All party members must have first_name and last_name"},
+                                {
+                                    "detail": "All party members must have "
+                                    "first_name and last_name"
+                                },
                                 status=status.HTTP_400_BAD_REQUEST
                             )
                         
-                        # For PRIMARY, ensure it matches booking primary_* fields
-                        if role == 'PRIMARY':
-                            if (first_name != booking.primary_first_name or 
-                                last_name != booking.primary_last_name):
-                                # Auto-normalize: update booking to match party PRIMARY
-                                booking.primary_first_name = first_name
-                                booking.primary_last_name = last_name
-                                booking.primary_email = party_member.get('email', '')
-                                booking.primary_phone = party_member.get('phone', '')
-                                booking.save()
-                        
-                        # Create BookingGuest (PRIMARY will be updated by save() method)
-                        BookingGuest.objects.get_or_create(
+                        # Create BookingGuest record
+                        BookingGuest.objects.create(
                             booking=booking,
                             role=role,
-                            defaults={
-                                'first_name': first_name,
-                                'last_name': last_name,
-                                'email': party_member.get('email', ''),
-                                'phone': party_member.get('phone', ''),
-                                'is_staying': True,
-                            }
+                            first_name=first_name,
+                            last_name=last_name,
+                            email=party_member.get('email', ''),
+                            phone=party_member.get('phone', ''),
+                            is_staying=True,
                         )
+                else:
+                    # Auto-create PRIMARY BookingGuest from primary_* fields
+                    BookingGuest.objects.create(
+                        booking=booking,
+                        role='PRIMARY',
+                        first_name=primary_first_name,
+                        last_name=primary_last_name,
+                        email=primary_email,
+                        phone=primary_phone,
+                        is_staying=True,
+                    )
                         
-            except Exception as e:
-                return Response(
-                    {"detail": f"Failed to create party: {str(e)}"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
-        
-        # Calculate pricing breakdown for response (reuse service logic)
-        from hotel.services.pricing import (
-            get_or_create_default_rate_plan,
-            get_nightly_base_rates,
-            apply_promotion,
-            apply_taxes
-        )
-        
-        rate_plan = get_or_create_default_rate_plan(hotel)
-        nightly_rates = get_nightly_base_rates(room_type, check_in, check_out, rate_plan)
-        subtotal = sum(price for _, price in nightly_rates)
-        subtotal_after_promo, discount, promotion = apply_promotion(
-            hotel, room_type, rate_plan, check_in, check_out, subtotal, promo_code
-        )
-        total, taxes = apply_taxes(subtotal_after_promo)
-        
-        # Return response using booking data
-        booking_data = {
-            "booking_id": booking.booking_id,
-            "confirmation_number": booking.confirmation_number,
-            "status": booking.status,
-            "created_at": booking.created_at.isoformat(),
-            "hotel": {
-                "name": hotel.name,
-                "slug": hotel.slug,
-                "phone": hotel.phone,
-                "email": hotel.email
-            },
-            "room": {
-                "type": room_type.name,
-                "code": room_type.code or room_type.name,
-                "photo": room_type.photo.url if room_type.photo else None
-            },
-            "dates": {
-                "check_in": check_in_str,
-                "check_out": check_out_str,
-                "nights": nights
-            },
-            "guests": {
-                "adults": adults,
-                "children": children,
-                "total": adults + children
-            },
-            "guest": {
-                "name": booking.guest_name,
-                "email": booking.guest_email,
-                "phone": booking.guest_phone
-            },
-            "special_requests": special_requests,
-            "pricing": {
-                "subtotal": f"{subtotal:.2f}",
-                "taxes": f"{taxes:.2f}",
-                "discount": f"{discount:.2f}",
-                "total": f"{total:.2f}",
-                "currency": room_type.currency
-            },
-            "promo_code": promo_code if promo_code else None,
-            "quote_id": quote_id if quote_id else None,
-            "payment_required": True,
-            "payment_url": (
-                f"/api/public/hotel/{hotel.slug}/room-bookings/{booking.booking_id}/payment/session/"
+        except Exception as e:
+            return Response(
+                {"detail": f"Failed to create party: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+        
+        # Count party members
+        party_count = len(party_data) if party_data else 1
+        
+        # Return public-safe response payload
+        response_data = {
+            "success": True,
+            "data": {
+                "booking_id": booking.booking_id,
+                "status": booking.status,
+                "primary_guest_name": (
+                    f"{booking.primary_first_name} "
+                    f"{booking.primary_last_name}"
+                ),
+                "booker_type": booking.booker_type,
+                "party_count": party_count
+            }
         }
         
-        return Response(booking_data, status=status.HTTP_201_CREATED)
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class PublicRoomBookingDetailView(APIView):

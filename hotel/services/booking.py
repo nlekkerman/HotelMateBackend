@@ -29,12 +29,21 @@ def create_room_booking_from_request(
     check_out: date,
     adults: int,
     children: int,
-    guest_data: Dict,
-    special_requests: str,
-    promo_code: str
+    primary_first_name: str,
+    primary_last_name: str,
+    primary_email: str,
+    primary_phone: str,
+    booker_type: str,
+    booker_first_name: str = '',
+    booker_last_name: str = '',
+    booker_email: str = '',
+    booker_phone: str = '',
+    booker_company: str = '',
+    special_requests: str = '',
+    promo_code: str = ''
 ) -> RoomBooking:
     """
-    Create a RoomBooking with proper pricing calculation.
+    Create a RoomBooking with proper pricing calculation using NEW field structure.
     
     Reuses pricing service logic to ensure:
     - Consistent nightly rate calculation
@@ -48,7 +57,16 @@ def create_room_booking_from_request(
         check_out: Check-out date
         adults: Number of adults
         children: Number of children
-        guest_data: Dict with keys: first_name, last_name, email, phone
+        primary_first_name: Primary staying guest first name
+        primary_last_name: Primary staying guest last name
+        primary_email: Primary staying guest email
+        primary_phone: Primary staying guest phone
+        booker_type: SELF, THIRD_PARTY, or COMPANY
+        booker_first_name: Booker first name (if different from primary)
+        booker_last_name: Booker last name (if different from primary)
+        booker_email: Booker email (if different from primary)
+        booker_phone: Booker phone (if different from primary)
+        booker_company: Company name (for COMPANY bookings)
         special_requests: Guest special requests text
         promo_code: Optional promo code
     
@@ -78,19 +96,26 @@ def create_room_booking_from_request(
     # Apply taxes using pricing service
     total, taxes = apply_taxes(subtotal_after_promo)
     
-    # Create RoomBooking instance with Phase 2 primary_* fields
+    # Create RoomBooking instance using NEW canonical fields
     # Uses existing auto-generation logic for booking_id and confirmation_number
     booking = RoomBooking.objects.create(
         hotel=hotel,
         room_type=room_type,
         check_in=check_in,
         check_out=check_out,
-        # Phase 2: Use primary_* fields instead of guest_*
-        primary_first_name=guest_data['first_name'],
-        primary_last_name=guest_data['last_name'],
-        primary_email=guest_data['email'],
-        primary_phone=guest_data['phone'],
-        booker_type='SELF',  # Default to self-booking for public API
+        # Primary staying guest (ALWAYS required)
+        primary_first_name=primary_first_name,
+        primary_last_name=primary_last_name,
+        primary_email=primary_email,
+        primary_phone=primary_phone,
+        # Booker information (may differ from primary)
+        booker_type=booker_type,
+        booker_first_name=booker_first_name,
+        booker_last_name=booker_last_name,
+        booker_email=booker_email,
+        booker_phone=booker_phone,
+        booker_company=booker_company,
+        # Occupancy and pricing
         adults=adults,
         children=children,
         total_amount=total,

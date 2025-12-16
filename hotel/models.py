@@ -379,6 +379,25 @@ class BookingOptions(models.Model):
         return f"Booking options for {self.hotel.name}"
 
 
+class BookerType:
+    """Constants for booker types in RoomBooking model"""
+    SELF = 'SELF'
+    THIRD_PARTY = 'THIRD_PARTY'
+    COMPANY = 'COMPANY'
+    
+    @classmethod
+    def choices(cls):
+        return [
+            (cls.SELF, 'Booker is staying'),
+            (cls.THIRD_PARTY, 'Third-party (gift/agent)'),
+            (cls.COMPANY, 'Company booking'),
+        ]
+    
+    @classmethod
+    def values(cls):
+        return [cls.SELF, cls.THIRD_PARTY, cls.COMPANY]
+
+
 class RoomBooking(models.Model):
     """
     Guest room reservations/bookings for hotels.
@@ -426,15 +445,10 @@ class RoomBooking(models.Model):
     )
 
     # Phase 2: Booker vs Primary Staying Guest
-    BOOKER_TYPE_CHOICES = [
-        ('SELF', 'Booker is staying'),
-        ('THIRD_PARTY', 'Third-party (gift/agent)'),
-        ('COMPANY', 'Company booking'),
-    ]
     booker_type = models.CharField(
         max_length=20, 
-        choices=BOOKER_TYPE_CHOICES, 
-        default='SELF',
+        choices=BookerType.choices(), 
+        default=BookerType.SELF,
         help_text="Relationship between booker and primary staying guest"
     )
 
