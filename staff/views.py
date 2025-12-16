@@ -132,66 +132,53 @@ class CustomAuthToken(ObtainAuthToken):
         if staff and staff.profile_image:
             profile_image_url = str(staff.profile_image)
         
-        # Get allowed navigation slugs from database
-        # Superusers get ALL navigation items automatically
-        if user.is_superuser:
-            print(f"🔍 Fetching navigation items for superuser in hotel: {staff.hotel}")
-            nav_items = NavigationItem.objects.filter(
-                hotel=staff.hotel,
-                is_active=True
-            )
-            print(f"🔍 Found {nav_items.count()} active navigation items")
-            allowed_navs = [nav.slug for nav in nav_items]
-            print(f"🔍 Navigation slugs: {allowed_navs}")
-        else:
-            print(f"🔍 Fetching navigation items for regular staff: {staff.id}")
-            nav_items = staff.allowed_navigation_items.filter(is_active=True)
-            print(f"🔍 Found {nav_items.count()} allowed navigation items")
-            allowed_navs = [nav.slug for nav in nav_items]
-            print(f"🔍 Navigation slugs: {allowed_navs}")
-
-        # Firebase FCM token handling has been removed
-
+        # Use canonical permissions resolver for consistent payload
+        from .permissions import resolve_staff_navigation
+        
+        # Get canonical permissions - this handles superuser bypass and hotel scoping
+        permissions_payload = resolve_staff_navigation(user)
+        
+        # Build login response data with canonical permissions
         data = {
             'staff_id': staff.id,
             'token': token.key,
             'username': user.username,
             'hotel_id': hotel_id,
             'hotel_name': hotel_name,
-            'hotel_slug': hotel_slug,
             'hotel': {
                 'id': hotel_id,
                 'name': hotel_name,
                 'slug': hotel_slug,
             },
-            'is_staff': user.is_staff,
-            'is_superuser': user.is_superuser,
-            'isAdmin': user.is_superuser,  # Add isAdmin field for frontend compatibility
-            'access_level': access_level,
-            'allowed_navs': allowed_navs,
-            'navigation_items': allowed_navs,  # Provide same data in navigation_items field
             'profile_image_url': profile_image_url,
             'role': staff.role.name if staff.role else None,
             'department': staff.department.name if staff.department else None,
+            'user': user,  # Pass user for serializer's to_representation method
         }
+        
+        # Merge canonical permissions payload
+        data.update(permissions_payload)
+        
+        # Legacy compatibility
+        data['isAdmin'] = permissions_payload['is_superuser']
 
         # Comprehensive login debugging and validation
         print(f"=== LOGIN DEBUG FOR USER: {user.username} ===")
         print(f"User ID: {user.id}")
-        print(f"is_superuser: {user.is_superuser}")
-        print(f"is_staff: {user.is_staff}")
+        print(f"is_superuser: {permissions_payload['is_superuser']}")
+        print(f"is_staff: {permissions_payload['is_staff']}")
         print(f"Staff ID: {staff.id}")
-        print(f"Hotel: {hotel_name} ({hotel_slug})")
-        print(f"Access Level: {access_level}")
-        print(f"allowed_navs count: {len(allowed_navs)}")
-        print(f"allowed_navs: {allowed_navs}")
+        print(f"Hotel: {hotel_name} ({permissions_payload['hotel_slug']})")
+        print(f"Access Level: {permissions_payload['access_level']}")
+        print(f"allowed_navs count: {len(permissions_payload['allowed_navs'])}")
+        print(f"allowed_navs: {permissions_payload['allowed_navs']}")
         print(f"Profile Image URL: {profile_image_url}")
         print(f"Role: {staff.role.name if staff.role else None}")
         print(f"Department: {staff.department.name if staff.department else None}")
         
-        # Check for data consistency issues
-        if user.is_superuser != (access_level == 'super_staff_admin'):
-            print(f"⚠️ INCONSISTENCY: user.is_superuser={user.is_superuser} but access_level={access_level}")
+        # Check for data consistency issues using canonical resolver
+        if permissions_payload['is_superuser'] != (permissions_payload['access_level'] == 'super_staff_admin'):
+            print(f"⚠️ INCONSISTENCY: is_superuser={permissions_payload['is_superuser']} but access_level={permissions_payload['access_level']}")
         
         # Check if there are multiple staff records
         staff_count = Staff.objects.filter(user=user).count()
@@ -200,10 +187,10 @@ class CustomAuthToken(ObtainAuthToken):
             for s in Staff.objects.filter(user=user):
                 print(f"  Staff {s.id}: {s.access_level} in {s.hotel.name}")
         
-        print("=== COMPLETE DATA BEING SENT ===")
-        for key, value in data.items():
+        print("=== CANONICAL PERMISSIONS PAYLOAD ===")
+        for key, value in permissions_payload.items():
             print(f"{key}: {value}")
-        print("===============================")
+        print("====================================")
 
         output_serializer = StaffLoginOutputSerializer(data=data, context={'request': request})
         output_serializer.is_valid(raise_exception=True)
@@ -1249,89 +1236,158 @@ class NavigationItemViewSet(viewsets.ModelViewSet):
 
 class StaffNavigationPermissionsView(APIView):
     """
-    Manage staff navigation permissions.
-    Only super_staff_admin can assign navigation items to staff.
+    Canonical staff navigation permissions management.
+    Implements the contract-compliant permission editor endpoints.
     
-    GET /api/staff/staff/{staff_id}/navigation-permissions/
-    PUT /api/staff/staff/{staff_id}/navigation-permissions/
+    GET /api/staff/{staff_id}/navigation-permissions/
+    PATCH /api/staff/{staff_id}/navigation-permissions/
+    
+    Authorization: super_staff_admin or superuser only
+    Hotel scoping: enforced unless requester is superuser
     """
     permission_classes = [permissions.IsAuthenticated]
     
     def get(self, request, staff_id):
-        """Get navigation permissions for a staff member"""
-        staff = get_object_or_404(Staff, id=staff_id)
+        """Get staff member's canonical navigation permissions."""
+        # Import canonical resolver
+        from .permissions import resolve_staff_navigation
         
-        # Check if requester is super_staff_admin
-        requester_staff = get_object_or_404(Staff, user=request.user)
-        if requester_staff.access_level != 'super_staff_admin':
+        # Get target staff member
+        target_staff = get_object_or_404(Staff, id=staff_id)
+        
+        # Authorization check
+        if not self._check_authorization(request.user, target_staff):
             return Response(
-                {
-                    "detail": "Only Super Staff Admins can view "
-                    "navigation permissions."
-                },
+                {"error": "Permission denied. Requires super_staff_admin or superuser access."},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        navigation_items = staff.allowed_navigation_items.all()
-        serializer = NavigationItemSerializer(navigation_items, many=True)
+        # Return canonical permissions for target staff
+        permissions = resolve_staff_navigation(target_staff.user)
+        permissions['staff_id'] = target_staff.id
+        permissions['staff_name'] = f"{target_staff.first_name} {target_staff.last_name}"
         
-        return Response({
-            'staff_id': staff.id,
-            'staff_name': f"{staff.first_name} {staff.last_name}",
-            'navigation_items': serializer.data,
-            'navigation_item_ids': [item.id for item in navigation_items]
-        })
+        return Response(permissions)
     
-    def put(self, request, staff_id):
-        """Update navigation permissions for a staff member"""
-        staff = get_object_or_404(Staff, id=staff_id)
+    def patch(self, request, staff_id):
+        """Update staff member's navigation permissions using canonical system."""
+        # Import canonical resolver 
+        from .permissions import resolve_staff_navigation
         
-        # Check if requester is super_staff_admin
-        requester_staff = get_object_or_404(Staff, user=request.user)
-        if requester_staff.access_level != 'super_staff_admin':
+        # Get target staff member
+        target_staff = get_object_or_404(Staff, id=staff_id)
+        
+        # Authorization check
+        if not self._check_authorization(request.user, target_staff):
             return Response(
-                {
-                    "detail": "Only Super Staff Admins can update "
-                    "navigation permissions."
-                },
+                {"error": "Permission denied. Requires super_staff_admin or superuser access."},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Get navigation item IDs from request
-        nav_item_ids = request.data.get('navigation_item_ids', [])
+        # Get request data
+        allowed_navs = request.data.get('allowed_navs', [])
+        new_access_level = request.data.get('access_level')
         
-        # Validate that all IDs exist
-        navigation_items = NavigationItem.objects.filter(
-            id__in=nav_item_ids, is_active=True
-        )
-        
-        if len(navigation_items) != len(nav_item_ids):
+        # Validate access level if provided
+        if new_access_level and new_access_level not in ['regular_staff', 'staff_admin', 'super_staff_admin']:
             return Response(
-                {"detail": "Some navigation item IDs are invalid."},
+                {"error": "Invalid access_level. Must be one of: regular_staff, staff_admin, super_staff_admin"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Update the staff's allowed navigation items
-        staff.allowed_navigation_items.set(navigation_items)
+        # Validate navigation slugs (hotel-scoped)
+        if allowed_navs:
+            # Check that all slugs exist as active NavigationItems in target staff's hotel
+            valid_nav_items = NavigationItem.objects.filter(
+                hotel=target_staff.hotel,
+                is_active=True,
+                slug__in=allowed_navs
+            )
+            
+            valid_slugs = set(valid_nav_items.values_list('slug', flat=True))
+            requested_slugs = set(allowed_navs)
+            invalid_slugs = requested_slugs - valid_slugs
+            
+            if invalid_slugs:
+                return Response(
+                    {"error": f"Invalid navigation slugs for this hotel: {list(invalid_slugs)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         
-        # Return updated data
-        serializer = NavigationItemSerializer(navigation_items, many=True)
+        # Safety check: prevent self-lockout for permission management
+        if self._is_self_lockout_attempt(request.user, target_staff, allowed_navs):
+            return Response(
+                {"error": "Cannot remove your own permission management access. Use another admin account."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        # Trigger Pusher event for navigation permission update
-        nav_slugs = [item.slug for item in navigation_items]
-        trigger_navigation_permission_update(
-            staff.hotel.slug,
-            staff.id,
-            nav_slugs
-        )
+        # Update access level if provided
+        if new_access_level:
+            target_staff.access_level = new_access_level
+            target_staff.save()
         
-        return Response({
-            'staff_id': staff.id,
-            'staff_name': f"{staff.first_name} {staff.last_name}",
-            'message': 'Navigation permissions updated successfully.',
-            'navigation_items': serializer.data,
-            'navigation_item_ids': [item.id for item in navigation_items]
-        })
+        # Update M2M navigation permissions (replace existing set)
+        if allowed_navs is not None:  # Allow empty list to clear all permissions
+            nav_items = NavigationItem.objects.filter(
+                hotel=target_staff.hotel,
+                is_active=True,
+                slug__in=allowed_navs
+            )
+            target_staff.allowed_navigation_items.set(nav_items)
+            
+            # Trigger Pusher event for navigation permission update
+            try:
+                trigger_navigation_permission_update(
+                    target_staff.hotel.slug,
+                    target_staff.id,
+                    allowed_navs
+                )
+            except Exception as e:
+                # Don't fail the request if Pusher fails
+                print(f"Pusher notification failed: {e}")
+        
+        # Return updated canonical permissions
+        updated_permissions = resolve_staff_navigation(target_staff.user)
+        updated_permissions['staff_id'] = target_staff.id
+        updated_permissions['staff_name'] = f"{target_staff.first_name} {target_staff.last_name}"
+        updated_permissions['message'] = 'Navigation permissions updated successfully.'
+        
+        return Response(updated_permissions)
+    
+    def _check_authorization(self, requester_user, target_staff):
+        """Check if requester can manage permissions for target staff."""
+        # Superuser bypass
+        if requester_user.is_superuser:
+            return True
+        
+        try:
+            requester_staff = requester_user.staff_profile
+        except (AttributeError, Staff.DoesNotExist):
+            return False
+        
+        # Must be super_staff_admin
+        if requester_staff.access_level != 'super_staff_admin':
+            return False
+        
+        # Hotel scoping (unless superuser)
+        if requester_staff.hotel != target_staff.hotel:
+            return False
+        
+        return True
+    
+    def _is_self_lockout_attempt(self, requester_user, target_staff, allowed_navs):
+        """Check if requester is trying to remove their own permission management access."""
+        if target_staff.user != requester_user:
+            return False
+        
+        # Check if removing permission management access from self
+        current_nav_slugs = set(target_staff.allowed_navigation_items.values_list('slug', flat=True))
+        permission_management_slugs = {'staff_management', 'admin_settings'}  # Adjust as needed
+        
+        current_has_perm_mgmt = bool(current_nav_slugs.intersection(permission_management_slugs))
+        new_has_perm_mgmt = bool(set(allowed_navs).intersection(permission_management_slugs))
+        
+        return current_has_perm_mgmt and not new_has_perm_mgmt
 
 
 class SaveFCMTokenView(APIView):

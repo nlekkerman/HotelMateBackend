@@ -90,11 +90,11 @@ urlpatterns = [
     path('', include(roles_router.urls)),
     path('', include(navigation_router.urls)),
     
-    # Staff navigation permissions (super_staff_admin only)
+    # Staff navigation permissions (canonical endpoint)
     path(
-        'staff/<int:staff_id>/navigation-permissions/',
+        '<int:staff_id>/permissions/',
         StaffNavigationPermissionsView.as_view(),
-        name='staff-navigation-permissions'
+        name='staff-permissions'
     ),
     
     # Hotel-specific staff endpoints

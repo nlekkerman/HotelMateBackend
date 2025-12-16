@@ -1427,3 +1427,71 @@ def add_department_to_face_attendance(sender, instance, created, **kwargs):
                 attendance_settings.save(update_fields=['face_attendance_departments'])
 
 
+# Signal to create default NavigationItems for new hotels
+@receiver(post_save, sender=Hotel)
+def create_default_navigation_items(sender, instance, created, **kwargs):
+    """Create default navigation items when a new hotel is created."""
+    if created:
+        from staff.models import NavigationItem
+        
+        default_nav_items = [
+            {
+                'name': 'Home',
+                'slug': 'home',
+                'path': '/',
+                'display_order': 1,
+                'is_active': True,
+                'description': 'Dashboard and main overview'
+            },
+            {
+                'name': 'Chat',
+                'slug': 'chat', 
+                'path': '/chat',
+                'display_order': 2,
+                'is_active': True,
+                'description': 'Staff communication and messaging'
+            },
+            {
+                'name': 'Stock Tracker',
+                'slug': 'stock_tracker',
+                'path': '/stock',
+                'display_order': 3,
+                'is_active': True,
+                'description': 'Inventory and stock management'
+            },
+            {
+                'name': 'Bookings',
+                'slug': 'bookings',
+                'path': '/bookings',
+                'display_order': 4,
+                'is_active': True,
+                'description': 'Room and service booking management'
+            },
+            {
+                'name': 'Staff Management',
+                'slug': 'staff_management',
+                'path': '/staff',
+                'display_order': 5,
+                'is_active': True,
+                'description': 'Staff profiles and management'
+            },
+            {
+                'name': 'Admin Settings',
+                'slug': 'admin_settings',
+                'path': '/admin',
+                'display_order': 6,
+                'is_active': True,
+                'description': 'Administrative settings and configuration'
+            }
+        ]
+        
+        # Create NavigationItems for the new hotel
+        for item_data in default_nav_items:
+            NavigationItem.objects.create(
+                hotel=instance,
+                **item_data
+            )
+        
+        print(f"✅ Created {len(default_nav_items)} default navigation items for hotel: {instance.name} ({instance.slug})")
+
+

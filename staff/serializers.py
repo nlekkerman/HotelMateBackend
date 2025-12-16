@@ -268,22 +268,47 @@ class StaffLoginInputSerializer(serializers.Serializer):
 
 
 class StaffLoginOutputSerializer(serializers.Serializer):
+    """Login response serializer with canonical permissions payload."""
+    # Core login fields
     staff_id = serializers.IntegerField()
     username = serializers.CharField()
     token = serializers.CharField()
     hotel_id = serializers.IntegerField(allow_null=True, required=False)
     hotel_name = serializers.CharField(allow_null=True, required=False)
-    hotel_slug = serializers.CharField(allow_null=True, required=False)
     hotel = serializers.DictField()
+    
+    # Canonical permissions payload (ALWAYS present)
     is_staff = serializers.BooleanField()
     is_superuser = serializers.BooleanField()
-    isAdmin = serializers.BooleanField()
-    access_level = serializers.CharField(allow_null=True, required=False)
+    hotel_slug = serializers.CharField(allow_null=True)
+    access_level = serializers.CharField(allow_null=True)
     allowed_navs = serializers.ListField(child=serializers.CharField())
-    navigation_items = serializers.ListField(child=serializers.CharField(), required=False)
+    navigation_items = serializers.ListField(child=serializers.DictField())
+    
+    # Legacy and additional fields
+    isAdmin = serializers.BooleanField()  # Legacy compatibility
     profile_image_url = serializers.CharField(allow_null=True, required=False)
     role = serializers.CharField(allow_null=True, required=False)
     department = serializers.CharField(allow_null=True, required=False)
+    
+    def to_representation(self, instance):
+        """Ensure canonical permissions are always included using resolver."""
+        # Import here to avoid circular imports
+        from .permissions import resolve_staff_navigation
+        
+        data = super().to_representation(instance)
+        
+        # Get user object for permissions resolution
+        user = instance.get('user')
+        if user:
+            # Get canonical permissions payload and merge it
+            permissions = resolve_staff_navigation(user)
+            data.update(permissions)
+            
+            # Ensure isAdmin matches is_superuser for legacy compatibility
+            data['isAdmin'] = permissions['is_superuser']
+        
+        return data
     
     def validate(self, data):
         """Add validation to catch data inconsistencies."""
