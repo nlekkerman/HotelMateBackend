@@ -137,6 +137,9 @@ staff_hotel_router.register(
 )
 
 urlpatterns = [
+    # Include staff authentication routes FIRST (no hotel_slug required)
+    path('', include('staff.urls')),
+    
     # Phase 1 Direct Staff Routes (cleaner URLs)
     # Staff Profile
     path(
@@ -203,7 +206,4 @@ urlpatterns += [
     for app in STAFF_APPS
 ]
 
-# Include staff authentication routes at root level (no hotel_slug required)
-urlpatterns += [
-    path('', include('staff.urls')),
-]
+
