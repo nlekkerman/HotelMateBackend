@@ -554,6 +554,58 @@ class RoomBooking(models.Model):
         null=True, blank=True,
         help_text="Timestamp when guest checked out"
     )
+    
+    # Room Assignment Audit Fields (Safe Assignment System)
+    room_assigned_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when room was assigned"
+    )
+    room_assigned_by = models.ForeignKey(
+        'staff.Staff', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='room_assignments',
+        help_text="Staff member who assigned the room"
+    )
+    assignment_notes = models.TextField(
+        blank=True,
+        help_text="Notes about room assignment"
+    )
+    
+    # Track reassignments separately
+    room_reassigned_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when room was last reassigned"
+    )
+    room_reassigned_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True, 
+        related_name='room_reassignments',
+        help_text="Staff member who last reassigned the room"
+    )
+    
+    # Track unassignments separately
+    room_unassigned_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when room was unassigned"
+    )
+    room_unassigned_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='room_unassignments',
+        help_text="Staff member who unassigned the room"
+    )
+    
+    # Version field for debugging concurrent access
+    assignment_version = models.PositiveIntegerField(
+        default=0,
+        help_text="Assignment version for debugging concurrency issues"
+    )
 
     class Meta:
         ordering = ['-created_at']

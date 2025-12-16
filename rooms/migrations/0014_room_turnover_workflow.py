@@ -4,6 +4,19 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
+def set_initial_room_status(apps, schema_editor):
+    """Set initial room_status values based on existing data"""
+    Room = apps.get_model('rooms', 'Room')
+    for room in Room.objects.all():
+        # Note: is_out_of_order remains authoritative flag
+        # room_status reflects workflow state regardless
+        if room.is_occupied:
+            room.room_status = 'OCCUPIED'
+        else:
+            room.room_status = 'AVAILABLE'
+        room.save(update_fields=['room_status'])
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -115,16 +128,3 @@ class Migration(migrations.Migration):
         # Data migration
         migrations.RunPython(set_initial_room_status, reverse_code=migrations.RunPython.noop),
     ]
-
-
-def set_initial_room_status(apps, schema_editor):
-    """Set initial room_status values based on existing data"""
-    Room = apps.get_model('rooms', 'Room')
-    for room in Room.objects.all():
-        # Note: is_out_of_order remains authoritative flag
-        # room_status reflects workflow state regardless
-        if room.is_occupied:
-            room.room_status = 'OCCUPIED'
-        else:
-            room.room_status = 'AVAILABLE'
-        room.save()

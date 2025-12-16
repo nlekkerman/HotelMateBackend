@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
 from notifications.notification_manager import notification_manager
+from room_bookings.services.room_assignment import RoomAssignmentService
+from room_bookings.exceptions import RoomAssignmentError
+from rest_framework.pagination import PageNumberPagination
 from .models import (
     Hotel,
     HotelAccessConfig,
@@ -1922,3 +1925,163 @@ class BookingPartyManagementView(APIView):
                 {"error": "Internal server error updating companions"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+# ============================================================================
+# SAFE ROOM ASSIGNMENT SYSTEM (Phase 3: API Endpoints)
+# ============================================================================
+
+class AvailableRoomsView(APIView):
+    """GET /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/available-rooms/"""
+    
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def get(self, request, hotel_slug, booking_id):
+        booking = get_object_or_404(RoomBooking, id=booking_id, hotel__slug=hotel_slug)
+        
+        available_rooms = RoomAssignmentService.find_available_rooms_for_booking(booking)
+        
+        data = [{
+            'id': room.id,
+            'room_number': room.room_number,
+            'room_type': room.room_type.name,
+            'room_status': room.room_status,
+            'is_bookable': room.is_bookable()
+        } for room in available_rooms]
+        
+        return Response({'available_rooms': data})
+
+
+class SafeAssignRoomView(APIView):
+    """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/safe-assign-room/"""
+    
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def post(self, request, hotel_slug, booking_id):
+        room_id = request.data.get('room_id')
+        notes = request.data.get('notes', '')
+        
+        if not room_id:
+            return Response(
+                {'error': {'code': 'MISSING_ROOM_ID', 'message': 'room_id is required'}},
+                status=400
+            )
+        
+        try:
+            booking = RoomAssignmentService.assign_room_atomic(
+                booking_id=booking_id,
+                room_id=room_id,
+                staff_user=request.user.staff_profile,
+                notes=notes
+            )
+            
+            # Return updated booking with assigned room details
+            from .booking_serializers import RoomBookingDetailSerializer
+            serializer = RoomBookingDetailSerializer(booking)
+            return Response(serializer.data)
+            
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': {'code': 'BOOKING_NOT_FOUND', 'message': 'Booking not found'}},
+                status=404
+            )
+        except Room.DoesNotExist:
+            return Response(
+                {'error': {'code': 'ROOM_NOT_FOUND', 'message': 'Room not found'}},
+                status=404
+            )
+        except RoomAssignmentError as e:
+            status_code = 409 if e.code in ['ROOM_OVERLAP_CONFLICT', 'BOOKING_ALREADY_CHECKED_IN'] else 400
+            return Response(
+                {'error': {'code': e.code, 'message': e.message, 'details': e.details}},
+                status=status_code
+            )
+
+
+class UnassignRoomView(APIView):
+    """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/unassign-room/"""
+    
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    @transaction.atomic
+    def post(self, request, hotel_slug, booking_id):
+        booking = get_object_or_404(
+            RoomBooking.objects.select_for_update(),
+            id=booking_id, 
+            hotel__slug=hotel_slug
+        )
+        
+        # Use proper in-house check: checked_in_at exists AND not checked_out_at  
+        if booking.checked_in_at and not booking.checked_out_at:
+            return Response(
+                {'error': {'code': 'BOOKING_ALREADY_CHECKED_IN', 'message': 'Cannot unassign room for in-house guest'}},
+                status=409
+            )
+        
+        if not booking.assigned_room:
+            return Response(
+                {'error': {'code': 'NO_ROOM_ASSIGNED', 'message': 'No room currently assigned'}},
+                status=400
+            )
+        
+        # Audit log unassignment
+        booking.assigned_room = None
+        booking.room_unassigned_at = timezone.now()
+        booking.room_unassigned_by = request.user.staff_profile
+        if booking.assignment_notes:
+            booking.assignment_notes += f"\n[UNASSIGNED: {timezone.now()} by {request.user.staff_profile}]"
+        else:
+            booking.assignment_notes = f"[UNASSIGNED: {timezone.now()} by {request.user.staff_profile}]"
+        booking.save()
+        
+        return Response({'message': 'Room unassigned successfully'})
+
+
+class SafeStaffBookingListView(APIView):
+    """GET /api/staff/hotels/{hotel_slug}/bookings/safe/"""
+    
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel] 
+    
+    def get(self, request, hotel_slug):
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        queryset = RoomBooking.objects.filter(hotel=hotel).select_related(
+            'assigned_room', 'room_type', 'room_assigned_by'
+        )
+        
+        # Query parameter filters
+        from_date = request.query_params.get('from')
+        to_date = request.query_params.get('to')
+        status_filter = request.query_params.get('status')
+        assigned = request.query_params.get('assigned')  # true/false
+        arriving = request.query_params.get('arriving')  # today
+        room_type = request.query_params.get('room_type')
+        
+        if from_date:
+            queryset = queryset.filter(check_in__gte=from_date)
+        if to_date:
+            queryset = queryset.filter(check_out__lte=to_date)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if assigned == 'true':
+            queryset = queryset.filter(assigned_room__isnull=False)
+        elif assigned == 'false':
+            queryset = queryset.filter(assigned_room__isnull=True)
+        if arriving == 'today':
+            today = timezone.now().date()
+            queryset = queryset.filter(check_in=today)
+        if room_type:
+            # Use room_type code instead of name (names can collide across hotels)
+            from rooms.models import RoomType
+            try:
+                room_type_obj = RoomType.objects.get(hotel=hotel, code=room_type)
+                queryset = queryset.filter(room_type=room_type_obj)
+            except RoomType.DoesNotExist:
+                pass  # Invalid room type, ignore filter
+                
+        # Paginate and serialize
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        from .booking_serializers import RoomBookingListSerializer
+        serializer = RoomBookingListSerializer(page, many=True)
+        return paginator.get_paginated_response(serializer.data)

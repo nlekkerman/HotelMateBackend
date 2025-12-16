@@ -16,6 +16,11 @@ from hotel.staff_views import (
     StaffBookingCancelView,
     BookingAssignmentView,
     BookingPartyManagementView,
+    # Safe Room Assignment System Views
+    AvailableRoomsView,
+    SafeAssignRoomView,
+    UnassignRoomView,
+    SafeStaffBookingListView,
 )
 
 urlpatterns = [
@@ -76,5 +81,35 @@ urlpatterns = [
         BookingPartyManagementView.as_view(),
         {'action': 'companions'},
         name='room-bookings-staff-party-companions'
+    ),
+    
+    # ===== SAFE ROOM ASSIGNMENT SYSTEM ENDPOINTS =====
+    
+    # Get available rooms for a booking
+    path(
+        '<int:booking_id>/available-rooms/',
+        AvailableRoomsView.as_view(),
+        name='room-bookings-available-rooms'
+    ),
+    
+    # Safe room assignment with atomic locking and validation
+    path(
+        '<int:booking_id>/safe-assign-room/',
+        SafeAssignRoomView.as_view(),
+        name='room-bookings-safe-assign-room'
+    ),
+    
+    # Unassign room (before check-in only)
+    path(
+        '<int:booking_id>/unassign-room/',
+        UnassignRoomView.as_view(),
+        name='room-bookings-unassign-room'
+    ),
+    
+    # Enhanced staff bookings list with assignment filters
+    path(
+        'safe/',
+        SafeStaffBookingListView.as_view(),
+        name='room-bookings-safe-staff-list'
     ),
 ]
