@@ -175,12 +175,15 @@ class CreatePaymentSessionView(APIView):
                 'quantity': 1,
             }]
             
-            # Create Stripe Checkout Session
+            # Create Stripe Checkout Session with proper URL parameter joining
+            sep = "&" if "?" in success_url else "?"
+            success_url_with_session = f"{success_url}{sep}session_id={{CHECKOUT_SESSION_ID}}"
+            
             session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=line_items,
                 mode='payment',
-                success_url=f"{success_url}?session_id={{CHECKOUT_SESSION_ID}}",
+                success_url=success_url_with_session,
                 cancel_url=cancel_url,
                 customer_email=guest_data['email'],
                 metadata={
