@@ -371,27 +371,21 @@ class HotelBookingCreateView(APIView):
                                 status=status.HTTP_400_BAD_REQUEST
                             )
                         
-                        # Create BookingGuest record
-                        BookingGuest.objects.create(
-                            booking=booking,
-                            role=role,
-                            first_name=first_name,
-                            last_name=last_name,
-                            email=party_member.get('email', ''),
-                            phone=party_member.get('phone', ''),
-                            is_staying=True,
-                        )
-                else:
-                    # Auto-create PRIMARY BookingGuest from primary_* fields
-                    BookingGuest.objects.create(
-                        booking=booking,
-                        role='PRIMARY',
-                        first_name=primary_first_name,
-                        last_name=primary_last_name,
-                        email=primary_email,
-                        phone=primary_phone,
-                        is_staying=True,
-                    )
+                        # Create BookingGuest record (only for COMPANION roles)
+                        # PRIMARY is automatically created by RoomBooking.save()
+                        if role != 'PRIMARY':
+                            BookingGuest.objects.create(
+                                booking=booking,
+                                role=role,
+                                first_name=first_name,
+                                last_name=last_name,
+                                email=party_member.get('email', ''),
+                                phone=party_member.get('phone', ''),
+                                is_staying=True,
+                            )
+                
+                # PRIMARY BookingGuest is automatically created by RoomBooking.save()
+                # No manual creation needed here
                         
         except Exception as e:
             return Response(
