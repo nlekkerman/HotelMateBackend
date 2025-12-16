@@ -95,17 +95,33 @@ class CustomAuthToken(ObtainAuthToken):
         if not input_serializer.is_valid():
             return Response(input_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        response = super().post(request, *args, **kwargs)
+        try:
+            response = super().post(request, *args, **kwargs)
+        except Exception as e:
+            return Response(
+                {'error': 'Invalid username or password'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+        
         token_key = response.data.get('token')
         if not token_key:
-            return Response({'error': 'Invalid credentials'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {'error': 'Invalid username or password'},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
         token = Token.objects.get(key=token_key)
         user = token.user
 
-        staff = Staff.objects.select_related(
-            'department', 'hotel', 'role'
-        ).prefetch_related('allowed_navigation_items').get(user=user)
+        try:
+            staff = Staff.objects.select_related(
+                'department', 'hotel', 'role'
+            ).prefetch_related('allowed_navigation_items').get(user=user)
+        except Staff.DoesNotExist:
+            return Response(
+                {'error': 'Staff profile not found. Please contact your hotel administrator.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
         hotel_id = staff.hotel.id if staff and staff.hotel else None
         hotel_name = staff.hotel.name if staff and staff.hotel else None
