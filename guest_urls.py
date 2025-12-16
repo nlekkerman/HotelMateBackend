@@ -282,29 +282,35 @@ def create_booking(request, hotel_slug):
     except json.JSONDecodeError:
         return JsonResponse({'error': 'Invalid JSON'}, status=400)
     
-    # Extract data
+    # Extract data using NEW field structure
     quote_id = data.get('quote_id')
     room_type_code = data.get('room_type_code')
     check_in_str = data.get('check_in')
     check_out_str = data.get('check_out')
     adults = data.get('adults', 2)
     children = data.get('children', 0)
-    guest_data = data.get('guest', {})
+    
+    # NEW primary guest fields
+    primary_first_name = data.get('primary_first_name')
+    primary_last_name = data.get('primary_last_name')
+    primary_email = data.get('primary_email')
+    primary_phone = data.get('primary_phone', '')
+    
     special_requests = data.get('special_requests', '')
     promo_code = data.get('promo_code', '')
     
     # Validate required fields
     required_fields = ['room_type_code', 'check_in', 'check_out']
-    required_guest_fields = ['first_name', 'last_name', 'email']
+    required_primary_fields = ['primary_first_name', 'primary_last_name', 'primary_email']
     
     if not all(data.get(f) for f in required_fields):
         return JsonResponse({
             'error': 'Missing required fields'
         }, status=400)
     
-    if not all(guest_data.get(f) for f in required_guest_fields):
+    if not all(data.get(f) for f in required_primary_fields):
         return JsonResponse({
-            'error': 'Missing guest information'
+            'error': 'Missing primary guest information'
         }, status=400)
     
     # Get room type
