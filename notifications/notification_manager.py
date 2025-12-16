@@ -766,16 +766,16 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="booking_created",
             payload=payload,
             hotel=booking.hotel,
             scope={'booking_id': booking.booking_id, 'primary_email': booking.primary_email}
         )
         
-        # Send to booking channel
+        # Send to room booking channel
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = self._room_booking_channel(hotel_slug)
         
         # Send FCM to guest if token available
         self._notify_guest_booking_confirmed(booking)
@@ -798,7 +798,7 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="booking_updated",
             payload=payload,
             hotel=booking.hotel,
@@ -806,7 +806,7 @@ class NotificationManager:
         )
         
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = self._room_booking_channel(hotel_slug)
         return self._safe_pusher_trigger(channel, "booking_updated", event_data)
     
     def realtime_booking_party_updated(self, booking, party_members=None):
@@ -834,7 +834,7 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="booking_party_updated", 
             payload=payload,
             hotel=booking.hotel,
@@ -842,7 +842,7 @@ class NotificationManager:
         )
         
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = self._room_booking_channel(hotel_slug)
         return self._safe_pusher_trigger(channel, "booking_party_updated", event_data)
     
     def realtime_booking_cancelled(self, booking, reason=None):
@@ -852,7 +852,7 @@ class NotificationManager:
         payload = {
             'booking_id': booking.booking_id,
             'confirmation_number': getattr(booking, 'confirmation_number', None),
-            'guest_name': f"{booking.first_name} {booking.last_name}",
+            'guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
             'room': booking.room_number if hasattr(booking, 'room_number') else None,
             'check_in': booking.check_in.isoformat(),
             'check_out': booking.check_out.isoformat(),
@@ -862,7 +862,7 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="booking_cancelled",
             payload=payload,
             hotel=booking.hotel,
@@ -873,7 +873,7 @@ class NotificationManager:
         self._notify_guest_booking_cancelled(booking, reason)
         
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = self._room_booking_channel(hotel_slug)
         return self._safe_pusher_trigger(channel, "booking_cancelled", event_data)
     
     # -------------------------------------------------------------------------
@@ -942,6 +942,10 @@ class NotificationManager:
             
         if guest_fcm_token:
             send_booking_cancellation_notification(guest_fcm_token, booking, reason)
+    
+    def _room_booking_channel(self, hotel_slug):
+        """Helper method to generate room booking channel name."""
+        return f"{hotel_slug}.room-bookings"
 
     # -------------------------------------------------------------------------
     # PHASE 2: NEW BOOKING REALTIME METHODS
@@ -975,16 +979,16 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="booking_checked_in",
             payload=payload,
             hotel=booking.hotel,
-            scope={'booking_id': booking.booking_id, 'room_number': room.room_number}
+            scope={'booking_id': booking.booking_id, 'room_number': room_number}
         )
         
-        # Send to booking channel
+        # Send to room booking channel
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = self._room_booking_channel(hotel_slug)
         
         return self._safe_pusher_trigger(channel, "booking_checked_in", event_data)
 
@@ -1014,16 +1018,16 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="booking_checked_out", 
             payload=payload,
             hotel=booking.hotel,
             scope={'booking_id': booking.booking_id, 'room_number': room_num}
         )
         
-        # Send to booking channel
+        # Send to room booking channel
         hotel_slug = booking.hotel.slug
-        channel = f"{hotel_slug}.booking"
+        channel = self._room_booking_channel(hotel_slug)
         
         return self._safe_pusher_trigger(channel, "booking_checked_out", event_data)
 
@@ -1114,15 +1118,15 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="integrity_healed",
             payload=payload,
             hotel=hotel,
             scope={'healing_type': 'auto_heal', 'changes_count': payload['summary']['total_fixes']}
         )
         
-        # Send to hotel booking channel
-        channel = f"{hotel.slug}.booking"
+        # Send to hotel room booking channel
+        channel = self._room_booking_channel(hotel.slug)
         return self._safe_pusher_trigger(channel, "booking_integrity_healed", event_data)
     
     def realtime_booking_party_healed(self, booking):
@@ -1164,15 +1168,15 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="party_healed",
             payload=payload,
             hotel=booking.hotel,
             scope={'booking_id': booking.booking_id, 'party_size': len(party_members)}
         )
         
-        # Send to hotel booking channel
-        channel = f"{booking.hotel.slug}.booking"
+        # Send to hotel room booking channel
+        channel = self._room_booking_channel(booking.hotel.slug)
         return self._safe_pusher_trigger(channel, "booking_party_healed", event_data)
     
     def realtime_booking_guests_healed(self, booking, primary_guest):
@@ -1214,15 +1218,15 @@ class NotificationManager:
         }
         
         event_data = self._create_normalized_event(
-            category="booking",
+            category="room_booking",
             event_type="guests_healed",
             payload=payload,
             hotel=booking.hotel,
             scope={'booking_id': booking.booking_id, 'room_number': payload['room_number']}
         )
         
-        # Send to hotel booking channel
-        channel = f"{booking.hotel.slug}.booking"
+        # Send to hotel room booking channel
+        channel = self._room_booking_channel(booking.hotel.slug)
         return self._safe_pusher_trigger(channel, "booking_guests_healed", event_data)
     
     # =============================================================================

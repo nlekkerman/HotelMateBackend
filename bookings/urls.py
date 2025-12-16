@@ -135,12 +135,5 @@ urlpatterns = [
         DeleteBookingAPIView.as_view(),
         name='delete-booking'
     ),
-    
-    # Room booking endpoints (external booking system)
-    path(
-        '<str:booking_id>/',
-        BookingDetailView.as_view(),
-        name='room-booking-detail'
-    ),
 
 ]

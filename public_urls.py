@@ -9,10 +9,12 @@ from hotel.public_views import (
     HotelPublicPageView,
     PublicPresetsView,
 )
+
 from hotel.booking_views import (
     HotelAvailabilityView,
     HotelPricingQuoteView,
     HotelBookingCreateView,
+    PublicRoomBookingDetailView,
 )
 from hotel.payment_views import (
     CreatePaymentSessionView,
@@ -66,6 +68,13 @@ urlpatterns = [
         "hotel/<str:hotel_slug>/bookings/",
         HotelBookingCreateView.as_view(),
         name="public-hotel-booking-create",
+    ),
+    
+    # Room booking detail (external booking system lookup)
+    path(
+        "hotel/<str:hotel_slug>/room-bookings/<str:booking_id>/",
+        PublicRoomBookingDetailView.as_view(),
+        name="public-room-booking-detail",
     ),
     
     # Payment endpoints

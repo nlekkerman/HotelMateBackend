@@ -46,22 +46,33 @@ class CreatePaymentSessionView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # For Phase 1, we'll accept booking data in the request
-        # In Phase 2, this would load from database
-        booking_data = request.data.get('booking', {})
+        # Load booking from database
+        from .models import Hotel, RoomBooking
         
-        if not booking_data:
+        try:
+            hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
+            booking = get_object_or_404(
+                RoomBooking,
+                booking_id=booking_id,
+                hotel=hotel
+            )
+        except:
             return Response(
-                {"detail": "Booking data is required"},
+                {"detail": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate booking can accept payment
+        if booking.status not in ['PENDING_PAYMENT']:
+            return Response(
+                {"detail": f"Booking is {booking.status}, cannot process payment"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        guest = booking_data.get('guest', {})
-        guest_email = guest.get('email')
-        
+        guest_email = booking.guest_email
         if not guest_email:
             return Response(
-                {"detail": "Guest email is required"},
+                {"detail": "Booking has no guest email"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -106,45 +117,44 @@ class CreatePaymentSessionView(APIView):
         )
         
         try:
-            # Extract pricing info
-            pricing = booking_data.get('pricing', {})
-            total = pricing.get('total', '0')
-            currency = pricing.get('currency', 'EUR').lower()
+            # Get canonical booking totals from model
+            total_amount = booking.total
+            currency = booking.room_type.currency.lower()
             
             # Convert total to cents/smallest currency unit
-            amount = int(float(total) * 100)
+            amount = int(float(total_amount) * 100)
             
-            # Extract booking details
-            hotel = booking_data.get('hotel', {})
-            room = booking_data.get('room', {})
-            dates = booking_data.get('dates', {})
-            guest = booking_data.get('guest', {})
-            
-            # Verify hotel slug matches booking data
-            hotel_slug = hotel.get('slug')
-            if hotel_slug and hotel_slug != slug:
-                return Response(
-                    {
-                        "detail": (
-                            f"Hotel slug mismatch. URL slug '{slug}' "
-                            f"does not match booking hotel '{hotel_slug}'"
-                        )
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Extract booking details for Stripe session
+            hotel_data = {
+                'name': hotel.name,
+                'slug': hotel.slug
+            }
+            room_data = {
+                'type': booking.room_type.name,
+                'photo': booking.room_type.photo.url if booking.room_type.photo else None
+            }
+            dates_data = {
+                'check_in': booking.check_in_date.isoformat(),
+                'check_out': booking.check_out_date.isoformat(),
+                'nights': booking.nights
+            }
+            guest_data = {
+                'name': booking.guest_name,
+                'email': booking.guest_email
+            }
             
             # Create line items for Stripe
             line_items = [{
                 'price_data': {
                     'currency': currency,
                     'product_data': {
-                        'name': f"{hotel.get('name')} - {room.get('type')}",
+                        'name': f"{hotel_data['name']} - {room_data['type']}",
                         'description': (
-                            f"Check-in: {dates.get('check_in')}, "
-                            f"Check-out: {dates.get('check_out')} "
-                            f"({dates.get('nights')} nights)"
+                            f"Check-in: {dates_data['check_in']}, "
+                            f"Check-out: {dates_data['check_out']} "
+                            f"({dates_data['nights']} nights)"
                         ),
-                        'images': [room.get('photo')] if room.get('photo') else [],
+                        'images': [room_data['photo']] if room_data['photo'] else [],
                     },
                     'unit_amount': amount,
                 },
@@ -158,16 +168,16 @@ class CreatePaymentSessionView(APIView):
                 mode='payment',
                 success_url=f"{success_url}?session_id={{CHECKOUT_SESSION_ID}}",
                 cancel_url=cancel_url,
-                customer_email=guest.get('email'),
+                customer_email=guest_data['email'],
                 metadata={
                     'booking_id': booking_id,
-                    'hotel_slug': hotel.get('slug'),
-                    'guest_name': guest.get('name'),
-                    'check_in': dates.get('check_in'),
-                    'check_out': dates.get('check_out'),
+                    'hotel_slug': hotel_data['slug'],
+                    'guest_name': guest_data['name'],
+                    'check_in': dates_data['check_in'],
+                    'check_out': dates_data['check_out'],
                 },
                 payment_intent_data={
-                    'description': f"Booking {booking_id} at {hotel.get('name')}",
+                    'description': f"Booking {booking_id} at {hotel_data['name']}",
                 },
             )
             
@@ -185,14 +195,13 @@ class CreatePaymentSessionView(APIView):
             }
             store_payment_session(booking_id, session_data)
             
-            # Store booking metadata for webhook retrieval
-            store_booking_metadata(booking_id, booking_data)
+            # Booking data is already in DB, no need to cache
             
             return Response({
                 'session_id': session.id,
                 'payment_url': session.url,
                 'status': 'created',
-                'amount': total,
+                'amount': str(total_amount),
                 'currency': currency.upper(),
             }, status=status.HTTP_200_OK)
             
