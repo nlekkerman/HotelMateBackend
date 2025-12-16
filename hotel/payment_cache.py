@@ -14,18 +14,18 @@ import hashlib
 import json
 
 
-def generate_idempotency_key(booking_id, guest_email):
+def generate_idempotency_key(booking_id, primary_email):
     """
     Generate a unique idempotency key for a booking.
     
     Args:
         booking_id: The booking ID
-        guest_email: Guest email address
+        primary_email: Primary guest email address
         
     Returns:
         Idempotency key string
     """
-    data = f"{booking_id}:{guest_email}:{datetime.utcnow().date()}"
+    data = f"{booking_id}:{primary_email}:{datetime.utcnow().date()}"
     return f"idem_{hashlib.sha256(data.encode()).hexdigest()[:16]}"
 
 
