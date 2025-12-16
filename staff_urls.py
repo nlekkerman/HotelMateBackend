@@ -202,3 +202,8 @@ urlpatterns += [
     )
     for app in STAFF_APPS
 ]
+
+# Include staff authentication routes at root level (no hotel_slug required)
+urlpatterns += [
+    path('', include('staff.urls')),
+]
