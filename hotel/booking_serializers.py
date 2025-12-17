@@ -332,12 +332,12 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
     
     def get_party(self, obj):
         """Get booking party information grouped by role"""
-        party_members = obj.party.all().order_by('role', 'first_name')
+        party_list = obj.party.all().order_by('role', 'first_name')
         
         primary_guest = None
         companions = []
         
-        for member in party_members:
+        for member in party_list:
             member_data = BookingGuestSerializer(member).data
             
             if member.role == 'PRIMARY':
@@ -348,5 +348,5 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
         return {
             'primary': primary_guest,
             'companions': companions,
-            'total_party_size': len(party_members)
+            'total_party_size': len(party_list)
         }
