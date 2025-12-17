@@ -163,6 +163,7 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     booker_summary = serializers.SerializerMethodField()
     primary_guest_name = serializers.SerializerMethodField()
     party_total_count = serializers.SerializerMethodField()
+    party_status_display = serializers.SerializerMethodField()
     
     class Meta:
         model = RoomBooking
@@ -177,7 +178,12 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'booker_type',
             'booker_summary',
             'primary_guest_name',
+            'primary_email',
+            'booker_email',
             'party_total_count',
+            'party_complete',
+            'party_missing_count',
+            'party_status_display',
             'created_at',
             'updated_at',
         ]
@@ -203,6 +209,17 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     
     def get_party_total_count(self, obj):
         return obj.party.count()
+    
+    def get_party_status_display(self, obj):
+        """Generate human-readable party completion status for list view."""
+        if obj.party_complete:
+            return "✅ Complete"
+        else:
+            missing = obj.party_missing_count
+            if missing == 1:
+                return f"⚠️ Missing 1 guest"
+            else:
+                return f"⚠️ Missing {missing} guests"
 
 
 class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
