@@ -10,11 +10,15 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
 from django.conf import settings
 from django.core.mail import send_mail
+from datetime import datetime, timedelta, date
+import hashlib
+import secrets
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,8 @@ logger = logging.getLogger(__name__)
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from chat.utils import pusher_client
 from notifications.notification_manager import notification_manager
+from notifications.email_service import send_booking_confirmation_email, send_booking_cancellation_email
+from notifications.fcm_service import send_booking_confirmation_notification, send_booking_cancellation_notification
 from room_bookings.services.room_assignment import RoomAssignmentService
 from room_bookings.exceptions import RoomAssignmentError
 from rest_framework.pagination import PageNumberPagination
@@ -675,7 +681,6 @@ class ListContainerViewSet(viewsets.ModelViewSet):
         """Validate that lists cannot be attached to rooms sections"""
         section = serializer.validated_data.get('section')
         if section and hasattr(section, 'rooms_data'):
-            from rest_framework.exceptions import ValidationError
             raise ValidationError({"section": "Cannot attach lists to rooms sections"})
         serializer.save()
 
@@ -701,7 +706,6 @@ class CardViewSet(viewsets.ModelViewSet):
         """Validate that cards cannot be attached to rooms sections"""
         list_container = serializer.validated_data.get('list_container')
         if list_container and hasattr(list_container.section, 'rooms_data'):
-            from rest_framework.exceptions import ValidationError
             raise ValidationError({"list_container": "Cannot attach cards to rooms sections"})
         serializer.save()
     
@@ -807,7 +811,6 @@ class RoomsSectionViewSet(viewsets.ModelViewSet):
             hotel = section.hotel
             existing = RoomsSection.objects.filter(section__hotel=hotel).exists()
             if existing:
-                from rest_framework.exceptions import ValidationError
                 raise ValidationError({"section": "Hotel already has a rooms section"})
         serializer.save()
 
@@ -1068,7 +1071,6 @@ class StaffBookingConfirmView(APIView):
 
         # Send email notification to guest
         try:
-            from notifications.email_service import send_booking_confirmation_email
             send_booking_confirmation_email(booking)
         except ImportError:
             logger.warning("Email service not available for booking confirmation")
@@ -2112,11 +2114,7 @@ class SendPrecheckinLinkView(APIView):
 
     def post(self, request, hotel_slug, booking_id):
         """Generate token and send pre-check-in email to guest"""
-        import secrets
-        import hashlib
-        from datetime import timedelta
         from .models import RoomBooking, BookingPrecheckinToken
-        from notifications.email_service import send_booking_confirmation_email
         
         # Validate hotel scope and get booking
         try:
