@@ -48,9 +48,16 @@ from .models import (
     ContentBlock,
     RoomsSection,
     RoomBooking,
+    BookingPrecheckinToken,
+    BookingGuest,
 )
 from rooms.models import RoomType, Room
 from guests.models import Guest
+from .canonical_serializers import (
+    StaffRoomBookingListSerializer,
+    StaffRoomBookingDetailSerializer, 
+    BookingPartyGroupedSerializer,
+)
 from .serializers import (
     RoomTypeStaffSerializer,
     HotelAccessConfigStaffSerializer,
@@ -1033,7 +1040,7 @@ class StaffBookingsListView(APIView):
             except ValueError:
                 return Response({'error': 'Invalid end_date format'}, status=status.HTTP_400_BAD_REQUEST)
 
-        from .canonical_serializers import StaffRoomBookingListSerializer
+
         serializer = StaffRoomBookingListSerializer(bookings, many=True)
         return Response(serializer.data)
 
