@@ -336,6 +336,7 @@ class ValidatePrecheckinTokenView(APIView):
                 'room_type_name': booking.room_type.name,
                 'hotel_name': booking.hotel.name,
                 'nights': booking.nights,
+                'expected_guests': booking.adults + booking.children,
                 'special_requests': booking.special_requests or ''
             },
             'party': {

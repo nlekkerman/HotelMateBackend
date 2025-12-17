@@ -161,6 +161,7 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     nights = serializers.SerializerMethodField()
     assigned_room_number = serializers.SerializerMethodField()
     booker_summary = serializers.SerializerMethodField()
+    guest_display_name = serializers.SerializerMethodField()
     party_total_count = serializers.SerializerMethodField()
     party_status_display = serializers.SerializerMethodField()
     
@@ -176,6 +177,7 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'assigned_room_number',
             'booker_type',
             'booker_summary',
+            'guest_display_name',
             'primary_email',
             'booker_email',
             'party_total_count',
@@ -203,6 +205,17 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             return f"{obj.booker_first_name} {obj.booker_last_name}".strip() or 'Individual Booking'
         else:
             return obj.booker_type.replace('_', ' ').title()
+    
+    def get_guest_display_name(self, obj):
+        """Get display name from party primary guest or fallback to booking fields."""
+        try:
+            primary_guest = obj.party.filter(role='PRIMARY').first()
+            if primary_guest:
+                return primary_guest.full_name
+        except:
+            pass
+        # Fallback to booking primary fields if no party data
+        return obj.primary_guest_name or 'Guest Information Pending'
     
     def get_party_total_count(self, obj):
         return obj.party.count()
