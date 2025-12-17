@@ -334,17 +334,14 @@ class ValidatePrecheckinTokenView(APIView):
                 'check_in': str(booking.check_in),
                 'check_out': str(booking.check_out),
                 'room_type_name': booking.room_type.name,
-                'total_guests': booking.adults + booking.children,
                 'hotel_name': booking.hotel.name,
                 'nights': booking.nights,
-                'adults': booking.adults,
-                'children': booking.children,
                 'special_requests': booking.special_requests or ''
             },
             'party': {
                 'primary': next((BookingGuestSerializer(member).data for member in party_list if member.role == 'PRIMARY'), None),
                 'companions': [BookingGuestSerializer(member).data for member in party_list if member.role == 'COMPANION'],
-                'total_party_size': len(party_list)
+                'total_count': len(party_list)
             },
             'party_complete': booking.party_complete,
             'party_missing_count': booking.party_missing_count,

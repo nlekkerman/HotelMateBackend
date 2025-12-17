@@ -161,7 +161,6 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     nights = serializers.SerializerMethodField()
     assigned_room_number = serializers.SerializerMethodField()
     booker_summary = serializers.SerializerMethodField()
-    primary_guest_name = serializers.SerializerMethodField()
     party_total_count = serializers.SerializerMethodField()
     party_status_display = serializers.SerializerMethodField()
     
@@ -177,7 +176,6 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'assigned_room_number',
             'booker_type',
             'booker_summary',
-            'primary_guest_name',
             'primary_email',
             'booker_email',
             'party_total_count',
@@ -186,8 +184,6 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'party_status_display',
             'total_amount',
             'currency',
-            'adults',
-            'children',
             'created_at',
             'updated_at',
         ]
@@ -207,9 +203,6 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             return f"{obj.booker_first_name} {obj.booker_last_name}".strip() or 'Individual Booking'
         else:
             return obj.booker_type.replace('_', ' ').title()
-    
-    def get_primary_guest_name(self, obj):
-        return obj.primary_guest_name
     
     def get_party_total_count(self, obj):
         return obj.party.count()
@@ -236,9 +229,6 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     # Booker object
     booker = serializers.SerializerMethodField()
     
-    # Primary guest object (from RoomBooking primary_* fields)
-    primary_guest = serializers.SerializerMethodField()
-    
     # Party grouped
     party = serializers.SerializerMethodField()
     
@@ -260,8 +250,6 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'check_in',
             'check_out',
             'nights',
-            'adults',
-            'children',
             'total_amount',
             'currency',
             'special_requests',
@@ -275,7 +263,6 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'updated_at',
             'internal_notes',
             'booker',
-            'primary_guest',
             'party',
             'in_house',
             'room',
@@ -297,15 +284,6 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'phone': obj.booker_phone or '',
         }
     
-    def get_primary_guest(self, obj):
-        """Return primary guest information from booking primary_* fields."""
-        return {
-            'first_name': obj.primary_first_name or '',
-            'last_name': obj.primary_last_name or '',
-            'email': obj.primary_email or '',
-            'phone': obj.primary_phone or '',
-        }
-    
     def get_party(self, obj):
         """Return grouped party information."""
         serializer = BookingPartyGroupedSerializer()
@@ -313,6 +291,8 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     
     def get_in_house(self, obj):
         """Return grouped in-house guests information."""
+        if not obj.checked_in_at:
+            return None
         serializer = InHouseGuestsGroupedSerializer()
         return serializer.to_representation(obj)
     

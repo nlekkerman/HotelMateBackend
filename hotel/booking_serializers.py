@@ -111,7 +111,6 @@ class RoomBookingListSerializer(serializers.ModelSerializer):
     Serializer for listing room bookings.
     Returns key booking information for list views.
     """
-    guest_name = serializers.SerializerMethodField()
     room_type_name = serializers.CharField(
         source='room_type.name',
         read_only=True
@@ -128,7 +127,6 @@ class RoomBookingListSerializer(serializers.ModelSerializer):
             'confirmation_number',
             'hotel_name',
             'room_type_name',
-            'guest_name',
             'primary_email',
             'primary_phone',
             'booker_type',
@@ -136,8 +134,6 @@ class RoomBookingListSerializer(serializers.ModelSerializer):
             'check_in',
             'check_out',
             'nights',
-            'adults',
-            'children',
             'total_amount',
             'currency',
             'status',
@@ -148,9 +144,6 @@ class RoomBookingListSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def get_guest_name(self, obj):
-        return obj.primary_guest_name
-        
     def get_assigned_room_number(self, obj):
         return obj.assigned_room.room_number if obj.assigned_room else None
 
@@ -189,10 +182,6 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             'room_type_name',
             'room_photo_url',
             'guest_name',
-            'primary_first_name',
-            'primary_last_name',
-            'primary_email',
-            'primary_phone',
             'booker_type',
             'booker_first_name',
             'booker_last_name',
@@ -204,8 +193,6 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             'check_in',
             'check_out',
             'nights',
-            'adults',
-            'children',
             'total_amount',
             'currency',
             'status',
@@ -305,14 +292,11 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
         check_in_formatted = obj.check_in.strftime('%B %d, %Y')
         check_out_formatted = obj.check_out.strftime('%B %d, %Y')
         
-        # Guest count summary
-        guest_count = f"{obj.adults} adult"
-        if obj.adults > 1:
+        # Guest count summary - derive from party
+        party_count = obj.party.filter(is_staying=True).count()
+        guest_count = f"{party_count} guest"
+        if party_count != 1:
             guest_count += "s"
-        if obj.children > 0:
-            guest_count += f", {obj.children} child"
-            if obj.children > 1:
-                guest_count += "ren"
         
         # Payment status
         payment_status = "Paid" if obj.paid_at else "Pending"
@@ -331,22 +315,6 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
         }
     
     def get_party(self, obj):
-        """Get booking party information grouped by role"""
-        party_list = obj.party.all().order_by('role', 'first_name')
-        
-        primary_guest = None
-        companions = []
-        
-        for member in party_list:
-            member_data = BookingGuestSerializer(member).data
-            
-            if member.role == 'PRIMARY':
-                primary_guest = member_data
-            else:
-                companions.append(member_data)
-        
-        return {
-            'primary': primary_guest,
-            'companions': companions,
-            'total_party_size': len(party_list)
-        }
+        """Get booking party information grouped by role using canonical serializer"""
+        from .canonical_serializers import BookingPartyGroupedSerializer
+        return BookingPartyGroupedSerializer().to_representation(obj)
