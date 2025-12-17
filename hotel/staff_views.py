@@ -2155,12 +2155,18 @@ class SendPrecheckinLinkView(APIView):
             revoked_at__isnull=True
         ).update(revoked_at=timezone.now())
         
-        # Create new token
+        # Get current hotel precheckin configuration for snapshot
+        from .models import HotelPrecheckinConfig
+        hotel_config = HotelPrecheckinConfig.get_or_create_default(booking.hotel)
+        
+        # Create new token with config snapshot
         token = BookingPrecheckinToken.objects.create(
             booking=booking,
             token_hash=token_hash,
             expires_at=expires_at,
-            sent_to_email=target_email
+            sent_to_email=target_email,
+            config_snapshot_enabled=hotel_config.fields_enabled.copy(),
+            config_snapshot_required=hotel_config.fields_required.copy()
         )
         
         # Send email with pre-check-in link
@@ -2209,4 +2215,84 @@ Best regards,
             'sent_to': target_email,
             'expires_at': expires_at.isoformat(),
             'booking_id': booking.booking_id
+        })
+
+
+class HotelPrecheckinConfigView(APIView):
+    """Manage hotel-level precheckin field configuration"""
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get(self, request, hotel_slug):
+        """Get current precheckin configuration for hotel"""
+        from .models import Hotel, HotelPrecheckinConfig
+        from .precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
+        
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        config = HotelPrecheckinConfig.get_or_create_default(hotel)
+        
+        return Response({
+            'enabled': config.fields_enabled,
+            'required': config.fields_required,
+            'field_registry': PRECHECKIN_FIELD_REGISTRY
+        })
+    
+    def post(self, request, hotel_slug):
+        """Update precheckin configuration for hotel"""
+        from django.core.exceptions import ValidationError
+        from .models import Hotel, HotelPrecheckinConfig
+        from .precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
+        
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        enabled = request.data.get('enabled', {})
+        required = request.data.get('required', {})
+        
+        if not isinstance(enabled, dict) or not isinstance(required, dict):
+            return Response(
+                {'error': 'enabled and required must be objects'},
+                status=400
+            )
+        
+        # Validate all keys exist in registry
+        for field_key in enabled.keys():
+            if field_key not in PRECHECKIN_FIELD_REGISTRY:
+                return Response(
+                    {'error': f'Unknown field key: {field_key}'},
+                    status=400
+                )
+        
+        for field_key in required.keys():
+            if field_key not in PRECHECKIN_FIELD_REGISTRY:
+                return Response(
+                    {'error': f'Unknown field key: {field_key}'},
+                    status=400
+                )
+        
+        # Validate subset rule: required must be subset of enabled
+        for field_key, is_required in required.items():
+            if is_required and not enabled.get(field_key, False):
+                return Response(
+                    {'error': f'Field \'{field_key}\' cannot be required without being enabled'},
+                    status=400
+                )
+        
+        # Get or create config and update
+        config = HotelPrecheckinConfig.get_or_create_default(hotel)
+        config.fields_enabled = enabled
+        config.fields_required = required
+        
+        # Run model validation
+        try:
+            config.full_clean()
+            config.save()
+        except ValidationError as e:
+            return Response(
+                {'error': str(e)},
+                status=400
+            )
+        
+        return Response({
+            'success': True,
+            'enabled': config.fields_enabled,
+            'required': config.fields_required
         })

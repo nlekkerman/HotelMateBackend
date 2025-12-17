@@ -16,6 +16,7 @@ from hotel.staff_views import (
     PublicPageBootstrapView,
     HotelStatusCheckView,
     SectionCreateView,
+    HotelPrecheckinConfigView,
     # CRUD ViewSets
     StaffRoomTypeViewSet,
     PresetViewSet,
@@ -187,6 +188,13 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/sections/create/',
         SectionCreateView.as_view(),
         name='staff-section-create'
+    ),
+    
+    # Precheckin Configuration (Super Staff Admin only)
+    path(
+        'hotel/<str:hotel_slug>/precheckin-config/',
+        HotelPrecheckinConfigView.as_view(),
+        name='staff-precheckin-config'
     ),
     
     # Room Types & Section CRUD (clean path)

@@ -334,6 +334,74 @@ class HotelAccessConfig(models.Model):
         return f"Access config for {self.hotel.name}"
 
 
+class HotelPrecheckinConfig(models.Model):
+    """
+    Per-hotel configuration for precheckin field visibility and requirements.
+    Controls which extra fields are shown/required on guest precheckin pages.
+    """
+    hotel = models.OneToOneField(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name="precheckin_config"
+    )
+    fields_enabled = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Dict of field_key: boolean for enabled precheckin fields"
+    )
+    fields_required = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Dict of field_key: boolean for required precheckin fields"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    @classmethod
+    def get_or_create_default(cls, hotel):
+        """
+        Get existing config or create default minimal config for hotel.
+        Auto-creates with high completion rate defaults.
+        """
+        from .precheckin.field_registry import DEFAULT_CONFIG
+        
+        config, created = cls.objects.get_or_create(
+            hotel=hotel,
+            defaults={
+                'fields_enabled': DEFAULT_CONFIG['enabled'].copy(),
+                'fields_required': DEFAULT_CONFIG['required'].copy(),
+            }
+        )
+        return config
+    
+    def clean(self):
+        """
+        Validate that required fields are subset of enabled fields
+        and that all field keys exist in registry.
+        """
+        from django.core.exceptions import ValidationError
+        from .precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
+        
+        # Validate registry keys
+        for field_key in self.fields_enabled.keys():
+            if field_key not in PRECHECKIN_FIELD_REGISTRY:
+                raise ValidationError(f"Unknown field key '{field_key}' in fields_enabled")
+        
+        for field_key in self.fields_required.keys():
+            if field_key not in PRECHECKIN_FIELD_REGISTRY:
+                raise ValidationError(f"Unknown field key '{field_key}' in fields_required")
+        
+        # Validate subset rule: required must be subset of enabled
+        for field_key, is_required in self.fields_required.items():
+            if is_required and not self.fields_enabled.get(field_key, False):
+                raise ValidationError(
+                    f"Field '{field_key}' cannot be required without being enabled"
+                )
+    
+    def __str__(self):
+        return f"Precheckin config for {self.hotel.name}"
+
+
 class BookingOptions(models.Model):
     """
     Booking call-to-action configuration for hotel public pages.
@@ -732,6 +800,18 @@ class RoomBooking(models.Model):
         expected = self.adults + self.children
         actual = self.party.filter(is_staying=True).count()
         return max(0, expected - actual)
+
+    # Precheckin configuration fields
+    precheckin_payload = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Extra precheckin data stored from hotel's field configuration"
+    )
+    precheckin_submitted_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Timestamp when guest completed precheckin submission"
+    )
 
     def __str__(self):
         return f"{self.booking_id} - {self.primary_guest_name} @ {self.hotel.name}"
@@ -1595,6 +1675,18 @@ class BookingPrecheckinToken(models.Model):
     sent_to_email = models.EmailField(
         blank=True,
         help_text="Email address where link was sent (audit trail)"
+    )
+    
+    # Config snapshot fields for stable precheckin validation
+    config_snapshot_enabled = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Snapshot of hotel's enabled fields at token creation time"
+    )
+    config_snapshot_required = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Snapshot of hotel's required fields at token creation time"
     )
 
     class Meta:

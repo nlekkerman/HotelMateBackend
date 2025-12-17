@@ -304,20 +304,52 @@ class ValidatePrecheckinTokenView(APIView):
         for member in party_list:
             party_data.append(BookingGuestSerializer(member).data)
         
+        # Get precheckin configuration (use snapshot if available, fallback to hotel config)
+        from .models import HotelPrecheckinConfig
+        from .precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
+        
+        # Use token snapshot if present, otherwise current hotel config  
+        if token.config_snapshot_enabled or token.config_snapshot_required:
+            precheckin_config = {
+                'enabled': token.config_snapshot_enabled,
+                'required': token.config_snapshot_required
+            }
+        else:
+            # Fallback for old tokens - use current hotel config
+            hotel_config = HotelPrecheckinConfig.get_or_create_default(booking.hotel)
+            precheckin_config = {
+                'enabled': hotel_config.fields_enabled,
+                'required': hotel_config.fields_required
+            }
+        
+        # Build registry subset for enabled fields only
+        enabled_registry = {}
+        for field_key in precheckin_config['enabled'].keys():
+            if precheckin_config['enabled'].get(field_key) and field_key in PRECHECKIN_FIELD_REGISTRY:
+                enabled_registry[field_key] = PRECHECKIN_FIELD_REGISTRY[field_key]
+
         return Response({
-            'booking_summary': {
-                'booking_id': booking.booking_id,
+            'booking': {
+                'id': booking.booking_id,
+                'check_in': str(booking.check_in),
+                'check_out': str(booking.check_out),
+                'room_type_name': booking.room_type.name,
+                'total_guests': booking.adults + booking.children,
                 'hotel_name': booking.hotel.name,
-                'dates': f"{booking.check_in} to {booking.check_out}",
                 'nights': booking.nights,
                 'adults': booking.adults,
                 'children': booking.children,
-                'room_type': booking.room_type.name,
                 'special_requests': booking.special_requests or ''
             },
-            'party': party_data,
+            'party': {
+                'primary': next((BookingGuestSerializer(member).data for member in party_list if member.role == 'PRIMARY'), None),
+                'companions': [BookingGuestSerializer(member).data for member in party_list if member.role == 'COMPANION'],
+                'total_party_size': len(party_list)
+            },
             'party_complete': booking.party_complete,
-            'party_missing_count': booking.party_missing_count
+            'party_missing_count': booking.party_missing_count,
+            'precheckin_config': precheckin_config,
+            'precheckin_field_registry': enabled_registry
         })
 
 
@@ -335,9 +367,13 @@ class SubmitPrecheckinDataView(APIView):
         
         raw_token = request.data.get('token')
         party_data = request.data.get('party', [])
-        eta = request.data.get('eta')
-        special_requests = request.data.get('special_requests')
-        accept_terms = request.data.get('accept_terms')
+        
+        # Extract all possible precheckin fields from request
+        precheckin_fields_data = {}
+        from .precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
+        for field_key in PRECHECKIN_FIELD_REGISTRY.keys():
+            if field_key in request.data:
+                precheckin_fields_data[field_key] = request.data[field_key]
         
         if not raw_token:
             return Response(
@@ -370,6 +406,41 @@ class SubmitPrecheckinDataView(APIView):
             )
         
         booking = token.booking
+        
+        # Get precheckin configuration for validation
+        from .models import HotelPrecheckinConfig
+        
+        # Use token snapshot if present, otherwise current hotel config
+        if token.config_snapshot_enabled or token.config_snapshot_required:
+            config_enabled = token.config_snapshot_enabled
+            config_required = token.config_snapshot_required
+        else:
+            # Fallback for old tokens - use current hotel config
+            hotel_config = HotelPrecheckinConfig.get_or_create_default(booking.hotel)
+            config_enabled = hotel_config.fields_enabled
+            config_required = hotel_config.fields_required
+        
+        # Validate precheckin config fields
+        for field_key, is_required in config_required.items():
+            if is_required and field_key not in precheckin_fields_data:
+                return Response(
+                    {'code': 'VALIDATION_ERROR', 'message': f'Field {field_key} is required'},
+                    status=400
+                )
+        
+        # Reject unknown field keys
+        for field_key in precheckin_fields_data.keys():
+            if field_key not in PRECHECKIN_FIELD_REGISTRY:
+                return Response(
+                    {'code': 'VALIDATION_ERROR', 'message': f'Unknown field: {field_key}'},
+                    status=400
+                )
+            # Only store enabled fields
+            if not config_enabled.get(field_key, False):
+                return Response(
+                    {'code': 'VALIDATION_ERROR', 'message': f'Field {field_key} is not enabled for this hotel'},
+                    status=400
+                )
         
         # Validate party data
         if not party_data:
@@ -414,9 +485,20 @@ class SubmitPrecheckinDataView(APIView):
                         is_staying=member_data.get('is_staying', True)
                     )
                 
-                # Update booking with optional fields
-                if special_requests is not None:
-                    booking.special_requests = special_requests
+                # Store precheckin payload with enabled fields only
+                enabled_payload = {}
+                for field_key, value in precheckin_fields_data.items():
+                    if config_enabled.get(field_key, False):
+                        enabled_payload[field_key] = value
+                
+                # Update booking with precheckin data
+                booking.precheckin_payload = enabled_payload
+                booking.precheckin_submitted_at = timezone.now()
+                
+                # Handle special_requests if provided (backward compatibility)
+                if 'special_requests' in precheckin_fields_data:
+                    booking.special_requests = precheckin_fields_data['special_requests']
+                
                 booking.save()
                 
                 # Mark token as used
