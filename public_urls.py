@@ -102,5 +102,5 @@ urlpatterns = [
     ),
     
     # Include hotel public URLs (pre-check-in endpoints)
-    path("api/public/", include("hotel.public_urls")),
+    path("", include("hotel.public_urls")),
 ]
