@@ -52,12 +52,12 @@ class BookingPartyGroupedSerializer(serializers.Serializer):
                 "total_count": int
             }
         """
-        party_members = booking.party.all().select_related('booking').order_by('role', 'created_at')
+        party_list = booking.party.all().select_related('booking').order_by('role', 'created_at')
         
         primary_guest = None
         companions = []
         
-        for member in party_members:
+        for member in party_list:
             member_data = BookingPartyGuestSerializer(member).data
             
             if member.role == 'PRIMARY':
@@ -68,7 +68,7 @@ class BookingPartyGroupedSerializer(serializers.Serializer):
         return {
             'primary': primary_guest,
             'companions': companions,
-            'total_count': len(party_members)
+            'total_count': len(party_list)
         }
 
 

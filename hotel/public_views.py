@@ -299,9 +299,9 @@ class ValidatePrecheckinTokenView(APIView):
         booking = token.booking
         
         # Get current party information
-        party_members = booking.party.all().order_by('role', 'first_name')
+        party_list = booking.party.all().order_by('role', 'first_name')
         party_data = []
-        for member in party_members:
+        for member in party_list:
             party_data.append(BookingGuestSerializer(member).data)
         
         return Response({
