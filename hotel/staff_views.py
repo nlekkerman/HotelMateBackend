@@ -2115,7 +2115,7 @@ class SendPrecheckinLinkView(APIView):
         from django.utils import timezone
         from datetime import timedelta
         from .models import RoomBooking, BookingPrecheckinToken
-        from .utils import send_booking_confirmation_email
+        from notifications.email_service import send_booking_confirmation_email
         
         # Validate hotel scope and get booking
         try:
