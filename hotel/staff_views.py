@@ -13,6 +13,8 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.db import transaction
+from django.conf import settings
+from django.core.mail import send_mail
 import logging
 
 logger = logging.getLogger(__name__)
@@ -2112,7 +2114,6 @@ class SendPrecheckinLinkView(APIView):
         """Generate token and send pre-check-in email to guest"""
         import secrets
         import hashlib
-        from django.utils import timezone
         from datetime import timedelta
         from .models import RoomBooking, BookingPrecheckinToken
         from notifications.email_service import send_booking_confirmation_email
@@ -2164,10 +2165,6 @@ class SendPrecheckinLinkView(APIView):
         precheckin_url = f"{base_domain}/guest/{hotel_slug}/precheckin?token={raw_token}"
         
         try:
-            # Use existing email infrastructure pattern
-            from django.core.mail import send_mail
-            from django.conf import settings
-            
             subject = f"Complete your check-in details - {booking.hotel.name}"
             message = f"""
 Dear {booking.primary_guest_name or 'Guest'},
