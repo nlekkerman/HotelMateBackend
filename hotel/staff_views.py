@@ -2173,7 +2173,7 @@ class SendPrecheckinLinkView(APIView):
         # For now, we'll construct a simple email
         # TODO: Create dedicated pre-check-in email template
         base_domain = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
-        precheckin_url = f"{base_domain}/guest/{hotel_slug}/precheckin?token={raw_token}"
+        precheckin_url = f"{base_domain}/guest/hotel/{hotel_slug}/precheckin?token={raw_token}"
         
         try:
             subject = f"Complete your check-in details - {booking.hotel.name}"
