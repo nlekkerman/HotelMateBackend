@@ -719,6 +719,20 @@ class RoomBooking(models.Model):
             # This is a soft warning, not a hard error
             pass
 
+    @property
+    def party_complete(self):
+        """Check if all required staying guests have been provided"""
+        expected = self.adults + self.children
+        actual = self.party.filter(is_staying=True).count()
+        return actual == expected
+    
+    @property 
+    def party_missing_count(self):
+        """Return number of missing staying guests"""
+        expected = self.adults + self.children
+        actual = self.party.filter(is_staying=True).count()
+        return max(0, expected - actual)
+
     def __str__(self):
         return f"{self.booking_id} - {self.primary_guest_name} @ {self.hotel.name}"
 
@@ -1545,5 +1559,63 @@ def create_default_navigation_items(sender, instance, created, **kwargs):
             )
         
         print(f"✅ Created {len(default_nav_items)} default navigation items for hotel: {instance.name} ({instance.slug})")
+
+
+class BookingPrecheckinToken(models.Model):
+    """
+    Secure tokens for guest pre-check-in links.
+    Allows guests to complete party information via time-limited, one-time links.
+    """
+    booking = models.ForeignKey(
+        RoomBooking, 
+        on_delete=models.CASCADE, 
+        related_name='precheckin_tokens'
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        help_text="SHA256 hash of the raw token"
+    )
+    expires_at = models.DateTimeField(
+        help_text="Token expiry timestamp"
+    )
+    used_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Timestamp when token was successfully used"
+    )
+    revoked_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Timestamp when token was revoked"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Token creation timestamp"
+    )
+    sent_to_email = models.EmailField(
+        blank=True,
+        help_text="Email address where link was sent (audit trail)"
+    )
+
+    class Meta:
+        db_table = 'hotel_booking_precheckin_token'
+        indexes = [
+            models.Index(fields=['token_hash']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        return f"Pre-checkin token for {self.booking.booking_id}"
+
+    @property
+    def is_valid(self):
+        """Check if token is currently valid for use"""
+        from django.utils import timezone
+        now = timezone.now()
+        return (
+            self.used_at is None and 
+            self.revoked_at is None and 
+            self.expires_at > now
+        )
 
 

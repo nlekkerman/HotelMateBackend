@@ -21,6 +21,8 @@ from hotel.staff_views import (
     SafeAssignRoomView,
     UnassignRoomView,
     SafeStaffBookingListView,
+    # Pre-check-in functionality
+    SendPrecheckinLinkView,
 )
 
 urlpatterns = [
@@ -87,21 +89,21 @@ urlpatterns = [
     
     # Get available rooms for a booking
     path(
-        '<int:booking_id>/available-rooms/',
+        '<str:booking_id>/available-rooms/',
         AvailableRoomsView.as_view(),
         name='room-bookings-available-rooms'
     ),
     
     # Safe room assignment with atomic locking and validation
     path(
-        '<int:booking_id>/safe-assign-room/',
+        '<str:booking_id>/safe-assign-room/',
         SafeAssignRoomView.as_view(),
         name='room-bookings-safe-assign-room'
     ),
     
     # Unassign room (before check-in only)
     path(
-        '<int:booking_id>/unassign-room/',
+        '<str:booking_id>/unassign-room/',
         UnassignRoomView.as_view(),
         name='room-bookings-unassign-room'
     ),
@@ -111,5 +113,12 @@ urlpatterns = [
         'safe/',
         SafeStaffBookingListView.as_view(),
         name='room-bookings-safe-staff-list'
+    ),
+    
+    # Send pre-check-in link to guests
+    path(
+        '<str:booking_id>/send-precheckin-link/',
+        SendPrecheckinLinkView.as_view(),
+        name='send-precheckin-link'
     ),
 ]

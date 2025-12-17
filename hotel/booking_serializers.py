@@ -222,11 +222,13 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
             'cancellation_details',
             'booking_summary',
             'party',
+            'party_complete',
+            'party_missing_count',
         ]
         read_only_fields = [
             'id', 'booking_id', 'confirmation_number', 'hotel_name', 'hotel_preset',
             'room_type_name', 'guest_name', 'assigned_room_number', 'created_at', 'updated_at',
-            'nights'
+            'nights', 'party_complete', 'party_missing_count'
         ]
 
     def get_guest_name(self, obj):
@@ -330,7 +332,7 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
     
     def get_party(self, obj):
         """Get booking party information grouped by role"""
-        party_members = obj.party_members.all().order_by('role', 'first_name')
+        party_members = obj.party.all().order_by('role', 'first_name')
         
         primary_guest = None
         companions = []

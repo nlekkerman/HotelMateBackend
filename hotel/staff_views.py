@@ -1937,7 +1937,7 @@ class AvailableRoomsView(APIView):
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
     def get(self, request, hotel_slug, booking_id):
-        booking = get_object_or_404(RoomBooking, id=booking_id, hotel__slug=hotel_slug)
+        booking = get_object_or_404(RoomBooking, booking_id=booking_id, hotel__slug=hotel_slug)
         
         available_rooms = RoomAssignmentService.find_available_rooms_for_booking(booking)
         
@@ -1965,6 +1965,23 @@ class SafeAssignRoomView(APIView):
             return Response(
                 {'error': {'code': 'MISSING_ROOM_ID', 'message': 'room_id is required'}},
                 status=400
+            )
+        
+        # Enforce party completion before room assignment
+        try:
+            booking = RoomBooking.objects.get(
+                booking_id=booking_id,
+                hotel__slug=hotel_slug
+            )
+            if not booking.party_complete:
+                return Response(
+                    {'code': 'PARTY_INCOMPLETE', 'message': 'Please provide all staying guest names before room assignment.'},
+                    status=400
+                )
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': {'code': 'BOOKING_NOT_FOUND', 'message': 'Booking not found'}},
+                status=404
             )
         
         try:
@@ -2007,7 +2024,7 @@ class UnassignRoomView(APIView):
     def post(self, request, hotel_slug, booking_id):
         booking = get_object_or_404(
             RoomBooking.objects.select_for_update(),
-            id=booking_id, 
+            booking_id=booking_id, 
             hotel__slug=hotel_slug
         )
         
@@ -2085,3 +2102,109 @@ class SafeStaffBookingListView(APIView):
         from .booking_serializers import RoomBookingListSerializer
         serializer = RoomBookingListSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
+
+
+class SendPrecheckinLinkView(APIView):
+    """Send pre-check-in link to guest via email"""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, hotel_slug, booking_id):
+        """Generate token and send pre-check-in email to guest"""
+        import secrets
+        import hashlib
+        from django.utils import timezone
+        from datetime import timedelta
+        from .models import RoomBooking, BookingPrecheckinToken
+        from .utils import send_booking_confirmation_email
+        
+        # Validate hotel scope and get booking
+        try:
+            booking = RoomBooking.objects.get(
+                booking_id=booking_id,
+                hotel__slug=hotel_slug
+            )
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': 'Booking not found'},
+                status=404
+            )
+        
+        # Generate secure token
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        expires_at = timezone.now() + timedelta(hours=72)
+        
+        # Determine target email
+        target_email = booking.primary_email or booking.booker_email
+        if not target_email:
+            return Response(
+                {'error': 'No email address found for this booking'},
+                status=400
+            )
+        
+        # Revoke any existing active tokens for this booking
+        BookingPrecheckinToken.objects.filter(
+            booking=booking,
+            used_at__isnull=True,
+            revoked_at__isnull=True
+        ).update(revoked_at=timezone.now())
+        
+        # Create new token
+        token = BookingPrecheckinToken.objects.create(
+            booking=booking,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            sent_to_email=target_email
+        )
+        
+        # Send email with pre-check-in link
+        # For now, we'll construct a simple email
+        # TODO: Create dedicated pre-check-in email template
+        base_domain = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
+        precheckin_url = f"{base_domain}/guest/{hotel_slug}/precheckin?token={raw_token}"
+        
+        try:
+            # Use existing email infrastructure pattern
+            from django.core.mail import send_mail
+            from django.conf import settings
+            
+            subject = f"Complete your check-in details - {booking.hotel.name}"
+            message = f"""
+Dear {booking.primary_guest_name or 'Guest'},
+
+Please complete your party details before your stay at {booking.hotel.name}.
+
+Booking: {booking.booking_id}
+Dates: {booking.check_in} to {booking.check_out}
+
+Complete your details here: {precheckin_url}
+
+This link expires in 72 hours.
+
+Best regards,
+{booking.hotel.name} Team
+            """
+            
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[target_email],
+                fail_silently=False,
+            )
+            
+        except Exception as e:
+            # If email fails, revoke the token
+            token.revoked_at = timezone.now()
+            token.save()
+            return Response(
+                {'error': 'Failed to send email'},
+                status=500
+            )
+        
+        return Response({
+            'success': True,
+            'sent_to': target_email,
+            'expires_at': expires_at.isoformat(),
+            'booking_id': booking.booking_id
+        })

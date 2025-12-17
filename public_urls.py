@@ -2,7 +2,7 @@
 Public API URLs - No authentication required
 Landing page hotel listing, filters, and individual hotel public pages.
 """
-from django.urls import path
+from django.urls import path, include
 from hotel.public_views import (
     HotelPublicListView,
     HotelFilterOptionsView,
@@ -100,4 +100,7 @@ urlpatterns = [
         StripeWebhookView.as_view(),
         name="public-stripe-webhook"
     ),
+    
+    # Include hotel public URLs (pre-check-in endpoints)
+    path("api/public/", include("hotel.public_urls")),
 ]

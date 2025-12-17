@@ -252,3 +252,191 @@ class PublicPresetsView(APIView):
             'presets': serializer.data,
             'grouped': grouped
         }, status=status.HTTP_200_OK)
+
+
+class ValidatePrecheckinTokenView(APIView):
+    """Validate pre-check-in token and return booking summary"""
+    permission_classes = [AllowAny]
+
+    def get(self, request, hotel_slug):
+        """Validate token and return booking information for pre-check-in form"""
+        import hashlib
+        from django.utils import timezone
+        from .models import BookingPrecheckinToken, RoomBooking
+        from .booking_serializers import BookingGuestSerializer
+        
+        raw_token = request.query_params.get('token')
+        if not raw_token:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find token with constant-time lookup
+            token = BookingPrecheckinToken.objects.select_related(
+                'booking', 'booking__hotel', 'booking__room_type'
+            ).get(
+                token_hash=token_hash,
+                booking__hotel__slug=hotel_slug
+            )
+        except BookingPrecheckinToken.DoesNotExist:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Validate token status (unified 404 response for all invalid states)
+        if not token.is_valid:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        booking = token.booking
+        
+        # Get current party information
+        party_members = booking.party.all().order_by('role', 'first_name')
+        party_data = []
+        for member in party_members:
+            party_data.append(BookingGuestSerializer(member).data)
+        
+        return Response({
+            'booking_summary': {
+                'booking_id': booking.booking_id,
+                'hotel_name': booking.hotel.name,
+                'dates': f"{booking.check_in} to {booking.check_out}",
+                'nights': booking.nights,
+                'adults': booking.adults,
+                'children': booking.children,
+                'room_type': booking.room_type.name,
+                'special_requests': booking.special_requests or ''
+            },
+            'party': party_data,
+            'party_complete': booking.party_complete,
+            'party_missing_count': booking.party_missing_count
+        })
+
+
+class SubmitPrecheckinDataView(APIView):
+    """Submit party information and complete pre-check-in"""
+    permission_classes = [AllowAny]
+
+    def post(self, request, hotel_slug):
+        """Process party submission and mark token as used"""
+        import hashlib
+        from django.utils import timezone
+        from django.db import transaction
+        from .models import BookingPrecheckinToken, BookingGuest
+        from .booking_serializers import BookingGuestSerializer
+        
+        raw_token = request.data.get('token')
+        party_data = request.data.get('party', [])
+        eta = request.data.get('eta')
+        special_requests = request.data.get('special_requests')
+        accept_terms = request.data.get('accept_terms')
+        
+        if not raw_token:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find token with constant-time lookup
+            token = BookingPrecheckinToken.objects.select_related(
+                'booking', 'booking__hotel'
+            ).get(
+                token_hash=token_hash,
+                booking__hotel__slug=hotel_slug
+            )
+        except BookingPrecheckinToken.DoesNotExist:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Validate token status
+        if not token.is_valid:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        booking = token.booking
+        
+        # Validate party data
+        if not party_data:
+            return Response(
+                {'code': 'VALIDATION_ERROR', 'message': 'Party information is required'},
+                status=400
+            )
+        
+        # Count staying guests and validate against booking
+        staying_count = sum(1 for member in party_data if member.get('is_staying', True))
+        expected_count = booking.adults + booking.children
+        
+        if staying_count != expected_count:
+            return Response(
+                {'code': 'PARTY_INCOMPLETE', 'message': f'Expected {expected_count} staying guests, got {staying_count}'},
+                status=400
+            )
+        
+        # Validate exactly one PRIMARY guest
+        primary_count = sum(1 for member in party_data if member.get('role') == 'PRIMARY')
+        if primary_count != 1:
+            return Response(
+                {'code': 'VALIDATION_ERROR', 'message': 'Exactly one PRIMARY guest is required'},
+                status=400
+            )
+        
+        # Process submission atomically
+        try:
+            with transaction.atomic():
+                # Replace existing party members for this booking
+                BookingGuest.objects.filter(booking=booking).delete()
+                
+                # Create new party members
+                for member_data in party_data:
+                    BookingGuest.objects.create(
+                        booking=booking,
+                        role=member_data.get('role', 'COMPANION'),
+                        first_name=member_data['first_name'],
+                        last_name=member_data['last_name'],
+                        email=member_data.get('email', ''),
+                        phone=member_data.get('phone', ''),
+                        is_staying=member_data.get('is_staying', True)
+                    )
+                
+                # Update booking with optional fields
+                if special_requests is not None:
+                    booking.special_requests = special_requests
+                booking.save()
+                
+                # Mark token as used
+                token.used_at = timezone.now()
+                token.save()
+                
+        except Exception as e:
+            return Response(
+                {'code': 'VALIDATION_ERROR', 'message': 'Failed to save party information'},
+                status=400
+            )
+        
+        # Return updated party information
+        updated_party = booking.party.all().order_by('role', 'first_name')
+        party_serializer_data = []
+        for member in updated_party:
+            party_serializer_data.append(BookingGuestSerializer(member).data)
+        
+        return Response({
+            'success': True,
+            'party': party_serializer_data,
+            'party_complete': booking.party_complete
+        })
