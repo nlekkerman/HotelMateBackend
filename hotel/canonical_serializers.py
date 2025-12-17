@@ -184,6 +184,10 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'party_complete',
             'party_missing_count',
             'party_status_display',
+            'total_amount',
+            'currency',
+            'adults',
+            'children',
             'created_at',
             'updated_at',
         ]
