@@ -1600,7 +1600,7 @@ class BookingAssignmentView(APIView):
                 booking.save()
                 
                 # Get all booking party members
-                booking_guests = booking.party_members.all().select_related()
+                booking_guests = booking.party.all().select_related()
                 
                 # Convert all party members to in-house Guests
                 primary_guest = None
@@ -1913,7 +1913,7 @@ class BookingPartyManagementView(APIView):
                     ).delete()
                 
                 # Trigger realtime notification
-                updated_party = booking.party_members.all()
+                updated_party = booking.party.all()
                 notification_manager.realtime_booking_party_updated(booking, updated_party)
             
             # Return updated party

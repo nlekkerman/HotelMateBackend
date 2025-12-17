@@ -84,12 +84,12 @@ class BookingGuestModelTest(TestCase):
         self.assertEqual(companion_guest.full_name, 'Jane Doe')
         
         # Verify booking relationship
-        self.assertEqual(self.booking.party_members.count(), 2)
+        self.assertEqual(self.booking.party.count(), 2)
         self.assertTrue(
-            self.booking.party_members.filter(role='PRIMARY').exists()
+            self.booking.party.filter(role='PRIMARY').exists()
         )
         self.assertTrue(
-            self.booking.party_members.filter(role='COMPANION').exists()
+            self.booking.party.filter(role='COMPANION').exists()
         )
     
     def test_unique_primary_constraint(self):
@@ -143,9 +143,9 @@ class BookingGuestModelTest(TestCase):
         )
         
         # Verify all created successfully
-        self.assertEqual(self.booking.party_members.count(), 3)
+        self.assertEqual(self.booking.party.count(), 3)
         self.assertEqual(
-            self.booking.party_members.filter(role='COMPANION').count(), 2
+            self.booking.party.filter(role='COMPANION').count(), 2
         )
 
 
@@ -187,7 +187,7 @@ class BookingPartySyncTest(TestCase):
         )
         
         # Verify PRIMARY BookingGuest was auto-created
-        primary_guest = booking.party_members.filter(role='PRIMARY').first()
+        primary_guest = booking.party.filter(role='PRIMARY').first()
         self.assertIsNotNone(primary_guest)
         self.assertEqual(primary_guest.first_name, "John")
         self.assertEqual(primary_guest.last_name, "Doe")
@@ -216,7 +216,7 @@ class BookingPartySyncTest(TestCase):
         booking.save()
         
         # Verify PRIMARY BookingGuest was updated
-        primary_guest = booking.party_members.filter(role='PRIMARY').first()
+        primary_guest = booking.party.filter(role='PRIMARY').first()
         self.assertEqual(primary_guest.first_name, "Jane")
         self.assertEqual(primary_guest.last_name, "Smith")
         self.assertEqual(primary_guest.email, "jane@example.com")
@@ -271,7 +271,7 @@ class PublicBookingPartyAPITest(TestCase):
         booking = RoomBooking.objects.get(
             booking_id=response.data['booking_id']
         )
-        primary_guest = booking.party_members.filter(role='PRIMARY').first()
+        primary_guest = booking.party.filter(role='PRIMARY').first()
         self.assertIsNotNone(primary_guest)
         self.assertEqual(primary_guest.first_name, "John")
         self.assertEqual(primary_guest.last_name, "Doe")
@@ -327,16 +327,16 @@ class PublicBookingPartyAPITest(TestCase):
         booking = RoomBooking.objects.get(
             booking_id=response.data['booking_id']
         )
-        self.assertEqual(booking.party_members.count(), 4)
+        self.assertEqual(booking.party.count(), 4)
         self.assertEqual(
-            booking.party_members.filter(role='PRIMARY').count(), 1
+            booking.party.filter(role='PRIMARY').count(), 1
         )
         self.assertEqual(
-            booking.party_members.filter(role='COMPANION').count(), 3
+            booking.party.filter(role='COMPANION').count(), 3
         )
         
         # Verify auto-normalization (booking fields updated to match PRIMARY)
-        primary_guest = booking.party_members.filter(role='PRIMARY').first()
+        primary_guest = booking.party.filter(role='PRIMARY').first()
         self.assertEqual(booking.primary_first_name, primary_guest.first_name)
         self.assertEqual(booking.primary_last_name, primary_guest.last_name)
         self.assertEqual(booking.primary_email, primary_guest.email)
@@ -494,7 +494,7 @@ class StaffPartyManagementAPITest(TestCase):
         
         # Verify companions were created
         self.assertEqual(
-            self.booking.party_members.filter(role='COMPANION').count(), 2
+            self.booking.party.filter(role='COMPANION').count(), 2
         )
         
         # Verify notification was sent
@@ -774,7 +774,7 @@ class BookingSerializerPartyTest(TestCase):
         """Test BookingGuestSerializer output"""
         from hotel.booking_serializers import BookingGuestSerializer
         
-        primary_guest = self.booking.party_members.filter(role='PRIMARY').first()
+        primary_guest = self.booking.party.filter(role='PRIMARY').first()
         serializer = BookingGuestSerializer(primary_guest)
         data = serializer.data
         
