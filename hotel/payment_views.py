@@ -289,21 +289,30 @@ class StripeWebhookView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # DB idempotency check: try to create StripeWebhookEvent
+        # DB idempotency check: get_or_create with status-based retry logic
         event_id = event['id']
         event_type = event['type']
         
-        try:
-            from .models import StripeWebhookEvent
-            webhook_event = StripeWebhookEvent.objects.create(
-                event_id=event_id,
-                event_type=event_type
-            )
-        except Exception:  # IntegrityError if event_id already exists
+        from django.db import IntegrityError
+        from .models import StripeWebhookEvent
+        
+        webhook_event, created = StripeWebhookEvent.objects.get_or_create(
+            event_id=event_id,
+            defaults={'event_type': event_type, 'status': 'RECEIVED'}
+        )
+        
+        # Handle rare case where Stripe resends same ID with different event_type
+        if not created and webhook_event.event_type != event_type:
+            webhook_event.event_type = event_type
+            webhook_event.save(update_fields=['event_type'])
+        
+        if not created and webhook_event.status == 'PROCESSED':
             print(f"Webhook event {event_id} already processed, skipping")
             return Response({
                 'status': 'already_processed'
             }, status=status.HTTP_200_OK)
+        
+        # If FAILED or RECEIVED, reprocess
         
         # Handle the event with proper error handling
         try:
@@ -372,20 +381,27 @@ class StripeWebhookView(APIView):
                 except RoomBooking.DoesNotExist:
                     print(f"Booking not found by metadata: {booking_id}")
             
-            # Fallback: lookup by payment_reference (session_id)
+            # Fallback: hotel-scoped lookup by payment_reference (session_id or payment_intent_id)
             if not booking:
-                try:
-                    booking = RoomBooking.objects.select_for_update().get(
-                        payment_reference=session_id
-                    )
+                qs = RoomBooking.objects.select_for_update().all()
+                if hotel_slug:
+                    qs = qs.filter(hotel__slug=hotel_slug)
+                
+                # Search for both session_id and payment_intent_id since payment_reference changes
+                search_refs = [session_id]
+                if payment_intent_id:
+                    search_refs.append(payment_intent_id)
+                
+                booking = qs.filter(payment_reference__in=search_refs).first()
+                if booking:
                     print(f"Found booking by payment_reference: {booking.booking_id}")
                     booking_id = booking.booking_id  # Update for logging
-                except RoomBooking.DoesNotExist:
-                    raise Exception(f"No booking found for session {session_id}")
+                else:
+                    raise Exception(f"No booking found for session {session_id} / PI {payment_intent_id}")
             
-            # Idempotency check: skip if already authorized or paid
-            if booking.payment_authorized_at:
-                print(f"Booking {booking_id} already authorized at {booking.payment_authorized_at}, skipping")
+            # Idempotency check: skip if already authorized/decided or paid
+            if booking.status in ('PENDING_APPROVAL', 'CONFIRMED', 'DECLINED') or booking.payment_authorized_at:
+                print(f"Booking {booking_id} already processed ({booking.status}), skipping")
                 booking_updated = False
             else:
                 try:
@@ -426,22 +442,24 @@ class StripeWebhookView(APIView):
         currency = session['metadata'].get('currency', 'EUR').upper()
         amount_total = float(session['metadata'].get('total_amount', 0))
         
-        # Send confirmation email only if DB update succeeded
+        # Send authorization email only if DB update succeeded
         if booking_updated and customer_email:
             try:
-                email_subject = f"Payment Received - {booking_id}"
+                email_subject = f"Payment authorized — awaiting hotel confirmation ({booking_id})"
                 email_message = f"""
 Dear {guest_name or 'Guest'},
 
-We have received your payment!
+We have authorized your payment!
 
 Booking Details:
 - Booking ID: {booking_id}
 - Check-in: {check_in}
 - Check-out: {check_out}
-- Amount Paid: {currency} {amount_total:.2f}
+- Amount authorized: {currency} {amount_total:.2f}
 
-Your payment has been successfully processed. Your booking is now awaiting hotel confirmation.
+Your payment authorization has been successfully processed. Your booking is now awaiting hotel confirmation.
+
+No charge will be captured unless the hotel accepts your booking. If not accepted, the authorization will be released by your bank.
 
 You can view your booking status at:
 https://hotelsmates.com/booking/status/{booking_id}
@@ -452,7 +470,7 @@ Best regards,
 HotelsMates Team
 """
                 
-                send_mail(
+                sent = send_mail(
                     subject=email_subject,
                     message=email_message,
                     from_email=f"HotelsMates <{settings.EMAIL_HOST_USER}>",
@@ -460,7 +478,7 @@ HotelsMates Team
                     fail_silently=False,
                 )
                 
-                print(f"Payment confirmation email sent to {customer_email}")
+                print(f"📧 send_mail returned {sent} for {customer_email}")
                 
             except Exception as e:
                 print(f"Failed to send payment confirmation email: {e}")
