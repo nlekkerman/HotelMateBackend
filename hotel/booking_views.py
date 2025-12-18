@@ -318,47 +318,27 @@ class HotelBookingCreateView(APIView):
             promo_code=promo_code
         )
         
-        # Handle party creation with MANDATORY alignment
+        # Handle companions-only party creation
         try:
             from django.db import transaction
             
             with transaction.atomic():
                 if party_data:
-                    # Validate party list structure
+                    # ✅ NEW CANONICAL RULE: Reject PRIMARY in party payload
                     primary_count = sum(
                         1 for p in party_data if p.get('role') == 'PRIMARY'
                     )
-                    if primary_count != 1:
+                    if primary_count > 0:
                         return Response(
                             {
-                                "detail": "Party must include exactly one "
-                                "PRIMARY guest"
+                                "detail": "Do not include PRIMARY in party; "
+                                "primary guest is inferred from primary_* fields."
                             },
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     
-                    # Validate PRIMARY guest matches primary_* fields
-                    primary_party = next(
-                        p for p in party_data if p.get('role') == 'PRIMARY'
-                    )
-                    first_name_match = (
-                        primary_party.get('first_name') == primary_first_name
-                    )
-                    last_name_match = (
-                        primary_party.get('last_name') == primary_last_name
-                    )
-                    if not (first_name_match and last_name_match):
-                        return Response(
-                            {
-                                "detail": "PRIMARY party member must match "
-                                "primary_first_name and primary_last_name"
-                            },
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                    
-                    # Create party members
+                    # Validate companions (first_name/last_name required, email/phone optional)
                     for party_member in party_data:
-                        role = party_member.get('role', 'COMPANION')
                         first_name = party_member.get('first_name', '').strip()
                         last_name = party_member.get('last_name', '').strip()
                         
@@ -371,20 +351,19 @@ class HotelBookingCreateView(APIView):
                                 status=status.HTTP_400_BAD_REQUEST
                             )
                         
-                        # Create BookingGuest record (only for COMPANION roles)
-                        # PRIMARY is automatically created by RoomBooking.save()
-                        if role != 'PRIMARY':
-                            BookingGuest.objects.create(
-                                booking=booking,
-                                role=role,
-                                first_name=first_name,
-                                last_name=last_name,
-                                email=party_member.get('email', ''),
-                                phone=party_member.get('phone', ''),
-                                is_staying=True,
-                            )
+                        # Create COMPANION BookingGuest records only
+                        # PRIMARY is automatically created/synced by RoomBooking.save()
+                        BookingGuest.objects.create(
+                            booking=booking,
+                            role='COMPANION',  # Force all party payload items to COMPANION
+                            first_name=first_name,
+                            last_name=last_name,
+                            email=party_member.get('email', ''),
+                            phone=party_member.get('phone', ''),
+                            is_staying=True,
+                        )
                 
-                # PRIMARY BookingGuest is automatically created by RoomBooking.save()
+                # PRIMARY BookingGuest is automatically created/synced by RoomBooking.save()
                 # No manual creation needed here
                         
         except Exception as e:
@@ -393,8 +372,8 @@ class HotelBookingCreateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
-        # Count party members
-        party_count = len(party_data) if party_data else 1
+        # Count party members (1 PRIMARY + companions)
+        party_count = 1 + len(party_data)  # 1 PRIMARY + companions
         
         # Return public-safe response payload
         response_data = {

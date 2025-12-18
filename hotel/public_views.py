@@ -440,47 +440,58 @@ class SubmitPrecheckinDataView(APIView):
                     status=400
                 )
         
-        # Validate party data
-        if not party_data:
-            return Response(
-                {'code': 'VALIDATION_ERROR', 'message': 'Party information is required'},
-                status=400
-            )
+        # ✅ NEW CANONICAL RULE: Companions-only party validation
+        # Party data can be empty (no companions) - PRIMARY is always preserved
         
-        # Count staying guests and validate against booking
-        staying_count = sum(1 for member in party_data if member.get('is_staying', True))
-        expected_count = booking.adults + booking.children
-        
-        if staying_count != expected_count:
-            return Response(
-                {'code': 'PARTY_INCOMPLETE', 'message': f'Expected {expected_count} staying guests, got {staying_count}'},
-                status=400
-            )
-        
-        # Validate exactly one PRIMARY guest
+        # Reject PRIMARY in party payload  
         primary_count = sum(1 for member in party_data if member.get('role') == 'PRIMARY')
-        if primary_count != 1:
+        if primary_count > 0:
             return Response(
-                {'code': 'VALIDATION_ERROR', 'message': 'Exactly one PRIMARY guest is required'},
+                {'code': 'VALIDATION_ERROR', 'message': 'Do not include PRIMARY in party; primary guest is inferred from primary_* fields.'},
                 status=400
             )
+        
+        # Validate party size against booking (optional but recommended)
+        if booking.adults is not None and booking.children is not None:
+            expected_total = booking.adults + booking.children
+            actual_total = 1 + len(party_data)  # 1 PRIMARY + companions
+            
+            if actual_total != expected_total:
+                return Response(
+                    {'code': 'PARTY_SIZE_MISMATCH', 'message': f'Party size mismatch. Expected {expected_total}, got {actual_total}.'},
+                    status=400
+                )
+        
+        # Validate companion data structure
+        for member in party_data:
+            first_name = member.get('first_name', '').strip()
+            last_name = member.get('last_name', '').strip()
+            
+            if not first_name or not last_name:
+                return Response(
+                    {'code': 'VALIDATION_ERROR', 'message': 'All party members must have first_name and last_name'},
+                    status=400
+                )
         
         # Process submission atomically
         try:
             with transaction.atomic():
-                # Replace existing party members for this booking
-                BookingGuest.objects.filter(booking=booking).delete()
+                # ✅ PRESERVE PRIMARY: Delete only COMPANION BookingGuests
+                BookingGuest.objects.filter(
+                    booking=booking, 
+                    role='COMPANION'
+                ).delete()
                 
-                # Create new party members
+                # Create new COMPANION party members (PRIMARY stays untouched)
                 for member_data in party_data:
                     BookingGuest.objects.create(
                         booking=booking,
-                        role=member_data.get('role', 'COMPANION'),
+                        role='COMPANION',  # Force all party payload items to COMPANION
                         first_name=member_data['first_name'],
                         last_name=member_data['last_name'],
                         email=member_data.get('email', ''),
                         phone=member_data.get('phone', ''),
-                        is_staying=member_data.get('is_staying', True)
+                        is_staying=True  # All party members are staying
                     )
                 
                 # Store precheckin payload with enabled fields only

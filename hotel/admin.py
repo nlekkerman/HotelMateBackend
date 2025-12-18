@@ -6,6 +6,7 @@ from .models import (
     HotelAccessConfig,
     BookingOptions,
     RoomBooking,
+    BookingGuest,
     PricingQuote,
     Preset,
     HotelPublicPage,
@@ -39,6 +40,37 @@ class BookingOptionsInline(admin.StackedInline):
         ('secondary_cta_label', 'secondary_cta_phone'),
         ('terms_url', 'policies_url'),
     )
+
+
+class BookingGuestInline(admin.TabularInline):
+    """Inline editor for BookingGuest (party members)"""
+    model = BookingGuest
+    extra = 0
+    verbose_name_plural = 'Booking Party'
+    fields = ('role_display', 'first_name', 'last_name', 'email', 'phone', 'is_staying')
+    readonly_fields = ('role_display',)
+    ordering = ['role', 'created_at']
+    
+    def role_display(self, obj):
+        """Display role with visual indicator"""
+        if obj.role == 'PRIMARY':
+            return format_html('<strong>👑 PRIMARY</strong>')
+        return '👥 COMPANION'
+    role_display.short_description = 'Role'
+    
+    def get_readonly_fields(self, request, obj=None):
+        """Make PRIMARY guest completely read-only"""
+        readonly = list(self.readonly_fields)
+        if obj and hasattr(obj, 'role') and obj.role == 'PRIMARY':
+            # For PRIMARY guests, make all fields read-only
+            readonly.extend(['first_name', 'last_name', 'email', 'phone', 'is_staying'])
+        return readonly
+    
+    def has_delete_permission(self, request, obj=None):
+        """Prevent deletion of PRIMARY guests"""
+        if obj and hasattr(obj, 'role') and obj.role == 'PRIMARY':
+            return False
+        return super().has_delete_permission(request, obj)
 
 
 @admin.register(Hotel)
@@ -202,6 +234,7 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'check_in',
         'check_out',
         'status',
+        'party_status_display',
         'total_amount',
         'created_at',
         'cancellation_info'
@@ -223,6 +256,7 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'created_at',
         'updated_at',
         'nights',
+        'party_status_display',
         'cancellation_details_formatted',
         'cancelled_by_display',
         'cancellation_date_display',
@@ -354,6 +388,24 @@ class RoomBookingAdmin(admin.ModelAdmin):
         return "No reason provided"
     cancellation_reason_display.short_description = "Cancellation Reason"
     
+    def party_status_display(self, obj):
+        """Display party completion status"""
+        if obj.party_complete:
+            party_count = obj.party.filter(is_staying=True).count()
+            return format_html('<span style="color: green;">✅ Complete ({} guests)</span>', party_count)
+        else:
+            missing = obj.party_missing_count
+            current = obj.party.filter(is_staying=True).count()
+            expected = obj.adults + obj.children
+            return format_html(
+                '<span style="color: orange;">⚠ Missing {} ({}/{})</span>', 
+                missing, current, expected
+            )
+    party_status_display.short_description = "Party Status"
+    
+    # Add the inline for party management
+    inlines = [BookingGuestInline]
+    
     fieldsets = (
         ('Booking Information', {
             'fields': (
@@ -369,14 +421,15 @@ class RoomBookingAdmin(admin.ModelAdmin):
         }),
         ('Guest Information', {
             'fields': (
-                'guest_first_name',
-                'guest_last_name',
-                'guest_email',
-                'guest_phone'
+                'primary_first_name',
+                'primary_last_name',
+                'primary_email',
+                'primary_phone'
             )
         }),
-        ('Occupancy', {
-            'fields': ('adults', 'children')
+        ('Occupancy & Party', {
+            'fields': ('adults', 'children'),
+            'description': 'Expected guest counts - party details managed below in "Booking Party" section'
         }),
         ('Pricing', {
             'fields': ('total_amount', 'currency', 'promo_code')
