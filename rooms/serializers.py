@@ -52,9 +52,9 @@ class RoomSerializer(serializers.ModelSerializer):
             return {
                 'id': obj.room_type.id,
                 'name': obj.room_type.name,
-                'capacity': obj.room_type.capacity,
-                'base_rate': (str(obj.room_type.base_rate)
-                              if obj.room_type.base_rate else None)
+                'max_occupancy': obj.room_type.max_occupancy,
+                'starting_price_from': (str(obj.room_type.starting_price_from)
+                                       if obj.room_type.starting_price_from else None)
             }
         return None
 
