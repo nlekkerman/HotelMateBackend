@@ -2,6 +2,7 @@
 Booking-related serializers for availability, pricing, and reservations.
 Public endpoints - no authentication required.
 """
+from decimal import Decimal
 from rest_framework import serializers
 from .models import RoomBooking, PricingQuote, BookingOptions, BookingGuest
 from rooms.models import RoomType
@@ -318,3 +319,125 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
         """Get booking party information grouped by role using canonical serializer"""
         from .canonical_serializers import BookingPartyGroupedSerializer
         return BookingPartyGroupedSerializer().to_representation(obj)
+
+
+class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
+    """
+    Public serializer for room booking details exposed to external systems.
+    Only includes public-safe fields as defined in the API contracts.
+    """
+    hotel_info = serializers.SerializerMethodField()
+    room_info = serializers.SerializerMethodField()
+    dates_info = serializers.SerializerMethodField()
+    guests_info = serializers.SerializerMethodField()
+    guest_info = serializers.SerializerMethodField()
+    pricing_info = serializers.SerializerMethodField()
+    payment_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoomBooking
+        fields = [
+            'booking_id',
+            'confirmation_number', 
+            'status',
+            'created_at',
+            'hotel_info',
+            'room_info',
+            'dates_info',
+            'guests_info',
+            'guest_info',
+            'special_requests',
+            'pricing_info',
+            'promo_code',
+            'payment_required',
+            'payment_url',
+        ]
+        read_only_fields = fields
+    
+    def get_hotel_info(self, obj):
+        """Hotel information"""
+        return {
+            "name": obj.hotel.name,
+            "slug": obj.hotel.slug,
+            "phone": getattr(obj.hotel, 'phone', '+353 64 663 1555'),  # Default fallback
+            "email": getattr(obj.hotel, 'email', 'info@hotelkillarney.ie')  # Default fallback
+        }
+    
+    def get_room_info(self, obj):
+        """Room type information"""
+        return {
+            "type": obj.room_type.name,
+            "code": obj.room_type.code,
+            "photo": obj.room_type.photo.url if obj.room_type.photo else None
+        }
+    
+    def get_dates_info(self, obj):
+        """Booking dates information"""
+        return {
+            "check_in": obj.check_in.strftime('%Y-%m-%d'),
+            "check_out": obj.check_out.strftime('%Y-%m-%d'),
+            "nights": obj.nights
+        }
+    
+    def get_guests_info(self, obj):
+        """Guest count information"""
+        return {
+            "adults": obj.adults,
+            "children": obj.children,
+            "total": obj.adults + obj.children
+        }
+    
+    def get_guest_info(self, obj):
+        """Primary guest information (public-safe fields only)"""
+        return {
+            "name": obj.primary_guest_name,
+            "email": obj.primary_email,
+            "phone": obj.primary_phone
+        }
+    
+    def get_pricing_info(self, obj):
+        """Pricing information"""
+        # For public API, calculate basic breakdown if needed
+        subtotal = obj.total_amount * Decimal('0.917')  # Reverse VAT calculation
+        taxes = obj.total_amount - subtotal
+        
+        return {
+            "subtotal": f"{subtotal:.2f}",
+            "taxes": f"{taxes:.2f}",
+            "discount": "0.00",  # No discount info in current model
+            "total": f"{obj.total_amount:.2f}",
+            "currency": obj.currency
+        }
+    
+    def get_payment_url(self, obj):
+        """Payment session URL for pending bookings"""
+        request = self.context.get('request')
+        if request and obj.status == 'PENDING_PAYMENT':
+            hotel_slug = obj.hotel.slug
+            booking_id = obj.booking_id
+            return f"/api/public/hotel/{hotel_slug}/room-bookings/{booking_id}/payment/session/"
+        return None
+    
+    def to_representation(self, instance):
+        """Custom representation to match expected API format"""
+        data = super().to_representation(instance)
+        
+        # Restructure to match expected format
+        result = {
+            "booking_id": data['booking_id'],
+            "confirmation_number": data['confirmation_number'],
+            "status": data['status'],
+            "created_at": data['created_at'],
+            "hotel": data['hotel_info'],
+            "room": data['room_info'],
+            "dates": data['dates_info'],
+            "guests": data['guests_info'],
+            "guest": data['guest_info'],
+            "special_requests": data['special_requests'] or "",
+            "pricing": data['pricing_info'],
+            "promo_code": data['promo_code'],
+            "payment_required": data['status'] == 'PENDING_PAYMENT',
+            "payment_url": data['payment_url']
+        }
+        
+        return result

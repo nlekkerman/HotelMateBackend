@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import models
 
-from .models import Hotel, BookerType, BookingGuest
+from .models import Hotel, BookerType, BookingGuest, RoomBooking
 
 # Import service layer functions
 from hotel.services.availability import (
@@ -396,77 +396,30 @@ class HotelBookingCreateView(APIView):
 class PublicRoomBookingDetailView(APIView):
     """
     Get booking details by booking ID for external booking system.
-    Phase 1: Returns mock data based on booking ID format.
+    Queries the actual RoomBooking model and returns public-safe fields.
     
     GET /api/public/hotel/<hotel_slug>/room-bookings/<booking_id>/
     """
     permission_classes = [AllowAny]
     
     def get(self, request, hotel_slug, booking_id):
-        # Phase 1: Return placeholder booking data
-        # In Phase 2, this would query the database
+        # Get hotel first to verify it exists and is active
+        hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
         
-        # Extract info from booking_id format: BK-YYYY-XXXXXX
-        try:
-            parts = booking_id.split('-')
-            if len(parts) != 3 or parts[0] != 'BK':
-                return Response(
-                    {"detail": "Invalid booking ID format"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-            
-            year = parts[1]
-            code = parts[2]
-            
-        except (IndexError, ValueError):
-            return Response(
-                {"detail": "Invalid booking ID format"},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        # Get booking by ID, scoped to this hotel
+        booking = get_object_or_404(
+            RoomBooking,
+            booking_id=booking_id,
+            hotel=hotel
+        )
         
-        # Return mock booking data
-        booking_data = {
-            "booking_id": booking_id,
-            "confirmation_number": f"HOT-{year}-{code[:4]}",
-            "status": "PENDING_PAYMENT",
-            "created_at": f"{year}-11-24T15:30:00Z",
-            "hotel": {
-                "name": "Hotel Killarney",
-                "slug": hotel_slug,
-                "phone": "+353 64 663 1555",
-                "email": "info@hotelkillarney.ie"
-            },
-            "room": {
-                "type": "Deluxe King Room",
-                "code": "DLX-KING",
-                "photo": None
-            },
-            "dates": {
-                "check_in": "2025-12-20",
-                "check_out": "2025-12-22",
-                "nights": 2
-            },
-            "guests": {
-                "adults": 2,
-                "children": 0,
-                "total": 2
-            },
-            "guest": {
-                "name": "Guest Name",
-                "email": "guest@example.com",
-                "phone": "+353 87 123 4567"
-            },
-            "special_requests": "",
-            "pricing": {
-                "subtotal": "300.00",
-                "taxes": "27.00",
-                "discount": "0.00",
-                "total": "327.00",
-                "currency": "EUR"
-            },
-            "promo_code": None,
-            "payment_required": True,
-            "payment_url": f"/api/public/hotel/{hotel_slug}/room-bookings/{booking_id}/payment/session/"
-        }
+        # Import the public serializer
+        from .booking_serializers import PublicRoomBookingDetailSerializer
         
-        return Response(booking_data, status=status.HTTP_200_OK)
+        # Serialize using public-safe serializer
+        serializer = PublicRoomBookingDetailSerializer(
+            booking, 
+            context={'request': request}
+        )
+        
+        return Response(serializer.data, status=status.HTTP_200_OK)
