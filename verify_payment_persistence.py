@@ -236,6 +236,7 @@ def test_webhook_booking_confirmation():
         return False
 
 
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 def test_webhook_idempotency():
     """Test that webhook is idempotent - repeated events don't break anything"""
     print("\n🔍 Testing Webhook Idempotency...")
