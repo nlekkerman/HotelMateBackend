@@ -1732,3 +1732,38 @@ class BookingPrecheckinToken(models.Model):
         )
 
 
+class StripeWebhookEvent(models.Model):
+    """
+    Track Stripe webhook events for idempotency and debugging.
+    Prevents duplicate processing of the same webhook event.
+    """
+    STATUS_CHOICES = [
+        ('RECEIVED', 'Received'),
+        ('PROCESSED', 'Processed'),
+        ('FAILED', 'Failed'),
+    ]
+    
+    event_id = models.CharField(max_length=255, unique=True, help_text="Stripe event ID")
+    event_type = models.CharField(max_length=100, help_text="Stripe event type")
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='RECEIVED')
+    checkout_session_id = models.CharField(max_length=255, null=True, blank=True)
+    payment_intent_id = models.CharField(max_length=255, null=True, blank=True)
+    booking_id = models.CharField(max_length=50, null=True, blank=True)
+    hotel_slug = models.CharField(max_length=100, null=True, blank=True)
+    error_message = models.TextField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'hotel_stripe_webhook_event'
+        indexes = [
+            models.Index(fields=['event_id']),
+            models.Index(fields=['event_type']),
+            models.Index(fields=['status']),
+            models.Index(fields=['created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} - {self.event_id} ({self.status})"
+
+
