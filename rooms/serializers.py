@@ -20,6 +20,13 @@ class RoomSerializer(serializers.ModelSerializer):
     primary_guest = serializers.SerializerMethodField()
     companions = serializers.SerializerMethodField()
     walkins = serializers.SerializerMethodField()
+    
+    # Status display fields
+    room_status_display = serializers.CharField(
+        source='get_room_status_display', read_only=True
+    )
+    is_bookable = serializers.SerializerMethodField()
+    room_type_info = serializers.SerializerMethodField()
 
     def get_primary_guest(self, obj):
         primary = obj.guests_in_room.filter(guest_type='PRIMARY').first()
@@ -33,6 +40,24 @@ class RoomSerializer(serializers.ModelSerializer):
         walkins = obj.guests_in_room.filter(guest_type='WALKIN')
         return GuestSerializer(walkins, many=True).data
 
+    def get_is_bookable(self, obj):
+        """Return if room is currently bookable"""
+        return (obj.is_active and
+                not obj.is_out_of_order and
+                obj.room_status in ['AVAILABLE', 'READY_FOR_GUEST'])
+
+    def get_room_type_info(self, obj):
+        """Return basic room type information"""
+        if obj.room_type:
+            return {
+                'id': obj.room_type.id,
+                'name': obj.room_type.name,
+                'capacity': obj.room_type.capacity,
+                'base_rate': (str(obj.room_type.base_rate)
+                              if obj.room_type.base_rate else None)
+            }
+        return None
+
     class Meta:
         model = Room
         fields = [
@@ -40,13 +65,24 @@ class RoomSerializer(serializers.ModelSerializer):
             'hotel',
             'hotel_name',
             'room_number',
+            'room_type',
+            'room_type_info',
             'hotel_slug',
             'guests_in_room',  # Keep for backward compatibility temporarily
             'primary_guest',   # Phase 1: Grouped output
-            'companions',      # Phase 1: Grouped output  
+            'companions',      # Phase 1: Grouped output
             'walkins',         # Phase 1: Grouped output
             'guest_id_pin',
             'is_occupied',
+            # Status fields
+            'room_status',
+            'room_status_display',
+            'is_bookable',
+            'is_active',
+            'is_out_of_order',
+            'maintenance_required',
+            'maintenance_priority',
+            # Service QR codes
             'room_service_qr_code',
             'in_room_breakfast_qr_code',
             'dinner_booking_qr_code',
