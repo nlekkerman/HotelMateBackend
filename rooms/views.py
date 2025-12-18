@@ -65,19 +65,7 @@ class RoomViewSet(viewsets.ModelViewSet):
         else:
             raise PermissionDenied("You must be assigned to a hotel to create a room.")
 
-    @action(detail=True, methods=['post'])
-    def generate_pin(self, request, pk=None):
-        room = self.get_object()
-        room.generate_guest_pin()
-        return Response({'guest_id_pin': room.guest_id_pin})
 
-    @action(detail=True, methods=['post'])
-    def generate_qr(self, request, pk=None):
-        qr_type = request.data.get('qr_type', 'room_service')
-        room = self.get_object()
-        room.generate_qr_code(qr_type=qr_type)
-        qr_url = getattr(room, f"{qr_type}_qr_code", None)
-        return Response({'qr_url': qr_url})
 
 
 class AddGuestToRoomView(APIView):
@@ -106,9 +94,7 @@ class AddGuestToRoomView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-        # Use default room PIN if guest doesn't provide one
-        if not guest_data.get('id_pin') and room.guest_id_pin:
-            guest_data['id_pin'] = room.guest_id_pin
+
 
         serializer = GuestSerializer(data=guest_data)
         if serializer.is_valid():

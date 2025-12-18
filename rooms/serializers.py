@@ -72,7 +72,6 @@ class RoomSerializer(serializers.ModelSerializer):
             'primary_guest',   # Phase 1: Grouped output
             'companions',      # Phase 1: Grouped output
             'walkins',         # Phase 1: Grouped output
-            'guest_id_pin',
             'is_occupied',
             # Status fields
             'room_status',
@@ -82,11 +81,6 @@ class RoomSerializer(serializers.ModelSerializer):
             'is_out_of_order',
             'maintenance_required',
             'maintenance_priority',
-            # Service QR codes
-            'room_service_qr_code',
-            'in_room_breakfast_qr_code',
-            'dinner_booking_qr_code',
-            'chat_pin_qr_code',
         ]
 
 
@@ -98,17 +92,7 @@ class RoomStaffSerializer(serializers.ModelSerializer):
             'id',
             'room_number',
             'is_occupied',
-            'guest_id_pin',
-            'room_service_qr_code',
-            'in_room_breakfast_qr_code',
-            'dinner_booking_qr_code',
-            'chat_pin_qr_code',
         ]
         read_only_fields = [
             'id',
-            'guest_id_pin',
-            'room_service_qr_code',
-            'in_room_breakfast_qr_code',
-            'dinner_booking_qr_code',
-            'chat_pin_qr_code',
         ]

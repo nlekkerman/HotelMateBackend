@@ -439,15 +439,7 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
         count = BreakfastOrder.objects.filter(hotel=hotel, status="pending").count()
         return Response({"count": count})
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def validate_pin(request, hotel_slug, room_number):  # add hotel_slug here
-    hotel = get_hotel_from_request(request)
-    room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
-    pin = request.data.get('pin')
-    if pin == room.guest_id_pin:
-        return Response({'valid': True})
-    return Response({'valid': False}, status=401)
+
 
 
 @api_view(['POST'])
@@ -482,16 +474,4 @@ def save_guest_fcm_token(request, hotel_slug, room_number):
     })
 
 
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def validate_dinner_pin(request, hotel_slug, restaurant_slug, room_number):
-    """
-    Validate guest PIN for dinner booking in a specific restaurant and room.
-    """
-    hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
-    pin = request.data.get("pin")
 
-    if pin == room.guest_id_pin:
-        return Response({'valid': True})
-    return Response({'valid': False}, status=401)

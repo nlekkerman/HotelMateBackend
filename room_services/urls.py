@@ -5,8 +5,6 @@ from .views import (
     BreakfastItemViewSet,
     OrderViewSet,
     BreakfastOrderViewSet,
-    validate_pin,
-    validate_dinner_pin,
     save_guest_fcm_token
 )
 order_pending_count = OrderViewSet.as_view({
@@ -62,14 +60,10 @@ urlpatterns = [
     path('<str:hotel_slug>/orders/pending-count.<str:format>/', order_pending_count, name='hotel-order-pending-count-format'),
     path('<str:hotel_slug>/room/<int:room_number>/menu/', room_service_items, name='room-service-menu'),
     path('<str:hotel_slug>/room/<int:room_number>/breakfast/', breakfast_items, name='breakfast-menu'),
-    path('<str:hotel_slug>/room/<int:room_number>/validate-pin/', validate_pin, name='validate-pin'),
+
     path('<str:hotel_slug>/room/<int:room_number>/save-fcm-token/', save_guest_fcm_token, name='save-guest-fcm-token'),
     path('<str:hotel_slug>/breakfast-orders/', breakfast_order_list, name='breakfastorder-list'),
     path('<str:hotel_slug>/breakfast-orders/<int:pk>/', breakfast_order_detail, name='breakfastorder-detail'),
     path('<str:hotel_slug>/breakfast-orders/breakfast-pending-count/', breakfast_order_pending_count, name='breakfastorder-pending-count'),
-    path(
-        '<str:hotel_slug>/restaurant/<str:restaurant_slug>/room/<int:room_number>/validate-dinner-pin/',
-        validate_dinner_pin,
-        name='validate-dinner-pin'
-    ),
+
 ]
