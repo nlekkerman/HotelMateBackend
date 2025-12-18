@@ -2,7 +2,7 @@
 Precheckin Field Registry
 
 Defines all available precheckin fields with their metadata and default configurations.
-Only booking-scope fields are supported in V1.
+Supports both booking-scope (whole booking) and guest-scope (per individual) fields.
 """
 
 # Comprehensive list of countries/nationalities
@@ -51,13 +51,13 @@ PRECHECKIN_FIELD_REGISTRY = {
     "nationality": {
         "label": "Nationality",
         "type": "select",
-        "scope": "booking",
+        "scope": "guest",  # ✅ Each guest can have different nationality
         "choices": COUNTRIES_CHOICES
     },
     "country_of_residence": {
         "label": "Country of Residence", 
         "type": "select",
-        "scope": "booking",
+        "scope": "guest",  # ✅ Each guest can have different residence
         "choices": COUNTRIES_CHOICES
     },
     "date_of_birth": {

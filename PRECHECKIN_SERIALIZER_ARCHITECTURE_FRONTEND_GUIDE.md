@@ -57,13 +57,13 @@ PRECHECKIN_FIELD_REGISTRY = {
     "nationality": {
         "label": "Nationality",
         "type": "select",
-        "scope": "booking",
+        "scope": "guest",  # ✅ Each guest can have different nationality!
         "choices": "COUNTRIES_CHOICES"  # ✅ Comprehensive list of ~195 countries!
     },
     "country_of_residence": {
         "label": "Country of Residence", 
         "type": "select",
-        "scope": "booking",
+        "scope": "guest",  # ✅ Each guest can have different residence!
         "choices": "COUNTRIES_CHOICES"  # ✅ Full country names, not abbreviations
     },
     "date_of_birth": {
@@ -83,6 +83,49 @@ PRECHECKIN_FIELD_REGISTRY = {
         "scope": "booking"
     }
     # ... more fields
+}
+```
+
+## 🎯 Field Scoping: Guest vs Booking Level
+
+### Guest-Scoped Fields (Per Individual)
+```python
+# ✅ Each guest has their own values
+"nationality": {"scope": "guest"},           # John: "Ireland", Jane: "France"
+"country_of_residence": {"scope": "guest"},  # John: "United States", Jane: "Germany"
+"date_of_birth": {"scope": "guest"}          # John: "1990-01-01", Jane: "1992-05-15"
+```
+**Storage**: `BookingGuest.precheckin_payload` JSON field per guest
+
+### Booking-Scoped Fields (Whole Booking)
+```python
+# ✅ Shared across all guests in the booking
+"eta": {"scope": "booking"},                 # "15:30" (arrival time for whole party)
+"special_requests": {"scope": "booking"},    # "Late checkout requested" (for booking)
+"consent_checkbox": {"scope": "booking"}     # true (legal consent for booking)
+```
+**Storage**: `RoomBooking.precheckin_payload` JSON field for entire booking
+
+### Frontend Data Structure
+```json
+{
+  "booking_fields": {
+    "eta": "15:30",
+    "special_requests": "Late checkout please",
+    "consent_checkbox": true
+  },
+  "guest_fields": {
+    "guest_123": {
+      "nationality": "Ireland", 
+      "country_of_residence": "United States",
+      "date_of_birth": "1990-01-01"
+    },
+    "guest_456": {
+      "nationality": "France",
+      "country_of_residence": "Germany", 
+      "date_of_birth": "1992-05-15"
+    }
+  }
 }
 ```
 

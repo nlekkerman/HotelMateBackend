@@ -883,6 +883,13 @@ class BookingGuest(models.Model):
         help_text="Always true for party members - they are all staying guests"
     )
     
+    # Guest-level precheckin data (nationality, country_of_residence, etc.)
+    precheckin_payload = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Guest-specific precheckin data (nationality, country_of_residence, etc.)"
+    )
+    
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
