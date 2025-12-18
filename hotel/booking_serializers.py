@@ -333,6 +333,7 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     guest_info = serializers.SerializerMethodField()
     pricing_info = serializers.SerializerMethodField()
     payment_url = serializers.SerializerMethodField()
+    payment_required = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -417,6 +418,11 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             booking_id = obj.booking_id
             return f"/api/public/hotel/{hotel_slug}/room-bookings/{booking_id}/payment/session/"
         return None
+    
+    def get_payment_required(self, obj):
+        """Check if payment is required for this booking"""
+        # "needs payment" if pending and not marked paid
+        return (obj.status == "PENDING_PAYMENT") and (obj.paid_at is None)
     
     def to_representation(self, instance):
         """Custom representation to match expected API format"""
