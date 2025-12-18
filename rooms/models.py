@@ -162,38 +162,26 @@ class Room(models.Model):
         if date is None:
             date = timezone.now().date()
         
-        starting_price = self.room_type.starting_price_from
-        
         # Try to get daily rate for the date
         daily_rate = self.room_type.daily_rates.filter(date=date).first()
         
         if daily_rate:
-            price_diff = None
-            if starting_price:
-                price_diff = daily_rate.price - starting_price
-                
             return {
-                'current_amount': daily_rate.price,
-                'starting_price_from': starting_price,
-                'price_difference': price_diff,
+                'amount': daily_rate.price,
                 'currency': self.room_type.currency,
                 'date': date,
                 'rate_plan': daily_rate.rate_plan.name if daily_rate.rate_plan else None,
-                'source': 'daily_rate',
-                'is_premium': daily_rate.price > starting_price if starting_price else False
+                'source': 'daily_rate'
             }
         
         # Fallback to room type starting price
-        if starting_price:
+        if self.room_type.starting_price_from:
             return {
-                'current_amount': starting_price,
-                'starting_price_from': starting_price,
-                'price_difference': 0,
+                'amount': self.room_type.starting_price_from,
                 'currency': self.room_type.currency,
                 'date': date,
                 'rate_plan': None,
-                'source': 'base_price',
-                'is_premium': False
+                'source': 'base_price'
             }
             
         return None

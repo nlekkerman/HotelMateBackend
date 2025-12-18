@@ -60,16 +60,14 @@ class RoomSerializer(serializers.ModelSerializer):
         return None
     
     def get_current_price(self, obj):
-        """Get current room price with relationship to starting price"""
+        """Get current room price for today's date"""
         if not obj.room_type:
             return None
             
         from django.utils import timezone
         from .models import DailyRate, RatePlan
-        from decimal import Decimal
         
         today = timezone.now().date()
-        starting_price = obj.room_type.starting_price_from
         
         # Try to get daily rate for today
         daily_rate = DailyRate.objects.filter(
@@ -78,36 +76,20 @@ class RoomSerializer(serializers.ModelSerializer):
         ).first()
         
         if daily_rate:
-            current_amount = daily_rate.price
-            price_difference = None
-            percentage_change = None
-            
-            if starting_price:
-                price_difference = current_amount - starting_price
-                percentage_change = float((price_difference / starting_price) * 100)
-            
             return {
-                'current_amount': str(current_amount),
-                'starting_price_from': str(starting_price) if starting_price else None,
-                'price_difference': str(price_difference) if price_difference else None,
-                'percentage_change': round(percentage_change, 1) if percentage_change else None,
+                'amount': str(daily_rate.price),
                 'currency': obj.room_type.currency,
                 'date': str(today),
-                'rate_type': 'daily_rate',
-                'rate_plan': daily_rate.rate_plan.name if daily_rate.rate_plan else None
+                'rate_type': 'daily_rate'
             }
         
         # Fallback to room type base price
-        if starting_price:
+        if obj.room_type.starting_price_from:
             return {
-                'current_amount': str(starting_price),
-                'starting_price_from': str(starting_price),
-                'price_difference': '0.00',
-                'percentage_change': 0.0,
+                'amount': str(obj.room_type.starting_price_from),
                 'currency': obj.room_type.currency,
                 'date': str(today),
-                'rate_type': 'base_price',
-                'rate_plan': None
+                'rate_type': 'base_price'
             }
             
         return None
@@ -145,16 +127,14 @@ class RoomStaffSerializer(serializers.ModelSerializer):
     current_price = serializers.SerializerMethodField()
     
     def get_current_price(self, obj):
-        """Get current room price with range info for staff management"""
+        """Get current room price for staff management"""
         if not obj.room_type:
             return None
             
         from django.utils import timezone
         from .models import DailyRate
-        from decimal import Decimal
         
         today = timezone.now().date()
-        starting_price = obj.room_type.starting_price_from
         
         # Try to get daily rate for today
         daily_rate = DailyRate.objects.filter(
@@ -163,32 +143,18 @@ class RoomStaffSerializer(serializers.ModelSerializer):
         ).first()
         
         if daily_rate:
-            current_amount = daily_rate.price
-            price_difference = None
-            
-            if starting_price:
-                price_difference = current_amount - starting_price
-            
             return {
-                'current_amount': str(current_amount),
-                'starting_price_from': str(starting_price) if starting_price else None,
-                'price_difference': str(price_difference) if price_difference else None,
+                'amount': str(daily_rate.price),
                 'currency': obj.room_type.currency,
-                'rate_type': 'daily_rate',
-                'is_premium': current_amount > starting_price if starting_price else False,
-                'is_discounted': current_amount < starting_price if starting_price else False
+                'rate_type': 'daily_rate'
             }
         
         # Fallback to room type base price
-        if starting_price:
+        if obj.room_type.starting_price_from:
             return {
-                'current_amount': str(starting_price),
-                'starting_price_from': str(starting_price),
-                'price_difference': '0.00',
+                'amount': str(obj.room_type.starting_price_from),
                 'currency': obj.room_type.currency,
-                'rate_type': 'base_price',
-                'is_premium': False,
-                'is_discounted': False
+                'rate_type': 'base_price'
             }
             
         return None
