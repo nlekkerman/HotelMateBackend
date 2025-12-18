@@ -351,18 +351,40 @@ class StripeWebhookView(APIView):
         print(f"📍 WEBHOOK PROCESSING - checkout.session.completed")
         print(f"Processing session {session_id}, booking_id: {booking_id}")
         
-        # PAYMENT STATE VALIDATION (CRITICAL)
-        if session['payment_status'] != 'paid':
-            raise ValueError(f"Unexpected payment_status: {session['payment_status']}")
+        # PAYMENT STATE VALIDATION (CRITICAL) - Updated for authorize-capture flow
+        payment_intent = None
         
+        # ✅ FIXED: Handle both manual and automatic capture modes properly
         if payment_intent_id:
-            # Verify PaymentIntent is actually requires_capture
+            # Retrieve PaymentIntent to check its status
             payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
-            if payment_intent['status'] != 'requires_capture':
+            print(f"Payment Intent status: {payment_intent['status']}")
+            
+            # For authorize-capture flow: expect 'requires_capture' and 'unpaid' session
+            if payment_intent['status'] == 'requires_capture':
+                if session['payment_status'] != 'unpaid':
+                    raise ValueError(
+                        f"Manual capture mode: Expected 'unpaid' session, got '{session['payment_status']}'"
+                    )
+                print("✅ Manual capture mode: Payment authorized, awaiting capture")
+            elif payment_intent['status'] == 'succeeded':
+                if session['payment_status'] != 'paid':
+                    raise ValueError(
+                        f"Auto capture mode: Expected 'paid' session, got '{session['payment_status']}'"
+                    )
+                print("✅ Auto capture mode: Payment completed immediately")
+            else:
                 raise ValueError(
-                    f"Expected requires_capture, got {payment_intent['status']}. "
-                    f"Check manual capture configuration!"
+                    f"Unexpected PaymentIntent status: {payment_intent['status']}"
                 )
+        else:
+            # Fallback: handle sessions without payment_intent_id
+            if session['payment_status'] == 'paid':
+                print("✅ Payment completed (no PaymentIntent)")
+            elif session['payment_status'] == 'unpaid':
+                print("✅ Payment authorized (no PaymentIntent, manual capture mode)")
+            else:
+                raise ValueError(f"Unexpected payment_status: {session['payment_status']}")
         
         # ✅ ATOMIC AUTHORIZATION PROCESSING
         from .models import RoomBooking, Hotel
