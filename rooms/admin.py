@@ -8,14 +8,36 @@ from .models import (
 
 class RoomAdmin(admin.ModelAdmin):
     list_display = (
-        'room_number', 'hotel', 'is_occupied', 'get_guests_count',
+        'room_number', 'hotel', 'room_type', 'is_occupied', 'get_guests_count',
         'room_status', 'is_active', 'is_out_of_order', 'maintenance_required'
     )
 
-    search_fields = ('room_number', 'hotel__name')
+    search_fields = ('room_number', 'hotel__name', 'room_type__name')
     list_filter = (
-        'is_occupied', 'hotel', 'room_status', 'is_active', 
+        'is_occupied', 'hotel', 'room_type', 'room_status', 'is_active', 
         'is_out_of_order', 'maintenance_required'
+    )
+    list_editable = ('room_type', 'room_status', 'is_active')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('hotel', 'room_number', 'room_type')
+        }),
+        ('Status', {
+            'fields': ('is_occupied', 'room_status', 'is_active', 'is_out_of_order')
+        }),
+        ('Maintenance', {
+            'fields': ('maintenance_required', 'maintenance_priority', 'maintenance_notes')
+        }),
+        ('Turnover Tracking', {
+            'fields': ('last_cleaned_at', 'cleaned_by_staff', 'last_inspected_at', 
+                      'inspected_by_staff', 'turnover_notes'),
+            'classes': ('collapse',),
+        }),
+        ('Guest Communication', {
+            'fields': ('guest_fcm_token',),
+            'classes': ('collapse',),
+        }),
     )
 
     def get_guests_count(self, obj):

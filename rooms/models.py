@@ -152,6 +152,52 @@ class Room(models.Model):
 
         self.save()
 
+    def get_current_price(self, date=None):
+        """Get current price for this room on given date (defaults to today)"""
+        if not self.room_type:
+            return None
+            
+        from django.utils import timezone
+        
+        if date is None:
+            date = timezone.now().date()
+        
+        starting_price = self.room_type.starting_price_from
+        
+        # Try to get daily rate for the date
+        daily_rate = self.room_type.daily_rates.filter(date=date).first()
+        
+        if daily_rate:
+            price_diff = None
+            if starting_price:
+                price_diff = daily_rate.price - starting_price
+                
+            return {
+                'current_amount': daily_rate.price,
+                'starting_price_from': starting_price,
+                'price_difference': price_diff,
+                'currency': self.room_type.currency,
+                'date': date,
+                'rate_plan': daily_rate.rate_plan.name if daily_rate.rate_plan else None,
+                'source': 'daily_rate',
+                'is_premium': daily_rate.price > starting_price if starting_price else False
+            }
+        
+        # Fallback to room type starting price
+        if starting_price:
+            return {
+                'current_amount': starting_price,
+                'starting_price_from': starting_price,
+                'price_difference': 0,
+                'currency': self.room_type.currency,
+                'date': date,
+                'rate_plan': None,
+                'source': 'base_price',
+                'is_premium': False
+            }
+            
+        return None
+
 
 class RoomType(models.Model):
     """

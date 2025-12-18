@@ -2,8 +2,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import viewsets, filters, status
 from rest_framework.views import APIView
-from .models import Room
-from .serializers import RoomSerializer
+from .models import Room, RoomType
+from .serializers import RoomSerializer, RoomTypeSerializer
 from guests.serializers import GuestSerializer
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
@@ -66,6 +66,26 @@ class RoomViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("You must be assigned to a hotel to create a room.")
 
 
+class RoomTypeViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing room types"""
+    serializer_class = RoomTypeSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        staff = getattr(user, 'staff_profile', None)
+        
+        if staff and staff.hotel:
+            return RoomType.objects.filter(hotel=staff.hotel).order_by('sort_order', 'name')
+        
+        return RoomType.objects.none()
+    
+    def perform_create(self, serializer):
+        staff = getattr(self.request.user, 'staff_profile', None)
+        if staff and staff.hotel:
+            serializer.save(hotel=staff.hotel)
+        else:
+            raise PermissionDenied("You must be assigned to a hotel to create a room type.")
 
 
 class AddGuestToRoomView(APIView):

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Room
+from .models import Room, RoomType
 from hotel.models import Hotel
 from guests.serializers import GuestSerializer
 
@@ -27,6 +27,7 @@ class RoomSerializer(serializers.ModelSerializer):
     )
     is_bookable = serializers.SerializerMethodField()
     room_type_info = serializers.SerializerMethodField()
+    current_price = serializers.SerializerMethodField()
 
     def get_primary_guest(self, obj):
         primary = obj.guests_in_room.filter(guest_type='PRIMARY').first()
@@ -57,6 +58,59 @@ class RoomSerializer(serializers.ModelSerializer):
                                        if obj.room_type.starting_price_from else None)
             }
         return None
+    
+    def get_current_price(self, obj):
+        """Get current room price with relationship to starting price"""
+        if not obj.room_type:
+            return None
+            
+        from django.utils import timezone
+        from .models import DailyRate, RatePlan
+        from decimal import Decimal
+        
+        today = timezone.now().date()
+        starting_price = obj.room_type.starting_price_from
+        
+        # Try to get daily rate for today
+        daily_rate = DailyRate.objects.filter(
+            room_type=obj.room_type,
+            date=today
+        ).first()
+        
+        if daily_rate:
+            current_amount = daily_rate.price
+            price_difference = None
+            percentage_change = None
+            
+            if starting_price:
+                price_difference = current_amount - starting_price
+                percentage_change = float((price_difference / starting_price) * 100)
+            
+            return {
+                'current_amount': str(current_amount),
+                'starting_price_from': str(starting_price) if starting_price else None,
+                'price_difference': str(price_difference) if price_difference else None,
+                'percentage_change': round(percentage_change, 1) if percentage_change else None,
+                'currency': obj.room_type.currency,
+                'date': str(today),
+                'rate_type': 'daily_rate',
+                'rate_plan': daily_rate.rate_plan.name if daily_rate.rate_plan else None
+            }
+        
+        # Fallback to room type base price
+        if starting_price:
+            return {
+                'current_amount': str(starting_price),
+                'starting_price_from': str(starting_price),
+                'price_difference': '0.00',
+                'percentage_change': 0.0,
+                'currency': obj.room_type.currency,
+                'date': str(today),
+                'rate_type': 'base_price',
+                'rate_plan': None
+            }
+            
+        return None
 
     class Meta:
         model = Room
@@ -67,6 +121,7 @@ class RoomSerializer(serializers.ModelSerializer):
             'room_number',
             'room_type',
             'room_type_info',
+            'current_price',
             'hotel_slug',
             'guests_in_room',  # Keep for backward compatibility temporarily
             'primary_guest',   # Phase 1: Grouped output
@@ -86,13 +141,91 @@ class RoomSerializer(serializers.ModelSerializer):
 
 class RoomStaffSerializer(serializers.ModelSerializer):
     """Staff CRUD for rooms (inventory management) - B1"""
+    room_type_name = serializers.CharField(source='room_type.name', read_only=True)
+    current_price = serializers.SerializerMethodField()
+    
+    def get_current_price(self, obj):
+        """Get current room price with range info for staff management"""
+        if not obj.room_type:
+            return None
+            
+        from django.utils import timezone
+        from .models import DailyRate
+        from decimal import Decimal
+        
+        today = timezone.now().date()
+        starting_price = obj.room_type.starting_price_from
+        
+        # Try to get daily rate for today
+        daily_rate = DailyRate.objects.filter(
+            room_type=obj.room_type,
+            date=today
+        ).first()
+        
+        if daily_rate:
+            current_amount = daily_rate.price
+            price_difference = None
+            
+            if starting_price:
+                price_difference = current_amount - starting_price
+            
+            return {
+                'current_amount': str(current_amount),
+                'starting_price_from': str(starting_price) if starting_price else None,
+                'price_difference': str(price_difference) if price_difference else None,
+                'currency': obj.room_type.currency,
+                'rate_type': 'daily_rate',
+                'is_premium': current_amount > starting_price if starting_price else False,
+                'is_discounted': current_amount < starting_price if starting_price else False
+            }
+        
+        # Fallback to room type base price
+        if starting_price:
+            return {
+                'current_amount': str(starting_price),
+                'starting_price_from': str(starting_price),
+                'price_difference': '0.00',
+                'currency': obj.room_type.currency,
+                'rate_type': 'base_price',
+                'is_premium': False,
+                'is_discounted': False
+            }
+            
+        return None
+    
     class Meta:
         model = Room
         fields = [
             'id',
             'room_number',
+            'room_type',
+            'room_type_name',
+            'current_price',
             'is_occupied',
+            'room_status',
+            'is_active',
+            'is_out_of_order',
+            'maintenance_required',
+            'maintenance_priority',
         ]
         read_only_fields = [
             'id',
+            'room_type_name',
+            'current_price',
+        ]
+
+
+class RoomTypeSerializer(serializers.ModelSerializer):
+    """Serializer for room type selection and display"""
+    
+    class Meta:
+        model = RoomType
+        fields = [
+            'id',
+            'name',
+            'code',
+            'max_occupancy',
+            'starting_price_from',
+            'currency',
+            'is_active',
         ]
