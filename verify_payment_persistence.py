@@ -252,7 +252,7 @@ def test_webhook_idempotency():
     
     # Verify it's already confirmed
     if booking.status != "CONFIRMED" or not booking.paid_at:
-        print("❌ Idempotency test: Booking not in expected confirmed state")
+        print("❌ Idempotency test: Booking not in expected paid state")
         return False
     
     initial_paid_at = booking.paid_at
@@ -340,7 +340,7 @@ def main():
             print("✅ All payment persistence tests PASSED!")
             print("\n📋 Verified:")
             print("   ✅ Payment provider + reference persisted immediately")
-            print("   ✅ Webhook atomically confirms booking (status + paid_at)")  
+            print("   ✅ Webhook atomically processes payment (→ CONFIRMED)")  
             print("   ✅ Webhook is idempotent (repeated events safe)")
             print("\n🎉 Stripe payment persistence implementation is working correctly!")
         else:

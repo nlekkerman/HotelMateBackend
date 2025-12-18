@@ -293,35 +293,103 @@ class StripeWebhookView(APIView):
         if event['type'] == 'checkout.session.completed':
             session = event['data']['object']
             
+            # Extract session details
+            session_id = session['id']
+            payment_intent_id = session.get('payment_intent')
+            customer_email = session.get('customer_email')
+            amount_total = session.get('amount_total', 0) / 100
+            currency = session.get('currency', 'eur').upper()
+            
             # Extract booking info from metadata
             booking_id = session['metadata'].get('booking_id')
             hotel_slug = session['metadata'].get('hotel_slug')
             guest_name = session['metadata'].get('guest_name')
             check_in = session['metadata'].get('check_in')
             check_out = session['metadata'].get('check_out')
-            customer_email = session.get('customer_email')
-            amount_total = session.get('amount_total', 0) / 100
-            currency = session.get('currency', 'eur').upper()
             
-            # Send confirmation email to guest
-            if customer_email:
+            print(f"Processing webhook for session {session_id}, booking_id: {booking_id}")
+            
+            # ✅ ATOMIC PAYMENT PERSISTENCE & BOOKING CONFIRMATION
+            booking_updated = False
+            try:
+                from .models import RoomBooking, Hotel
+                
+                with transaction.atomic():
+                    # Locate booking reliably - prefer metadata, fallback to payment_reference lookup
+                    booking = None
+                    
+                    if booking_id and hotel_slug:
+                        try:
+                            hotel = Hotel.objects.select_for_update().get(
+                                slug=hotel_slug, 
+                                is_active=True
+                            )
+                            booking = RoomBooking.objects.select_for_update().get(
+                                booking_id=booking_id,
+                                hotel=hotel
+                            )
+                            print(f"Found booking by metadata: {booking_id}")
+                        except (Hotel.DoesNotExist, RoomBooking.DoesNotExist):
+                            print(f"Booking not found by metadata: {booking_id}")
+                    
+                    # Fallback: lookup by payment_reference (session_id)
+                    if not booking:
+                        try:
+                            booking = RoomBooking.objects.select_for_update().get(
+                                payment_reference=session_id
+                            )
+                            print(f"Found booking by payment_reference: {booking.booking_id}")
+                            booking_id = booking.booking_id  # Update for logging
+                        except RoomBooking.DoesNotExist:
+                            print(f"No booking found for session {session_id}")
+                            raise Exception(f"No booking found for session {session_id}")
+                    
+                    # Idempotency check: skip if already paid
+                    if booking.paid_at:
+                        print(f"Booking {booking_id} already paid at {booking.paid_at}, skipping")
+                    else:
+                        # Atomically update booking with payment confirmation
+                        booking.payment_provider = 'stripe'
+                        booking.payment_reference = payment_intent_id if payment_intent_id else session_id
+                        booking.paid_at = timezone.now()
+                        booking.status = 'CONFIRMED'  # Payment confirmed, booking ready
+                        
+                        booking.save(update_fields=[
+                            'payment_provider', 'payment_reference', 'paid_at', 'status'
+                        ])
+                        
+                        print(f"✅ Booking {booking_id} payment confirmed")
+                    
+                    # Refresh and log final persisted values
+                    booking.refresh_from_db()
+                    print(f"📋 Final state - Status: {booking.status}, Paid: {booking.paid_at}, Provider: {booking.payment_provider}, Ref: {booking.payment_reference}")
+                    
+                    booking_updated = True
+                    
+            except Exception as e:
+                print(f"❌ Failed to process payment for booking {booking_id or 'unknown'}: {e}")
+                booking_updated = False
+                # Don't return error - webhook should still return 200 to Stripe
+            
+            # Send confirmation email only if DB update succeeded
+            if booking_updated and customer_email:
                 try:
-                    email_subject = f"Booking Confirmation - {booking_id}"
+                    email_subject = f"Payment Received - {booking_id}"
                     email_message = f"""
-Dear {guest_name},
+Dear {guest_name or 'Guest'},
 
-Your booking has been confirmed!
+We have received your payment!
 
 Booking Details:
 - Booking ID: {booking_id}
 - Check-in: {check_in}
 - Check-out: {check_out}
-- Total Paid: {currency} {amount_total:.2f}
+- Amount Paid: {currency} {amount_total:.2f}
 
-Your payment has been successfully processed.
+Your payment has been successfully processed. Your booking is now awaiting hotel confirmation.
 
-You can view your booking details at:
-https://hotelsmates.com/booking/confirmation/{booking_id}
+You can view your booking status at:
+https://hotelsmates.com/booking/status/{booking_id}
 
 If you have any questions, please contact the hotel directly.
 
@@ -337,55 +405,12 @@ HotelsMates Team
                         fail_silently=False,
                     )
                     
-                    print(f"Confirmation email sent to {customer_email}")
+                    print(f"Payment confirmation email sent to {customer_email}")
                     
                 except Exception as e:
-                    print(f"Failed to send email: {e}")
+                    print(f"Failed to send payment confirmation email: {e}")
             
-            # ✅ ATOMIC BOOKING CONFIRMATION
-            try:
-                from django.db import transaction
-                from django.utils import timezone
-                from .models import RoomBooking, Hotel
-                
-                with transaction.atomic():
-                    # Locate booking reliably using session metadata
-                    hotel = Hotel.objects.select_for_update().get(
-                        slug=hotel_slug, 
-                        is_active=True
-                    )
-                    booking = RoomBooking.objects.select_for_update().get(
-                        booking_id=booking_id,
-                        hotel=hotel
-                    )
-                    
-                    # Idempotency check: skip if already paid
-                    if booking.paid_at:
-                        print(f"Booking {booking_id} already confirmed, skipping webhook")
-                    else:
-                        # Get payment intent ID from session for better reference
-                        payment_intent_id = session.get('payment_intent')
-                        
-                        # Atomically confirm booking
-                        booking.status = 'CONFIRMED'
-                        booking.paid_at = timezone.now()
-                        booking.payment_provider = 'stripe'
-                        # Use payment_intent if available, otherwise keep session_id
-                        if payment_intent_id:
-                            booking.payment_reference = payment_intent_id
-                        # If no payment_intent, session.id should already be saved from creation
-                        
-                        booking.save(update_fields=[
-                            'status', 'paid_at', 'payment_provider', 'payment_reference'
-                        ])
-                    
-                    print(f"✅ Booking {booking_id} confirmed atomically - Status: {booking.status}, Paid: {booking.paid_at}, Provider: {booking.payment_provider}, Ref: {booking.payment_reference}")
-                    
-            except Exception as e:
-                print(f"❌ Failed to confirm booking {booking_id}: {e}")
-                # Don't return error - webhook should still return 200 to Stripe
-            
-            print(f"Payment webhook processed for booking {booking_id}")
+            print(f"Webhook processing complete for booking {booking_id}")
         
         return Response({'status': 'success'}, status=status.HTTP_200_OK)
 
