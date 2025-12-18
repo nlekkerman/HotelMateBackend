@@ -181,6 +181,9 @@ class CreatePaymentSessionView(APIView):
             sep = "&" if "?" in success_url else "?"
             success_url_with_session = f"{success_url}{sep}session_id={{CHECKOUT_SESSION_ID}}"
             
+            print(f"📍 CREATING PAYMENT SESSION - File: {__file__}, Function: CreatePaymentSessionView.post")
+            print(f"📋 Session metadata: booking_id={booking_id}, hotel_slug={hotel_data['slug']}")
+            
             session = stripe.checkout.Session.create(
                 payment_method_types=['card'],
                 line_items=line_items,
@@ -199,6 +202,8 @@ class CreatePaymentSessionView(APIView):
                     'description': f"Booking {booking_id} at {hotel_data['name']}",
                 },
             )
+            
+            print(f"✅ Payment session created: {session.id} for booking {booking_id}")
             
             # Store session in cache with idempotency key
             store_idempotency_session(idempotency_key, session.id)
@@ -307,6 +312,7 @@ class StripeWebhookView(APIView):
             check_in = session['metadata'].get('check_in')
             check_out = session['metadata'].get('check_out')
             
+            print(f"📍 WEBHOOK PROCESSING - File: {__file__}, Function: StripeWebhookView.post")
             print(f"Processing webhook for session {session_id}, booking_id: {booking_id}")
             
             # ✅ ATOMIC PAYMENT PERSISTENCE & BOOKING CONFIRMATION
@@ -352,7 +358,7 @@ class StripeWebhookView(APIView):
                         booking.payment_provider = 'stripe'
                         booking.payment_reference = payment_intent_id if payment_intent_id else session_id
                         booking.paid_at = timezone.now()
-                        booking.status = 'CONFIRMED'  # Payment confirmed, booking ready
+                        booking.status = 'CONFIRMED'  # Payment received, booking confirmed
                         
                         booking.save(update_fields=[
                             'payment_provider', 'payment_reference', 'paid_at', 'status'
@@ -362,7 +368,9 @@ class StripeWebhookView(APIView):
                     
                     # Refresh and log final persisted values
                     booking.refresh_from_db()
+                    print(f"📋 WEBHOOK DB UPDATE COMPLETE - File: {__file__}")
                     print(f"📋 Final state - Status: {booking.status}, Paid: {booking.paid_at}, Provider: {booking.payment_provider}, Ref: {booking.payment_reference}")
+                    print(f"📋 Booking ID: {booking.booking_id}, Hotel: {booking.hotel.slug if booking.hotel else 'None'}")
                     
                     booking_updated = True
                     
