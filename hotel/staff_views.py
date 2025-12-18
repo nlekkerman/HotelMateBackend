@@ -2455,7 +2455,11 @@ class StaffBookingDeclineView(APIView):
         
         # Extract decline reason from request
         reason_code = request.data.get('reason_code', 'OTHER')
-        reason_note = request.data.get('reason_note', 'Declined by staff')
+        reason_note = request.data.get('reason_note', '')
+        
+        # Ensure we have a reason code for declined bookings
+        if not reason_code:
+            reason_code = 'OTHER'
         
         with transaction.atomic():
             # Get booking with row lock for atomic updates
