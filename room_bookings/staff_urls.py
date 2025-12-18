@@ -23,6 +23,9 @@ from hotel.staff_views import (
     SafeStaffBookingListView,
     # Pre-check-in functionality
     SendPrecheckinLinkView,
+    # Stripe Authorize-Capture Flow Views
+    StaffBookingAcceptView,
+    StaffBookingDeclineView,
 )
 
 urlpatterns = [
@@ -120,5 +123,21 @@ urlpatterns = [
         '<str:booking_id>/send-precheckin-link/',
         SendPrecheckinLinkView.as_view(),
         name='send-precheckin-link'
+    ),
+    
+    # ===== STRIPE AUTHORIZE-CAPTURE FLOW ENDPOINTS =====
+    
+    # Accept booking (capture authorized payment)
+    path(
+        '<str:booking_id>/accept/',
+        StaffBookingAcceptView.as_view(),
+        name='room-bookings-staff-accept'
+    ),
+    
+    # Decline booking (cancel authorization)
+    path(
+        '<str:booking_id>/decline/',
+        StaffBookingDeclineView.as_view(),
+        name='room-bookings-staff-decline'
     ),
 ]

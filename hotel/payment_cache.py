@@ -14,19 +14,28 @@ import hashlib
 import json
 
 
-def generate_idempotency_key(booking_id, primary_email):
+def generate_idempotency_key(booking_id, primary_email, total_amount=None, currency=None):
     """
-    Generate a unique idempotency key for a booking.
+    Generate a stable idempotency key for a booking (no date rotation).
     
     Args:
         booking_id: The booking ID
         primary_email: Primary guest email address
+        total_amount: Total booking amount (optional, for extra stability)
+        currency: Currency code (optional, for extra stability)
         
     Returns:
         Idempotency key string
     """
-    data = f"{booking_id}:{primary_email}:{datetime.utcnow().date()}"
-    return f"idem_{hashlib.sha256(data.encode()).hexdigest()[:16]}"
+    # Stable key based on booking fundamentals (no date rotation)
+    data_parts = [booking_id, primary_email]
+    if total_amount:
+        data_parts.append(str(total_amount))
+    if currency:
+        data_parts.append(str(currency))
+    
+    data = ":".join(data_parts)
+    return f"booking_{hashlib.sha256(data.encode()).hexdigest()[:16]}"
 
 
 def store_payment_session(booking_id, session_data, timeout=1800):

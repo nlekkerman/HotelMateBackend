@@ -472,7 +472,9 @@ class RoomBooking(models.Model):
     """
     STATUS_CHOICES = [
         ('PENDING_PAYMENT', 'Pending Payment'),
+        ('PENDING_APPROVAL', 'Pending Staff Approval'),  # NEW: Authorization pending
         ('CONFIRMED', 'Confirmed'),
+        ('DECLINED', 'Declined'),  # NEW: Authorization cancelled
         ('CANCELLED', 'Cancelled'),
         ('COMPLETED', 'Completed'),
         ('NO_SHOW', 'No Show'),
@@ -589,6 +591,25 @@ class RoomBooking(models.Model):
         blank=True,
         help_text="Timestamp of successful payment"
     )
+    
+    # NEW: Authorization fields for manual capture flow
+    payment_intent_id = models.CharField(
+        max_length=200, blank=True, null=True, db_index=True,
+        help_text="Stripe PaymentIntent ID for authorization/capture"
+    )
+    payment_authorized_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When payment was authorized (hold created)"
+    )
+    
+    # NEW: Staff decision tracking
+    decision_by = models.ForeignKey(
+        'staff.Staff', null=True, blank=True, 
+        on_delete=models.SET_NULL, related_name='booking_decisions'
+    )
+    decision_at = models.DateTimeField(null=True, blank=True)
+    decline_reason_code = models.CharField(max_length=50, blank=True)
+    decline_reason_note = models.TextField(blank=True)
 
     # Timestamps
     created_at = models.DateTimeField(

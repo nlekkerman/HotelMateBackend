@@ -74,10 +74,15 @@ class CreatePaymentSessionView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Generate idempotency key
+        # Generate stable idempotency key (no date rotation)
+        total_amount = booking.total_amount
+        currency = (booking.currency or "EUR").lower()
+        
         idempotency_key = generate_idempotency_key(
             booking_id,
-            guest_email
+            guest_email,
+            total_amount,
+            currency
         )
         
         # Check if session already exists for this idempotency key
@@ -126,9 +131,7 @@ class CreatePaymentSessionView(APIView):
         )
         
         try:
-            # Get canonical booking totals from model
-            total_amount = booking.total_amount
-            currency = (booking.currency or "EUR").lower()
+            # Get canonical booking totals from model (already set above for idempotency)
 
             
             # Convert total to cents/smallest currency unit (Decimal-safe)
@@ -195,11 +198,16 @@ class CreatePaymentSessionView(APIView):
                     'booking_id': booking_id,
                     'hotel_slug': hotel_data['slug'],
                     'guest_name': guest_data['name'],
+                    'guest_email': guest_data['email'],
+                    'total_amount': str(total_amount),
+                    'currency': currency,
                     'check_in': dates_data['check_in'],
                     'check_out': dates_data['check_out'],
                 },
+                # 🔑 KEY CHANGE: Manual capture for authorize-then-capture flow
                 payment_intent_data={
-                    'description': f"Booking {booking_id} at {hotel_data['name']}",
+                    'capture_method': 'manual',
+                    'description': f"Hotel booking {booking_id} - {hotel_data['name']}",
                 },
             )
             
@@ -281,90 +289,121 @@ class StripeWebhookView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if this webhook event has already been processed
+        # DB idempotency check: try to create StripeWebhookEvent
         event_id = event['id']
+        event_type = event['type']
         
-        if is_webhook_processed(event_id):
+        try:
+            from .models import StripeWebhookEvent
+            webhook_event = StripeWebhookEvent.objects.create(
+                event_id=event_id,
+                event_type=event_type
+            )
+        except Exception:  # IntegrityError if event_id already exists
             print(f"Webhook event {event_id} already processed, skipping")
             return Response({
-                'status': 'success',
-                'message': 'Event already processed'
+                'status': 'already_processed'
             }, status=status.HTTP_200_OK)
         
-        # Mark event as processed
-        mark_webhook_processed(event_id)
+        # Handle the event with proper error handling
+        try:
+            if event['type'] == 'checkout.session.completed':
+                self.process_checkout_completed(event, webhook_event)
+                webhook_event.status = 'PROCESSED'
+        except Exception as e:
+            webhook_event.status = 'FAILED'
+            webhook_event.error_message = str(e)[:1000]  # Truncate long errors
+            print(f"❌ Webhook processing failed: {str(e)}")
+            # ❗ CRITICAL: Still return 200 to prevent Stripe retry storms
+        finally:
+            webhook_event.save()
         
-        # Handle the event
-        if event['type'] == 'checkout.session.completed':
-            session = event['data']['object']
+        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+    
+    def process_checkout_completed(self, event, webhook_event):
+        """Process checkout.session.completed event with authorization flow"""
+        session = event['data']['object']
+        
+        # Extract session details
+        session_id = session['id']
+        payment_intent_id = session.get('payment_intent')
+        
+        # Extract booking info from metadata
+        booking_id = session['metadata'].get('booking_id')
+        hotel_slug = session['metadata'].get('hotel_slug')
+        
+        # Update webhook event record with context
+        webhook_event.checkout_session_id = session_id
+        webhook_event.payment_intent_id = payment_intent_id
+        webhook_event.booking_id = booking_id
+        webhook_event.hotel_slug = hotel_slug
             
-            # Extract session details
-            session_id = session['id']
-            payment_intent_id = session.get('payment_intent')
-            customer_email = session.get('customer_email')
-            amount_total = session.get('amount_total', 0) / 100
-            currency = session.get('currency', 'eur').upper()
+        
+        print(f"📍 WEBHOOK PROCESSING - checkout.session.completed")
+        print(f"Processing session {session_id}, booking_id: {booking_id}")
+        
+        # PAYMENT STATE VALIDATION (CRITICAL)
+        if session['payment_status'] != 'paid':
+            raise ValueError(f"Unexpected payment_status: {session['payment_status']}")
+        
+        if payment_intent_id:
+            # Verify PaymentIntent is actually requires_capture
+            payment_intent = stripe.PaymentIntent.retrieve(payment_intent_id)
+            if payment_intent['status'] != 'requires_capture':
+                raise ValueError(
+                    f"Expected requires_capture, got {payment_intent['status']}. "
+                    f"Check manual capture configuration!"
+                )
+        
+        # ✅ ATOMIC AUTHORIZATION PROCESSING
+        from .models import RoomBooking, Hotel
+        
+        with transaction.atomic():
+            # Locate booking reliably - prefer metadata, fallback to payment_reference lookup
+            booking = None
             
-            # Extract booking info from metadata
-            booking_id = session['metadata'].get('booking_id')
-            hotel_slug = session['metadata'].get('hotel_slug')
-            guest_name = session['metadata'].get('guest_name')
-            check_in = session['metadata'].get('check_in')
-            check_out = session['metadata'].get('check_out')
+            if booking_id and hotel_slug:
+                try:
+                    booking = RoomBooking.objects.select_for_update().get(
+                        booking_id=booking_id,
+                        hotel__slug=hotel_slug
+                    )
+                    print(f"Found booking by metadata: {booking_id}")
+                except RoomBooking.DoesNotExist:
+                    print(f"Booking not found by metadata: {booking_id}")
             
-            print(f"📍 WEBHOOK PROCESSING - File: {__file__}, Function: StripeWebhookView.post")
-            print(f"Processing webhook for session {session_id}, booking_id: {booking_id}")
+            # Fallback: lookup by payment_reference (session_id)
+            if not booking:
+                try:
+                    booking = RoomBooking.objects.select_for_update().get(
+                        payment_reference=session_id
+                    )
+                    print(f"Found booking by payment_reference: {booking.booking_id}")
+                    booking_id = booking.booking_id  # Update for logging
+                except RoomBooking.DoesNotExist:
+                    raise Exception(f"No booking found for session {session_id}")
             
-            # ✅ ATOMIC PAYMENT PERSISTENCE & BOOKING CONFIRMATION
-            booking_updated = False
-            try:
-                from .models import RoomBooking, Hotel
-                
-                with transaction.atomic():
-                    # Locate booking reliably - prefer metadata, fallback to payment_reference lookup
-                    booking = None
+            # Idempotency check: skip if already authorized or paid
+            if booking.payment_authorized_at:
+                print(f"Booking {booking_id} already authorized at {booking.payment_authorized_at}, skipping")
+                booking_updated = False
+            else:
+                try:
+                    # 🚨 CRITICAL: Set authorization state, NOT confirmed
+                    booking.payment_provider = 'stripe'
+                    booking.payment_intent_id = payment_intent_id  
+                    booking.payment_reference = payment_intent_id or session_id
+                    booking.payment_authorized_at = timezone.now()
+                    booking.status = 'PENDING_APPROVAL'  # NOT CONFIRMED!
                     
-                    if booking_id and hotel_slug:
-                        try:
-                            hotel = Hotel.objects.select_for_update().get(
-                                slug=hotel_slug, 
-                                is_active=True
-                            )
-                            booking = RoomBooking.objects.select_for_update().get(
-                                booking_id=booking_id,
-                                hotel=hotel
-                            )
-                            print(f"Found booking by metadata: {booking_id}")
-                        except (Hotel.DoesNotExist, RoomBooking.DoesNotExist):
-                            print(f"Booking not found by metadata: {booking_id}")
+                    # DO NOT SET paid_at (only set during capture)
                     
-                    # Fallback: lookup by payment_reference (session_id)
-                    if not booking:
-                        try:
-                            booking = RoomBooking.objects.select_for_update().get(
-                                payment_reference=session_id
-                            )
-                            print(f"Found booking by payment_reference: {booking.booking_id}")
-                            booking_id = booking.booking_id  # Update for logging
-                        except RoomBooking.DoesNotExist:
-                            print(f"No booking found for session {session_id}")
-                            raise Exception(f"No booking found for session {session_id}")
+                    booking.save(update_fields=[
+                        'payment_provider', 'payment_intent_id', 'payment_reference',
+                        'payment_authorized_at', 'status'
+                    ])
                     
-                    # Idempotency check: skip if already paid
-                    if booking.paid_at:
-                        print(f"Booking {booking_id} already paid at {booking.paid_at}, skipping")
-                    else:
-                        # Atomically update booking with payment confirmation
-                        booking.payment_provider = 'stripe'
-                        booking.payment_reference = payment_intent_id if payment_intent_id else session_id
-                        booking.paid_at = timezone.now()
-                        booking.status = 'CONFIRMED'  # Payment received, booking confirmed
-                        
-                        booking.save(update_fields=[
-                            'payment_provider', 'payment_reference', 'paid_at', 'status'
-                        ])
-                        
-                        print(f"✅ Booking {booking_id} payment confirmed")
+                    print(f"✅ Booking {booking_id} payment authorized (pending staff approval)")
                     
                     # Refresh and log final persisted values
                     booking.refresh_from_db()
@@ -374,16 +413,24 @@ class StripeWebhookView(APIView):
                     
                     booking_updated = True
                     
-            except Exception as e:
-                print(f"❌ Failed to process payment for booking {booking_id or 'unknown'}: {e}")
-                booking_updated = False
-                # Don't return error - webhook should still return 200 to Stripe
+                except Exception as e:
+                    print(f"❌ Failed to process payment for booking {booking_id or 'unknown'}: {e}")
+                    booking_updated = False
+                    # Don't return error - webhook should still return 200 to Stripe
             
-            # Send confirmation email only if DB update succeeded
-            if booking_updated and customer_email:
-                try:
-                    email_subject = f"Payment Received - {booking_id}"
-                    email_message = f"""
+        # Extract email data from session metadata
+        customer_email = session['metadata'].get('guest_email')
+        guest_name = session['metadata'].get('guest_name')
+        check_in = session['metadata'].get('check_in')
+        check_out = session['metadata'].get('check_out')
+        currency = session['metadata'].get('currency', 'EUR').upper()
+        amount_total = float(session['metadata'].get('total_amount', 0))
+        
+        # Send confirmation email only if DB update succeeded
+        if booking_updated and customer_email:
+            try:
+                email_subject = f"Payment Received - {booking_id}"
+                email_message = f"""
 Dear {guest_name or 'Guest'},
 
 We have received your payment!
@@ -404,23 +451,21 @@ If you have any questions, please contact the hotel directly.
 Best regards,
 HotelsMates Team
 """
-                    
-                    send_mail(
-                        subject=email_subject,
-                        message=email_message,
-                        from_email=f"HotelsMates <{settings.EMAIL_HOST_USER}>",
-                        recipient_list=[customer_email],
-                        fail_silently=False,
-                    )
-                    
-                    print(f"Payment confirmation email sent to {customer_email}")
-                    
-                except Exception as e:
-                    print(f"Failed to send payment confirmation email: {e}")
-            
-            print(f"Webhook processing complete for booking {booking_id}")
+                
+                send_mail(
+                    subject=email_subject,
+                    message=email_message,
+                    from_email=f"HotelsMates <{settings.EMAIL_HOST_USER}>",
+                    recipient_list=[customer_email],
+                    fail_silently=False,
+                )
+                
+                print(f"Payment confirmation email sent to {customer_email}")
+                
+            except Exception as e:
+                print(f"Failed to send payment confirmation email: {e}")
         
-        return Response({'status': 'success'}, status=status.HTTP_200_OK)
+        print(f"Webhook processing complete for booking {booking_id}")
 
 
 class VerifyPaymentView(APIView):

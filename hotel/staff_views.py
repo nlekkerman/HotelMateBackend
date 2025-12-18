@@ -20,6 +20,11 @@ from datetime import datetime, timedelta, date
 import hashlib
 import secrets
 import logging
+import stripe
+import json
+
+# Configure Stripe
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -2296,3 +2301,239 @@ class HotelPrecheckinConfigView(APIView):
             'enabled': config.fields_enabled,
             'required': config.fields_required
         })
+
+
+# ============================================================================
+# STRIPE AUTHORIZE-CAPTURE FLOW: STAFF ACCEPT/DECLINE ENDPOINTS
+# ============================================================================
+
+class StaffBookingAcceptView(APIView):
+    """
+    Accept a PENDING_APPROVAL booking by capturing the authorized payment.
+    
+    POST /api/staff/hotel/<hotel_slug>/room-bookings/<booking_id>/accept/
+    
+    Multi-tenant safe: Validates hotel ownership before processing.
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def post(self, request, hotel_slug, booking_id):
+        """Accept a booking and capture the authorized payment."""
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Multi-tenant safety: validate hotel ownership
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        if staff.hotel != hotel:
+            return Response(
+                {'error': 'You can only accept bookings for your hotel'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        with transaction.atomic():
+            # Get booking with row lock for atomic updates
+            try:
+                booking = RoomBooking.objects.select_for_update().get(
+                    booking_id=booking_id, 
+                    hotel=hotel
+                )
+            except RoomBooking.DoesNotExist:
+                return Response(
+                    {'error': 'Booking not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Validate booking state
+            if booking.status != 'PENDING_APPROVAL':
+                return Response(
+                    {'error': f'Cannot accept booking with status {booking.status}. Expected PENDING_APPROVAL.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            if not booking.payment_intent_id:
+                return Response(
+                    {'error': 'No payment intent found for capture. Cannot accept booking.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Capture payment via Stripe
+            try:
+                print(f"🔄 Capturing payment for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
+                captured_intent = stripe.PaymentIntent.capture(booking.payment_intent_id)
+                
+                if captured_intent.status != 'succeeded':
+                    raise Exception(f"Unexpected capture status: {captured_intent.status}")
+                
+                print(f"✅ Payment captured successfully: {captured_intent.id}")
+                
+            except stripe.error.StripeError as e:
+                logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
+                return Response(
+                    {'error': f'Payment capture failed: {str(e)}'}, 
+                    status=status.HTTP_502_BAD_GATEWAY
+                )
+            except Exception as e:
+                logger.error(f"Unexpected error during capture for booking {booking_id}: {e}")
+                return Response(
+                    {'error': f'Payment capture failed: {str(e)}'}, 
+                    status=status.HTTP_502_BAD_GATEWAY
+                )
+            
+            # Update booking to CONFIRMED state
+            booking.status = 'CONFIRMED'
+            booking.paid_at = timezone.now()
+            booking.decision_by = staff
+            booking.decision_at = timezone.now()
+            
+            booking.save(update_fields=[
+                'status', 'paid_at', 'decision_by', 'decision_at'
+            ])
+            
+            print(f"✅ Booking {booking_id} accepted and confirmed by staff {staff.id}")
+        
+        # Send confirmation notifications
+        try:
+            send_booking_confirmation_email(booking)
+            logger.info(f"Confirmation email sent for accepted booking {booking_id}")
+        except Exception as e:
+            logger.error(f"Failed to send confirmation email for booking {booking_id}: {e}")
+        
+        try:
+            send_booking_confirmation_notification(booking)
+            logger.info(f"Confirmation notification sent for accepted booking {booking_id}")
+        except Exception as e:
+            logger.error(f"Failed to send confirmation notification for booking {booking_id}: {e}")
+        
+        # Trigger realtime update
+        try:
+            notification_manager.realtime_booking_updated(booking)
+        except Exception as e:
+            logger.error(f"Failed to send realtime update for booking {booking_id}: {e}")
+        
+        # TODO: Trigger pre-check-in creation if applicable
+        
+        return Response({
+            'status': 'accepted',
+            'booking_id': booking_id,
+            'message': 'Booking accepted and payment captured successfully'
+        }, status=status.HTTP_200_OK)
+
+
+class StaffBookingDeclineView(APIView):
+    """
+    Decline a PENDING_APPROVAL booking by cancelling the authorization.
+    
+    POST /api/staff/hotel/<hotel_slug>/room-bookings/<booking_id>/decline/
+    Body: {"reason_code": "AVAILABILITY", "reason_note": "Room no longer available"}
+    
+    Multi-tenant safe: Validates hotel ownership before processing.
+    """
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def post(self, request, hotel_slug, booking_id):
+        """Decline a booking and cancel the authorized payment."""
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response(
+                {'error': 'Staff profile not found'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Multi-tenant safety: validate hotel ownership
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        if staff.hotel != hotel:
+            return Response(
+                {'error': 'You can only decline bookings for your hotel'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Extract decline reason from request
+        reason_code = request.data.get('reason_code', 'OTHER')
+        reason_note = request.data.get('reason_note', 'Declined by staff')
+        
+        with transaction.atomic():
+            # Get booking with row lock for atomic updates
+            try:
+                booking = RoomBooking.objects.select_for_update().get(
+                    booking_id=booking_id, 
+                    hotel=hotel
+                )
+            except RoomBooking.DoesNotExist:
+                return Response(
+                    {'error': 'Booking not found'}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Validate booking state
+            if booking.status != 'PENDING_APPROVAL':
+                return Response(
+                    {'error': f'Cannot decline booking with status {booking.status}. Expected PENDING_APPROVAL.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Cancel authorization via Stripe (if payment_intent exists)
+            if booking.payment_intent_id:
+                try:
+                    print(f"🔄 Cancelling authorization for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
+                    cancelled_intent = stripe.PaymentIntent.cancel(booking.payment_intent_id)
+                    
+                    if cancelled_intent.status != 'canceled':
+                        logger.warning(f"Unexpected cancellation status: {cancelled_intent.status} for booking {booking_id}")
+                    
+                    print(f"✅ Authorization cancelled successfully: {cancelled_intent.id}")
+                    
+                except stripe.error.StripeError as e:
+                    logger.error(f"Stripe cancellation failed for booking {booking_id}: {e}")
+                    return Response(
+                        {'error': f'Payment cancellation failed: {str(e)}'}, 
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+                except Exception as e:
+                    logger.error(f"Unexpected error during cancellation for booking {booking_id}: {e}")
+                    return Response(
+                        {'error': f'Payment cancellation failed: {str(e)}'}, 
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+            
+            # Update booking to DECLINED state
+            booking.status = 'DECLINED'
+            booking.decision_by = staff
+            booking.decision_at = timezone.now()
+            booking.decline_reason_code = reason_code
+            booking.decline_reason_note = reason_note
+            
+            booking.save(update_fields=[
+                'status', 'decision_by', 'decision_at', 
+                'decline_reason_code', 'decline_reason_note'
+            ])
+            
+            print(f"✅ Booking {booking_id} declined by staff {staff.id} - Reason: {reason_code}")
+        
+        # Send decline notifications
+        try:
+            # TODO: Implement send_booking_declined_email function
+            # send_booking_declined_email(booking, reason_code, reason_note)
+            logger.info(f"Decline email would be sent for booking {booking_id}")
+        except Exception as e:
+            logger.error(f"Failed to send decline email for booking {booking_id}: {e}")
+        
+        try:
+            # TODO: Implement decline notification
+            # notification_manager.realtime_booking_declined(booking, reason_code, reason_note)
+            logger.info(f"Decline notification would be sent for booking {booking_id}")
+        except Exception as e:
+            logger.error(f"Failed to send decline notification for booking {booking_id}: {e}")
+        
+        return Response({
+            'status': 'declined',
+            'booking_id': booking_id,
+            'reason_code': reason_code,
+            'reason_note': reason_note,
+            'message': 'Booking declined and authorization cancelled'
+        }, status=status.HTTP_200_OK)
