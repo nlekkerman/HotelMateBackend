@@ -821,6 +821,16 @@ class RoomBooking(models.Model):
         expected = self.adults + self.children
         actual = self.party.filter(is_staying=True).count()
         return max(0, expected - actual)
+    
+    @property
+    def guest_display_name(self):
+        """Safe guest name for email display"""
+        return self.primary_guest_name or "Guest"
+    
+    @property
+    def guest_contact_email(self):
+        """Safe guest email for notifications"""
+        return self.primary_email or ""
 
     # Precheckin configuration fields
     precheckin_payload = models.JSONField(

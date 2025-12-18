@@ -25,7 +25,7 @@ def send_booking_confirmation_email(booking):
         subject = f"✅ Booking Confirmed - {booking.hotel.name} - {booking.confirmation_number}"
         
         # Email content
-        guest_name = booking.guest_name
+        guest_name = booking.guest_display_name
         hotel_name = booking.hotel.name
         check_in = booking.check_in.strftime('%B %d, %Y')
         check_out = booking.check_out.strftime('%B %d, %Y')
@@ -146,16 +146,20 @@ def send_booking_confirmation_email(booking):
         """
         
         # Send email
+        if not booking.guest_contact_email:
+            logger.warning(f"❌ No email address for booking {booking.booking_id}, skipping email")
+            return False
+            
         result = send_mail(
             subject=subject,
             message=plain_content,
             from_email=settings.EMAIL_HOST_USER,
-            recipient_list=[booking.primary_email],
+            recipient_list=[booking.guest_contact_email],
             html_message=html_content,
             fail_silently=False
         )
         
-        logger.info(f"📧 Confirmation email sent to {booking.primary_email} for booking {booking.booking_id}")
+        logger.info(f"📧 Confirmation email sent to {booking.guest_contact_email} for booking {booking.booking_id}")
         return True
         
     except Exception as e:
@@ -180,7 +184,7 @@ def send_booking_cancellation_email(booking, reason=None, cancelled_by=None):
         subject = f"❌ Booking Cancelled - {booking.hotel.name} - {booking.confirmation_number}"
         
         # Email content
-        guest_name = booking.guest_name
+        guest_name = booking.guest_display_name
         hotel_name = booking.hotel.name
         check_in = booking.check_in.strftime('%B %d, %Y')
         check_out = booking.check_out.strftime('%B %d, %Y')
@@ -301,16 +305,20 @@ def send_booking_cancellation_email(booking, reason=None, cancelled_by=None):
         """
         
         # Send email
+        if not booking.guest_contact_email:
+            logger.warning(f"❌ No email address for booking {booking.booking_id}, skipping email")
+            return False
+            
         result = send_mail(
             subject=subject,
             message=plain_content,
             from_email=settings.EMAIL_HOST_USER,
-            recipient_list=[booking.primary_email],
+            recipient_list=[booking.guest_contact_email],
             html_message=html_content,
             fail_silently=False
         )
         
-        logger.info(f"📧 Cancellation email sent to {booking.primary_email} for booking {booking.booking_id}")
+        logger.info(f"📧 Cancellation email sent to {booking.guest_contact_email} for booking {booking.booking_id}")
         return True
         
     except Exception as e:
