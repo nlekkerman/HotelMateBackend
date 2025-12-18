@@ -2309,16 +2309,16 @@ class HotelPrecheckinConfigView(APIView):
 
 class StaffBookingAcceptView(APIView):
     """
-    Accept a PENDING_APPROVAL booking by capturing the authorized payment.
+    Approve a PENDING_APPROVAL booking by capturing the authorized payment.
     
-    POST /api/staff/hotel/<hotel_slug>/room-bookings/<booking_id>/accept/
+    POST /api/staff/hotel/<hotel_slug>/room-bookings/<booking_id>/approve/
     
     Multi-tenant safe: Validates hotel ownership before processing.
     """
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
     def post(self, request, hotel_slug, booking_id):
-        """Accept a booking and capture the authorized payment."""
+        """Approve a booking and capture the authorized payment."""
         try:
             staff = request.user.staff_profile
         except AttributeError:
@@ -2348,16 +2348,37 @@ class StaffBookingAcceptView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
+            # Idempotency check: if already CONFIRMED, return success
+            if booking.status == 'CONFIRMED':
+                return Response({
+                    'status': 'approved',
+                    'booking_id': booking_id,
+                    'message': 'Booking is already confirmed (idempotent)',
+                    'booking': {
+                        'booking_id': booking.booking_id,
+                        'status': booking.status,
+                        'paid_at': booking.paid_at.isoformat() if booking.paid_at else None,
+                        'decision_at': booking.decision_at.isoformat() if booking.decision_at else None
+                    }
+                }, status=status.HTTP_200_OK)
+            
             # Validate booking state
             if booking.status != 'PENDING_APPROVAL':
                 return Response(
-                    {'error': f'Cannot accept booking with status {booking.status}. Expected PENDING_APPROVAL.'}, 
+                    {'error': f'Cannot approve booking with status {booking.status}. Expected PENDING_APPROVAL.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate payment provider and intent
+            if booking.payment_provider != 'stripe':
+                return Response(
+                    {'error': f'Invalid payment provider: {booking.payment_provider}. Expected stripe.'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
             if not booking.payment_intent_id:
                 return Response(
-                    {'error': 'No payment intent found for capture. Cannot accept booking.'}, 
+                    {'error': 'No payment intent found for capture. Cannot approve booking.'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -2394,33 +2415,54 @@ class StaffBookingAcceptView(APIView):
                 'status', 'paid_at', 'decision_by', 'decision_at'
             ])
             
-            print(f"✅ Booking {booking_id} accepted and confirmed by staff {staff.id}")
+            print(f"✅ Booking {booking_id} approved and confirmed by staff {staff.id}")
         
         # Send confirmation notifications
         try:
+            from notifications.email_service import send_booking_confirmation_email
             send_booking_confirmation_email(booking)
-            logger.info(f"Confirmation email sent for accepted booking {booking_id}")
+            logger.info(f"Confirmation email sent for approved booking {booking_id}")
+        except ImportError:
+            logger.warning(f"Email service not available for booking confirmation")
         except Exception as e:
             logger.error(f"Failed to send confirmation email for booking {booking_id}: {e}")
         
         try:
-            send_booking_confirmation_notification(booking)
-            logger.info(f"Confirmation notification sent for accepted booking {booking_id}")
+            from notifications.fcm_service import send_booking_confirmation_notification
+            # Try to get FCM token if guest is checked in
+            guest_fcm_token = None
+            try:
+                from rooms.models import Room
+                if booking.assigned_room:
+                    guest_fcm_token = booking.assigned_room.guest_fcm_token
+            except:
+                pass
+            
+            if guest_fcm_token:
+                send_booking_confirmation_notification(guest_fcm_token, booking)
+                logger.info(f"Confirmation notification sent for approved booking {booking_id}")
+        except ImportError:
+            logger.warning(f"FCM service not available for booking confirmation")
         except Exception as e:
             logger.error(f"Failed to send confirmation notification for booking {booking_id}: {e}")
         
         # Trigger realtime update
         try:
+            from notifications.notification_manager import notification_manager
             notification_manager.realtime_booking_updated(booking)
         except Exception as e:
             logger.error(f"Failed to send realtime update for booking {booking_id}: {e}")
         
-        # TODO: Trigger pre-check-in creation if applicable
-        
         return Response({
-            'status': 'accepted',
+            'status': 'approved',
             'booking_id': booking_id,
-            'message': 'Booking accepted and payment captured successfully'
+            'message': 'Booking approved and payment captured successfully',
+            'booking': {
+                'booking_id': booking.booking_id,
+                'status': booking.status,
+                'paid_at': booking.paid_at.isoformat() if booking.paid_at else None,
+                'decision_at': booking.decision_at.isoformat() if booking.decision_at else None
+            }
         }, status=status.HTTP_200_OK)
 
 
@@ -2474,10 +2516,32 @@ class StaffBookingDeclineView(APIView):
                     status=status.HTTP_404_NOT_FOUND
                 )
             
+            # Idempotency check: if already DECLINED, return success
+            if booking.status == 'DECLINED':
+                return Response({
+                    'status': 'declined',
+                    'booking_id': booking_id,
+                    'message': 'Booking is already declined (idempotent)',
+                    'booking': {
+                        'booking_id': booking.booking_id,
+                        'status': booking.status,
+                        'decision_at': booking.decision_at.isoformat() if booking.decision_at else None,
+                        'decline_reason_code': booking.decline_reason_code,
+                        'decline_reason_note': booking.decline_reason_note
+                    }
+                }, status=status.HTTP_200_OK)
+            
             # Validate booking state
             if booking.status != 'PENDING_APPROVAL':
                 return Response(
                     {'error': f'Cannot decline booking with status {booking.status}. Expected PENDING_APPROVAL.'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Validate payment provider (only process if Stripe)
+            if booking.payment_provider and booking.payment_provider != 'stripe':
+                return Response(
+                    {'error': f'Invalid payment provider: {booking.payment_provider}. Expected stripe.'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -2521,16 +2585,19 @@ class StaffBookingDeclineView(APIView):
         
         # Send decline notifications
         try:
-            # TODO: Implement send_booking_declined_email function
-            # send_booking_declined_email(booking, reason_code, reason_note)
-            logger.info(f"Decline email would be sent for booking {booking_id}")
+            from notifications.email_service import send_booking_cancellation_email
+            staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.user.username
+            send_booking_cancellation_email(booking, reason_note or reason_code, staff_name)
+            logger.info(f"Decline email sent for booking {booking_id}")
+        except ImportError:
+            logger.warning(f"Email service not available for booking decline")
         except Exception as e:
             logger.error(f"Failed to send decline email for booking {booking_id}: {e}")
         
         try:
-            # TODO: Implement decline notification
-            # notification_manager.realtime_booking_declined(booking, reason_code, reason_note)
-            logger.info(f"Decline notification would be sent for booking {booking_id}")
+            from notifications.notification_manager import notification_manager
+            notification_manager.realtime_booking_updated(booking)
+            logger.info(f"Decline notification sent for booking {booking_id}")
         except Exception as e:
             logger.error(f"Failed to send decline notification for booking {booking_id}: {e}")
         
@@ -2539,5 +2606,12 @@ class StaffBookingDeclineView(APIView):
             'booking_id': booking_id,
             'reason_code': reason_code,
             'reason_note': reason_note,
-            'message': 'Booking declined and authorization cancelled'
+            'message': 'Booking declined and authorization cancelled',
+            'booking': {
+                'booking_id': booking.booking_id,
+                'status': booking.status,
+                'decision_at': booking.decision_at.isoformat() if booking.decision_at else None,
+                'decline_reason_code': booking.decline_reason_code,
+                'decline_reason_note': booking.decline_reason_note
+            }
         }, status=status.HTTP_200_OK)

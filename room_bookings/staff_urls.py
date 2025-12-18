@@ -127,11 +127,11 @@ urlpatterns = [
     
     # ===== STRIPE AUTHORIZE-CAPTURE FLOW ENDPOINTS =====
     
-    # Accept booking (capture authorized payment)
+    # Approve booking (capture authorized payment)
     path(
-        '<str:booking_id>/accept/',
+        '<str:booking_id>/approve/',
         StaffBookingAcceptView.as_view(),
-        name='room-bookings-staff-accept'
+        name='room-bookings-staff-approve'
     ),
     
     # Decline booking (cancel authorization)
