@@ -9,6 +9,8 @@ from django.shortcuts import get_object_or_404
 from django.conf import settings
 from django.core.mail import send_mail
 from decimal import Decimal, ROUND_HALF_UP
+from django.db import transaction
+from django.utils import timezone
 import stripe
 
 from .payment_cache import (
@@ -212,7 +214,12 @@ class CreatePaymentSessionView(APIView):
             }
             store_payment_session(booking_id, session_data)
             
-            # Booking data is already in DB, no need to cache
+            # ✅ IMMEDIATELY persist payment reference to booking
+            booking.payment_provider = "stripe"
+            booking.payment_reference = session.id  # Store session ID as reference
+            booking.save(update_fields=['payment_provider', 'payment_reference'])
+            
+            print(f"Payment session created for booking {booking_id}: {session.id}")
             
             return Response({
                 'session_id': session.id,
@@ -335,10 +342,50 @@ HotelsMates Team
                 except Exception as e:
                     print(f"Failed to send email: {e}")
             
-            # TODO: Update booking status in database to CONFIRMED (Phase 2)
-            # TODO: Notify hotel staff (Phase 2)
+            # ✅ ATOMIC BOOKING CONFIRMATION
+            try:
+                from django.db import transaction
+                from django.utils import timezone
+                from .models import RoomBooking, Hotel
+                
+                with transaction.atomic():
+                    # Locate booking reliably using session metadata
+                    hotel = Hotel.objects.select_for_update().get(
+                        slug=hotel_slug, 
+                        is_active=True
+                    )
+                    booking = RoomBooking.objects.select_for_update().get(
+                        booking_id=booking_id,
+                        hotel=hotel
+                    )
+                    
+                    # Idempotency check: skip if already paid
+                    if booking.paid_at:
+                        print(f"Booking {booking_id} already confirmed, skipping webhook")
+                    else:
+                        # Get payment intent ID from session for better reference
+                        payment_intent_id = session.get('payment_intent')
+                        
+                        # Atomically confirm booking
+                        booking.status = 'CONFIRMED'
+                        booking.paid_at = timezone.now()
+                        booking.payment_provider = 'stripe'
+                        # Use payment_intent if available, otherwise keep session_id
+                        if payment_intent_id:
+                            booking.payment_reference = payment_intent_id
+                        # If no payment_intent, session.id should already be saved from creation
+                        
+                        booking.save(update_fields=[
+                            'status', 'paid_at', 'payment_provider', 'payment_reference'
+                        ])
+                    
+                    print(f"✅ Booking {booking_id} confirmed atomically - Status: {booking.status}, Paid: {booking.paid_at}, Provider: {booking.payment_provider}, Ref: {booking.payment_reference}")
+                    
+            except Exception as e:
+                print(f"❌ Failed to confirm booking {booking_id}: {e}")
+                # Don't return error - webhook should still return 200 to Stripe
             
-            print(f"Payment successful for booking {booking_id}")
+            print(f"Payment webhook processed for booking {booking_id}")
         
         return Response({'status': 'success'}, status=status.HTTP_200_OK)
 
