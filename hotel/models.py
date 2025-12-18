@@ -608,8 +608,8 @@ class RoomBooking(models.Model):
         on_delete=models.SET_NULL, related_name='booking_decisions'
     )
     decision_at = models.DateTimeField(null=True, blank=True)
-    decline_reason_code = models.CharField(max_length=50, blank=True)
-    decline_reason_note = models.TextField(blank=True)
+    decline_reason_code = models.CharField(max_length=50, blank=True, null=True)
+    decline_reason_note = models.TextField(blank=True, null=True)
 
     # Timestamps
     created_at = models.DateTimeField(
