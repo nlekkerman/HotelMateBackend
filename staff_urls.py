@@ -38,6 +38,7 @@ from room_services.staff_views import (
     StaffRoomServiceItemViewSet,
     StaffBreakfastItemViewSet
 )
+from rooms.views import RoomViewSet
 
 # List of all apps with URLs to wrap in STAFF zone
 # Note: 'posts' app excluded (no urls.py - only contains static files)
@@ -135,6 +136,11 @@ staff_hotel_router.register(
     r'breakfast-items',
     StaffBreakfastItemViewSet,
     basename='staff-breakfast-items'
+)
+staff_hotel_router.register(
+    r'rooms',
+    RoomViewSet,
+    basename='staff-rooms'
 )
 
 urlpatterns = [

@@ -47,8 +47,8 @@ class BookingGuestInline(admin.TabularInline):
     model = BookingGuest
     extra = 0
     verbose_name_plural = 'Booking Party'
-    fields = ('role_display', 'first_name', 'last_name', 'email', 'phone', 'is_staying')
-    readonly_fields = ('role_display',)
+    fields = ('role_display', 'first_name', 'last_name', 'email', 'phone', 'is_staying', 'guest_precheckin_display')
+    readonly_fields = ('role_display', 'guest_precheckin_display')
     ordering = ['role', 'created_at']
     
     def role_display(self, obj):
@@ -57,6 +57,19 @@ class BookingGuestInline(admin.TabularInline):
             return format_html('<strong>👑 PRIMARY</strong>')
         return '👥 COMPANION'
     role_display.short_description = 'Role'
+    
+    def guest_precheckin_display(self, obj):
+        """Display guest-specific precheckin data"""
+        if not obj.precheckin_payload:
+            return "-"
+        
+        formatted = []
+        for key, value in obj.precheckin_payload.items():
+            if value:  # Only show non-empty values
+                formatted.append(f"{key}: {value}")
+        
+        return ', '.join(formatted) if formatted else "-"
+    guest_precheckin_display.short_description = 'Precheckin Data'
     
     def get_readonly_fields(self, request, obj=None):
         """Make PRIMARY guest completely read-only"""
@@ -235,6 +248,7 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'check_out',
         'status',
         'party_status_display',
+        'precheckin_status_display',
         'total_amount',
         'created_at',
         'cancellation_info'
@@ -257,6 +271,8 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'updated_at',
         'nights',
         'party_status_display',
+        'precheckin_status_display',
+        'precheckin_data_display',
         'cancellation_details_formatted',
         'cancelled_by_display',
         'cancellation_date_display',
@@ -403,6 +419,34 @@ class RoomBookingAdmin(admin.ModelAdmin):
             )
     party_status_display.short_description = "Party Status"
     
+    def precheckin_status_display(self, obj):
+        """Display precheckin completion status"""
+        if obj.precheckin_submitted_at:
+            return format_html('<span style="color: green;">✅ Completed<br><small>{}</small></span>', 
+                             obj.precheckin_submitted_at.strftime('%Y-%m-%d %H:%M'))
+        else:
+            return format_html('<span style="color: gray;">⏳ Not submitted</span>')
+    precheckin_status_display.short_description = "Pre-check-in"
+    
+    def precheckin_data_display(self, obj):
+        """Display formatted precheckin payload data"""
+        if not obj.precheckin_payload:
+            return "No precheckin data"
+        
+        formatted = []
+        for key, value in obj.precheckin_payload.items():
+            # Format field names nicely
+            field_name = key.replace('_', ' ').title()
+            if isinstance(value, bool):
+                value_str = "✅ Yes" if value else "❌ No"
+            else:
+                value_str = str(value) if value else "Not provided"
+            
+            formatted.append(f"{field_name}: {value_str}")
+        
+        return format_html('<br>'.join(formatted)) if formatted else "No precheckin data"
+    precheckin_data_display.short_description = "Pre-check-in Data"
+    
     # Add the inline for party management
     inlines = [BookingGuestInline]
     
@@ -450,6 +494,13 @@ class RoomBookingAdmin(admin.ModelAdmin):
             ),
             'classes': ('collapse',),
             'description': 'Cancellation details (only visible for cancelled bookings)'
+        }),
+        ('Pre-check-in Information', {
+            'fields': (
+                'precheckin_status_display',
+                'precheckin_data_display'
+            ),
+            'description': 'Guest-submitted precheckin data (ETA, special requests, nationality, etc.)'
         }),
         ('Additional Information', {
             'fields': ('special_requests', 'internal_notes')
