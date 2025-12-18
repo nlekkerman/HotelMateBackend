@@ -51,6 +51,16 @@ def debug_quick():
         ).count()
         print(f"Bookable rooms: {bookable}")
         
+        # Check for RoomTypeInventory override
+        from rooms.models import RoomTypeInventory
+        try:
+            inventory_record = RoomTypeInventory.objects.get(room_type=rt, date=today)
+            print(f"⚠️  RoomTypeInventory override found!")
+            print(f"   stop_sell={inventory_record.stop_sell}")
+            print(f"   total_rooms={inventory_record.total_rooms}")
+        except RoomTypeInventory.DoesNotExist:
+            print("✅ No RoomTypeInventory override")
+        
         # Check inventory function
         inventory = _inventory_for_date(rt, today)
         print(f"_inventory_for_date result: {inventory}")
