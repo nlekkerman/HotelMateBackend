@@ -451,6 +451,14 @@ class StripeWebhookView(APIView):
                     
                     booking_updated = True
                     
+                    # 🚨 MISSING: Emit Pusher event for PENDING_APPROVAL status change
+                    try:
+                        from notifications.notification_manager import notification_manager
+                        notification_manager.realtime_booking_updated(booking)
+                        print(f"📡 Pusher event sent for booking {booking_id} -> PENDING_APPROVAL")
+                    except Exception as e:
+                        print(f"❌ Failed to send Pusher event for booking {booking_id}: {e}")
+                    
                 except Exception as e:
                     print(f"❌ Failed to process payment for booking {booking_id or 'unknown'}: {e}")
                     booking_updated = False

@@ -1072,11 +1072,40 @@ class StaffBookingConfirmView(APIView):
         except RoomBooking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        # 🚨 CRITICAL: Block Stripe bookings from using old confirm endpoint
+        if (booking.payment_provider == "stripe" or 
+            booking.payment_intent_id or 
+            booking.payment_authorized_at):
+            return Response({
+                'error': 'Stripe bookings require staff approve/decline endpoints.',
+                'required_endpoints': {
+                    'approve': f'/api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/approve/',
+                    'decline': f'/api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/decline/'
+                }
+            }, status=status.HTTP_403_FORBIDDEN)
+
         if booking.status == 'CANCELLED':
             return Response({'error': 'Cannot confirm a cancelled booking'}, status=status.HTTP_400_BAD_REQUEST)
 
         if booking.status == 'CONFIRMED':
             return Response({'message': 'Booking is already confirmed'}, status=status.HTTP_200_OK)
+        
+        # 🚨 CRITICAL: Enforce status transitions - only allow from valid states
+        if booking.status == 'PENDING_PAYMENT':
+            return Response({
+                'error': 'Cannot confirm booking still pending payment. Guest must complete payment first.',
+                'current_status': booking.status
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        if booking.status == 'PENDING_APPROVAL':
+            return Response({
+                'error': 'Booking requires authorize-capture approval. Use approve/decline endpoints.',
+                'current_status': booking.status,
+                'required_endpoints': {
+                    'approve': f'/api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/approve/',
+                    'decline': f'/api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/decline/'
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         booking.status = 'CONFIRMED'
         booking.save()
@@ -1149,11 +1178,32 @@ class StaffBookingCancelView(APIView):
         except RoomBooking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
+        # 🚨 CRITICAL: Block Stripe bookings from using old cancel endpoint
+        if (booking.payment_provider == "stripe" or 
+            booking.payment_intent_id or 
+            booking.payment_authorized_at):
+            return Response({
+                'error': 'Stripe bookings require staff approve/decline endpoints.',
+                'current_status': booking.status,
+                'required_endpoints': {
+                    'approve': f'/api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/approve/',
+                    'decline': f'/api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/decline/'
+                }
+            }, status=status.HTTP_403_FORBIDDEN)
+
         if booking.status == 'CANCELLED':
             return Response({'message': 'Booking is already cancelled'}, status=status.HTTP_200_OK)
 
         if booking.status == 'COMPLETED':
             return Response({'error': 'Cannot cancel a completed booking'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # 🚨 CRITICAL: Block cancellation of payments with active Stripe authorization
+        if booking.status == 'PENDING_APPROVAL':
+            return Response({
+                'error': 'Cannot cancel booking with pending payment authorization. Use decline endpoint to cancel authorization.',
+                'current_status': booking.status,
+                'required_endpoint': f'/api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/decline/'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         # Get cancellation reason from request
         cancellation_reason = request.data.get('reason', 'Cancelled by staff')
@@ -2358,7 +2408,7 @@ class StaffBookingAcceptView(APIView):
                         'booking_id': booking.booking_id,
                         'status': booking.status,
                         'paid_at': booking.paid_at.isoformat() if booking.paid_at else None,
-                        'decision_at': booking.decision_at.isoformat() if booking.decision_at else None
+                        'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None
                     }
                 }, status=status.HTTP_200_OK)
             
@@ -2408,11 +2458,11 @@ class StaffBookingAcceptView(APIView):
             # Update booking to CONFIRMED state
             booking.status = 'CONFIRMED'
             booking.paid_at = timezone.now()
-            booking.decision_by = staff
-            booking.decision_at = timezone.now()
+            booking.decision_made_by = staff.user  # Store User, not Staff
+            booking.decision_made_at = timezone.now()
             
             booking.save(update_fields=[
-                'status', 'paid_at', 'decision_by', 'decision_at'
+                'status', 'paid_at', 'decision_made_by', 'decision_made_at'
             ])
             
             print(f"✅ Booking {booking_id} approved and confirmed by staff {staff.id}")
@@ -2461,7 +2511,7 @@ class StaffBookingAcceptView(APIView):
                 'booking_id': booking.booking_id,
                 'status': booking.status,
                 'paid_at': booking.paid_at.isoformat() if booking.paid_at else None,
-                'decision_at': booking.decision_at.isoformat() if booking.decision_at else None
+                'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None
             }
         }, status=status.HTTP_200_OK)
 
@@ -2525,7 +2575,7 @@ class StaffBookingDeclineView(APIView):
                     'booking': {
                         'booking_id': booking.booking_id,
                         'status': booking.status,
-                        'decision_at': booking.decision_at.isoformat() if booking.decision_at else None,
+                        'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None,
                         'decline_reason_code': booking.decline_reason_code,
                         'decline_reason_note': booking.decline_reason_note
                     }
@@ -2571,13 +2621,13 @@ class StaffBookingDeclineView(APIView):
             
             # Update booking to DECLINED state
             booking.status = 'DECLINED'
-            booking.decision_by = staff
-            booking.decision_at = timezone.now()
+            booking.decision_made_by = staff.user  # Store User, not Staff
+            booking.decision_made_at = timezone.now()
             booking.decline_reason_code = reason_code
             booking.decline_reason_note = reason_note
             
             booking.save(update_fields=[
-                'status', 'decision_by', 'decision_at', 
+                'status', 'decision_made_by', 'decision_made_at', 
                 'decline_reason_code', 'decline_reason_note'
             ])
             
@@ -2610,7 +2660,7 @@ class StaffBookingDeclineView(APIView):
             'booking': {
                 'booking_id': booking.booking_id,
                 'status': booking.status,
-                'decision_at': booking.decision_at.isoformat() if booking.decision_at else None,
+                'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None,
                 'decline_reason_code': booking.decline_reason_code,
                 'decline_reason_note': booking.decline_reason_note
             }
