@@ -1,13 +1,18 @@
-# Frontend: Getting Individual Nationality Data Back from API
+# Frontend API Integration Guide: Precheckin Data & Individual Nationality
 
 ## 🎯 Objective
-Show how frontend can detect precheckin completion, retrieve guest nationality data, and fill booking details with precheckin information.
+Define correct API contracts for staff and guest flows to detect precheckin completion, retrieve individual nationality data, and integrate with booking details.
+
+## ⚠️ CRITICAL: Staff vs Guest API Separation
+- **Staff flows**: Must use staff endpoints only - NO precheckin tokens or public endpoints
+- **Guest flows**: Use public precheckin endpoints with tokens
+- **Completion detection**: Use `precheckin_submitted_at != null` as single source of truth
 
 ## ✅ Current Status
-- **Backend**: Nationality data is saved successfully per guest
-- **Admin**: Shows individual nationality for each party member  
-- **API**: Returns nationality data in party member objects
-- **Booking Details**: Can be filled with precheckin data automatically
+- **Backend**: Nationality data saved per guest in `precheckin_payload`
+- **Admin**: Individual nationality display for each party member  
+- **Staff API**: Must expose precheckin data in staff booking endpoints
+- **Guest API**: Public precheckin endpoints work with tokens
 
 ## � Detecting Precheckin Completion
 

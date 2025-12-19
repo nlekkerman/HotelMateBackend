@@ -42,58 +42,87 @@ class BookingOptionsInline(admin.StackedInline):
     )
 
 
-class BookingGuestInline(admin.TabularInline):
-    """Inline editor for BookingGuest (party members)"""
+class BookingGuestInline(admin.StackedInline):
+    """Inline editor for BookingGuest (party members) - Multi-row format"""
     model = BookingGuest
     extra = 0
     verbose_name_plural = 'Booking Party'
-    fields = ('role_display', 'first_name', 'last_name', 'nationality_display', 'guest_precheckin_display')
-    readonly_fields = ('role_display', 'nationality_display', 'guest_precheckin_display')
+    fields = (
+        'comprehensive_guest_display',
+        ('first_name', 'last_name'),
+        ('email', 'phone'),
+        'is_staying',
+        'comprehensive_precheckin_display'
+    )
+    readonly_fields = ('comprehensive_guest_display', 'comprehensive_precheckin_display')
     ordering = ['role', 'created_at']
     
-    def role_display(self, obj):
-        """Display role with visual indicator"""
+    def comprehensive_guest_display(self, obj):
+        """Display comprehensive guest information in multi-row format"""
+        # Guest basic info with role
         if obj.role == 'PRIMARY':
-            return format_html('<strong>👑 PRIMARY</strong>')
-        return '👥 COMPANION'
-    role_display.short_description = 'Role'
-    
-    def nationality_display(self, obj):
-        """Display guest nationality and residence"""
-        if not obj.precheckin_payload:
-            return "-"
+            role_badge = '<span style="background:#28a745;color:white;padding:2px 8px;border-radius:3px;font-weight:bold;">👑 PRIMARY GUEST</span>'
+        else:
+            role_badge = '<span style="background:#6c757d;color:white;padding:2px 8px;border-radius:3px;">👥 COMPANION</span>'
         
+        # Contact info
+        contact_info = f"📧 {obj.email or 'No email'} | 📞 {obj.phone or 'No phone'}"
+        
+        # Staying status
+        staying_status = "🛏️ Staying" if obj.is_staying else "🚪 Not staying"
+        
+        # Build comprehensive display
+        html_parts = [
+            f'<div style="margin-bottom:8px;">{role_badge}</div>',
+            f'<div style="margin-bottom:4px;"><strong>{obj.first_name} {obj.last_name}</strong></div>',
+            f'<div style="margin-bottom:4px;color:#666;">{contact_info}</div>',
+            f'<div style="color:#666;">{staying_status}</div>'
+        ]
+        
+        return format_html(''.join(html_parts))
+    comprehensive_guest_display.short_description = 'Guest Information'
+    
+    def comprehensive_precheckin_display(self, obj):
+        """Display all precheckin data in multi-row format"""
+        if not obj.precheckin_payload:
+            return format_html('<div style="background:#f8d7da;color:#721c24;font-style:italic;padding:8px;border-radius:4px;border:1px solid #f5c6cb;">❌ No precheckin data submitted</div>')
+        
+        # Get all precheckin data
         nationality = obj.precheckin_payload.get('nationality')
         country_res = obj.precheckin_payload.get('country_of_residence')
         
-        parts = []
+        html_parts = ['<div style="background:#e8f5e8;padding:10px;border-radius:4px;margin:5px 0;border:1px solid #c3e6cb;">']
+        html_parts.append('<div style="color:#155724;font-weight:bold;margin-bottom:8px;font-size:14px;">✅ Precheckin Data Submitted</div>')
+        
+        # Display nationality information prominently
         if nationality:
-            parts.append(f"🌍 {nationality}")
+            html_parts.append(f'<div style="margin-bottom:4px;color:#212529;font-size:13px;"><strong style="color:#000000;">🌍 Nationality:</strong> <span style="color:#495057;font-weight:600;">{nationality}</span></div>')
+        
         if country_res and country_res != nationality:
-            parts.append(f"🏠 {country_res}")
-            
-        return ' | '.join(parts) if parts else "-"
-    nationality_display.short_description = 'Nationality'
-    
-    def guest_precheckin_display(self, obj):
-        """Display guest-specific precheckin data"""
-        if not obj.precheckin_payload:
-            return "-"
+            html_parts.append(f'<div style="margin-bottom:4px;color:#212529;font-size:13px;"><strong style="color:#0056b3;">🏠 Residence:</strong> <span style="color:#495057;font-weight:600;">{country_res}</span></div>')
         
-        formatted = []
+        # Display other precheckin fields
+        other_data = []
         for key, value in obj.precheckin_payload.items():
-            if value and key not in ['nationality', 'country_of_residence']:  # Skip already shown fields
+            if value and key not in ['nationality', 'country_of_residence']:
                 field_name = key.replace('_', ' ').title()
-                formatted.append(f"{field_name}: {value}")
+                other_data.append(f'<div style="margin-bottom:2px;"><strong>{field_name}:</strong> {value}</div>')
         
-        return ', '.join(formatted) if formatted else "-"
-    guest_precheckin_display.short_description = 'Other Precheckin Data'
+        if other_data:
+            html_parts.append('<div style="margin-top:8px;padding-top:8px;border-top:1px solid #dee2e6;">')
+            html_parts.extend(other_data)
+            html_parts.append('</div>')
+        
+        html_parts.append('</div>')
+        
+        return format_html(''.join(html_parts))
+    comprehensive_precheckin_display.short_description = 'Precheckin Information'
     
     def get_readonly_fields(self, request, obj=None):
-        """Make PRIMARY guest completely read-only"""
+        """Make PRIMARY guest data read-only but allow companion editing"""
         readonly = list(self.readonly_fields)
         if obj and hasattr(obj, 'role') and obj.role == 'PRIMARY':
-            # For PRIMARY guests, make all fields read-only
+            # For PRIMARY guests, make all basic fields read-only
             readonly.extend(['first_name', 'last_name', 'email', 'phone', 'is_staying'])
         return readonly
     
@@ -102,6 +131,12 @@ class BookingGuestInline(admin.TabularInline):
         if obj and hasattr(obj, 'role') and obj.role == 'PRIMARY':
             return False
         return super().has_delete_permission(request, obj)
+    
+    class Media:
+        css = {
+            'all': ('admin/css/custom_inline.css',)
+        }
+        js = ('admin/js/collapse_inlines.js',)
 
 
 @admin.register(Hotel)
@@ -447,23 +482,69 @@ class RoomBookingAdmin(admin.ModelAdmin):
     precheckin_status_display.short_description = "Pre-check-in"
     
     def precheckin_data_display(self, obj):
-        """Display formatted precheckin payload data"""
-        if not obj.precheckin_payload:
-            return "No precheckin data"
+        """Display comprehensive party precheckin data in multi-row format"""
+        # Check if any guest has precheckin data
+        guests_with_data = obj.party.filter(precheckin_payload__isnull=False).exclude(precheckin_payload={})
         
-        formatted = []
-        for key, value in obj.precheckin_payload.items():
-            # Format field names nicely
-            field_name = key.replace('_', ' ').title()
-            if isinstance(value, bool):
-                value_str = "✅ Yes" if value else "❌ No"
-            else:
-                value_str = str(value) if value else "Not provided"
+        if not guests_with_data.exists():
+            return format_html('<div style="background:#f8d7da;color:#721c24;font-style:italic;padding:8px;border-radius:4px;border:1px solid #f5c6cb;">❌ No precheckin data from any party member</div>')
+        
+        html_parts = ['<div style="background:#e8f5e8;padding:12px;border-radius:6px;margin:5px 0;border:1px solid #c3e6cb;">']
+        html_parts.append(f'<div style="color:#155724;font-weight:bold;margin-bottom:12px;font-size:14px;">✅ Precheckin Data Summary ({guests_with_data.count()} guests completed)</div>')
+        
+        # Display data for each guest who completed precheckin
+        for guest in guests_with_data.order_by('role', 'created_at'):
+            role_label = "👑 PRIMARY" if guest.role == 'PRIMARY' else "👥 COMPANION"
+            guest_name = f"{guest.first_name} {guest.last_name}"
             
-            formatted.append(f"{field_name}: {value_str}")
+            html_parts.append(f'<div style="margin-bottom:10px;padding:8px;border-left:3px solid #007bff;background:white;">')
+            html_parts.append(f'<div style="font-weight:bold;margin-bottom:6px;color:#000000;">{role_label} - {guest_name}</div>')
+            
+            # Display nationality and residence prominently
+            nationality = guest.precheckin_payload.get('nationality')
+            country_res = guest.precheckin_payload.get('country_of_residence')
+            
+            if nationality:
+                html_parts.append(f'<div style="margin-bottom:3px;color:#212529;font-size:12px;"><strong style="color:#0056b3;">🌍 Nationality:</strong> <span style="color:#495057;font-weight:600;">{nationality}</span></div>')
+            
+            if country_res and country_res != nationality:
+                html_parts.append(f'<div style="margin-bottom:3px;color:#212529;font-size:12px;"><strong style="color:#0056b3;">🏠 Residence:</strong> <span style="color:#495057;font-weight:600;">{country_res}</span></div>')
+            
+            # Display other precheckin data
+            other_fields = []
+            for key, value in guest.precheckin_payload.items():
+                if value and key not in ['nationality', 'country_of_residence']:
+                    field_name = key.replace('_', ' ').title()
+                    if isinstance(value, bool):
+                        value_str = "✅ Yes" if value else "❌ No"
+                    else:
+                        value_str = str(value)
+                    other_fields.append(f'<div style="margin-bottom:2px;font-size:0.9em;color:#666;">• <strong>{field_name}:</strong> {value_str}</div>')
+            
+            if other_fields:
+                html_parts.extend(other_fields)
+            
+            html_parts.append('</div>')
         
-        return format_html('<br>'.join(formatted)) if formatted else "No precheckin data"
-    precheckin_data_display.short_description = "Pre-check-in Data"
+        # Show booking-level precheckin data if exists
+        if obj.precheckin_payload:
+            html_parts.append('<div style="margin-top:12px;padding-top:8px;border-top:1px solid #dee2e6;">')
+            html_parts.append('<div style="font-weight:bold;margin-bottom:6px;">📋 Booking-Level Data</div>')
+            
+            for key, value in obj.precheckin_payload.items():
+                field_name = key.replace('_', ' ').title()
+                if isinstance(value, bool):
+                    value_str = "✅ Yes" if value else "❌ No"
+                else:
+                    value_str = str(value) if value else "Not provided"
+                html_parts.append(f'<div style="margin-bottom:2px;font-size:0.9em;">• <strong>{field_name}:</strong> {value_str}</div>')
+            
+            html_parts.append('</div>')
+        
+        html_parts.append('</div>')
+        
+        return format_html(''.join(html_parts))
+    precheckin_data_display.short_description = "Complete Precheckin Data"
     
     # Add the inline for party management
     inlines = [BookingGuestInline]
