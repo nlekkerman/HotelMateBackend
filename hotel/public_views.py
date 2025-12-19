@@ -494,19 +494,38 @@ class SubmitPrecheckinDataView(APIView):
                         is_staying=True  # All party members are staying
                     )
                 
-                # Store precheckin payload with enabled fields only
-                enabled_payload = {}
-                for field_key, value in precheckin_fields_data.items():
-                    if config_enabled.get(field_key, False):
-                        enabled_payload[field_key] = value
+                # Separate booking-scoped vs guest-scoped fields
+                booking_payload = {}
+                guest_scoped_data = {}
                 
-                # Update booking with precheckin data
-                booking.precheckin_payload = enabled_payload
+                for field_key, value in precheckin_fields_data.items():
+                    if not config_enabled.get(field_key, False):
+                        continue
+                        
+                    field_config = PRECHECKIN_FIELD_REGISTRY.get(field_key, {})
+                    field_scope = field_config.get('scope', 'booking')
+                    
+                    if field_scope == 'booking':
+                        booking_payload[field_key] = value
+                    elif field_scope == 'guest':
+                        guest_scoped_data[field_key] = value
+                
+                # Update booking with booking-scoped precheckin data only
+                booking.precheckin_payload = booking_payload
                 booking.precheckin_submitted_at = timezone.now()
                 
                 # Handle special_requests if provided (backward compatibility)
                 if 'special_requests' in precheckin_fields_data:
                     booking.special_requests = precheckin_fields_data['special_requests']
+                
+                # Store guest-scoped data (nationality, country_of_residence, etc.) on PRIMARY guest
+                if guest_scoped_data:
+                    # For now, apply guest-scoped data to PRIMARY guest only
+                    # TODO: Frontend needs to send per-guest data structure
+                    primary_guest = BookingGuest.objects.filter(booking=booking, role='PRIMARY').first()
+                    if primary_guest:
+                        primary_guest.precheckin_payload = guest_scoped_data
+                        primary_guest.save()
                 
                 booking.save()
                 
