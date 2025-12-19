@@ -47,8 +47,8 @@ class BookingGuestInline(admin.TabularInline):
     model = BookingGuest
     extra = 0
     verbose_name_plural = 'Booking Party'
-    fields = ('role_display', 'first_name', 'last_name', 'email', 'phone', 'is_staying', 'guest_precheckin_display')
-    readonly_fields = ('role_display', 'guest_precheckin_display')
+    fields = ('role_display', 'first_name', 'last_name', 'email', 'phone', 'is_staying', 'nationality_display', 'country_residence_display', 'guest_precheckin_display')
+    readonly_fields = ('role_display', 'nationality_display', 'country_residence_display', 'guest_precheckin_display')
     ordering = ['role', 'created_at']
     
     def role_display(self, obj):
@@ -58,6 +58,20 @@ class BookingGuestInline(admin.TabularInline):
         return '👥 COMPANION'
     role_display.short_description = 'Role'
     
+    def nationality_display(self, obj):
+        """Display guest nationality"""
+        if obj.precheckin_payload and obj.precheckin_payload.get('nationality'):
+            return obj.precheckin_payload['nationality']
+        return "-"
+    nationality_display.short_description = 'Nationality'
+    
+    def country_residence_display(self, obj):
+        """Display guest country of residence"""
+        if obj.precheckin_payload and obj.precheckin_payload.get('country_of_residence'):
+            return obj.precheckin_payload['country_of_residence']
+        return "-"
+    country_residence_display.short_description = 'Country of Residence'
+    
     def guest_precheckin_display(self, obj):
         """Display guest-specific precheckin data"""
         if not obj.precheckin_payload:
@@ -65,11 +79,12 @@ class BookingGuestInline(admin.TabularInline):
         
         formatted = []
         for key, value in obj.precheckin_payload.items():
-            if value:  # Only show non-empty values
-                formatted.append(f"{key}: {value}")
+            if value and key not in ['nationality', 'country_of_residence']:  # Skip already shown fields
+                field_name = key.replace('_', ' ').title()
+                formatted.append(f"{field_name}: {value}")
         
         return ', '.join(formatted) if formatted else "-"
-    guest_precheckin_display.short_description = 'Precheckin Data'
+    guest_precheckin_display.short_description = 'Other Precheckin Data'
     
     def get_readonly_fields(self, request, obj=None):
         """Make PRIMARY guest completely read-only"""

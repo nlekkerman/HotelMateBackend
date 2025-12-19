@@ -518,14 +518,14 @@ class SubmitPrecheckinDataView(APIView):
                 if 'special_requests' in precheckin_fields_data:
                     booking.special_requests = precheckin_fields_data['special_requests']
                 
-                # Store guest-scoped data (nationality, country_of_residence, etc.) on PRIMARY guest
+                # Store guest-scoped data (nationality, country_of_residence, etc.) on ALL guests
                 if guest_scoped_data:
-                    # For now, apply guest-scoped data to PRIMARY guest only
-                    # TODO: Frontend needs to send per-guest data structure
-                    primary_guest = BookingGuest.objects.filter(booking=booking, role='PRIMARY').first()
-                    if primary_guest:
-                        primary_guest.precheckin_payload = guest_scoped_data
-                        primary_guest.save()
+                    # For now, apply same guest-scoped data to ALL party members
+                    # TODO: Frontend needs to send per-guest data structure for individual nationalities
+                    all_guests = BookingGuest.objects.filter(booking=booking)
+                    for guest in all_guests:
+                        guest.precheckin_payload = guest_scoped_data
+                        guest.save()
                 
                 booking.save()
                 
