@@ -37,6 +37,7 @@ class BookingGuestSerializer(serializers.ModelSerializer):
             'email',
             'phone',
             'is_staying',
+            'precheckin_payload',
             'created_at',
         ]
         read_only_fields = ['id', 'created_at']

@@ -47,8 +47,8 @@ class BookingGuestInline(admin.TabularInline):
     model = BookingGuest
     extra = 0
     verbose_name_plural = 'Booking Party'
-    fields = ('role_display', 'first_name', 'last_name', 'email', 'phone', 'is_staying', 'nationality_display', 'country_residence_display', 'guest_precheckin_display')
-    readonly_fields = ('role_display', 'nationality_display', 'country_residence_display', 'guest_precheckin_display')
+    fields = ('role_display', 'first_name', 'last_name', 'nationality_display', 'guest_precheckin_display')
+    readonly_fields = ('role_display', 'nationality_display', 'guest_precheckin_display')
     ordering = ['role', 'created_at']
     
     def role_display(self, obj):
@@ -59,18 +59,21 @@ class BookingGuestInline(admin.TabularInline):
     role_display.short_description = 'Role'
     
     def nationality_display(self, obj):
-        """Display guest nationality"""
-        if obj.precheckin_payload and obj.precheckin_payload.get('nationality'):
-            return obj.precheckin_payload['nationality']
-        return "-"
+        """Display guest nationality and residence"""
+        if not obj.precheckin_payload:
+            return "-"
+        
+        nationality = obj.precheckin_payload.get('nationality')
+        country_res = obj.precheckin_payload.get('country_of_residence')
+        
+        parts = []
+        if nationality:
+            parts.append(f"🌍 {nationality}")
+        if country_res and country_res != nationality:
+            parts.append(f"🏠 {country_res}")
+            
+        return ' | '.join(parts) if parts else "-"
     nationality_display.short_description = 'Nationality'
-    
-    def country_residence_display(self, obj):
-        """Display guest country of residence"""
-        if obj.precheckin_payload and obj.precheckin_payload.get('country_of_residence'):
-            return obj.precheckin_payload['country_of_residence']
-        return "-"
-    country_residence_display.short_description = 'Country of Residence'
     
     def guest_precheckin_display(self, obj):
         """Display guest-specific precheckin data"""
