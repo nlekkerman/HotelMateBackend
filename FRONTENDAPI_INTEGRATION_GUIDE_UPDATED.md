@@ -8,6 +8,13 @@ Define correct API contracts for staff and guest flows to detect precheckin comp
 - **Guest flows**: Use public precheckin endpoints with tokens
 - **Completion detection**: Use `precheckin_submitted_at != null` as single source of truth
 
+## 🚫 STRICT RULES (NO EXCEPTIONS)
+- **NO fallback completion checks**: Only `precheckin_submitted_at != null`
+- **NO `precheckin_complete` boolean**: Deleted from API contract
+- **NO staff token logic**: Staff never calls public precheckin endpoints
+- **NO direct field access**: Use `precheckin_payload.field` only
+- **NO mixing data sources**: Booking-level from booking payload, guest-level from guest payload
+
 ## ✅ Current Status
 - **Backend**: Nationality data saved per guest in `precheckin_payload` ✅
 - **Admin**: Individual nationality display for each party member ✅ 
@@ -18,23 +25,14 @@ Define correct API contracts for staff and guest flows to detect precheckin comp
 
 ### Single Source of Truth
 ```javascript
-// ✅ CORRECT: Use precheckin_submitted_at as single completion indicator
-const isPrecheckinComplete = (bookingData) => {
-  return bookingData.precheckin_submitted_at != null;
-};
+// ✅ STRICT: Only completion indicator
+const isPrecheckinComplete = (booking) => booking?.precheckin_submitted_at != null;
 
-// ✅ STAFF USAGE: From staff booking endpoints
-const staffBookingData = await fetchStaffBooking(bookingId);
+// Usage examples
 if (isPrecheckinComplete(staffBookingData)) {
   console.log('✅ Precheckin completed:', staffBookingData.precheckin_submitted_at);
 } else {
   console.log('⏳ Precheckin not submitted yet');
-}
-
-// ✅ GUEST USAGE: From public precheckin endpoints
-const guestPrecheckinData = await fetchGuestPrecheckin(token);
-if (isPrecheckinComplete(guestPrecheckinData.booking)) {
-  console.log('✅ Precheckin completed:', guestPrecheckinData.booking.precheckin_submitted_at);
 }
 ```
 
@@ -164,61 +162,41 @@ if (isPrecheckinComplete(guestPrecheckinData.booking)) {
 
 ## 🔧 Frontend Implementation
 
-### 1. Staff: Fill Booking Details with Precheckin Data
+### 1. Staff: Display Precheckin Data (READ ONLY)
 
 ```javascript
-// ✅ STAFF: Update booking details from staff API response
-const fillStaffBookingWithPrecheckin = (staffBookingData, setBookingDetails) => {
-  if (!isPrecheckinComplete(staffBookingData)) {
-    console.log('No precheckin data to fill');
-    return;
+// ✅ STAFF: Display data directly from staff API response
+const StaffBookingPrecheckinDisplay = ({ booking }) => {
+  const isComplete = booking.precheckin_submitted_at != null;
+  
+  if (!isComplete) {
+    return <div>⏳ Precheckin pending</div>;
   }
   
-  // Extract booking-level precheckin data from canonical location
-  const bookingUpdates = {
-    special_requests: staffBookingData.precheckin_payload?.special_requests || '',
-    eta: staffBookingData.precheckin_payload?.eta || '',
-    consent_confirmed: staffBookingData.precheckin_payload?.consent_checkbox || false,
-  };
+  // Read booking-level precheckin data directly
+  const eta = booking.precheckin_payload?.eta;
+  const specialRequests = booking.precheckin_payload?.special_requests;
+  const consent = booking.precheckin_payload?.consent_checkbox;
   
-  // Extract guest information for booking contact details
-  const primary = staffBookingData.party.primary;
-  if (primary) {
-    bookingUpdates.primary_guest = {
-      name: `${primary.first_name} ${primary.last_name}`,
-      email: primary.email,
-      phone: primary.phone,
-      nationality: primary.precheckin_payload?.nationality || '',
-      residence: primary.precheckin_payload?.country_of_residence || '',
-    };
-  }
+  // Read guest-level precheckin data directly  
+  const primaryNationality = booking.party.primary?.precheckin_payload?.nationality;
   
-  // Add party info from staff API
-  bookingUpdates.party_size = 1 + (staffBookingData.party.companions?.length || 0);
-  bookingUpdates.party_complete = staffBookingData.party_complete;
-  bookingUpdates.party_missing_count = staffBookingData.party_missing_count;
-  
-  // Update booking details state
-  setBookingDetails(prevDetails => ({
-    ...prevDetails,
-    ...bookingUpdates,
-    precheckin_completed: true,
-    precheckin_submitted_at: staffBookingData.precheckin_submitted_at
-  }));
-  
-  console.log('✅ Staff booking details filled from precheckin data');
+  return (
+    <div>
+      <h3>✅ Precheckin Completed</h3>
+      <p>ETA: {eta ? eta : '—'}</p>
+      <p>Requests: {specialRequests ? specialRequests : '—'}</p>
+      <p>Primary Guest Nationality: {primaryNationality ? primaryNationality : '—'}</p>
+    </div>
+  );
 };
 
-// ✅ STAFF USAGE: Single endpoint contains everything
+// ✅ STAFF USAGE: Load and display only
 useEffect(() => {
   const loadStaffBookingData = async () => {
     try {
-      // Staff booking detail includes all precheckin data
       const staffBookingData = await fetchStaffBooking(bookingId);
-      setBookingDetails(staffBookingData);
-      
-      // Fill precheckin data if available (no separate API call needed)
-      fillStaffBookingWithPrecheckin(staffBookingData, setBookingDetails);
+      setBookingDetails(staffBookingData); // Store as-is, never mutate
     } catch (error) {
       console.error('Failed to load staff booking data:', error);
     }
@@ -228,101 +206,90 @@ useEffect(() => {
 }, [bookingId]);
 ```
 
-### 2. Guest: Fill Precheckin Form with Existing Data
+### 2. Guest Form Population (DIRECT READING)
 
 ```javascript
-// ✅ GUEST: Load and populate precheckin form
-const fillGuestPrecheckinForm = async (token) => {
-  try {
-    const guestData = await fetchGuestPrecheckin(token);
+// ✅ GUEST: Read data directly, no helper functions
+const loadGuestPrecheckinData = async (token) => {
+  const response = await fetch(`/api/public/hotel/${hotelSlug}/precheckin/?token=${token}`);
+  const data = await response.json();
+  
+  // Read completion status directly
+  const isComplete = data.booking.precheckin_submitted_at != null;
+  
+  if (isComplete) {
+    // Read primary guest data directly
+    const primary = data.party.primary;
+    setPartyPrimary({
+      first_name: primary.first_name,
+      last_name: primary.last_name,
+      nationality: primary.precheckin_payload?.nationality
+    });
     
-    if (isPrecheckinComplete(guestData.booking)) {
-      // Pre-populate form with existing data
-      populateFormFromGuestData(guestData);
-    }
-  } catch (error) {
-    console.error('Failed to load guest precheckin data:', error);
+    // Read booking fields directly
+    setBookingFields({
+      eta: data.booking.precheckin_payload?.eta,
+      special_requests: data.booking.precheckin_payload?.special_requests
+    });
   }
 };
 ```
 
-### 3. Extract Guest Data from API Responses
+### 3. Direct Data Reading (NO ABSTRACTION)
 
 ```javascript
-// Extract guest data from either API response format
-const extractGuestData = (apiResponse) => {
-  const { party } = apiResponse;
-  
-  // ✅ Guest-scoped fields are ALWAYS in guest.precheckin_payload
-  const primaryNationality = party.primary?.precheckin_payload?.nationality || '';
-  const primaryCountryRes = party.primary?.precheckin_payload?.country_of_residence || '';
-  
-  // Get companion nationalities from their individual precheckin_payload
-  const companionData = party.companions?.map(companion => ({
-    id: companion.id,
-    name: `${companion.first_name} ${companion.last_name}`,
-    nationality: companion.precheckin_payload?.nationality || '',
-    country_of_residence: companion.precheckin_payload?.country_of_residence || ''
-  })) || [];
-  
-  return {
-    primary: {
-      nationality: primaryNationality,
-      country_of_residence: primaryCountryRes
-    },
-    companions: companionData
-  };
+// ✅ CORRECT: Read directly from API response
+const DisplayGuestNationality = ({ guest }) => {
+  const nationality = guest.precheckin_payload?.nationality;
+  return <span>{nationality ? nationality : '—'}</span>;
 };
 
-// Extract booking-scoped fields from canonical location
-const extractBookingData = (apiResponse) => {
-  // ✅ Booking-scoped fields from booking.precheckin_payload
-  const precheckinPayload = apiResponse.precheckin_payload || {};
-  
-  return {
-    special_requests: precheckinPayload.special_requests || '',
-    eta: precheckinPayload.eta || '',
-    consent_checkbox: precheckinPayload.consent_checkbox || false
-  };
+const DisplayBookingETA = ({ booking }) => {
+  const eta = booking.precheckin_payload?.eta;  
+  return <span>{eta ? eta : '—'}</span>;
 };
+
+// ❌ FORBIDDEN: Helper functions that reshape data
+// const extractGuestData = ... // DELETED
+// const extractBookingData = ... // DELETED
 ```
 
-### 4. Pre-populate Form Fields (GUEST ONLY)
+### 4. Guest Form Pre-population (GUEST ONLY)
 ```javascript
-// ⚠️ GUEST FLOW ONLY: Pre-populate precheckin form with existing data
+// ✅ GUEST FLOW ONLY: Pre-populate precheckin form with existing data
 const loadGuestPrecheckinData = async (token) => {
-  // ✅ Use guest precheckin endpoint with token
   const response = await fetch(`/api/public/hotel/${hotelSlug}/precheckin/?token=${token}`);
   const data = await response.json();
   
-  const guestData = extractGuestData(data);
-  const bookingData = extractBookingData(data.booking);
+  // Read primary guest data directly
+  const primary = data.party.primary;
+  setPartyPrimary({
+    first_name: primary?.first_name,
+    last_name: primary?.last_name,
+    email: primary?.email,
+    phone: primary?.phone,
+    nationality: primary?.precheckin_payload?.nationality,
+    country_of_residence: primary?.precheckin_payload?.country_of_residence
+  });
   
-  // Set primary guest state from guest API
-  setPartyPrimary(prev => ({
-    ...prev,
-    first_name: data.party.primary?.first_name || '',
-    last_name: data.party.primary?.last_name || '',
-    email: data.party.primary?.email || '',
-    phone: data.party.primary?.phone || '',
-    nationality: guestData.primary.nationality,
-    country_of_residence: guestData.primary.country_of_residence
+  // Read companion data directly
+  const companions = data.party.companions?.map(companion => ({
+    first_name: companion.first_name,
+    last_name: companion.last_name,
+    email: companion.email,
+    phone: companion.phone,
+    nationality: companion.precheckin_payload?.nationality,
+    country_of_residence: companion.precheckin_payload?.country_of_residence
   }));
   
-  // Set companion states from guest API
-  const updatedCompanions = data.party.companions?.map((companion, index) => ({
-    first_name: companion.first_name || '',
-    last_name: companion.last_name || '',
-    email: companion.email || '',
-    phone: companion.phone || '',
-    nationality: guestData.companions[index]?.nationality || '',
-    country_of_residence: guestData.companions[index]?.country_of_residence || ''
-  })) || [];
+  setCompanionSlots(companions);
   
-  setCompanionSlots(updatedCompanions);
-  
-  // Set booking-level fields
-  setBookingFields(bookingData);
+  // Read booking-level fields directly
+  setBookingFields({
+    special_requests: data.booking.precheckin_payload?.special_requests,
+    eta: data.booking.precheckin_payload?.eta,
+    consent_checkbox: data.booking.precheckin_payload?.consent_checkbox
+  });
 };
 ```
 
@@ -364,7 +331,7 @@ const PrimaryGuestCard = ({ values, onChange, errors, precheckinData }) => {
             {config.required[fieldKey] && <span className="text-danger"> *</span>}
           </Form.Label>
           <Form.Select
-            value={values.primary?.[fieldKey] || ''}
+            value={values.primary?.[fieldKey] ?? ''}
             onChange={(e) => handleFieldChange(fieldKey, e.target.value)}
             isInvalid={!!errors[fieldKey]}
             required={config.required[fieldKey]}
@@ -507,18 +474,18 @@ const checkStaffPrecheckinStatus = (staffBookingData) => {
 
 ## 📋 Implementation Checklist
 
-### Staff Implementation
-- [ ] Use `precheckin_submitted_at != null` as single completion check
-- [ ] Call staff booking endpoints only (no tokens)
-- [ ] Read guest nationality from `party.*.precheckin_payload`
-- [ ] Read booking data from `booking.precheckin_payload`
-- [ ] Display precheckin status in staff booking views
+### Staff Implementation (STRICT CONTRACT)
+- [ ] Use ONLY `precheckin_submitted_at != null` for completion check
+- [ ] Call ONLY staff booking endpoints (never tokens/public endpoints)
+- [ ] Read guest nationality ONLY from `party.*.precheckin_payload.nationality`
+- [ ] Read booking data ONLY from `booking.precheckin_payload.*`
+- [ ] Display badges from list API, details from detail API
 
-### Guest Implementation  
-- [ ] Use guest precheckin endpoints with tokens
-- [ ] Pre-populate form fields from existing `precheckin_payload` data
-- [ ] Allow guests to edit existing precheckin data
-- [ ] Show completion status in guest precheckin form
+### Guest Implementation (TOKEN-BASED)
+- [ ] Use ONLY guest precheckin endpoints with tokens
+- [ ] Pre-populate form fields ONLY from `precheckin_payload` data
+- [ ] Allow guests to edit existing precheckin data  
+- [ ] Show completion status ONLY from `precheckin_submitted_at`
 
 ### Backend Requirements (COMPLETED ✅)
 - [x] Staff booking list includes `precheckin_submitted_at`
@@ -560,3 +527,42 @@ const checkStaffPrecheckinStatus = (staffBookingData) => {
 4. **Complete data flow** from guest submission to staff view
 
 **Backend Status: ✅ COMPLETE** - Staff API endpoints now include all precheckin data without tokens!
+
+---
+
+## 📋 FRONTEND IMPLEMENTATION CHECKLIST
+
+### Staff UI (Booking Management)
+```javascript
+// ✅ Completion check
+const isPrecheckinComplete = (booking) => booking?.precheckin_submitted_at != null;
+
+// ✅ List badges
+<Badge>{isPrecheckinComplete(booking) ? '✅ Pre-check-in' : '⏳ Pending'}</Badge>
+
+// ✅ Detail data
+const eta = booking.precheckin_payload?.eta;
+const nationality = booking.party.primary?.precheckin_payload?.nationality;
+```
+
+### Guest UI (Precheckin Form)  
+```javascript
+// ✅ Token-based endpoints only
+const data = await fetch(`/api/public/hotel/${slug}/precheckin/?token=${token}`);
+
+// ✅ Form population
+const nationality = data.party.primary?.precheckin_payload?.nationality;
+```
+
+### ❌ FORBIDDEN PATTERNS
+```javascript
+// ❌ Never use these in staff UI:
+if (booking.precheckin_complete) { /* BANNED */ }
+if (booking.special_requests) { /* Use precheckin_payload.special_requests */ }
+fetchPrecheckinData(booking.precheckin_token); /* Staff never uses tokens */
+
+// ❌ Never use fallback completion logic:
+const complete = hasData || hasFlag || hasTimestamp; /* BANNED - timestamp only */
+```
+
+**This guide is now STRICT and ready for frontend implementation with zero ambiguity.**

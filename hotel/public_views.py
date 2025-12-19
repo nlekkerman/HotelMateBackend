@@ -337,7 +337,9 @@ class ValidatePrecheckinTokenView(APIView):
                 'hotel_name': booking.hotel.name,
                 'nights': booking.nights,
                 'expected_guests': booking.adults + booking.children,
-                'special_requests': booking.special_requests or ''
+                'special_requests': booking.special_requests or '',
+                'precheckin_submitted_at': booking.precheckin_submitted_at.isoformat() if booking.precheckin_submitted_at else None,
+                'precheckin_payload': booking.precheckin_payload or {}
             },
             'party': {
                 'primary': next((BookingGuestSerializer(member).data for member in party_list if member.role == 'PRIMARY'), None),
