@@ -10,7 +10,7 @@ from rooms.models import Room, RoomType
 
 
 class BookingPartyGuestSerializer(serializers.ModelSerializer):
-    """Single booking party member serializer."""
+    """Single booking party member serializer with precheckin data."""
     full_name = serializers.SerializerMethodField()
     
     class Meta:
@@ -24,6 +24,7 @@ class BookingPartyGuestSerializer(serializers.ModelSerializer):
             'email',
             'phone',
             'is_staying',
+            'precheckin_payload',  # Add guest-level precheckin data
             'created_at',
         ]
         read_only_fields = ['id', 'created_at', 'full_name']
@@ -184,6 +185,7 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'party_complete',
             'party_missing_count',
             'party_status_display',
+            'precheckin_submitted_at',  # Add precheckin completion timestamp
             'total_amount',
             'currency',
             'created_at',
@@ -275,6 +277,8 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'created_at',
             'updated_at',
             'internal_notes',
+            'precheckin_submitted_at',  # Add precheckin completion timestamp
+            'precheckin_payload',       # Add booking-level precheckin data
             'booker',
             'party',
             'in_house',
