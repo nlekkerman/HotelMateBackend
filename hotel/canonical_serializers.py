@@ -265,6 +265,8 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'check_in',
             'check_out',
             'nights',
+            'adults',                   # Occupancy info needed for expected vs recorded display
+            'children',                 # Occupancy info needed for expected vs recorded display
             'total_amount',
             'currency',
             'special_requests',
@@ -279,6 +281,8 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'internal_notes',
             'precheckin_submitted_at',  # Add precheckin completion timestamp
             'precheckin_payload',       # Add booking-level precheckin data
+            'party_complete',           # Party completion status (authoritative)
+            'party_missing_count',      # Number of missing party members (authoritative)
             'booker',
             'party',
             'in_house',
