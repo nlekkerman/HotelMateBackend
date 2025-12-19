@@ -51,13 +51,13 @@ PRECHECKIN_FIELD_REGISTRY = {
     "nationality": {
         "label": "Nationality",
         "type": "select",
-        "scope": "guest",  # ✅ Each guest can have different nationality
+        "scope": "guest",  # ✅ Each guest has individual nationality
         "choices": COUNTRIES_CHOICES
     },
     "country_of_residence": {
         "label": "Country of Residence", 
         "type": "select",
-        "scope": "guest",  # ✅ Each guest can have different residence
+        "scope": "guest",  # ✅ Each guest has individual residence
         "choices": COUNTRIES_CHOICES
     },
     "date_of_birth": {

@@ -364,7 +364,11 @@ class SubmitPrecheckinDataView(APIView):
         from .booking_serializers import BookingGuestSerializer
         
         raw_token = request.data.get('token')
-        party_data = request.data.get('party', [])
+        party_payload = request.data.get('party', {})
+        
+        # Handle new party structure: {'primary': {...}, 'companions': [...]}
+        primary_data = party_payload.get('primary', {})
+        party_data = party_payload.get('companions', [])
         
         # Extract all possible precheckin fields from request
         precheckin_fields_data = {}
@@ -482,16 +486,47 @@ class SubmitPrecheckinDataView(APIView):
                     role='COMPANION'
                 ).delete()
                 
-                # Create new COMPANION party members (PRIMARY stays untouched)
+                # Update PRIMARY guest with new data and guest-scoped fields
+                primary_guest = BookingGuest.objects.filter(booking=booking, role='PRIMARY').first()
+                if primary_guest and primary_data:
+                    # Update basic info if provided
+                    if 'first_name' in primary_data:
+                        primary_guest.first_name = primary_data['first_name']
+                    if 'last_name' in primary_data:
+                        primary_guest.last_name = primary_data['last_name']
+                    if 'email' in primary_data:
+                        primary_guest.email = primary_data.get('email', '')
+                    if 'phone' in primary_data:
+                        primary_guest.phone = primary_data.get('phone', '')
+                    
+                    # Extract guest-scoped fields for PRIMARY
+                    primary_guest_fields = {}
+                    for field_key in PRECHECKIN_FIELD_REGISTRY.keys():
+                        field_config = PRECHECKIN_FIELD_REGISTRY[field_key]
+                        if field_config.get('scope') == 'guest' and field_key in primary_data:
+                            primary_guest_fields[field_key] = primary_data[field_key]
+                    
+                    primary_guest.precheckin_payload = primary_guest_fields
+                    primary_guest.save()
+                
+                # Create new COMPANION party members
                 for member_data in party_data:
+                    # Extract guest-scoped fields for companion
+                    companion_guest_fields = {}
+                    for field_key in PRECHECKIN_FIELD_REGISTRY.keys():
+                        field_config = PRECHECKIN_FIELD_REGISTRY[field_key]
+                        if field_config.get('scope') == 'guest' and field_key in member_data:
+                            companion_guest_fields[field_key] = member_data[field_key]
+                    
                     BookingGuest.objects.create(
                         booking=booking,
-                        role='COMPANION',  # Force all party payload items to COMPANION
+                        role='COMPANION',
                         first_name=member_data['first_name'],
                         last_name=member_data['last_name'],
                         email=member_data.get('email', ''),
                         phone=member_data.get('phone', ''),
-                        is_staying=True  # All party members are staying
+                        is_staying=True,
+                        precheckin_payload=companion_guest_fields
                     )
                 
                 # Separate booking-scoped vs guest-scoped fields
@@ -518,14 +553,8 @@ class SubmitPrecheckinDataView(APIView):
                 if 'special_requests' in precheckin_fields_data:
                     booking.special_requests = precheckin_fields_data['special_requests']
                 
-                # Store guest-scoped data (nationality, country_of_residence, etc.) on ALL guests
-                if guest_scoped_data:
-                    # For now, apply same guest-scoped data to ALL party members
-                    # TODO: Frontend needs to send per-guest data structure for individual nationalities
-                    all_guests = BookingGuest.objects.filter(booking=booking)
-                    for guest in all_guests:
-                        guest.precheckin_payload = guest_scoped_data
-                        guest.save()
+                # Guest-scoped data is now handled above per individual guest
+                # No need for additional processing here
                 
                 booking.save()
                 
