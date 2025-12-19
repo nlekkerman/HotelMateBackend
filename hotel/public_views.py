@@ -336,6 +336,8 @@ class ValidatePrecheckinTokenView(APIView):
                 'room_type_name': booking.room_type.name,
                 'hotel_name': booking.hotel.name,
                 'nights': booking.nights,
+                'adults': booking.adults,
+                'children': booking.children,
                 'expected_guests': booking.adults + booking.children,
                 'special_requests': booking.special_requests or '',
                 'precheckin_submitted_at': booking.precheckin_submitted_at.isoformat() if booking.precheckin_submitted_at else None,
