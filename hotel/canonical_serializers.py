@@ -209,15 +209,9 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             return obj.booker_type.replace('_', ' ').title()
     
     def get_guest_display_name(self, obj):
-        """Get display name from party primary guest or fallback to booking fields."""
-        try:
-            primary_guest = obj.party.filter(role='PRIMARY').first()
-            if primary_guest:
-                return primary_guest.full_name
-        except:
-            pass
-        # Fallback to booking primary fields if no party data
-        return obj.primary_guest_name or 'Guest Information Pending'
+        """Get display name from party primary guest - NO FALLBACKS."""
+        primary_guest = obj.party.filter(role='PRIMARY').first()
+        return primary_guest.full_name if primary_guest else "Guest Information Pending"
     
     def get_party_total_count(self, obj):
         return obj.party.count()
