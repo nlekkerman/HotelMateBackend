@@ -2392,6 +2392,7 @@ class StaffBookingAcceptView(APIView):
                     booking_id=booking_id, 
                     hotel=hotel
                 )
+                print(f"🔍 Found booking {booking_id} with status: {booking.status}, payment_intent: {booking.payment_intent_id}")
             except RoomBooking.DoesNotExist:
                 return Response(
                     {'error': 'Booking not found'}, 
@@ -2435,13 +2436,43 @@ class StaffBookingAcceptView(APIView):
             # Capture payment via Stripe
             try:
                 print(f"🔄 Capturing payment for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
-                captured_intent = stripe.PaymentIntent.capture(booking.payment_intent_id)
                 
-                if captured_intent.status != 'succeeded':
-                    raise Exception(f"Unexpected capture status: {captured_intent.status}")
+                # First, check if PaymentIntent is already captured
+                intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
                 
-                print(f"✅ Payment captured successfully: {captured_intent.id}")
+                if intent.status == 'succeeded':
+                    print(f"✅ Payment already captured: {intent.id}")
+                    captured_intent = intent
+                elif intent.status == 'requires_capture':
+                    captured_intent = stripe.PaymentIntent.capture(booking.payment_intent_id)
+                    if captured_intent.status != 'succeeded':
+                        raise Exception(f"Unexpected capture status: {captured_intent.status}")
+                    print(f"✅ Payment captured successfully: {captured_intent.id}")
+                else:
+                    raise Exception(f"PaymentIntent in unexpected state: {intent.status}")
                 
+            except stripe.error.InvalidRequestError as e:
+                if "already been captured" in str(e):
+                    # Handle already captured case by retrieving the intent
+                    print(f"⚠️ PaymentIntent already captured, retrieving status...")
+                    try:
+                        captured_intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
+                        if captured_intent.status == 'succeeded':
+                            print(f"✅ Confirmed payment already captured: {captured_intent.id}")
+                        else:
+                            raise Exception(f"PaymentIntent captured but status is: {captured_intent.status}")
+                    except Exception as retrieve_error:
+                        logger.error(f"Failed to retrieve already captured PaymentIntent {booking.payment_intent_id}: {retrieve_error}")
+                        return Response(
+                            {'error': f'Payment verification failed: {str(retrieve_error)}'}, 
+                            status=status.HTTP_502_BAD_GATEWAY
+                        )
+                else:
+                    logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
+                    return Response(
+                        {'error': f'Payment capture failed: {str(e)}'}, 
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
             except stripe.error.StripeError as e:
                 logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
                 return Response(
