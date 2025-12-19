@@ -2408,8 +2408,7 @@ class StaffBookingAcceptView(APIView):
                     'booking': {
                         'booking_id': booking.booking_id,
                         'status': booking.status,
-                        'paid_at': booking.paid_at.isoformat() if booking.paid_at else None,
-                        'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None
+                        'paid_at': booking.paid_at.isoformat() if booking.paid_at else None
                     }
                 }, status=status.HTTP_200_OK)
             
@@ -2489,11 +2488,9 @@ class StaffBookingAcceptView(APIView):
             # Update booking to CONFIRMED state
             booking.status = 'CONFIRMED'
             booking.paid_at = timezone.now()
-            booking.decision_made_by = staff.user  # Store User, not Staff
-            booking.decision_made_at = timezone.now()
             
             booking.save(update_fields=[
-                'status', 'paid_at', 'decision_made_by', 'decision_made_at'
+                'status', 'paid_at'
             ])
             
             print(f"✅ Booking {booking_id} approved and confirmed by staff {staff.id}")
@@ -2541,8 +2538,7 @@ class StaffBookingAcceptView(APIView):
             'booking': {
                 'booking_id': booking.booking_id,
                 'status': booking.status,
-                'paid_at': booking.paid_at.isoformat() if booking.paid_at else None,
-                'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None
+                'paid_at': booking.paid_at.isoformat() if booking.paid_at else None
             }
         }, status=status.HTTP_200_OK)
 
