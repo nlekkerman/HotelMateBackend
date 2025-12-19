@@ -367,12 +367,24 @@ class SubmitPrecheckinDataView(APIView):
         from .models import BookingPrecheckinToken, BookingGuest
         from .booking_serializers import BookingGuestSerializer
         
+        # 🐛 DEBUG: Log the full payload to understand the structure
+        import json
+        print(f"\n🔍 PRECHECKIN PAYLOAD DEBUG:")
+        print(f"📦 Full request.data:")
+        print(json.dumps(request.data, indent=2, default=str))
+        
         raw_token = request.data.get('token')
         party_payload = request.data.get('party', {})
         
         # Handle new party structure: {'primary': {...}, 'companions': [...]}
         primary_data = party_payload.get('primary', {})
         party_data = party_payload.get('companions', [])
+        
+        print(f"🎯 Parsed party data:")
+        print(f"Primary: {json.dumps(primary_data, indent=2)}")
+        print(f"Companions: {json.dumps(party_data, indent=2)}")
+        print(f"Party payload: {json.dumps(party_payload, indent=2)}")
+        print("="*80)
         
         # Extract all possible precheckin fields from request
         precheckin_fields_data = {}
@@ -505,22 +517,43 @@ class SubmitPrecheckinDataView(APIView):
                     
                     # Extract guest-scoped fields for PRIMARY
                     primary_guest_fields = {}
+                    print(f"🔍 PRIMARY GUEST FIELD EXTRACTION:")
                     for field_key in PRECHECKIN_FIELD_REGISTRY.keys():
                         field_config = PRECHECKIN_FIELD_REGISTRY[field_key]
-                        if field_config.get('scope') == 'guest' and field_key in primary_data:
-                            primary_guest_fields[field_key] = primary_data[field_key]
+                        field_scope = field_config.get('scope')
+                        is_guest_scoped = field_scope == 'guest'
+                        field_in_data = field_key in primary_data
+                        
+                        print(f"  {field_key}: scope={field_scope}, guest_scoped={is_guest_scoped}, in_primary_data={field_in_data}")
+                        
+                        if is_guest_scoped and field_in_data:
+                            value = primary_data[field_key]
+                            primary_guest_fields[field_key] = value
+                            print(f"    ✅ Added {field_key} = {value}")
                     
+                    print(f"🎯 PRIMARY precheckin_payload: {primary_guest_fields}")
                     primary_guest.precheckin_payload = primary_guest_fields
                     primary_guest.save()
                 
                 # Create new COMPANION party members
-                for member_data in party_data:
+                for idx, member_data in enumerate(party_data):
                     # Extract guest-scoped fields for companion
                     companion_guest_fields = {}
+                    print(f"🔍 COMPANION {idx} FIELD EXTRACTION:")
                     for field_key in PRECHECKIN_FIELD_REGISTRY.keys():
                         field_config = PRECHECKIN_FIELD_REGISTRY[field_key]
-                        if field_config.get('scope') == 'guest' and field_key in member_data:
-                            companion_guest_fields[field_key] = member_data[field_key]
+                        field_scope = field_config.get('scope')
+                        is_guest_scoped = field_scope == 'guest'
+                        field_in_data = field_key in member_data
+                        
+                        print(f"  {field_key}: scope={field_scope}, guest_scoped={is_guest_scoped}, in_companion_data={field_in_data}")
+                        
+                        if is_guest_scoped and field_in_data:
+                            value = member_data[field_key]
+                            companion_guest_fields[field_key] = value
+                            print(f"    ✅ Added {field_key} = {value}")
+                    
+                    print(f"🎯 COMPANION {idx} precheckin_payload: {companion_guest_fields}")
                     
                     BookingGuest.objects.create(
                         booking=booking,
