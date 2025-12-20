@@ -49,7 +49,7 @@ class RoomAssignmentService:
             hotel=booking.hotel,
             room_type=booking.room_type,
             # Replicate Room.is_bookable() logic as DB-filterable conditions
-            room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+            room_status__in=['READY_FOR_GUEST'],
             is_active=True,
             is_out_of_order=False,
             maintenance_required=False

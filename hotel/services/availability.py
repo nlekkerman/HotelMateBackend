@@ -86,7 +86,7 @@ def _inventory_for_date(room_type: RoomType, day: date) -> int:
     # is_bookable() checks: room_status in {'AVAILABLE', 'READY_FOR_GUEST'} 
     # and is_active and not maintenance_required and not is_out_of_order
     room_count = bookable_rooms.filter(
-        room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+        room_status__in=['READY_FOR_GUEST'],
         is_active=True,
         maintenance_required=False,
         is_out_of_order=False

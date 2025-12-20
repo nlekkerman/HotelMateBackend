@@ -138,7 +138,7 @@ def set_room_status(*, room, to_status, staff=None, source="HOUSEKEEPING", note=
                 room.maintenance_notes = new_note
             fields_to_update.append('maintenance_notes')
     
-    elif to_status in ['AVAILABLE', 'READY_FOR_GUEST']:
+    elif to_status in ['READY_FOR_GUEST']:
         # These statuses indicate room is not occupied
         # Only set is_occupied=False if there's no active booking checked in
         if hasattr(room, 'is_occupied'):

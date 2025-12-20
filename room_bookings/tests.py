@@ -109,7 +109,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="102", 
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True,
             is_out_of_order=False,
             maintenance_required=True  # Non-bookable
@@ -119,7 +119,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="103",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True,
             is_out_of_order=True,  # Non-bookable
             maintenance_required=False
@@ -129,7 +129,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="104",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=False,  # Non-bookable
             is_out_of_order=False,
             maintenance_required=False
@@ -140,7 +140,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="105",
-            room_status='AVAILABLE',  # Bookable
+            room_status='READY_FOR_GUEST',  # Bookable
             is_active=True,
             is_out_of_order=False,
             maintenance_required=False
@@ -178,7 +178,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="201",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -218,7 +218,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,  # STD type (matches booking)
             room_number="302", 
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         

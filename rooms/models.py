@@ -35,7 +35,6 @@ class Room(models.Model):
     
     # Room Turnover Workflow Status
     ROOM_STATUS_CHOICES = [
-        ('AVAILABLE', 'Available'),
         ('OCCUPIED', 'Occupied'),
         ('CHECKOUT_DIRTY', 'Checkout Dirty'),
         ('CLEANING_IN_PROGRESS', 'Cleaning in Progress'),
@@ -48,7 +47,7 @@ class Room(models.Model):
     room_status = models.CharField(
         max_length=20,
         choices=ROOM_STATUS_CHOICES,
-        default='AVAILABLE',
+        default='READY_FOR_GUEST',
         help_text='Current turnover workflow status of the room'
     )
     
@@ -118,7 +117,7 @@ class Room(models.Model):
             return False
             
         return (
-            self.room_status in {'AVAILABLE', 'READY_FOR_GUEST'} and
+            self.room_status == 'READY_FOR_GUEST' and
             self.is_active and
             not self.maintenance_required
         )
@@ -126,7 +125,6 @@ class Room(models.Model):
     def can_transition_to(self, new_status):
         """Validate state machine transitions"""
         valid_transitions = {
-            'AVAILABLE': ['OCCUPIED', 'MAINTENANCE_REQUIRED', 'OUT_OF_ORDER'],
             'OCCUPIED': ['CHECKOUT_DIRTY'],
             'CHECKOUT_DIRTY': ['CLEANING_IN_PROGRESS', 'CLEANED_UNINSPECTED', 'MAINTENANCE_REQUIRED'],
             'CLEANING_IN_PROGRESS': ['CLEANED_UNINSPECTED', 'CHECKOUT_DIRTY', 'MAINTENANCE_REQUIRED'],

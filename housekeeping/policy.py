@@ -106,7 +106,6 @@ def _can_housekeeping_change_status(from_status, to_status, source):
         'CHECKOUT_DIRTY': ['CLEANING_IN_PROGRESS', 'MAINTENANCE_REQUIRED'],
         'CLEANING_IN_PROGRESS': ['CLEANED_UNINSPECTED', 'CHECKOUT_DIRTY', 'MAINTENANCE_REQUIRED'],
         'CLEANED_UNINSPECTED': ['READY_FOR_GUEST', 'MAINTENANCE_REQUIRED'],
-        'AVAILABLE': ['MAINTENANCE_REQUIRED'],
         'READY_FOR_GUEST': ['MAINTENANCE_REQUIRED'],
         'OCCUPIED': ['MAINTENANCE_REQUIRED'],
     }
@@ -148,7 +147,6 @@ def _can_front_desk_change_status(from_status, to_status, source):
     # Limited allowed transitions
     allowed_transitions = {
         'OCCUPIED': ['CHECKOUT_DIRTY', 'MAINTENANCE_REQUIRED'],
-        'AVAILABLE': ['MAINTENANCE_REQUIRED'],
         'READY_FOR_GUEST': ['MAINTENANCE_REQUIRED'],
     }
     

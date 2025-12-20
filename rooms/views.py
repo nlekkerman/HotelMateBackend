@@ -514,7 +514,7 @@ def turnover_stats(request, hotel_slug):
     stats = {
         'total_rooms': total_rooms,
         'bookable_rooms': hotel.rooms.filter(
-            room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+            room_status__in=['READY_FOR_GUEST'],
             is_active=True,
             is_out_of_order=False,  # Hard override flag
             maintenance_required=False

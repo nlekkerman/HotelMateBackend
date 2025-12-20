@@ -45,7 +45,7 @@ class RoomSerializer(serializers.ModelSerializer):
         """Return if room is currently bookable"""
         return (obj.is_active and
                 not obj.is_out_of_order and
-                obj.room_status in ['AVAILABLE', 'READY_FOR_GUEST'])
+                obj.room_status == 'READY_FOR_GUEST')
 
     def get_room_type_info(self, obj):
         """Return basic room type information"""
