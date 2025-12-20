@@ -35,7 +35,7 @@ def fix_inventory_limits():
         # Count physical rooms
         physical_count = Room.objects.filter(
             room_type=rt,
-            room_status__in=['AVAILABLE', 'READY_FOR_GUEST']
+            room_status='READY_FOR_GUEST'
         ).count()
         
         print(f"\n--- {rt.name} ({rt.code or 'No code'}) ---")

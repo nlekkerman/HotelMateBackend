@@ -186,7 +186,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_b,
             room_type=self.room_type_std_b,  # Same type name, different hotel
             room_number="201",  # Same room number
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -210,7 +210,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_dlx_a,  # DLX type
             room_number="301",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -242,7 +242,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="401",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -278,7 +278,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="402",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -315,7 +315,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="501",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -354,7 +354,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="601",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -362,7 +362,7 @@ class RoomAssignmentServiceTests(TestCase):
             hotel=self.hotel_a,
             room_type=self.room_type_std_a,
             room_number="602",
-            room_status='AVAILABLE', 
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -448,7 +448,7 @@ class RoomAssignmentConcurrencyTests(TransactionTestCase):
             hotel=self.hotel,
             room_type=self.room_type,
             room_number="701",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -582,7 +582,7 @@ class RoomAssignmentAPITests(APITestCase):
             hotel=self.hotel_a,
             room_type=self.room_type,
             room_number="801",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         
@@ -637,7 +637,7 @@ class RoomAssignmentAPITests(APITestCase):
             hotel=self.hotel_a,
             room_type=wrong_room_type,  # Different from booking
             room_number="802",
-            room_status='AVAILABLE',
+            room_status='READY_FOR_GUEST',
             is_active=True
         )
         

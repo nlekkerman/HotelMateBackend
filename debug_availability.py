@@ -39,7 +39,7 @@ def debug_availability():
         
         # Count bookable rooms of this type
         bookable_rooms = physical_rooms.filter(
-            room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+            room_status='READY_FOR_GUEST',
             is_active=True,
             maintenance_required=False,
             is_out_of_order=False

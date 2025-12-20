@@ -44,7 +44,7 @@ def debug_quick():
         # Count bookable
         bookable = Room.objects.filter(
             room_type=rt,
-            room_status__in=['AVAILABLE', 'READY_FOR_GUEST'],
+            room_status='READY_FOR_GUEST',
             is_active=True,
             maintenance_required=False,
             is_out_of_order=False
