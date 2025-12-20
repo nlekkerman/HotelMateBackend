@@ -1087,6 +1087,80 @@ class NotificationManager:
         
         return self._safe_pusher_trigger(channel, "room_occupancy_updated", event_data)
 
+    def realtime_room_updated(self, room, changed_fields=None, source="system"):
+        """
+        Emit normalized room updated event for operational updates.
+        
+        This method handles full room snapshot updates for:
+        - room_status changes
+        - maintenance flags
+        - out-of-order status 
+        - cleaning/inspection timestamps
+        
+        IMPORTANT: This method should be called AFTER database commit
+        to ensure consistency. Use with transaction.on_commit():
+        
+        from django.db import transaction
+        from notifications.notification_manager import notification_manager
+        
+        transaction.on_commit(
+            lambda: notification_manager.realtime_room_updated(
+                room,
+                changed_fields=["room_status", "is_occupied"],
+                source="checkout"
+            )
+        )
+        
+        Args:
+            room: Room instance
+            changed_fields: List of field names that were changed (optional)
+            source: Source of the change ("system", "housekeeping", "front_desk", etc.)
+        """
+        self.logger.info(f"🏨 Realtime room updated: Room {room.room_number} - {changed_fields or 'unknown fields'}")
+        
+        # Build full room snapshot payload
+        payload = {
+            'room_number': room.room_number,
+            'room_status': room.room_status,
+            'is_occupied': room.is_occupied,
+            'is_out_of_order': room.is_out_of_order,
+            'maintenance_required': room.maintenance_required,
+            'maintenance_priority': room.maintenance_priority,
+            'maintenance_notes': room.maintenance_notes,
+            'last_cleaned_at': room.last_cleaned_at.isoformat() if room.last_cleaned_at else None,
+            'last_inspected_at': room.last_inspected_at.isoformat() if room.last_inspected_at else None,
+            'changed_fields': changed_fields or []
+        }
+        
+        # Add room type info if available (without extra queries)
+        if hasattr(room, 'room_type') and room.room_type:
+            payload['room_type'] = room.room_type.name
+            payload['max_occupancy'] = room.room_type.max_occupancy
+        
+        # Add guests count if available (from prefetch or existing query)
+        if hasattr(room, '_prefetched_objects_cache') and 'guests_in_room' in room._prefetched_objects_cache:
+            payload['guests_in_room'] = room.guests_in_room.count()
+        elif hasattr(room, 'guests_in_room'):
+            # Only count if it won't trigger a new query
+            try:
+                payload['guests_in_room'] = len(room.guests_in_room.all())
+            except:
+                pass
+        
+        event_data = self._create_normalized_event(
+            category="rooms",
+            event_type="room_updated", 
+            payload=payload,
+            hotel=room.hotel,
+            scope={'room_number': room.room_number}
+        )
+        
+        # Send to rooms channel
+        hotel_slug = room.hotel.slug
+        channel = f"{hotel_slug}.rooms"
+        
+        return self._safe_pusher_trigger(channel, "room_updated", event_data)
+
     # -------------------------------------------------------------------------
     # PHASE 3.5: BOOKING INTEGRITY HEALING REALTIME METHODS
     # -------------------------------------------------------------------------

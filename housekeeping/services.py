@@ -149,6 +149,20 @@ def set_room_status(*, room, to_status, staff=None, source="HOUSEKEEPING", note=
     # Save only the fields we've modified
     room.save(update_fields=fields_to_update)
     
+    # Emit realtime room update after commit
+    from notifications.notification_manager import NotificationManager
+    notification_manager = NotificationManager()
+    
+    # Use transaction.on_commit to ensure the update is sent after database commit
+    from django.db import transaction
+    transaction.on_commit(
+        lambda: notification_manager.realtime_room_updated(
+            room=room,
+            changed_fields=fields_to_update,
+            source=source.lower()  # Convert to lowercase for consistency
+        )
+    )
+    
     return room
 
 
