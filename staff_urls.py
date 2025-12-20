@@ -233,7 +233,8 @@ urlpatterns += [
 
 # Add Room Turnover Workflow Staff URLs
 urlpatterns += [
-    path('', include('rooms.staff_urls')),
+    path('hotel/<str:hotel_slug>/', include('rooms.staff_urls')),
+
 ]
 
 
