@@ -184,7 +184,7 @@ class HousekeepingTask(models.Model):
         verbose_name_plural = 'Housekeeping Tasks'
     
     def __str__(self):
-        assigned_to_name = self.assigned_to.get_full_name() if self.assigned_to else "Unassigned"
+        assigned_to_name = f"{self.assigned_to.first_name} {self.assigned_to.last_name}".strip() or self.assigned_to.email or "Staff" if self.assigned_to else "Unassigned"
         return f"{self.get_task_type_display()} - Room {self.room.room_number} ({assigned_to_name})"
     
     def clean(self):

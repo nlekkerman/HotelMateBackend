@@ -171,7 +171,7 @@ class HousekeepingTaskViewSet(viewsets.ModelViewSet):
             # Return updated task
             task_serializer = HousekeepingTaskSerializer(task)
             return Response({
-                'message': f'Task assigned to {assigned_staff.get_full_name()}',
+                'message': f'Task assigned to {f"{assigned_staff.first_name} {assigned_staff.last_name}".strip() or assigned_staff.email or "Staff"}',
                 'task': task_serializer.data
             })
         

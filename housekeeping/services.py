@@ -97,7 +97,10 @@ def set_room_status(*, room, to_status, staff=None, source="HOUSEKEEPING", note=
     if to_status == 'CLEANING_IN_PROGRESS':
         # Optional: Add turnover note when cleaning starts
         if hasattr(room, 'add_turnover_note'):
-            staff_name = staff.get_full_name() if staff else "System"
+            if staff:
+                staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.email or "Staff"
+            else:
+                staff_name = "System"
             room.add_turnover_note(f"Cleaning started by {staff_name}", staff_member=staff)
     
     elif to_status == 'CLEANED_UNINSPECTED':
@@ -123,7 +126,10 @@ def set_room_status(*, room, to_status, staff=None, source="HOUSEKEEPING", note=
         if note and hasattr(room, 'maintenance_notes'):
             existing_notes = room.maintenance_notes or ""
             timestamp = now.strftime("%Y-%m-%d %H:%M")
-            staff_name = staff.get_full_name() if staff else "System"
+            if staff:
+                staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.email or "Staff"
+            else:
+                staff_name = "System"
             new_note = f"[{timestamp}] {staff_name}: {note}"
             
             if existing_notes:

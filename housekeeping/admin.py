@@ -148,10 +148,11 @@ class HousekeepingTaskAdmin(admin.ModelAdmin):
         """Display assigned staff with link"""
         if obj.assigned_to:
             url = reverse('admin:staff_staff_change', args=[obj.assigned_to.pk])
+            full_name = f"{obj.assigned_to.first_name} {obj.assigned_to.last_name}".strip() or obj.assigned_to.email or "Staff"
             return format_html(
                 '<a href="{}" target="_blank">{}</a>',
                 url,
-                obj.assigned_to.get_full_name()
+                full_name
             )
         return '<span style="color: #6c757d;">Unassigned</span>'
     assigned_to_link.short_description = 'Assigned To'
@@ -304,7 +305,7 @@ class RoomStatusEventAdmin(admin.ModelAdmin):
             return format_html(
                 '<a href="{}" target="_blank">{}</a>',
                 url,
-                obj.changed_by.get_full_name()
+                f"{obj.changed_by.first_name} {obj.changed_by.last_name}".strip() or obj.changed_by.email or "Staff"
             )
         return '<span style="color: #6c757d;">System</span>'
     changed_by_link.short_description = 'Changed By'

@@ -15,10 +15,16 @@ class RoomStatusEventSerializer(serializers.ModelSerializer):
     """
     Read-only serializer for room status audit events.
     """
-    changed_by_name = serializers.CharField(source='changed_by.get_full_name', read_only=True)
+    changed_by_name = serializers.SerializerMethodField()
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     room_number = serializers.CharField(source='room.room_number', read_only=True)
     source_display = serializers.CharField(source='get_source_display', read_only=True)
+    
+    def get_changed_by_name(self, obj):
+        if obj.changed_by:
+            full_name = f"{obj.changed_by.first_name} {obj.changed_by.last_name}".strip()
+            return full_name or obj.changed_by.email or "Staff"
+        return "System"
     
     class Meta:
         model = RoomStatusEvent
@@ -34,8 +40,8 @@ class HousekeepingTaskSerializer(serializers.ModelSerializer):
     """
     Serializer for housekeeping task management.
     """
-    assigned_to_name = serializers.CharField(source='assigned_to.get_full_name', read_only=True)
-    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    assigned_to_name = serializers.SerializerMethodField()
+    created_by_name = serializers.SerializerMethodField()
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
     room_number = serializers.CharField(source='room.room_number', read_only=True)
     room_type_name = serializers.CharField(source='room.room_type.name', read_only=True)
@@ -43,6 +49,18 @@ class HousekeepingTaskSerializer(serializers.ModelSerializer):
     task_type_display = serializers.CharField(source='get_task_type_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     priority_display = serializers.CharField(source='get_priority_display', read_only=True)
+    
+    def get_assigned_to_name(self, obj):
+        if obj.assigned_to:
+            full_name = f"{obj.assigned_to.first_name} {obj.assigned_to.last_name}".strip()
+            return full_name or obj.assigned_to.email or "Staff"
+        return "Unassigned"
+    
+    def get_created_by_name(self, obj):
+        if obj.created_by:
+            full_name = f"{obj.created_by.first_name} {obj.created_by.last_name}".strip()
+            return full_name or obj.created_by.email or "Staff"
+        return "System"
     is_overdue = serializers.BooleanField(read_only=True)
     
     class Meta:
