@@ -193,9 +193,11 @@ def checkout_rooms(request, hotel_slug):
             ).delete()
 
             # NEW: Add turnover note
+            staff = request.user.staff
+            staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.email or "Staff"
             room.add_turnover_note(
-                f"Bulk checkout at {now().strftime('%Y-%m-%d %H:%M')} by {request.user.staff.get_full_name()}",
-                request.user.staff  
+                f"Bulk checkout at {now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
+                staff  
             )  # NEW
 
             room.save()

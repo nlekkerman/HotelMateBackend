@@ -141,7 +141,11 @@ class Room(models.Model):
         """Add timestamped note to turnover history"""
         from django.utils import timezone
         timestamp = timezone.now().strftime('%Y-%m-%d %H:%M')
-        staff_info = f" by {staff_member.get_full_name()}" if staff_member else ""
+        if staff_member:
+            staff_name = f"{staff_member.first_name} {staff_member.last_name}".strip() or staff_member.email or "Staff"
+            staff_info = f" by {staff_name}"
+        else:
+            staff_info = ""
         new_note = f"[{timestamp}]{staff_info}: {note}"
         
         if self.turnover_notes:
