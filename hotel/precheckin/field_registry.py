@@ -63,33 +63,33 @@ PRECHECKIN_FIELD_REGISTRY = {
     "date_of_birth": {
         "label": "Date of Birth",
         "type": "date",
-        "scope": "booking"
+        "scope": "guest"  # ✅ Each guest has individual DOB
     },
     "id_document_type": {
         "label": "ID Document Type",
         "type": "select", 
-        "scope": "booking",
+        "scope": "guest",  # ✅ Each guest has individual ID document
         "choices": ["passport", "drivers_license", "national_id", "other"]
     },
     "id_document_number": {
         "label": "ID Document Number",
         "type": "text",
-        "scope": "booking"
+        "scope": "guest"  # ✅ Each guest has individual ID number
     },
     "address_line_1": {
         "label": "Address Line 1",
         "type": "text",
-        "scope": "booking"
+        "scope": "guest"  # ✅ Each guest has individual address
     },
     "city": {
         "label": "City", 
         "type": "text",
-        "scope": "booking"
+        "scope": "guest"  # ✅ Each guest has individual city
     },
     "postcode": {
         "label": "Postal Code",
         "type": "text",
-        "scope": "booking"
+        "scope": "guest"  # ✅ Each guest has individual postal code
     }
 }
 

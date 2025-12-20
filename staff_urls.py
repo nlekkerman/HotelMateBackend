@@ -172,6 +172,12 @@ urlpatterns = [
         include('bookings.staff_urls')
     ),
     
+    # Housekeeping workflow management
+    path(
+        'hotel/<str:hotel_slug>/housekeeping/',
+        include('housekeeping.staff_urls')
+    ),
+    
     # Hotel Settings
     path(
         'hotel/<str:hotel_slug>/settings/',
