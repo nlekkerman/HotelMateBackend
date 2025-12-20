@@ -139,6 +139,12 @@ class RoomAssignmentService:
         """
         Atomically assign room to booking with full validation and audit logging.
         
+        Args:
+            booking_id: String booking identifier (e.g., "BK-2025-0005")
+            room_id: Numeric room ID
+            staff_user: Staff instance
+            notes: Optional assignment notes
+        
         Returns: Updated RoomBooking instance
         Raises: RoomAssignmentError for validation failures
         """
@@ -146,7 +152,7 @@ class RoomAssignmentService:
         from rooms.models import Room
         
         # Lock booking and room for update to prevent concurrent modifications
-        booking = RoomBooking.objects.select_for_update().get(id=booking_id)
+        booking = RoomBooking.objects.select_for_update().get(booking_id=booking_id)
         room = Room.objects.select_for_update().get(id=room_id)
         
         # CRITICAL: Also lock potentially conflicting bookings to prevent race conditions
