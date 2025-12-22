@@ -2062,7 +2062,7 @@ class SafeAssignRoomView(APIView):
             )
             
             # Return updated booking with assigned room details (SILENT - NO REALTIME)
-            serializer = RoomBookingDetailSerializer(booking)
+            serializer = StaffRoomBookingDetailSerializer(booking)
             return Response({
                 'message': f'Successfully assigned room to booking {booking_id}',
                 **serializer.data
