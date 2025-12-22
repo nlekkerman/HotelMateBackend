@@ -297,7 +297,7 @@ def checkout_needed(request, hotel_slug):
 def start_cleaning(request, hotel_slug, room_number):
     """Transition room to CLEANING_IN_PROGRESS"""
     # Check canonical navigation permission
-    if not request.user.staff.allowed_navigation_items.filter(slug='rooms').exists():
+    if not request.user.staff_profile.allowed_navigation_items.filter(slug='rooms').exists():
         return Response({'error': 'Rooms permission required'}, status=403)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
@@ -333,7 +333,7 @@ def start_cleaning(request, hotel_slug, room_number):
 def mark_cleaned(request, hotel_slug, room_number):
     """Mark room as cleaned, transition to CLEANED_UNINSPECTED"""
     # Check canonical navigation permission
-    if not request.user.staff.allowed_navigation_items.filter(slug='rooms').exists():
+    if not request.user.staff_profile.allowed_navigation_items.filter(slug='rooms').exists():
         return Response({'error': 'Rooms permission required'}, status=403)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
@@ -354,7 +354,7 @@ def mark_cleaned(request, hotel_slug, room_number):
     note_text = "Room cleaned"
     if notes:
         note_text += f" - {notes}"
-    room.add_turnover_note(note_text, request.user.staff)
+    room.add_turnover_note(note_text, request.user.staff_profile)
     room.save()
     
     # Real-time notification
@@ -377,7 +377,7 @@ def mark_cleaned(request, hotel_slug, room_number):
 def inspect_room(request, hotel_slug, room_number):
     """Inspect room - pass -> READY_FOR_GUEST, fail -> CHECKOUT_DIRTY"""
     # Check canonical navigation permission
-    if not request.user.staff.allowed_navigation_items.filter(slug='rooms').exists():
+    if not request.user.staff_profile.allowed_navigation_items.filter(slug='rooms').exists():
         return Response({'error': 'Rooms permission required'}, status=403)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
@@ -404,7 +404,7 @@ def inspect_room(request, hotel_slug, room_number):
     
     if notes:
         note_text += f" - {notes}"
-    room.add_turnover_note(note_text, request.user.staff)
+    room.add_turnover_note(note_text, request.user.staff_profile)
     room.save()
     
     # Real-time notification
@@ -431,7 +431,7 @@ def inspect_room(request, hotel_slug, room_number):
 def mark_maintenance(request, hotel_slug, room_number):
     """Mark room as requiring maintenance - requires maintenance navigation permission"""
     # Check canonical navigation permission
-    if not request.user.staff.allowed_navigation_items.filter(slug='maintenance').exists():
+    if not request.user.staff_profile.allowed_navigation_items.filter(slug='maintenance').exists():
         return Response({'error': 'Maintenance permission required'}, status=403)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
@@ -480,7 +480,7 @@ def mark_maintenance(request, hotel_slug, room_number):
 def complete_maintenance(request, hotel_slug, room_number):
     """Mark maintenance as completed - requires maintenance navigation permission"""
     # Check canonical navigation permission
-    if not request.user.staff.allowed_navigation_items.filter(slug='maintenance').exists():
+    if not request.user.staff_profile.allowed_navigation_items.filter(slug='maintenance').exists():
         return Response({'error': 'Maintenance permission required'}, status=403)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
