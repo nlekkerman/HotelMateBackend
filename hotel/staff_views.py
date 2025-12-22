@@ -87,6 +87,39 @@ from rooms.serializers import RoomStaffSerializer
 from .permissions import IsSuperStaffAdminForHotel
 
 
+# ============================================================================
+# CENTRALIZED STAFF RESOLUTION HELPER
+# ============================================================================
+
+def get_staff_or_403(user, hotel):
+    """
+    Centralized staff resolution with proper validation.
+    
+    Args:
+        user: Django User instance
+        hotel: Hotel instance
+        
+    Returns:
+        Staff instance if valid
+        
+    Raises:
+        PermissionDenied: If user is not valid staff for the hotel
+    """
+    from rest_framework.exceptions import PermissionDenied
+    from staff.models import Staff
+    
+    staff = Staff.objects.filter(
+        user=user,
+        hotel=hotel,
+        is_active=True
+    ).first()
+    
+    if not staff:
+        raise PermissionDenied("Staff access required")
+    
+    return staff
+
+
 class StaffRoomTypeViewSet(viewsets.ModelViewSet):
     """
     Staff CRUD for room types (marketing).
@@ -1572,6 +1605,35 @@ class BookingAssignmentView(APIView):
         booking = get_object_or_404(RoomBooking, hotel=hotel, booking_id=booking_id)
         return hotel, booking
 
+    def _emit_assignment_realtime_events(self, booking, room, primary_guest, party_guest_objects):
+        """Emit realtime events for room assignment - called after transaction commit"""
+        try:
+            notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
+            notification_manager.realtime_room_occupancy_updated(room)
+        except Exception as e:
+            logger.error(f"Failed to emit assignment realtime events for booking {booking.booking_id}: {e}")
+    
+    def _emit_checkout_realtime_events_assignment(self, booking, room, hotel):
+        """Emit realtime events for checkout from assignment view - called after transaction commit"""
+        try:
+            notification_manager.realtime_booking_checked_out(booking, room.room_number)
+            notification_manager.realtime_room_occupancy_updated(room)
+            
+            # Room status notification
+            from pusher import pusher_client
+            pusher_client.trigger(
+                f'hotel-{hotel.slug}',
+                'room-status-changed',
+                {
+                    'room_number': room.room_number,
+                    'old_status': 'OCCUPIED',
+                    'new_status': 'CHECKOUT_DIRTY',
+                    'timestamp': timezone.now().isoformat()
+                }
+            )
+        except Exception as e:
+            logger.error(f"Failed to emit checkout realtime events for booking {booking.booking_id}: {e}")
+
     def post(self, request, hotel_slug, booking_id, action=None):
         """Route to specific action"""
         if action == 'assign-room':
@@ -1722,9 +1784,11 @@ class BookingAssignmentView(APIView):
                 room.room_status = 'OCCUPIED'  # NEW - maintain status consistency
                 room.save()
                 
-                # Trigger realtime notifications
-                notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
-                notification_manager.realtime_room_occupancy_updated(room)
+                # Trigger realtime notifications - ONLY AFTER DB COMMIT
+                from django.db import transaction
+                transaction.on_commit(
+                    lambda: self._emit_assignment_realtime_events(booking, room, primary_guest, party_guest_objects)
+                )
             
             # Return success response with canonical serializer
             from .canonical_serializers import StaffRoomBookingDetailSerializer
@@ -1791,22 +1855,11 @@ class BookingAssignmentView(APIView):
                 )  # NEW
                 room.save()
                 
-                # Trigger realtime notifications
-                notification_manager.realtime_booking_checked_out(booking, room.room_number)
-                notification_manager.realtime_room_occupancy_updated(room)
-                
-                # NEW: Room status notification
-                from pusher import pusher_client
-                pusher_client.trigger(
-                    f'hotel-{hotel.slug}',
-                    'room-status-changed',
-                    {
-                        'room_number': room.room_number,
-                        'old_status': 'OCCUPIED',
-                        'new_status': 'CHECKOUT_DIRTY',
-                        'timestamp': timezone.now().isoformat()
-                    }
-                )  # NEW
+                # Trigger realtime notifications - ONLY AFTER DB COMMIT
+                from django.db import transaction
+                transaction.on_commit(
+                    lambda: self._emit_checkout_realtime_events_assignment(booking, room, hotel)
+                )
             
             # Return success response with canonical serializer
             from .canonical_serializers import StaffRoomBookingDetailSerializer
@@ -2026,17 +2079,6 @@ class SafeAssignRoomView(APIView):
     
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
-    def get_staff_user(self, user):
-        """Safely resolve staff user from request.user"""
-        try:
-            if hasattr(user, 'staff_profile') and user.staff_profile:
-                return user.staff_profile
-            # Fallback: try to find staff by user relationship
-            from staff.models import Staff
-            return Staff.objects.get(user=user)
-        except (AttributeError, Staff.DoesNotExist):
-            return None
-    
     def post(self, request, hotel_slug, booking_id):
         room_id = request.data.get('room_id')
         notes = request.data.get('notes', '')
@@ -2045,14 +2087,6 @@ class SafeAssignRoomView(APIView):
             return Response(
                 {'error': {'code': 'MISSING_ROOM_ID', 'message': 'room_id is required'}},
                 status=400
-            )
-        
-        # Safely resolve staff user
-        staff_user = self.get_staff_user(request.user)
-        if not staff_user:
-            return Response(
-                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
-                status=403
             )
         
         # Enforce party completion before room assignment
@@ -2072,8 +2106,11 @@ class SafeAssignRoomView(APIView):
                 status=404
             )
         
+        # Centralized staff resolution
+        staff_user = get_staff_or_403(request.user, booking.hotel)
+        
         try:
-            # ONLY ASSIGN ROOM - NO CHECK-IN SIDE EFFECTS
+            # ONLY ASSIGN ROOM - NO CHECK-IN SIDE EFFECTS - NO REALTIME EVENTS
             booking = RoomAssignmentService.assign_room_atomic(
                 booking_id=booking_id,
                 room_id=room_id,
@@ -2081,7 +2118,7 @@ class SafeAssignRoomView(APIView):
                 notes=notes
             )
             
-            # Return updated booking with assigned room details
+            # Return updated booking with assigned room details (SILENT - NO REALTIME)
             from .booking_serializers import RoomBookingDetailSerializer
             serializer = RoomBookingDetailSerializer(booking)
             return Response({
@@ -2112,32 +2149,16 @@ class UnassignRoomView(APIView):
     
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
-    def get_staff_user(self, user):
-        """Safely resolve staff user from request.user"""
-        try:
-            if hasattr(user, 'staff_profile') and user.staff_profile:
-                return user.staff_profile
-            # Fallback: try to find staff by user relationship
-            from staff.models import Staff
-            return Staff.objects.get(user=user)
-        except (AttributeError, Staff.DoesNotExist):
-            return None
-    
     @transaction.atomic
     def post(self, request, hotel_slug, booking_id):
-        # Safely resolve staff user
-        staff_user = self.get_staff_user(request.user)
-        if not staff_user:
-            return Response(
-                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
-                status=403
-            )
-        
         booking = get_object_or_404(
             RoomBooking.objects.select_for_update(),
             booking_id=booking_id, 
             hotel__slug=hotel_slug
         )
+        
+        # Centralized staff resolution
+        staff_user = get_staff_or_403(request.user, booking.hotel)
         
         # Use proper in-house check: checked_in_at exists AND not checked_out_at  
         if booking.checked_in_at and not booking.checked_out_at:
@@ -2170,16 +2191,13 @@ class BookingCheckInView(APIView):
     
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
-    def get_staff_user(self, user):
-        """Safely resolve staff user from request.user"""
+    def _emit_checkin_realtime_events(self, booking, room, primary_guest, party_guest_objects):
+        """Emit realtime events for check-in - called after transaction commit"""
         try:
-            if hasattr(user, 'staff_profile') and user.staff_profile:
-                return user.staff_profile
-            # Fallback: try to find staff by user relationship
-            from staff.models import Staff
-            return Staff.objects.get(user=user)
-        except (AttributeError, Staff.DoesNotExist):
-            return None
+            notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
+            notification_manager.realtime_room_occupancy_updated(room)
+        except Exception as e:
+            logger.error(f"Failed to emit check-in realtime events for booking {booking.booking_id}: {e}")
     
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -2194,13 +2212,8 @@ class BookingCheckInView(APIView):
                 status=404
             )
         
-        # Safely resolve staff user
-        staff_user = self.get_staff_user(request.user)
-        if not staff_user:
-            return Response(
-                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
-                status=403
-            )
+        # Centralized staff resolution
+        staff_user = get_staff_or_403(request.user, booking.hotel)
         
         # Check if booking is eligible for check-in
         if booking.status != 'CONFIRMED':
@@ -2294,14 +2307,13 @@ class BookingCheckInView(APIView):
             room.room_status = 'OCCUPIED'
             room.save()
             
-            # Trigger realtime notifications
-            try:
-                notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
-                notification_manager.realtime_room_occupancy_updated(room)
-            except:
-                pass  # Don't fail on notification errors
+            # Trigger realtime notifications - ONLY AFTER DB COMMIT
+            from django.db import transaction
+            transaction.on_commit(
+                lambda: self._emit_checkin_realtime_events(booking, room, primary_guest, party_guest_objects)
+            )
         
-        # Return updated booking with assigned room details
+        # Return updated booking with check-in details
         from .booking_serializers import RoomBookingDetailSerializer
         serializer = RoomBookingDetailSerializer(booking)
         return Response({
@@ -2315,16 +2327,26 @@ class BookingCheckOutView(APIView):
     
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
-    def get_staff_user(self, user):
-        """Safely resolve staff user from request.user"""
+    def _emit_checkout_realtime_events(self, booking, room, hotel):
+        """Emit realtime events for check-out - called after transaction commit"""
         try:
-            if hasattr(user, 'staff_profile') and user.staff_profile:
-                return user.staff_profile
-            # Fallback: try to find staff by user relationship
-            from staff.models import Staff
-            return Staff.objects.get(user=user)
-        except (AttributeError, Staff.DoesNotExist):
-            return None
+            notification_manager.realtime_booking_checked_out(booking, room.room_number)
+            notification_manager.realtime_room_occupancy_updated(room)
+            
+            # Room status notification
+            from pusher import pusher_client
+            pusher_client.trigger(
+                f'hotel-{hotel.slug}',
+                'room-status-changed',
+                {
+                    'room_number': room.room_number,
+                    'old_status': 'OCCUPIED',
+                    'new_status': 'CHECKOUT_DIRTY',
+                    'timestamp': timezone.now().isoformat()
+                }
+            )
+        except Exception as e:
+            logger.error(f"Failed to emit check-out realtime events for booking {booking.booking_id}: {e}")
     
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -2339,13 +2361,8 @@ class BookingCheckOutView(APIView):
                 status=404
             )
         
-        # Safely resolve staff user
-        staff_user = self.get_staff_user(request.user)
-        if not staff_user:
-            return Response(
-                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
-                status=403
-            )
+        # Centralized staff resolution
+        staff_user = get_staff_or_403(request.user, booking.hotel)
         
         # Validate booking is checked in
         if not booking.checked_in_at or booking.checked_out_at:
@@ -2392,34 +2409,21 @@ class BookingCheckOutView(APIView):
                 )
             room.save()
             
-            # Trigger realtime notifications
-            try:
-                notification_manager.realtime_booking_checked_out(booking, room.room_number)
-                notification_manager.realtime_room_occupancy_updated(room)
-                
-                # Room status notification
-                from pusher import pusher_client
-                pusher_client.trigger(
-                    f'hotel-{hotel.slug}',
-                    'room-status-changed',
-                    {
-                        'room_number': room.room_number,
-                        'old_status': 'OCCUPIED',
-                        'new_status': 'CHECKOUT_DIRTY',
-                        'timestamp': timezone.now().isoformat()
-                    }
-                )
-            except:
-                pass  # Don't fail on notification errors
+            # Trigger realtime notifications - ONLY AFTER DB COMMIT
+            from django.db import transaction
+            transaction.on_commit(
+                lambda: self._emit_checkout_realtime_events(booking, room, hotel)
+            )
         
-        # Return success response
+        # Return updated booking with check-out details
         from .booking_serializers import RoomBookingDetailSerializer
         booking.refresh_from_db()
+        serializer = RoomBookingDetailSerializer(booking)
         
         return Response({
             'message': f'Successfully checked out booking {booking_id} from room {room.room_number}',
             'guests_detached': len(guests),
-            **RoomBookingDetailSerializer(booking).data
+            **serializer.data
         })
 
 

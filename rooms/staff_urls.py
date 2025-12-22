@@ -18,10 +18,6 @@ urlpatterns = [
     path('rooms/<str:room_number>/mark-maintenance/', views.mark_maintenance, name='mark_maintenance'),
     path('rooms/<str:room_number>/complete-maintenance/', views.complete_maintenance, name='complete_maintenance'),
 
-    # Guest check-in/check-out - canonical endpoints
-    path('rooms/<str:room_number>/checkin/', views.checkin_room, name='checkin_room'),
-    path('rooms/<str:room_number>/checkout/', views.checkout_room, name='checkout_room'),
-
     # Dashboard endpoints
     path('turnover/rooms/', views.turnover_rooms, name='turnover_rooms'),
     path('turnover/stats/', views.turnover_stats, name='turnover_stats'),
