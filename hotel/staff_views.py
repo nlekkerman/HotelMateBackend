@@ -62,7 +62,7 @@ from rooms.models import RoomType, Room
 from guests.models import Guest
 from .canonical_serializers import (
     StaffRoomBookingListSerializer,
-    StaffRoomBookingDetailSerializer, 
+    StaffRoomBookingDetailSerializer,
     BookingPartyGroupedSerializer,
 )
 from .serializers import (
