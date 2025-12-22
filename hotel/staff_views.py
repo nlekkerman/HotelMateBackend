@@ -40,6 +40,7 @@ from rest_framework.pagination import PageNumberPagination
 from .models import (
     Hotel,
     HotelAccessConfig,
+    HotelPrecheckinConfig,
     Preset,
     HotelPublicPage,
     PublicSection,
@@ -86,6 +87,16 @@ from .serializers import (
 from rooms.serializers import RoomStaffSerializer
 from .permissions import IsSuperStaffAdminForHotel
 
+# Additional imports moved from inline locations
+from rest_framework.exceptions import PermissionDenied
+from staff.models import Staff
+from bookings.models import Restaurant
+from common.models import ThemePreference
+from hotel.services.booking_integrity import heal_booking_party
+from hotel.precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
+from django.core.exceptions import ValidationError
+from pusher import pusher_client
+
 
 # ============================================================================
 # CENTRALIZED STAFF RESOLUTION HELPER
@@ -105,9 +116,6 @@ def get_staff_or_403(user, hotel):
     Raises:
         PermissionDenied: If user is not valid staff for the hotel
     """
-    from rest_framework.exceptions import PermissionDenied
-    from staff.models import Staff
-    
     staff = Staff.objects.filter(
         user=user,
         hotel=hotel,
@@ -296,7 +304,6 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
                     {'error': 'restaurant_slug required for restaurant QR'},
                     status=status.HTTP_400_BAD_REQUEST
                 )
-            from bookings.models import Restaurant
             restaurant = get_object_or_404(
                 Restaurant,
                 hotel=room.hotel,
@@ -544,7 +551,6 @@ class PublicSectionViewSet(viewsets.ModelViewSet):
         if not hotel_slug and hasattr(self.request.user, 'staff_profile'):
             hotel_slug = self.request.user.staff_profile.hotel.slug
         
-        from .models import Hotel
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
         # Ensure is_active is explicitly set
@@ -873,7 +879,6 @@ class HotelSettingsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get_permissions(self):
-        from staff_chat.permissions import IsStaffMember, IsSameHotel
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     def get(self, request, hotel_slug):
@@ -881,7 +886,6 @@ class HotelSettingsView(APIView):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
         # Get or create theme
-        from common.models import ThemePreference
         theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
         
         # Complete hotel info + theme
@@ -967,7 +971,6 @@ class HotelSettingsView(APIView):
         hotel.save()
         
         # Update theme fields if provided
-        from common.models import ThemePreference
         theme, _ = ThemePreference.objects.get_or_create(hotel=hotel)
         
         theme_fields = [
@@ -1042,7 +1045,6 @@ class StaffBookingsListView(APIView):
     permission_classes = []
     
     def get_permissions(self):
-        from staff_chat.permissions import IsStaffMember, IsSameHotel
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     def get(self, request, hotel_slug):
@@ -1063,7 +1065,6 @@ class StaffBookingsListView(APIView):
 
         start_date = request.query_params.get('start_date')
         if start_date:
-            from datetime import datetime
             try:
                 start = datetime.strptime(start_date, '%Y-%m-%d').date()
                 bookings = bookings.filter(check_in__gte=start)
@@ -1072,7 +1073,6 @@ class StaffBookingsListView(APIView):
 
         end_date = request.query_params.get('end_date')
         if end_date:
-            from datetime import datetime
             try:
                 end = datetime.strptime(end_date, '%Y-%m-%d').date()
                 bookings = bookings.filter(check_out__lte=end)
@@ -1089,7 +1089,6 @@ class StaffBookingConfirmView(APIView):
     permission_classes = []
     
     def get_permissions(self):
-        from staff_chat.permissions import IsStaffMember, IsSameHotel
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     def post(self, request, hotel_slug, booking_id):
@@ -1161,11 +1160,9 @@ class StaffBookingConfirmView(APIView):
             
             # Fallback to direct FCM
             try:
-                from notifications.fcm_service import send_booking_confirmation_notification
                 # Try to find guest FCM token from room if they're checked in
                 guest_fcm_token = None
                 try:
-                    from rooms.models import Room
                     guest_room = Room.objects.filter(
                         hotel=booking.hotel,
                         guests__isnull=False,
@@ -1185,8 +1182,7 @@ class StaffBookingConfirmView(APIView):
             except Exception as fallback_e:
                 logger.error(f"Fallback FCM confirmation also failed: {fallback_e}")
 
-        from .serializers import RoomBookingDetailSerializer
-        serializer = RoomBookingDetailSerializer(booking)
+        serializer = StaffRoomBookingDetailSerializer(booking)
         return Response({'message': 'Booking confirmed successfully', 'booking': serializer.data})
 
 
@@ -1195,7 +1191,6 @@ class StaffBookingCancelView(APIView):
     permission_classes = []
     
     def get_permissions(self):
-        from staff_chat.permissions import IsStaffMember, IsSameHotel
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     def post(self, request, hotel_slug, booking_id):
@@ -1262,7 +1257,6 @@ class StaffBookingCancelView(APIView):
         booking.status = 'CANCELLED'
         
         # Add detailed cancellation information to special_requests
-        from django.utils import timezone
         current_requests = booking.special_requests or ''
         cancellation_info = (
             f"\n\n--- BOOKING CANCELLED ---\n"
@@ -1275,7 +1269,6 @@ class StaffBookingCancelView(APIView):
 
         # Send email notification to guest
         try:
-            from notifications.email_service import send_booking_cancellation_email
             send_booking_cancellation_email(booking, cancellation_reason, staff_name)
         except ImportError:
             logger.warning("Email service not available for booking cancellation")
@@ -1291,11 +1284,9 @@ class StaffBookingCancelView(APIView):
             
             # Fallback to direct FCM
             try:
-                from notifications.fcm_service import send_booking_cancellation_notification
                 # Try to find guest FCM token from room if they're checked in
                 guest_fcm_token = None
                 try:
-                    from rooms.models import Room
                     guest_room = Room.objects.filter(
                         hotel=booking.hotel,
                         guests__isnull=False,
@@ -1315,8 +1306,7 @@ class StaffBookingCancelView(APIView):
             except Exception as fallback_e:
                 logger.error(f"Fallback FCM cancellation also failed: {fallback_e}")
 
-        from .serializers import RoomBookingDetailSerializer
-        serializer = RoomBookingDetailSerializer(booking)
+        serializer = StaffRoomBookingDetailSerializer(booking)
         return Response({
             'message': 'Booking cancelled successfully', 
             'booking': serializer.data,
@@ -1329,7 +1319,6 @@ class StaffBookingDetailView(APIView):
     permission_classes = []
     
     def get_permissions(self):
-        from staff_chat.permissions import IsStaffMember, IsSameHotel
         return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     def get(self, request, hotel_slug, booking_id):
@@ -1417,7 +1406,6 @@ class PublicPageBootstrapView(APIView):
         PublicElement.objects.create(section=hero, element_type="hero", title="Welcome", subtitle="Your perfect stay")
         
         # Create default rooms section
-        from .models import RoomsSection
         rooms_section = PublicSection.objects.create(
             hotel=hotel,
             position=2,
@@ -1473,7 +1461,6 @@ class SectionCreateView(APIView):
         elif section_type == 'rooms':
             self._create_rooms_section(section)
         
-        from .serializers import PublicSectionDetailSerializer
         serializer = PublicSectionDetailSerializer(section)
         return Response({
             'message': f'{section_type.title()} section created', 
@@ -1511,8 +1498,6 @@ class SectionCreateView(APIView):
     
     def _create_news_section(self, section, article_title):
         """Create news section with a placeholder article and content blocks."""
-        from datetime import date
-        
         news_title = article_title.strip() if article_title else "Update Article Title"
         news_item = NewsItem.objects.create(
             section=section,
@@ -1619,7 +1604,6 @@ class BookingAssignmentView(APIView):
             notification_manager.realtime_room_occupancy_updated(room)
             
             # Room status notification
-            from pusher import pusher_client
             pusher_client.trigger(
                 f'hotel-{hotel.slug}',
                 'room-status-changed',
@@ -1911,13 +1895,11 @@ class BookingPartyManagementView(APIView):
             hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
             
             # Use canonical serializer for consistent output
-            from .canonical_serializers import BookingPartyGroupedSerializer
             serializer = BookingPartyGroupedSerializer()
             party_data = serializer.to_representation(booking)
             
             # Auto-heal if no PRIMARY exists
             if not party_data['primary'] and booking.primary_first_name:
-                from hotel.services.booking_integrity import heal_booking_party
                 heal_booking_party(booking, notify=True)
                 # Re-serialize after healing
                 party_data = serializer.to_representation(booking)
@@ -1971,7 +1953,6 @@ class BookingPartyManagementView(APIView):
             companions_data = request.data.get('companions', [])
             
             with transaction.atomic():
-                from .models import BookingGuest
                 
                 # Get current companions (excluding PRIMARY)
                 current_companions = booking.party.filter(role='COMPANION')
@@ -2114,7 +2095,6 @@ class SafeAssignRoomView(APIView):
             )
             
             # Return updated booking with assigned room details (SILENT - NO REALTIME)
-            from .booking_serializers import RoomBookingDetailSerializer
             serializer = RoomBookingDetailSerializer(booking)
             return Response({
                 'message': f'Successfully assigned room to booking {booking_id}',
@@ -2308,7 +2288,6 @@ class BookingCheckInView(APIView):
             )
         
         # Return updated booking with check-in details
-        from .booking_serializers import RoomBookingDetailSerializer
         serializer = RoomBookingDetailSerializer(booking)
         return Response({
             'message': f'Successfully checked in booking {booking_id}',
@@ -2328,7 +2307,6 @@ class BookingCheckOutView(APIView):
             notification_manager.realtime_room_occupancy_updated(room)
             
             # Room status notification
-            from pusher import pusher_client
             pusher_client.trigger(
                 f'hotel-{hotel.slug}',
                 'room-status-changed',
@@ -2409,7 +2387,6 @@ class BookingCheckOutView(APIView):
             )
         
         # Return updated booking with check-out details
-        from .booking_serializers import RoomBookingDetailSerializer
         booking.refresh_from_db()
         serializer = RoomBookingDetailSerializer(booking)
         
@@ -2455,7 +2432,6 @@ class SafeStaffBookingListView(APIView):
             queryset = queryset.filter(check_in=today)
         if room_type:
             # Use room_type code instead of name (names can collide across hotels)
-            from rooms.models import RoomType
             try:
                 room_type_obj = RoomType.objects.get(hotel=hotel, code=room_type)
                 queryset = queryset.filter(room_type=room_type_obj)
@@ -2465,7 +2441,6 @@ class SafeStaffBookingListView(APIView):
         # Paginate and serialize
         paginator = PageNumberPagination()
         page = paginator.paginate_queryset(queryset, request)
-        from .booking_serializers import RoomBookingListSerializer
         serializer = RoomBookingListSerializer(page, many=True)
         return paginator.get_paginated_response(serializer.data)
 
@@ -2476,7 +2451,6 @@ class SendPrecheckinLinkView(APIView):
 
     def post(self, request, hotel_slug, booking_id):
         """Generate token and send pre-check-in email to guest"""
-        from .models import RoomBooking, BookingPrecheckinToken
         
         # Validate hotel scope and get booking
         try:
@@ -2511,7 +2485,6 @@ class SendPrecheckinLinkView(APIView):
         ).update(revoked_at=timezone.now())
         
         # Get current hotel precheckin configuration for snapshot
-        from .models import HotelPrecheckinConfig
         hotel_config = HotelPrecheckinConfig.get_or_create_default(booking.hotel)
         
         # Create new token with config snapshot
@@ -2579,9 +2552,6 @@ class HotelPrecheckinConfigView(APIView):
     
     def get(self, request, hotel_slug):
         """Get current precheckin configuration for hotel"""
-        from .models import Hotel, HotelPrecheckinConfig
-        from .precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
-        
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         config = HotelPrecheckinConfig.get_or_create_default(hotel)
         
@@ -2593,10 +2563,6 @@ class HotelPrecheckinConfigView(APIView):
     
     def post(self, request, hotel_slug):
         """Update precheckin configuration for hotel"""
-        from django.core.exceptions import ValidationError
-        from .models import Hotel, HotelPrecheckinConfig
-        from .precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
-        
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
         enabled = request.data.get('enabled', {})
@@ -2797,7 +2763,6 @@ class StaffBookingAcceptView(APIView):
         
         # Send confirmation notifications
         try:
-            from notifications.email_service import send_booking_confirmation_email
             send_booking_confirmation_email(booking)
             logger.info(f"Confirmation email sent for approved booking {booking_id}")
         except ImportError:
@@ -2806,11 +2771,9 @@ class StaffBookingAcceptView(APIView):
             logger.error(f"Failed to send confirmation email for booking {booking_id}: {e}")
         
         try:
-            from notifications.fcm_service import send_booking_confirmation_notification
             # Try to get FCM token if guest is checked in
             guest_fcm_token = None
             try:
-                from rooms.models import Room
                 if booking.assigned_room:
                     guest_fcm_token = booking.assigned_room.guest_fcm_token
             except:
@@ -2826,7 +2789,6 @@ class StaffBookingAcceptView(APIView):
         
         # Trigger realtime update
         try:
-            from notifications.notification_manager import notification_manager
             notification_manager.realtime_booking_updated(booking)
         except Exception as e:
             logger.error(f"Failed to send realtime update for booking {booking_id}: {e}")
@@ -2962,7 +2924,6 @@ class StaffBookingDeclineView(APIView):
         
         # Send decline notifications
         try:
-            from notifications.email_service import send_booking_cancellation_email
             staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.user.username
             send_booking_cancellation_email(booking, reason_note or reason_code, staff_name)
             logger.info(f"Decline email sent for booking {booking_id}")
@@ -2972,7 +2933,6 @@ class StaffBookingDeclineView(APIView):
             logger.error(f"Failed to send decline email for booking {booking_id}: {e}")
         
         try:
-            from notifications.notification_manager import notification_manager
             notification_manager.realtime_booking_updated(booking)
             logger.info(f"Decline notification sent for booking {booking_id}")
         except Exception as e:
