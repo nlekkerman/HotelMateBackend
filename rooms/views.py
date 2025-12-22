@@ -137,72 +137,126 @@ class RoomByHotelAndNumberView(APIView):
 @permission_classes([IsAuthenticated])
 def checkout_rooms(request, hotel_slug):
     """
-    POST /api/hotels/{hotel_slug}/rooms/checkout/
+    Bulk room checkout - Non-destructive by default
+    POST /api/staff/hotel/{hotel_slug}/rooms/checkout/
     {
-      "room_ids": [3, 7, 11]
+      "room_ids": [3, 7, 11],
+      "destructive": false  // optional, requires admin for true
     }
     """
+    from room_bookings.services.checkout import checkout_booking
+    from hotel.models import Hotel, RoomBooking
+    
     room_ids = request.data.get('room_ids')
+    destructive = request.data.get('destructive', False)
+    
     if not isinstance(room_ids, list) or not room_ids:
         return Response(
             {"detail": "`room_ids` must be a non-empty list."},
             status=status.HTTP_400_BAD_REQUEST
         )
-
+    
+    # Destructive mode requires admin permissions
+    if destructive and not request.user.is_superuser:
+        return Response(
+            {"detail": "Destructive checkout requires admin permissions."},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    staff_user = request.user.staff_profile
+    
     # Only rooms in this hotel that match the IDs
-    rooms = Room.objects.filter(hotel__slug=hotel_slug, id__in=room_ids)
-
+    rooms = Room.objects.filter(hotel=hotel, id__in=room_ids)
+    
     if not rooms.exists():
         return Response(
             {"detail": "No matching rooms found for this hotel."},
             status=status.HTTP_404_NOT_FOUND
         )
-
+    
+    results = {
+        "checked_out_bookings": [],
+        "rooms_cleared": [],
+        "destructive_mode": destructive
+    }
+    
     with transaction.atomic():
         for room in rooms:
-            # Delete all Guest objects linked to this room
-            Guest.objects.filter(room=room).delete()
-
-            # Delete all guest chat sessions for this room
-            from chat.models import GuestChatSession
-            GuestChatSession.objects.filter(room=room).delete()
-
-            # Delete all conversations & their messages for this room
-            Conversation.objects.filter(room=room).delete()
-            # RoomMessage objects will cascade delete automatically because they have FK to Conversation with on_delete=models.CASCADE
-            # Optionally, if RoomMessage has FK to Room separately, delete explicitly:
-            RoomMessage.objects.filter(room=room).delete()
-
-            # Mark room unoccupied - Room Turnover Workflow
-            room.is_occupied = False
-            room.room_status = 'CHECKOUT_DIRTY'  # NEW
+            if destructive:
+                # DESTRUCTIVE MODE: Old behavior (nuclear option)
+                # Delete all Guest objects linked to this room
+                Guest.objects.filter(room=room).delete()
+                
+                # Delete all guest chat sessions for this room
+                from chat.models import GuestChatSession
+                GuestChatSession.objects.filter(room=room).delete()
+                
+                # Delete all conversations & their messages for this room
+                Conversation.objects.filter(room=room).delete()
+                RoomMessage.objects.filter(room=room).delete()
+                
+                # Delete any open room-service & breakfast orders
+                Order.objects.filter(
+                    hotel=room.hotel,
+                    room_number=room.room_number
+                ).delete()
+                BreakfastOrder.objects.filter(
+                    hotel=room.hotel,
+                    room_number=room.room_number
+                ).delete()
+                
+                # Mark room unoccupied
+                room.is_occupied = False
+                room.room_status = 'CHECKOUT_DIRTY'
+                room.guest_fcm_token = None
+                room.save()
+                
+                results["rooms_cleared"].append(room.room_number)
+                
+                # Log destructive action
+                logger.warning(
+                    f"DESTRUCTIVE bulk checkout on room {room.room_number} "
+                    f"by {staff_user.email} at hotel {hotel.name}"
+                )
+                
+            else:
+                # NON-DESTRUCTIVE MODE: Use booking-driven checkout
+                # Find active bookings in this room
+                active_bookings = RoomBooking.objects.filter(
+                    assigned_room=room,
+                    checked_out_at__isnull=True,
+                    hotel=hotel
+                )
+                
+                for booking in active_bookings:
+                    try:
+                        checkout_booking(
+                            booking=booking,
+                            performed_by=staff_user,
+                            source="bulk_room_checkout",
+                        )
+                        results["checked_out_bookings"].append(booking.booking_id)
+                    except ValueError as e:
+                        logger.warning(f"Could not checkout booking {booking.booking_id}: {e}")
+                
+                # If room has no bookings but is marked occupied, clear it
+                if room.is_occupied and not active_bookings.exists():
+                    room.is_occupied = False
+                    room.room_status = 'CHECKOUT_DIRTY'
+                    room.guest_fcm_token = None
+                    
+                    # Add note for rooms cleared without bookings
+                    staff_name = f"{staff_user.first_name} {staff_user.last_name}".strip() or staff_user.email
+                    room.add_turnover_note(
+                        f"Room cleared (no active bookings) at {now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
+                        staff_user
+                    )
+                    room.save()
+                    results["rooms_cleared"].append(room.room_number)
             
-            # Clear guest FCM token to prevent old guest
-            # from receiving notifications
-            room.guest_fcm_token = None
-
-            # Delete any open room-service & breakfast orders
-            Order.objects.filter(
-                hotel=room.hotel,
-                room_number=room.room_number
-            ).delete()
-            BreakfastOrder.objects.filter(
-                hotel=room.hotel,
-                room_number=room.room_number
-            ).delete()
-
-            # NEW: Add turnover note
-            staff = request.user.staff_profile
-            staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.email or "Staff"
-            room.add_turnover_note(
-                f"Bulk checkout at {now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
-                staff  
-            )  # NEW
-
-            room.save()
-            
-            # NEW: Real-time notification
-            from pusher import pusher_client
+            # Real-time notification for room status change
+            from chat.utils import pusher_client
             pusher_client.trigger(
                 f'hotel-{hotel_slug}',
                 'room-status-changed',
@@ -213,16 +267,11 @@ def checkout_rooms(request, hotel_slug):
                     'timestamp': now().isoformat()
                 }
             )
-
-    return Response(
-        {
-            "detail": (
-                f"Checked out {rooms.count()} room(s) in hotel '{hotel_slug}', "
-                f"deleted guests, chat sessions, conversations, and messages."
-            )
-        },
-        status=status.HTTP_200_OK
-    ) 
+    
+    return Response({
+        "detail": f"Processed {rooms.count()} room(s) in hotel '{hotel_slug}'",
+        "results": results
+    }, status=status.HTTP_200_OK) 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def checkout_needed(request, hotel_slug):

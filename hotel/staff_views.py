@@ -1794,62 +1794,31 @@ class BookingAssignmentView(APIView):
         POST /api/staff/hotels/{slug}/bookings/{booking_id}/checkout/
         """
         try:
+            from room_bookings.services.checkout import checkout_booking
+            
             hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
+            staff_user = request.user.staff_profile
             
-            # Validate booking has assigned room
-            if not booking.assigned_room:
-                return Response(
-                    {"error": "Booking has no assigned room to checkout from"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+            # Use centralized checkout service
+            checkout_booking(
+                booking=booking,
+                performed_by=staff_user,
+                source="booking_assignment_view",
+            )
             
-            room = booking.assigned_room
-            
-            # Perform checkout atomically
-            with transaction.atomic():
-                # Find guests linked to this booking and room
-                guests = Guest.objects.filter(
-                    booking=booking, 
-                    room=room
-                )
-                
-                # Detach guests from room (do NOT delete)
-                for guest in guests:
-                    guest.room = None
-                    guest.save()
-                
-                # Update booking
-                booking.checked_out_at = timezone.now()
-                booking.status = 'COMPLETED'
-                booking.save()
-                
-                # Update room - Room Turnover Workflow
-                room.is_occupied = False
-                room.room_status = 'CHECKOUT_DIRTY'  # NEW
-                staff = request.user.staff_profile
-                staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.email or "Staff"
-                room.add_turnover_note(
-                    f"Checked out at {timezone.now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
-                    staff
-                )  # NEW
-                room.save()
-                
-                # Trigger realtime notifications - ONLY AFTER DB COMMIT
-                transaction.on_commit(
-                    lambda: self._emit_checkout_realtime_events_assignment(booking, room, hotel)
-                )
-            
-            # Return success response with canonical serializer
-            
-            # Refresh booking with related data for serializer
+            # Refresh booking with updated data
             booking.refresh_from_db()
             
             return Response({
-                "message": f"Successfully checked out booking {booking_id} from room {room.room_number}",
-                "guests_detached": len(guests),
+                "message": f"Successfully checked out booking {booking_id} from room {booking.assigned_room.room_number}",
                 **StaffRoomBookingDetailSerializer(booking).data
             }, status=status.HTTP_200_OK)
             
+        except ValueError as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         except Exception as e:
             logger.error(f"Error checking out booking {booking_id}: {str(e)}")
             return Response(
@@ -2320,6 +2289,8 @@ class BookingCheckOutView(APIView):
     
     def post(self, request, hotel_slug, booking_id):
         try:
+            from room_bookings.services.checkout import checkout_booking
+            
             # Get booking with hotel validation
             booking = RoomBooking.objects.get(
                 booking_id=booking_id,
@@ -2341,58 +2312,34 @@ class BookingCheckOutView(APIView):
                 status=400
             )
         
-        # Validate booking has assigned room
-        if not booking.assigned_room:
+        try:
+            # Use centralized checkout service
+            checkout_booking(
+                booking=booking,
+                performed_by=staff_user,
+                source="staff_checkout_endpoint",
+            )
+            
+            # Return updated booking with check-out details
+            booking.refresh_from_db()
+            serializer = StaffRoomBookingDetailSerializer(booking)
+            
+            return Response({
+                'message': f'Successfully checked out booking {booking_id} from room {booking.assigned_room.room_number}',
+                **serializer.data
+            })
+            
+        except ValueError as e:
             return Response(
-                {'error': {'code': 'NO_ROOM_ASSIGNED', 'message': 'Booking has no assigned room to check out from'}},
+                {'error': {'code': 'CHECKOUT_FAILED', 'message': str(e)}},
                 status=400
             )
-        
-        room = booking.assigned_room
-        hotel = booking.hotel
-        
-        # Perform checkout atomically
-        with transaction.atomic():
-            # Find guests linked to this booking and room
-            guests = Guest.objects.filter(
-                booking=booking, 
-                room=room
+        except Exception as e:
+            logger.error(f"Unexpected error during checkout: {e}")
+            return Response(
+                {'error': {'code': 'INTERNAL_ERROR', 'message': 'An unexpected error occurred'}},
+                status=500
             )
-            
-            # Detach guests from room (do NOT delete)
-            for guest in guests:
-                guest.room = None
-                guest.save()
-            
-            # Update booking - set checked_out_at (DO NOT TOUCH PAYMENT STATUS)
-            booking.checked_out_at = timezone.now()
-            booking.save()
-            
-            # Update room - Room Turnover Workflow
-            room.is_occupied = False
-            room.room_status = 'CHECKOUT_DIRTY'
-            staff_name = f"{staff_user.first_name} {staff_user.last_name}".strip() or staff_user.email or "Staff"
-            if hasattr(room, 'add_turnover_note'):
-                room.add_turnover_note(
-                    f"Checked out at {timezone.now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
-                    staff_user
-                )
-            room.save()
-            
-            # Trigger realtime notifications - ONLY AFTER DB COMMIT
-            transaction.on_commit(
-                lambda: self._emit_checkout_realtime_events(booking, room, hotel)
-            )
-        
-        # Return updated booking with check-out details
-        booking.refresh_from_db()
-        serializer = StaffRoomBookingDetailSerializer(booking)
-        
-        return Response({
-            'message': f'Successfully checked out booking {booking_id} from room {room.room_number}',
-            'guests_detached': len(guests),
-            **serializer.data
-        })
 
 
 class SafeStaffBookingListView(APIView):
