@@ -161,11 +161,13 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     """
     nights = serializers.SerializerMethodField()
     assigned_room_number = serializers.SerializerMethodField()
+    room_number = serializers.SerializerMethodField()  # NEW: canonical room number for list
     booker_summary = serializers.SerializerMethodField()
     guest_display_name = serializers.SerializerMethodField()
+    party_primary_full_name = serializers.SerializerMethodField()  # NEW: primary name explicitly
     party_total_count = serializers.SerializerMethodField()
     party_status_display = serializers.SerializerMethodField()
-    
+
     class Meta:
         model = RoomBooking
         fields = [
@@ -175,57 +177,77 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'check_in',
             'check_out',
             'nights',
+
+            # assignment / room
             'assigned_room_number',
+            'room_number',  # NEW
+
+            # check-in/out truth for badges
+            'checked_in_at',     # NEW
+            'checked_out_at',    # NEW
+
+            # booker / guest display
             'booker_type',
             'booker_summary',
             'guest_display_name',
+            'party_primary_full_name',  # NEW
+
+            # emails
             'primary_email',
             'booker_email',
+
+            # party meta
             'party_total_count',
             'party_complete',
             'party_missing_count',
             'party_status_display',
-            'precheckin_submitted_at',  # Add precheckin completion timestamp
+
+            # precheckin + pricing
+            'precheckin_submitted_at',
             'total_amount',
             'currency',
+
+            # timestamps
             'created_at',
             'updated_at',
         ]
         read_only_fields = fields
-    
+
     def get_nights(self, obj):
         return obj.nights
-    
+
     def get_assigned_room_number(self, obj):
         return obj.assigned_room.room_number if obj.assigned_room else None
-    
+
+    def get_room_number(self, obj):
+        # Canonical: if assigned_room exists, use it (matches your business logic)
+        return obj.assigned_room.room_number if obj.assigned_room else None
+
     def get_booker_summary(self, obj):
-        """Generate human-readable booker summary."""
         if obj.booker_type == 'COMPANY':
             return obj.booker_company or 'Company Booking'
         elif obj.booker_type == 'INDIVIDUAL':
             return f"{obj.booker_first_name} {obj.booker_last_name}".strip() or 'Individual Booking'
         else:
             return obj.booker_type.replace('_', ' ').title()
-    
+
+    def get_party_primary_full_name(self, obj):
+        primary_guest = obj.party.filter(role='PRIMARY').first()
+        return primary_guest.full_name if primary_guest else None
+
     def get_guest_display_name(self, obj):
-        """Get display name from party primary guest - NO FALLBACKS."""
+        # keep your existing behavior, but now you also expose party_primary_full_name
         primary_guest = obj.party.filter(role='PRIMARY').first()
         return primary_guest.full_name if primary_guest else "Guest Information Pending"
-    
+
     def get_party_total_count(self, obj):
         return obj.party.count()
-    
+
     def get_party_status_display(self, obj):
-        """Generate human-readable party completion status for list view."""
         if obj.party_complete:
             return "✅ Complete"
-        else:
-            missing = obj.party_missing_count
-            if missing == 1:
-                return f"⚠️ Missing 1 guest"
-            else:
-                return f"⚠️ Missing {missing} guests"
+        missing = obj.party_missing_count
+        return f"⚠️ Missing {missing} guest" if missing == 1 else f"⚠️ Missing {missing} guests"
 
 
 class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
