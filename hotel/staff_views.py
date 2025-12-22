@@ -17,6 +17,7 @@ from django.db import transaction
 from django.conf import settings
 from django.core.mail import send_mail
 from datetime import datetime, timedelta, date
+from guests.models import Guest
 import hashlib
 import secrets
 import logging
@@ -2025,6 +2026,17 @@ class SafeAssignRoomView(APIView):
     
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
+    def get_staff_user(self, user):
+        """Safely resolve staff user from request.user"""
+        try:
+            if hasattr(user, 'staff_profile') and user.staff_profile:
+                return user.staff_profile
+            # Fallback: try to find staff by user relationship
+            from staff.models import Staff
+            return Staff.objects.get(user=user)
+        except (AttributeError, Staff.DoesNotExist):
+            return None
+    
     def post(self, request, hotel_slug, booking_id):
         room_id = request.data.get('room_id')
         notes = request.data.get('notes', '')
@@ -2033,6 +2045,14 @@ class SafeAssignRoomView(APIView):
             return Response(
                 {'error': {'code': 'MISSING_ROOM_ID', 'message': 'room_id is required'}},
                 status=400
+            )
+        
+        # Safely resolve staff user
+        staff_user = self.get_staff_user(request.user)
+        if not staff_user:
+            return Response(
+                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
+                status=403
             )
         
         # Enforce party completion before room assignment
@@ -2053,17 +2073,21 @@ class SafeAssignRoomView(APIView):
             )
         
         try:
+            # ONLY ASSIGN ROOM - NO CHECK-IN SIDE EFFECTS
             booking = RoomAssignmentService.assign_room_atomic(
                 booking_id=booking_id,
                 room_id=room_id,
-                staff_user=request.user.staff_profile,
+                staff_user=staff_user,
                 notes=notes
             )
             
             # Return updated booking with assigned room details
             from .booking_serializers import RoomBookingDetailSerializer
             serializer = RoomBookingDetailSerializer(booking)
-            return Response(serializer.data)
+            return Response({
+                'message': f'Successfully assigned room to booking {booking_id}',
+                **serializer.data
+            })
             
         except RoomBooking.DoesNotExist:
             return Response(
@@ -2088,8 +2112,27 @@ class UnassignRoomView(APIView):
     
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
+    def get_staff_user(self, user):
+        """Safely resolve staff user from request.user"""
+        try:
+            if hasattr(user, 'staff_profile') and user.staff_profile:
+                return user.staff_profile
+            # Fallback: try to find staff by user relationship
+            from staff.models import Staff
+            return Staff.objects.get(user=user)
+        except (AttributeError, Staff.DoesNotExist):
+            return None
+    
     @transaction.atomic
     def post(self, request, hotel_slug, booking_id):
+        # Safely resolve staff user
+        staff_user = self.get_staff_user(request.user)
+        if not staff_user:
+            return Response(
+                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
+                status=403
+            )
+        
         booking = get_object_or_404(
             RoomBooking.objects.select_for_update(),
             booking_id=booking_id, 
@@ -2112,14 +2155,272 @@ class UnassignRoomView(APIView):
         # Audit log unassignment
         booking.assigned_room = None
         booking.room_unassigned_at = timezone.now()
-        booking.room_unassigned_by = request.user.staff_profile
+        booking.room_unassigned_by = staff_user
         if booking.assignment_notes:
-            booking.assignment_notes += f"\n[UNASSIGNED: {timezone.now()} by {request.user.staff_profile}]"
+            booking.assignment_notes += f"\n[UNASSIGNED: {timezone.now()} by {staff_user}]"
         else:
-            booking.assignment_notes = f"[UNASSIGNED: {timezone.now()} by {request.user.staff_profile}]"
+            booking.assignment_notes = f"[UNASSIGNED: {timezone.now()} by {staff_user}]"
         booking.save()
         
         return Response({'message': 'Room unassigned successfully'})
+
+
+class BookingCheckInView(APIView):
+    """POST /api/staff/hotels/{hotel_slug}/room-bookings/{booking_id}/check-in/"""
+    
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def get_staff_user(self, user):
+        """Safely resolve staff user from request.user"""
+        try:
+            if hasattr(user, 'staff_profile') and user.staff_profile:
+                return user.staff_profile
+            # Fallback: try to find staff by user relationship
+            from staff.models import Staff
+            return Staff.objects.get(user=user)
+        except (AttributeError, Staff.DoesNotExist):
+            return None
+    
+    def post(self, request, hotel_slug, booking_id):
+        try:
+            # Get booking with hotel validation
+            booking = RoomBooking.objects.get(
+                booking_id=booking_id,
+                hotel__slug=hotel_slug
+            )
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': {'code': 'BOOKING_NOT_FOUND', 'message': 'Booking not found'}},
+                status=404
+            )
+        
+        # Safely resolve staff user
+        staff_user = self.get_staff_user(request.user)
+        if not staff_user:
+            return Response(
+                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
+                status=403
+            )
+        
+        # Check if booking is eligible for check-in
+        if booking.status != 'CONFIRMED':
+            return Response(
+                {'error': {'code': 'BOOKING_NOT_CONFIRMED', 'message': f'Booking must be CONFIRMED to check-in. Current status: {booking.status}'}},
+                status=400
+            )
+        
+        if not booking.assigned_room:
+            return Response(
+                {'error': {'code': 'NO_ROOM_ASSIGNED', 'message': 'Room must be assigned before check-in'}},
+                status=400
+            )
+        
+        if not booking.party_complete:
+            return Response(
+                {'error': {'code': 'PARTY_INCOMPLETE', 'message': 'Please provide all staying guest names before check-in'}},
+                status=400
+            )
+        
+        # Check for double check-in (idempotency)
+        if booking.checked_in_at and not booking.checked_out_at:
+            return Response(
+                {'error': {'code': 'ALREADY_CHECKED_IN', 'message': 'Booking is already checked in'}},
+                status=409
+            )
+        
+        # PERFORM FULL CHECK-IN PROCESS
+        with transaction.atomic():
+            # Set check-in timestamp
+            booking.checked_in_at = timezone.now()
+            booking.save()
+            
+            # Get the assigned room
+            room = booking.assigned_room
+            hotel = booking.hotel
+            
+            # Get all booking party members
+            booking_guests = booking.party.all().select_related()
+            
+            # Convert all party members to in-house Guests
+            primary_guest = None
+            party_guest_objects = []
+            
+            for booking_guest in booking_guests:
+                # Create/update Guest record idempotently using booking_guest FK
+                guest, created = Guest.objects.get_or_create(
+                    booking_guest=booking_guest,
+                    defaults={
+                        'hotel': hotel,
+                        'first_name': booking_guest.first_name,
+                        'last_name': booking_guest.last_name,
+                        'room': room,
+                        'check_in_date': booking.check_in,
+                        'check_out_date': booking.check_out,
+                        'days_booked': (booking.check_out - booking.check_in).days,
+                        'guest_type': booking_guest.role,
+                        'primary_guest': None,  # Will be set after we find primary
+                        'booking': booking,
+                    }
+                )
+                
+                if not created:
+                    # Update existing guest
+                    guest.hotel = hotel
+                    guest.first_name = booking_guest.first_name
+                    guest.last_name = booking_guest.last_name
+                    guest.room = room
+                    guest.check_in_date = booking.check_in
+                    guest.check_out_date = booking.check_out
+                    guest.days_booked = (booking.check_out - booking.check_in).days
+                    guest.guest_type = booking_guest.role
+                    guest.booking = booking
+                    guest.save()
+                
+                party_guest_objects.append(guest)
+                
+                # Track primary guest
+                if booking_guest.role == 'PRIMARY':
+                    primary_guest = guest
+            
+            # Update companion references to point to primary guest
+            if primary_guest:
+                for guest in party_guest_objects:
+                    if guest.guest_type == 'COMPANION':
+                        guest.primary_guest = primary_guest
+                        guest.save()
+            
+            # Update room occupancy - Room Turnover Workflow
+            room.is_occupied = True
+            room.room_status = 'OCCUPIED'
+            room.save()
+            
+            # Trigger realtime notifications
+            try:
+                notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
+                notification_manager.realtime_room_occupancy_updated(room)
+            except:
+                pass  # Don't fail on notification errors
+        
+        # Return updated booking with assigned room details
+        from .booking_serializers import RoomBookingDetailSerializer
+        serializer = RoomBookingDetailSerializer(booking)
+        return Response({
+            'message': f'Successfully checked in booking {booking_id}',
+            **serializer.data
+        })
+
+
+class BookingCheckOutView(APIView):
+    """POST /api/staff/hotels/{hotel_slug}/room-bookings/{booking_id}/check-out/"""
+    
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def get_staff_user(self, user):
+        """Safely resolve staff user from request.user"""
+        try:
+            if hasattr(user, 'staff_profile') and user.staff_profile:
+                return user.staff_profile
+            # Fallback: try to find staff by user relationship
+            from staff.models import Staff
+            return Staff.objects.get(user=user)
+        except (AttributeError, Staff.DoesNotExist):
+            return None
+    
+    def post(self, request, hotel_slug, booking_id):
+        try:
+            # Get booking with hotel validation
+            booking = RoomBooking.objects.get(
+                booking_id=booking_id,
+                hotel__slug=hotel_slug
+            )
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': {'code': 'BOOKING_NOT_FOUND', 'message': 'Booking not found'}},
+                status=404
+            )
+        
+        # Safely resolve staff user
+        staff_user = self.get_staff_user(request.user)
+        if not staff_user:
+            return Response(
+                {'error': {'code': 'STAFF_REQUIRED', 'message': 'Valid staff profile required'}},
+                status=403
+            )
+        
+        # Validate booking is checked in
+        if not booking.checked_in_at or booking.checked_out_at:
+            return Response(
+                {'error': {'code': 'NOT_CHECKED_IN', 'message': 'Booking must be checked in to check out'}},
+                status=400
+            )
+        
+        # Validate booking has assigned room
+        if not booking.assigned_room:
+            return Response(
+                {'error': {'code': 'NO_ROOM_ASSIGNED', 'message': 'Booking has no assigned room to check out from'}},
+                status=400
+            )
+        
+        room = booking.assigned_room
+        hotel = booking.hotel
+        
+        # Perform checkout atomically
+        with transaction.atomic():
+            # Find guests linked to this booking and room
+            guests = Guest.objects.filter(
+                booking=booking, 
+                room=room
+            )
+            
+            # Detach guests from room (do NOT delete)
+            for guest in guests:
+                guest.room = None
+                guest.save()
+            
+            # Update booking - set checked_out_at (DO NOT TOUCH PAYMENT STATUS)
+            booking.checked_out_at = timezone.now()
+            booking.save()
+            
+            # Update room - Room Turnover Workflow
+            room.is_occupied = False
+            room.room_status = 'CHECKOUT_DIRTY'
+            staff_name = f"{staff_user.first_name} {staff_user.last_name}".strip() or staff_user.email or "Staff"
+            if hasattr(room, 'add_turnover_note'):
+                room.add_turnover_note(
+                    f"Checked out at {timezone.now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
+                    staff_user
+                )
+            room.save()
+            
+            # Trigger realtime notifications
+            try:
+                notification_manager.realtime_booking_checked_out(booking, room.room_number)
+                notification_manager.realtime_room_occupancy_updated(room)
+                
+                # Room status notification
+                from pusher import pusher_client
+                pusher_client.trigger(
+                    f'hotel-{hotel.slug}',
+                    'room-status-changed',
+                    {
+                        'room_number': room.room_number,
+                        'old_status': 'OCCUPIED',
+                        'new_status': 'CHECKOUT_DIRTY',
+                        'timestamp': timezone.now().isoformat()
+                    }
+                )
+            except:
+                pass  # Don't fail on notification errors
+        
+        # Return success response
+        from .booking_serializers import RoomBookingDetailSerializer
+        booking.refresh_from_db()
+        
+        return Response({
+            'message': f'Successfully checked out booking {booking_id} from room {room.room_number}',
+            'guests_detached': len(guests),
+            **RoomBookingDetailSerializer(booking).data
+        })
 
 
 class SafeStaffBookingListView(APIView):

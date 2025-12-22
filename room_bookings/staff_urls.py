@@ -21,6 +21,9 @@ from hotel.staff_views import (
     SafeAssignRoomView,
     UnassignRoomView,
     SafeStaffBookingListView,
+    # Check-in/Check-out Views
+    BookingCheckInView,
+    BookingCheckOutView,
     # Pre-check-in functionality
     SendPrecheckinLinkView,
     # Stripe Authorize-Capture Flow Views
@@ -109,6 +112,22 @@ urlpatterns = [
         '<str:booking_id>/unassign-room/',
         UnassignRoomView.as_view(),
         name='room-bookings-unassign-room'
+    ),
+    
+    # ===== CHECK-IN/CHECK-OUT ENDPOINTS =====
+    
+    # Check-in booking (arrival process)
+    path(
+        '<str:booking_id>/check-in/',
+        BookingCheckInView.as_view(),
+        name='room-bookings-check-in'
+    ),
+    
+    # Check-out booking (departure process)
+    path(
+        '<str:booking_id>/check-out/',
+        BookingCheckOutView.as_view(),
+        name='room-bookings-check-out'
     ),
     
     # Enhanced staff bookings list with assignment filters
