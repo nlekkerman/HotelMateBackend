@@ -1353,7 +1353,6 @@ class StaffBookingDetailView(APIView):
         except RoomBooking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        from .canonical_serializers import StaffRoomBookingDetailSerializer
         serializer = StaffRoomBookingDetailSerializer(booking)
         return Response(serializer.data)
 
@@ -1785,13 +1784,11 @@ class BookingAssignmentView(APIView):
                 room.save()
                 
                 # Trigger realtime notifications - ONLY AFTER DB COMMIT
-                from django.db import transaction
                 transaction.on_commit(
                     lambda: self._emit_assignment_realtime_events(booking, room, primary_guest, party_guest_objects)
                 )
             
             # Return success response with canonical serializer
-            from .canonical_serializers import StaffRoomBookingDetailSerializer
             
             # Refresh booking with related data for serializer
             booking.refresh_from_db()
@@ -1856,13 +1853,11 @@ class BookingAssignmentView(APIView):
                 room.save()
                 
                 # Trigger realtime notifications - ONLY AFTER DB COMMIT
-                from django.db import transaction
                 transaction.on_commit(
                     lambda: self._emit_checkout_realtime_events_assignment(booking, room, hotel)
                 )
             
             # Return success response with canonical serializer
-            from .canonical_serializers import StaffRoomBookingDetailSerializer
             
             # Refresh booking with related data for serializer
             booking.refresh_from_db()
@@ -2308,7 +2303,6 @@ class BookingCheckInView(APIView):
             room.save()
             
             # Trigger realtime notifications - ONLY AFTER DB COMMIT
-            from django.db import transaction
             transaction.on_commit(
                 lambda: self._emit_checkin_realtime_events(booking, room, primary_guest, party_guest_objects)
             )
@@ -2410,7 +2404,6 @@ class BookingCheckOutView(APIView):
             room.save()
             
             # Trigger realtime notifications - ONLY AFTER DB COMMIT
-            from django.db import transaction
             transaction.on_commit(
                 lambda: self._emit_checkout_realtime_events(booking, room, hotel)
             )

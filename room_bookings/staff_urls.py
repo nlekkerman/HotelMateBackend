@@ -14,7 +14,6 @@ from hotel.staff_views import (
     StaffBookingDetailView, 
     StaffBookingConfirmView,
     StaffBookingCancelView,
-    BookingAssignmentView,
     BookingPartyManagementView,
     # Safe Room Assignment System Views
     AvailableRoomsView,
@@ -58,22 +57,6 @@ urlpatterns = [
         '<str:booking_id>/cancel/',
         StaffBookingCancelView.as_view(),
         name='room-bookings-staff-cancel'
-    ),
-    
-    # Assign room to booking (check-in process)
-    path(
-        '<str:booking_id>/assign-room/',
-        BookingAssignmentView.as_view(),
-        {'action': 'assign-room'},
-        name='room-bookings-staff-assign-room'
-    ),
-    
-    # Checkout booking (end stay)
-    path(
-        '<str:booking_id>/checkout/',
-        BookingAssignmentView.as_view(),
-        {'action': 'checkout'},
-        name='room-bookings-staff-checkout'
     ),
     
     # Get booking party information
