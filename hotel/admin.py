@@ -297,6 +297,7 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'primary_guest_name',
         'hotel',
         'room_type',
+        'assigned_room_display',
         'check_in',
         'check_out',
         'status',
@@ -323,6 +324,9 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'created_at',
         'updated_at',
         'nights',
+        'assigned_room_display',
+        'room_assigned_at',
+        'room_assigned_by',
         'party_status_display',
         'precheckin_status_display',
         'precheckin_data_display',
@@ -472,6 +476,30 @@ class RoomBookingAdmin(admin.ModelAdmin):
             )
     party_status_display.short_description = "Party Status"
     
+    def assigned_room_display(self, obj):
+        """Display assigned room information"""
+        if obj.assigned_room:
+            room_info = f"Room {obj.assigned_room.room_number}"
+            if obj.checked_in_at:
+                # Guest is checked in
+                return format_html(
+                    '<span style="color: green;">🏨 {} <br><small>✅ Checked In</small></span>', 
+                    room_info
+                )
+            else:
+                # Room assigned but not checked in
+                return format_html(
+                    '<span style="color: blue;">🔑 {} <br><small>⏳ Assigned</small></span>', 
+                    room_info
+                )
+        else:
+            # No room assigned
+            if obj.status == 'CONFIRMED':
+                return format_html('<span style="color: orange;">❌ No Room<br><small>⚠ Needs Assignment</small></span>')
+            else:
+                return format_html('<span style="color: gray;">-</span>')
+    assigned_room_display.short_description = "Assigned Room"
+    
     def precheckin_status_display(self, obj):
         """Display precheckin completion status"""
         if obj.precheckin_submitted_at:
@@ -561,6 +589,10 @@ class RoomBookingAdmin(admin.ModelAdmin):
         }),
         ('Hotel & Room', {
             'fields': ('hotel', 'room_type', 'check_in', 'check_out')
+        }),
+        ('Room Assignment', {
+            'fields': ('assigned_room', 'assigned_room_display', 'room_assigned_at', 'room_assigned_by'),
+            'description': 'Physical room assignment and check-in status'
         }),
         ('Guest Information', {
             'fields': (

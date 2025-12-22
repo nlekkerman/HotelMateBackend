@@ -193,7 +193,7 @@ def checkout_rooms(request, hotel_slug):
             ).delete()
 
             # NEW: Add turnover note
-            staff = request.user.staff
+            staff = request.user.staff_profile
             staff_name = f"{staff.first_name} {staff.last_name}".strip() or staff.email or "Staff"
             room.add_turnover_note(
                 f"Bulk checkout at {now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
@@ -262,7 +262,7 @@ def start_cleaning(request, hotel_slug, room_number):
     
     old_status = room.room_status
     room.room_status = 'CLEANING_IN_PROGRESS'
-    room.add_turnover_note("Cleaning started", request.user.staff)
+    room.add_turnover_note("Cleaning started", request.user.staff_profile)
     room.save()
     
     # Real-time notification
@@ -301,7 +301,7 @@ def mark_cleaned(request, hotel_slug, room_number):
     
     room.room_status = 'CLEANED_UNINSPECTED'
     room.last_cleaned_at = timezone.now()
-    room.cleaned_by_staff = request.user.staff
+    room.cleaned_by_staff = request.user.staff_profile
     
     note_text = "Room cleaned"
     if notes:
@@ -345,7 +345,7 @@ def inspect_room(request, hotel_slug, room_number):
     old_status = room.room_status
     
     room.last_inspected_at = timezone.now()
-    room.inspected_by_staff = request.user.staff
+    room.inspected_by_staff = request.user.staff_profile
     
     if passed:
         room.room_status = 'READY_FOR_GUEST'
@@ -408,7 +408,7 @@ def mark_maintenance(request, hotel_slug, room_number):
     room.maintenance_required = True
     room.maintenance_priority = priority
     room.maintenance_notes = notes
-    room.add_turnover_note(f"Maintenance required ({priority} priority): {notes}", request.user.staff)
+    room.add_turnover_note(f"Maintenance required ({priority} priority): {notes}", request.user.staff_profile)
     room.save()
     
     # Real-time notification
@@ -456,7 +456,7 @@ def complete_maintenance(request, hotel_slug, room_number):
     else:
         room.room_status = 'CHECKOUT_DIRTY'
     
-    room.add_turnover_note("Maintenance completed", request.user.staff)
+    room.add_turnover_note("Maintenance completed", request.user.staff_profile)
     room.save()
     
     # Real-time notification  

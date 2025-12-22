@@ -8,8 +8,9 @@ from .models import (
 
 class RoomAdmin(admin.ModelAdmin):
     list_display = (
-        'room_number', 'hotel', 'room_type', 'is_occupied', 'get_guests_count',
-        'room_status', 'is_active', 'is_out_of_order', 'maintenance_required'
+        'room_number', 'hotel', 'room_type', 'assigned_booking_display', 
+        'is_occupied', 'get_guests_count', 'room_status', 'is_active', 
+        'is_out_of_order', 'maintenance_required'
     )
 
     search_fields = ('room_number', 'hotel__name', 'room_type__name')
@@ -22,6 +23,10 @@ class RoomAdmin(admin.ModelAdmin):
     fieldsets = (
         ('Basic Information', {
             'fields': ('hotel', 'room_number', 'room_type')
+        }),
+        ('Current Assignment', {
+            'fields': ('assigned_booking_display',),
+            'description': 'Current booking assigned to this room'
         }),
         ('Status', {
             'fields': ('is_occupied', 'room_status', 'is_active', 'is_out_of_order')
@@ -39,10 +44,48 @@ class RoomAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+    
+    readonly_fields = ('assigned_booking_display',)
 
     def get_guests_count(self, obj):
         return obj.guests_in_room.count()
     get_guests_count.short_description = 'Number of Guests'
+
+    def assigned_booking_display(self, obj):
+        """Display which booking is assigned to this room"""
+        try:
+            # Import here to avoid circular imports
+            from hotel.models import RoomBooking
+            
+            # Find the booking assigned to this room
+            booking = RoomBooking.objects.filter(assigned_room=obj).first()
+            
+            if booking:
+                guest_name = f"{booking.primary_first_name} {booking.primary_last_name}"
+                booking_id = booking.booking_id
+                
+                if booking.checked_in_at:
+                    # Guest is checked in
+                    return format_html(
+                        '<span style="color: green;">✅ {}<br><small>{}</small></span>', 
+                        guest_name, booking_id
+                    )
+                else:
+                    # Room assigned but not checked in
+                    return format_html(
+                        '<span style="color: blue;">🔑 {}<br><small>{}</small></span>', 
+                        guest_name, booking_id
+                    )
+            else:
+                # No booking assigned
+                if obj.is_occupied:
+                    return format_html('<span style="color: orange;">⚠ Occupied (no booking)</span>')
+                else:
+                    return format_html('<span style="color: gray;">🟢 Available</span>')
+                    
+        except Exception as e:
+            return format_html('<span style="color: red;">❌ Error</span>')
+    assigned_booking_display.short_description = "Assigned Booking"
 
 
 admin.site.register(Room, RoomAdmin)
