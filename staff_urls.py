@@ -54,7 +54,7 @@ STAFF_APPS = [
     'maintenance',
     'notifications',
     'room_services',
-    'rooms',
+    # 'rooms', # Removed - using dedicated rooms.staff_urls instead
     'staff',
     'staff_chat',
     'stock_tracker',
