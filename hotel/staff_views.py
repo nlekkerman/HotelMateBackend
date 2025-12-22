@@ -2288,7 +2288,7 @@ class BookingCheckInView(APIView):
             )
         
         # Return updated booking with check-in details
-        serializer = RoomBookingDetailSerializer(booking)
+        serializer = StaffRoomBookingDetailSerializer(booking)
         return Response({
             'message': f'Successfully checked in booking {booking_id}',
             **serializer.data
@@ -2388,7 +2388,7 @@ class BookingCheckOutView(APIView):
         
         # Return updated booking with check-out details
         booking.refresh_from_db()
-        serializer = RoomBookingDetailSerializer(booking)
+        serializer = StaffRoomBookingDetailSerializer(booking)
         
         return Response({
             'message': f'Successfully checked out booking {booking_id} from room {room.room_number}',
