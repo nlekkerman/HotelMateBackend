@@ -221,6 +221,11 @@ urlpatterns = [
     ),
 ]
 
+# Add Room Turnover Workflow Staff URLs FIRST (more specific patterns)
+urlpatterns += [
+    path('hotel/<str:hotel_slug>/', include('rooms.staff_urls')),
+]
+
 # App-wrapped routes for legacy compatibility
 urlpatterns += [
     path(
@@ -229,12 +234,6 @@ urlpatterns += [
         name=f'staff-{app}'
     )
     for app in STAFF_APPS
-]
-
-# Add Room Turnover Workflow Staff URLsfff
-urlpatterns += [
-    path('hotel/<str:hotel_slug>/', include('rooms.staff_urls')),
-
 ]
 
 
