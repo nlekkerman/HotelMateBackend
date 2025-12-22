@@ -173,10 +173,9 @@ def checkout_rooms(request, hotel_slug):
             # Optionally, if RoomMessage has FK to Room separately, delete explicitly:
             RoomMessage.objects.filter(room=room).delete()
 
-            # Mark room unoccupied & regenerate guest PIN - Room Turnover Workflow
+            # Mark room unoccupied - Room Turnover Workflow
             room.is_occupied = False
             room.room_status = 'CHECKOUT_DIRTY'  # NEW
-            room.generate_guest_pin()
             
             # Clear guest FCM token to prevent old guest
             # from receiving notifications

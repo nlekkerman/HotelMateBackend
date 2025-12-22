@@ -276,13 +276,11 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def generate_pin(self, request, pk=None):
-        """Generate new guest PIN for room"""
-        room = self.get_object()
-        room.generate_guest_pin()
+        """Generate new guest PIN for room - DEPRECATED: PINs are now managed at Guest level"""
         return Response({
-            'message': 'PIN generated successfully',
-            'guest_id_pin': room.guest_id_pin
-        })
+            'error': 'PIN generation is now handled at the Guest level during check-in',
+            'message': 'Room-level PIN generation has been deprecated'
+        }, status=400)
     
     @action(detail=True, methods=['post'])
     def generate_qr(self, request, pk=None):
