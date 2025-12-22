@@ -21,7 +21,7 @@ from django.utils.timezone import now
 from django.utils import timezone
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from django.db.models import Count
-from pusher import pusher_client
+from chat.utils import pusher_client
 
 
 class RoomPagination(PageNumberPagination):
@@ -256,7 +256,7 @@ def checkout_rooms(request, hotel_slug):
                     results["rooms_cleared"].append(room.room_number)
             
             # Real-time notification for room status change
-            from chat.utils import pusher_client
+            
             pusher_client.trigger(
                 f'hotel-{hotel_slug}',
                 'room-status-changed',
