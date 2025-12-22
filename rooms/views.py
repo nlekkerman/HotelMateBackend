@@ -559,7 +559,7 @@ def checkin_room(request, hotel_slug, room_number):
     from notifications.notification_manager import NotificationManager
     
     # Permission check
-    if not request.user.staff.allowed_navigation_items.filter(slug='rooms').exists():
+    if not request.user.staff_profile.allowed_navigation_items.filter(slug='rooms').exists():
         return Response({
             'success': False,
             'error': 'ROOMS_PERMISSION_REQUIRED',
