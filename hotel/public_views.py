@@ -2,6 +2,7 @@
 Public-facing hotel views for guest/public access.
 No authentication required.
 """
+import logging
 from rest_framework import generics
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
@@ -9,6 +10,8 @@ from rest_framework import status
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import models
+
+logger = logging.getLogger(__name__)
 
 from .models import Hotel, Preset
 from .serializers import (
