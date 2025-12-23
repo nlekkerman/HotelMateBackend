@@ -21,7 +21,7 @@ urlpatterns = [
     
     # Guest survey endpoints
     path(
-        'hotel/<slug:hotel_slug>/survey/validate-token/',
+        'hotel/<slug:hotel_slug>/survey/',
         public_views.ValidateSurveyTokenView.as_view(),
         name='validate-survey-token'
     ),
