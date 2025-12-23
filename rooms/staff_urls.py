@@ -14,6 +14,9 @@ urlpatterns = [
     # Bulk checkout endpoint - staff-only
     path('rooms/checkout/', views.checkout_rooms, name='staff-rooms-checkout'),
     
+    # Bulk room creation endpoint - staff-only
+    path('room-types/<int:room_type_id>/rooms/bulk-create/', views.bulk_create_rooms, name='bulk-create-rooms'),
+    
     # Room turnover workflow - all staff-only
     path('rooms/<str:room_number>/start-cleaning/', views.start_cleaning, name='start_cleaning'),
     path('rooms/<str:room_number>/mark-cleaned/', views.mark_cleaned, name='mark_cleaned'),

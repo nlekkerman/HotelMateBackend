@@ -593,4 +593,114 @@ def turnover_stats(request, hotel_slug):
 # ============================================================================
 
 
+# ============================================================================
+# BULK ROOM CREATION ENDPOINT (Staff-Only)
+# ============================================================================
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated, IsStaffMember])
+def bulk_create_rooms(request, hotel_slug, room_type_id):
+    """
+    POST: Bulk create Room instances for a room type
+    
+    Payload formats:
+    1. {"room_numbers": [101, 102, 201]}
+    2. {"ranges": [{"start": 101, "end": 110}, {"start": 201, "end": 205}]}
+    """
+    # Resolve hotel and enforce scoping
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    
+    # Ensure room type belongs to this hotel
+    room_type = get_object_or_404(RoomType, id=room_type_id, hotel=hotel)
+    
+    # Parse request payload
+    room_numbers = request.data.get('room_numbers', [])
+    ranges = request.data.get('ranges', [])
+    
+    # Expand ranges and collect all room numbers
+    all_room_numbers = set(room_numbers)
+    
+    for range_spec in ranges:
+        start = range_spec.get('start')
+        end = range_spec.get('end')
+        
+        if not isinstance(start, int) or not isinstance(end, int):
+            return Response(
+                {'error': 'Range start and end must be integers'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if start > end:
+            return Response(
+                {'error': 'Range start cannot be greater than end'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Expand range inclusive
+        all_room_numbers.update(range(start, end + 1))
+    
+    # Validate room numbers
+    invalid_numbers = [num for num in all_room_numbers if not isinstance(num, int) or num < 1 or num > 99999]
+    if invalid_numbers:
+        return Response(
+            {
+                'error': 'Invalid room numbers',
+                'invalid_numbers': invalid_numbers,
+                'message': 'Room numbers must be positive integers between 1 and 99999'
+            },
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    if not all_room_numbers:
+        return Response(
+            {'error': 'No room numbers provided'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Check for existing rooms
+    existing_rooms = Room.objects.filter(
+        hotel=hotel,
+        room_number__in=all_room_numbers
+    ).values_list('room_number', flat=True)
+    
+    existing_numbers = list(existing_rooms)
+    new_numbers = [num for num in all_room_numbers if num not in existing_numbers]
+    
+    # Create new rooms in transaction
+    created_rooms = []
+    try:
+        with transaction.atomic():
+            for room_number in new_numbers:
+                room = Room.objects.create(
+                    hotel=hotel,
+                    room_number=room_number,
+                    room_type=room_type,
+                    room_status='READY_FOR_GUEST',
+                    is_active=True,
+                    is_occupied=False,
+                    is_out_of_order=False
+                )
+                created_rooms.append({
+                    'id': room.id,
+                    'room_number': room.room_number,
+                    'room_type_id': room.room_type.id,
+                    'room_status': room.room_status
+                })
+    
+    except Exception as e:
+        return Response(
+            {'error': f'Failed to create rooms: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+    return Response({
+        'created_count': len(created_rooms),
+        'skipped_existing': sorted(existing_numbers),
+        'created_rooms': sorted(created_rooms, key=lambda x: x['room_number']),
+        'room_type': {
+            'id': room_type.id,
+            'name': room_type.name,
+            'code': room_type.code
+        }
+    }, status=status.HTTP_201_CREATED)
 

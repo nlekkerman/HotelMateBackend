@@ -122,7 +122,10 @@ def create_room_booking_from_request(
         currency=room_type.currency,
         status='PENDING_PAYMENT',
         special_requests=special_requests,
-        promo_code=promo_code if promo_code else ''
+        promo_code=promo_code if promo_code else '',
+        # Policy snapshotting: snapshot cancellation policy from rate plan at creation time
+        rate_plan=rate_plan,  # Store rate plan reference for debugging
+        cancellation_policy=rate_plan.cancellation_policy if rate_plan.cancellation_policy else None
     )
     
     # Phase 3: The PRIMARY BookingGuest will be auto-created by the save() method

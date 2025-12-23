@@ -306,6 +306,14 @@ class RatePlan(models.Model):
         default=True,
         help_text="Whether this rate plan is currently available"
     )
+    cancellation_policy = models.ForeignKey(
+        'hotel.CancellationPolicy',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='rate_plans',
+        help_text='Default cancellation policy for bookings using this rate plan'
+    )
 
     class Meta:
         unique_together = ('hotel', 'code')

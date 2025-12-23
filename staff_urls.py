@@ -222,6 +222,18 @@ urlpatterns = [
         name='staff-survey-config'
     ),
     
+    # Cancellation Policy Management
+    path(
+        'hotel/<str:hotel_slug>/cancellation-policies/',
+        include('hotel.views.cancellation_policies.urls')
+    ),
+    
+    # Rate Plan Management  
+    path(
+        'hotel/<str:hotel_slug>/rate-plans/',
+        include('hotel.views.rate_plans.urls')
+    ),
+    
     # Room Types & Section CRUD (clean path)
     path(
         'hotel/<str:hotel_slug>/',

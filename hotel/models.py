@@ -945,6 +945,44 @@ class RoomBooking(models.Model):
         help_text="Timestamp when guest completed precheckin submission"
     )
     
+    # Cancellation policy tracking fields
+    cancellation_policy = models.ForeignKey(
+        'hotel.CancellationPolicy',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text='Snapshot of cancellation policy at booking time'
+    )
+    cancelled_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when booking was cancelled"
+    )
+    cancellation_reason = models.CharField(
+        max_length=255, blank=True,
+        help_text="Reason for cancellation"
+    )
+    cancellation_fee = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Fee charged for cancellation"
+    )
+    refund_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Amount refunded to guest"
+    )
+    refund_processed_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when refund was processed (idempotency guard)"
+    )
+    
+    # Optional rate plan tracking for debugging
+    rate_plan = models.ForeignKey(
+        'rooms.RatePlan',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        help_text='Rate plan used for this booking (for policy/price debugging)'
+    )
+    
     # Survey configuration fields
     survey_sent_at = models.DateTimeField(
         null=True,
@@ -981,6 +1019,123 @@ class RoomBooking(models.Model):
 
     def __str__(self):
         return f"{self.booking_id} - {self.primary_guest_name} @ {self.hotel.name}"
+
+
+class CancellationPolicy(models.Model):
+    """
+    Cancellation policy templates for room bookings with flexible rules.
+    Supports Flexible, Moderate, Non-Refundable, and Custom Tiered policies.
+    """
+    TEMPLATE_TYPE_CHOICES = [
+        ('FLEXIBLE', 'Flexible'),
+        ('MODERATE', 'Moderate'), 
+        ('NON_REFUNDABLE', 'Non-Refundable'),
+        ('CUSTOM', 'Custom Tiered'),
+    ]
+    
+    PENALTY_TYPE_CHOICES = [
+        ('NONE', 'No Penalty'),
+        ('FIXED', 'Fixed Amount'),
+        ('PERCENTAGE', 'Percentage'),
+        ('FIRST_NIGHT', 'First Night'),
+        ('FULL_STAY', 'Full Stay'),
+    ]
+    
+    NO_SHOW_PENALTY_CHOICES = [
+        ('SAME_AS_CANCELLATION', 'Same as Cancellation'),
+        ('FIRST_NIGHT', 'First Night'),
+        ('FULL_STAY', 'Full Stay'),
+    ]
+    
+    hotel = models.ForeignKey('hotel.Hotel', on_delete=models.CASCADE, related_name='cancellation_policies')
+    name = models.CharField(max_length=100, help_text="Policy name (e.g., 'Flexible Cancellation')")
+    code = models.CharField(max_length=30, help_text="Short code (e.g., 'FLEX', 'NRF', 'MOD')")
+    description = models.TextField(blank=True, help_text="Policy description for guests")
+    is_active = models.BooleanField(default=True, help_text="Whether this policy is available for selection")
+    
+    template_type = models.CharField(max_length=20, choices=TEMPLATE_TYPE_CHOICES, help_text="Policy template type")
+    
+    # Template fields (nullable for flexibility)
+    free_until_hours = models.PositiveIntegerField(
+        null=True, blank=True,
+        help_text="Hours before check-in when free cancellation ends"
+    )
+    penalty_type = models.CharField(
+        max_length=20, choices=PENALTY_TYPE_CHOICES, null=True, blank=True,
+        help_text="Type of penalty to apply"
+    )
+    penalty_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Fixed penalty amount (for FIXED penalty type)"
+    )
+    penalty_percentage = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        help_text="Penalty percentage of total amount (for PERCENTAGE penalty type)"
+    )
+    no_show_penalty_type = models.CharField(
+        max_length=20, choices=NO_SHOW_PENALTY_CHOICES, default='FULL_STAY',
+        help_text="Penalty type for no-show situations"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = ('hotel', 'code')
+        ordering = ['hotel', 'name']
+        verbose_name = "Cancellation Policy"
+        verbose_name_plural = "Cancellation Policies"
+
+    def __str__(self):
+        return f"{self.hotel.name} - {self.code} ({self.name})"
+
+
+class CancellationPolicyTier(models.Model):
+    """
+    Cancellation policy tiers for CUSTOM template type.
+    Defines penalty rules at different time thresholds before check-in.
+    """
+    PENALTY_TYPE_CHOICES = [
+        ('FIXED', 'Fixed Amount'),
+        ('PERCENTAGE', 'Percentage'), 
+        ('FIRST_NIGHT', 'First Night'),
+        ('FULL_STAY', 'Full Stay'),
+    ]
+    
+    policy = models.ForeignKey(
+        'CancellationPolicy', on_delete=models.CASCADE, related_name='tiers',
+        help_text="The cancellation policy this tier belongs to"
+    )
+    hours_before_checkin = models.PositiveIntegerField(
+        help_text="Hours before check-in when this tier applies"
+    )
+    penalty_type = models.CharField(
+        max_length=20, choices=PENALTY_TYPE_CHOICES,
+        help_text="Type of penalty for this tier"
+    )
+    penalty_amount = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Fixed penalty amount (for FIXED penalty type)"
+    )
+    penalty_percentage = models.DecimalField(
+        max_digits=5, decimal_places=2, null=True, blank=True,
+        help_text="Penalty percentage of total amount (for PERCENTAGE penalty type)"
+    )
+    
+    class Meta:
+        ordering = ['-hours_before_checkin']  # Largest hours first
+        constraints = [
+            models.UniqueConstraint(
+                fields=['policy', 'hours_before_checkin'], 
+                name='uniq_policy_hours',
+                violation_error_message='Cannot have duplicate hour thresholds for the same policy.'
+            )
+        ]
+        verbose_name = "Cancellation Policy Tier"
+        verbose_name_plural = "Cancellation Policy Tiers"
+
+    def __str__(self):
+        return f"{self.policy.code} - {self.hours_before_checkin}h before ({self.penalty_type})"
 
 
 class BookingGuest(models.Model):
