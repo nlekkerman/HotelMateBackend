@@ -172,6 +172,7 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     survey_sent = serializers.ReadOnlyField()
     survey_completed = serializers.ReadOnlyField()
     survey_rating = serializers.ReadOnlyField()
+    survey_response = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -217,6 +218,7 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'survey_completed', 
             'survey_rating',
             'survey_sent_at',
+            'survey_response',
 
             # timestamps
             'created_at',
@@ -259,6 +261,23 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             return "✅ Complete"
         missing = obj.party_missing_count
         return f"⚠️ Missing {missing} guest" if missing == 1 else f"⚠️ Missing {missing} guests"
+    
+    def get_survey_response(self, obj):
+        """Return survey response summary for list view (lighter than detail)."""
+        # Only include if explicitly requested and survey completed
+        request = self.context.get('request')
+        if not request or not request.query_params.get('include_survey_response'):
+            return None
+            
+        if not hasattr(obj, 'survey_response') or obj.survey_response is None:
+            return None
+            
+        # Return minimal survey data for list view
+        return {
+            'submitted_at': obj.survey_response.submitted_at,
+            'overall_rating': obj.survey_response.overall_rating,
+            # Note: payload not included in list view for performance
+        }
 
 
 class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
@@ -287,6 +306,7 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     survey_sent = serializers.ReadOnlyField()
     survey_completed = serializers.ReadOnlyField()
     survey_rating = serializers.ReadOnlyField()
+    survey_response = serializers.SerializerMethodField()
     
     class Meta:
         model = RoomBooking
@@ -321,6 +341,7 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'survey_completed',
             'survey_rating',
             'survey_sent_at',
+            'survey_response',
             
             'booker',
             'party',
@@ -400,4 +421,22 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'can_check_in': can_check_in,
             'can_check_out': can_check_out,
             'can_edit_party': can_edit_party,
+        }
+    
+    def get_survey_response(self, obj):
+        """Return full survey response data if available and requested."""
+        # Only include if explicitly requested via query parameter
+        request = self.context.get('request')
+        if not request or not request.query_params.get('include_survey_response'):
+            return None
+            
+        # Check if survey response exists
+        if not hasattr(obj, 'survey_response') or obj.survey_response is None:
+            return None
+            
+        # Return full survey response payload
+        return {
+            'submitted_at': obj.survey_response.submitted_at,
+            'overall_rating': obj.survey_response.overall_rating,
+            'payload': obj.survey_response.payload,  # Full survey data (comments, individual ratings, etc.)
         }
