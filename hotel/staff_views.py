@@ -1058,7 +1058,7 @@ class StaffBookingsListView(APIView):
         if staff.hotel.slug != hotel_slug:
             return Response({'error': 'You can only view bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
 
-        bookings = RoomBooking.objects.filter(hotel=staff.hotel).select_related('hotel', 'room_type').order_by('-created_at')
+        bookings = RoomBooking.objects.filter(hotel=staff.hotel).select_related('hotel', 'room_type', 'survey_response').order_by('-created_at')
 
         # Apply filters
         status_filter = request.query_params.get('status')
@@ -1082,7 +1082,7 @@ class StaffBookingsListView(APIView):
                 return Response({'error': 'Invalid end_date format'}, status=status.HTTP_400_BAD_REQUEST)
 
 
-        serializer = StaffRoomBookingListSerializer(bookings, many=True)
+        serializer = StaffRoomBookingListSerializer(bookings, many=True, context={'request': request})
         return Response(serializer.data)
 
 
@@ -1334,7 +1334,7 @@ class StaffBookingDetailView(APIView):
 
         try:
             booking = RoomBooking.objects.select_related(
-                'hotel', 'room_type', 'assigned_room__room_type'
+                'hotel', 'room_type', 'assigned_room__room_type', 'survey_response'
             ).prefetch_related(
                 'party', 'guests__room'
             ).get(
@@ -1344,7 +1344,7 @@ class StaffBookingDetailView(APIView):
         except RoomBooking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        serializer = StaffRoomBookingDetailSerializer(booking)
+        serializer = StaffRoomBookingDetailSerializer(booking, context={'request': request})
         return Response(serializer.data)
 
 

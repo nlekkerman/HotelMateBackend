@@ -2,11 +2,11 @@
 
 ## 📊 Survey Data in Booking Endpoints
 
-After guests submit surveys, the data is accessible through existing booking endpoints with optional enhanced details.
+After guests submit surveys, the data is **automatically included** in all booking endpoints when survey responses exist.
 
-## 🔹 Basic Survey Info (Always Included)
+## 🔹 Survey Data (Always Included When Available)
 
-All booking list and detail endpoints automatically include these survey flags:
+All booking list and detail endpoints automatically include survey data when it exists:
 
 ```json
 {
@@ -14,46 +14,32 @@ All booking list and detail endpoints automatically include these survey flags:
   "survey_completed": true, 
   "survey_rating": 5,
   "survey_sent_at": "2025-12-23T12:41:16.178130Z",
-  "survey_response": null
-}
-```
-
-## 🔹 Enhanced Survey Data (Optional)
-
-To get detailed survey responses, add query parameter: `?include_survey_response=true`
-
-### List View (Performance Optimized)
-**Endpoint:** `GET /api/staff/hotel/{hotel_slug}/room-bookings/?include_survey_response=true`
-
-```json
-{
   "survey_response": {
     "submitted_at": "2025-12-23T12:41:20.123456Z",
-    "overall_rating": 5
-    // Note: Full payload not included in list view for performance
-  }
-}
-```
-
-### Detail View (Complete Data)
-**Endpoint:** `GET /api/staff/hotel/{hotel_slug}/room-bookings/{booking_id}/?include_survey_response=true`
-
-```json
-{
-  "survey_response": {
-    "submitted_at": "2025-12-23T12:41:20.123456Z", 
     "overall_rating": 5,
     "payload": {
       "overall_rating": 5,
       "room_rating": 4,
       "staff_rating": 5,
+      "cleanliness_rating": 5,
+      "bed_comfort_rating": 5,
+      "value_rating": 4,
       "comment": "Amazing stay! Room was perfect.",
       "contact_permission": true,
-      "recommend_hotel": true,
-      "cleanliness_rating": 5,
-      "value_rating": 4
+      "recommend_hotel": true
     }
   }
+}
+```
+
+**If no survey was submitted:**
+```json
+{
+  "survey_sent": false,
+  "survey_completed": false,
+  "survey_rating": null,
+  "survey_sent_at": null,
+  "survey_response": null
 }
 ```
 
@@ -61,7 +47,7 @@ To get detailed survey responses, add query parameter: `?include_survey_response
 
 ### Basic Survey Status Check
 ```javascript
-// Standard booking fetch - includes basic survey flags
+// Standard booking fetch - survey data automatically included
 const response = await fetch(`/api/staff/hotel/${hotelSlug}/room-bookings/${bookingId}/`);
 const booking = await response.json();
 
@@ -70,46 +56,64 @@ if (booking.survey_sent) {
   console.log('Survey was sent on:', booking.survey_sent_at);
 }
 
-if (booking.survey_completed) {
-  console.log('Guest rated:', booking.survey_rating + '/5');
+if (booking.survey_completed && booking.survey_response) {
+  console.log('Guest rated:', booking.survey_response.overall_rating + '/5');
+  console.log('Comment:', booking.survey_response.payload.comment);
 }
 ```
 
-### Detailed Survey Data
+### Complete Survey Data Access
 ```javascript
-// Fetch booking with full survey response
-const response = await fetch(
-  `/api/staff/hotel/${hotelSlug}/room-bookings/${bookingId}/?include_survey_response=true`
-);
+const response = await fetch(`/api/staff/hotel/${hotelSlug}/room-bookings/${bookingId}/`);
 const booking = await response.json();
 
-// Access detailed survey data
+// Access all survey data
 if (booking.survey_response) {
   const survey = booking.survey_response;
-  console.log('Submitted:', survey.submitted_at);
-  console.log('Overall Rating:', survey.overall_rating);
-  console.log('Comment:', survey.payload.comment);
-  console.log('Room Rating:', survey.payload.room_rating);
-  // ... access all survey fields from payload
+  const payload = survey.payload;
+  
+  console.log('Survey submitted:', survey.submitted_at);
+  console.log('Overall Rating:', payload.overall_rating + '/5');
+  console.log('Room Rating:', payload.room_rating + '/5');
+  console.log('Staff Rating:', payload.staff_rating + '/5');
+  console.log('Comment:', payload.comment);
+  console.log('Would recommend:', payload.recommend_hotel);
+  console.log('Contact permission:', payload.contact_permission);
 }
 ```
 
 ### Survey Dashboard/List View
 ```javascript
-// Get bookings with survey summaries (lightweight)
-const response = await fetch(
-  `/api/staff/hotel/${hotelSlug}/room-bookings/?include_survey_response=true&status=COMPLETED`
-);
+// Get all bookings - survey data included automatically
+const response = await fetch(`/api/staff/hotel/${hotelSlug}/room-bookings/?status=COMPLETED`);
 const bookings = await response.json();
 
-// Filter completed surveys
+// Filter and display completed surveys
 const completedSurveys = bookings.results.filter(booking => 
   booking.survey_completed && booking.survey_response
 );
 
 completedSurveys.forEach(booking => {
-  console.log(`${booking.booking_id}: ${booking.survey_response.overall_rating}/5`);
+  const survey = booking.survey_response;
+  console.log(`${booking.booking_id}: ${survey.overall_rating}/5 - "${survey.payload.comment}"`);
 });
+```
+
+### Survey Statistics
+```javascript
+// Calculate average ratings from bookings list
+const response = await fetch(`/api/staff/hotel/${hotelSlug}/room-bookings/?status=COMPLETED`);
+const bookings = await response.json();
+
+const surveys = bookings.results
+  .filter(b => b.survey_response)
+  .map(b => b.survey_response.payload);
+
+const avgOverall = surveys.reduce((sum, s) => sum + s.overall_rating, 0) / surveys.length;
+const avgRoom = surveys.reduce((sum, s) => sum + s.room_rating, 0) / surveys.length;
+
+console.log(`Average overall rating: ${avgOverall.toFixed(1)}/5`);
+console.log(`Average room rating: ${avgRoom.toFixed(1)}/5`);
 ```
 
 ## 📋 Available Survey Fields
@@ -120,6 +124,7 @@ The survey payload may contain (depending on hotel configuration):
 - `room_rating` - Room quality rating (1-5) 
 - `staff_rating` - Staff service rating (1-5)
 - `cleanliness_rating` - Cleanliness rating (1-5)
+- `bed_comfort_rating` - Bed comfort rating (1-5)
 - `value_rating` - Value for money rating (1-5)
 - `location_rating` - Location rating (1-5)
 - `comment` - Free text feedback
@@ -128,11 +133,10 @@ The survey payload may contain (depending on hotel configuration):
 
 ## ⚡ Performance Notes
 
-- **Default behavior**: Only basic survey flags are included (fast)
-- **With `?include_survey_response=true`**:
-  - **List view**: Survey summary only (no full payload)
-  - **Detail view**: Complete survey data including full payload
-- Use the query parameter only when you need detailed survey data to avoid unnecessary overhead
+- **Survey data is automatically included** when it exists - no query parameters needed
+- **List view**: Survey summary (submitted_at, overall_rating) - no full payload for performance
+- **Detail view**: Complete survey data including full payload with all fields
+- **Zero additional requests** needed - everything comes with the booking data
 
 ## 🔗 Related Endpoints
 

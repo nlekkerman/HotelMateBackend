@@ -263,16 +263,12 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
         return f"⚠️ Missing {missing} guest" if missing == 1 else f"⚠️ Missing {missing} guests"
     
     def get_survey_response(self, obj):
-        """Return survey response summary for list view (lighter than detail)."""
-        # Only include if explicitly requested and survey completed
-        request = self.context.get('request')
-        if not request or not request.query_params.get('include_survey_response'):
-            return None
-            
+        """Return survey response summary for list view."""
+        # Always return survey data if it exists
         if not hasattr(obj, 'survey_response') or obj.survey_response is None:
             return None
             
-        # Return minimal survey data for list view
+        # Return survey data for list view
         return {
             'submitted_at': obj.survey_response.submitted_at,
             'overall_rating': obj.survey_response.overall_rating,
@@ -424,17 +420,12 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
         }
     
     def get_survey_response(self, obj):
-        """Return full survey response data if available and requested."""
-        # Only include if explicitly requested via query parameter
-        request = self.context.get('request')
-        if not request or not request.query_params.get('include_survey_response'):
-            return None
-            
-        # Check if survey response exists
+        """Return full survey response data if available."""
+        # Always return survey data if it exists  
         if not hasattr(obj, 'survey_response') or obj.survey_response is None:
             return None
             
-        # Return full survey response payload
+        # Return full survey response payload for detail view
         return {
             'submitted_at': obj.survey_response.submitted_at,
             'overall_rating': obj.survey_response.overall_rating,
