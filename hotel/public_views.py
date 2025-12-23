@@ -730,7 +730,7 @@ class SubmitSurveyDataView(APIView):
         from .models import BookingSurveyToken, BookingSurveyResponse
         
         raw_token = request.data.get('token')
-        survey_payload = request.data.get('survey', {})
+        survey_payload = request.data.get('survey_data', {})
         
         if not raw_token:
             return Response(
