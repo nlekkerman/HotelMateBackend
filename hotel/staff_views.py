@@ -41,6 +41,7 @@ from .models import (
     Hotel,
     HotelAccessConfig,
     HotelPrecheckinConfig,
+    HotelSurveyConfig,
     Preset,
     HotelPublicPage,
     PublicSection,
@@ -56,6 +57,8 @@ from .models import (
     RoomsSection,
     RoomBooking,
     BookingPrecheckinToken,
+    BookingSurveyToken,
+    BookingSurveyResponse,
     BookingGuest,
 )
 from rooms.models import RoomType, Room
@@ -94,6 +97,7 @@ from bookings.models import Restaurant
 from common.models import ThemePreference
 from hotel.services.booking_integrity import heal_booking_party
 from hotel.precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
+from hotel.survey.field_registry import SURVEY_FIELD_REGISTRY
 from django.core.exceptions import ValidationError
 from pusher import pusher_client
 
@@ -2561,6 +2565,240 @@ class HotelPrecheckinConfigView(APIView):
             'success': True,
             'enabled': config.fields_enabled,
             'required': config.fields_required
+        })
+
+
+class HotelSurveyConfigView(APIView):
+    """Manage hotel-level survey field configuration and sending policy"""
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    
+    def get(self, request, hotel_slug):
+        """Get current survey configuration for hotel"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        config = HotelSurveyConfig.get_or_create_default(hotel)
+        
+        return Response({
+            'enabled': config.fields_enabled,
+            'required': config.fields_required,
+            'send_mode': config.send_mode,
+            'delay_hours': config.delay_hours,
+            'token_expiry_hours': config.token_expiry_hours,
+            'field_registry': SURVEY_FIELD_REGISTRY
+        })
+    
+    def post(self, request, hotel_slug):
+        """Update survey configuration for hotel"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        enabled = request.data.get('enabled', {})
+        required = request.data.get('required', {})
+        send_mode = request.data.get('send_mode')
+        delay_hours = request.data.get('delay_hours')
+        token_expiry_hours = request.data.get('token_expiry_hours')
+        
+        if not isinstance(enabled, dict) or not isinstance(required, dict):
+            return Response(
+                {'error': 'enabled and required must be objects'},
+                status=400
+            )
+        
+        # Validate all keys exist in registry
+        for field_key in enabled.keys():
+            if field_key not in SURVEY_FIELD_REGISTRY:
+                return Response(
+                    {'error': f'Unknown field key: {field_key}'},
+                    status=400
+                )
+        
+        for field_key in required.keys():
+            if field_key not in SURVEY_FIELD_REGISTRY:
+                return Response(
+                    {'error': f'Unknown field key: {field_key}'},
+                    status=400
+                )
+        
+        # Validate subset rule: required must be subset of enabled
+        for field_key, is_required in required.items():
+            if is_required and not enabled.get(field_key, False):
+                return Response(
+                    {'error': f'Field \'{field_key}\' cannot be required without being enabled'},
+                    status=400
+                )
+        
+        # Validate send_mode if provided
+        if send_mode and send_mode not in dict(HotelSurveyConfig.SEND_MODE_CHOICES):
+            return Response(
+                {'error': f'Invalid send_mode: {send_mode}'},
+                status=400
+            )
+        
+        # Validate numeric fields
+        if delay_hours is not None and (not isinstance(delay_hours, int) or delay_hours < 0):
+            return Response(
+                {'error': 'delay_hours must be a non-negative integer'},
+                status=400
+            )
+        
+        if token_expiry_hours is not None and (not isinstance(token_expiry_hours, int) or token_expiry_hours < 1):
+            return Response(
+                {'error': 'token_expiry_hours must be a positive integer'},
+                status=400
+            )
+        
+        # Get or create config and update
+        config = HotelSurveyConfig.get_or_create_default(hotel)
+        config.fields_enabled = enabled
+        config.fields_required = required
+        
+        if send_mode is not None:
+            config.send_mode = send_mode
+        if delay_hours is not None:
+            config.delay_hours = delay_hours
+        if token_expiry_hours is not None:
+            config.token_expiry_hours = token_expiry_hours
+        
+        # Run model validation
+        try:
+            config.full_clean()
+            config.save()
+        except ValidationError as e:
+            return Response(
+                {'error': str(e)},
+                status=400
+            )
+        
+        return Response({
+            'success': True,
+            'enabled': config.fields_enabled,
+            'required': config.fields_required,
+            'send_mode': config.send_mode,
+            'delay_hours': config.delay_hours,
+            'token_expiry_hours': config.token_expiry_hours
+        })
+
+
+class SendSurveyLinkView(APIView):
+    """Send survey link to guest via email"""
+    permission_classes = [IsAuthenticated, IsStaffMember]
+
+    def post(self, request, hotel_slug, booking_id):
+        """Generate token and send survey email to guest"""
+        
+        # Validate hotel scope and get booking
+        try:
+            booking = RoomBooking.objects.get(
+                booking_id=booking_id,
+                hotel__slug=hotel_slug
+            )
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': 'Booking not found'},
+                status=404
+            )
+        
+        # Validate booking status - only allow for completed bookings
+        if booking.status != 'COMPLETED' and not booking.checked_out_at:
+            return Response(
+                {'error': 'Survey can only be sent for completed bookings'},
+                status=400
+            )
+        
+        # Get current hotel survey configuration
+        hotel_config = HotelSurveyConfig.get_or_create_default(booking.hotel)
+        
+        # Generate secure token
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        expires_at = timezone.now() + timedelta(hours=hotel_config.token_expiry_hours)
+        
+        # Determine target email
+        target_email = booking.primary_email or booking.booker_email
+        if not target_email:
+            return Response(
+                {'error': 'No email address found for this booking'},
+                status=400
+            )
+        
+        # Revoke any existing active tokens for this booking
+        BookingSurveyToken.objects.filter(
+            booking=booking,
+            used_at__isnull=True,
+            revoked_at__isnull=True
+        ).update(revoked_at=timezone.now())
+        
+        # Create new token with config snapshot
+        token = BookingSurveyToken.objects.create(
+            booking=booking,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            sent_to_email=target_email,
+            config_snapshot_enabled=hotel_config.fields_enabled.copy(),
+            config_snapshot_required=hotel_config.fields_required.copy(),
+            config_snapshot_send_mode=hotel_config.send_mode
+        )
+        
+        # Send survey email
+        base_domain = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
+        survey_url = f"{base_domain}/guest/hotel/{hotel_slug}/survey?token={raw_token}"
+        
+        try:
+            subject = hotel_config.email_subject_template or f"Share your experience at {booking.hotel.name}"
+            
+            if hotel_config.email_body_template:
+                message = hotel_config.email_body_template.format(
+                    guest_name=booking.primary_guest_name or 'Guest',
+                    hotel_name=booking.hotel.name,
+                    booking_id=booking.booking_id,
+                    survey_url=survey_url,
+                    expiry_days=hotel_config.token_expiry_hours // 24
+                )
+            else:
+                message = f"""
+Dear {booking.primary_guest_name or 'Guest'},
+
+Thank you for staying with us at {booking.hotel.name}. We'd love to hear about your experience.
+
+Booking: {booking.booking_id}
+Dates: {booking.check_in} to {booking.check_out}
+
+Please take a moment to share your feedback: {survey_url}
+
+This survey takes less than a minute and helps us improve our service.
+
+Your feedback link expires in {hotel_config.token_expiry_hours // 24} days.
+
+Best regards,
+{booking.hotel.name} Team
+                """
+            
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[target_email],
+                fail_silently=False,
+            )
+            
+            # Update booking audit fields
+            booking.survey_sent_at = timezone.now()
+            booking.survey_last_sent_to = target_email
+            booking.save(update_fields=['survey_sent_at', 'survey_last_sent_to'])
+            
+        except Exception as e:
+            # If email fails, revoke the token
+            token.revoked_at = timezone.now()
+            token.save()
+            logger.error(f"Failed to send survey email for booking {booking.booking_id}: {e}")
+            return Response(
+                {'error': 'Failed to send email'},
+                status=500
+            )
+        
+        return Response({
+            'success': True,
+            'sent_to': target_email,
+            'expires_at': expires_at.isoformat(),
+            'booking_id': booking.booking_id
         })
 
 

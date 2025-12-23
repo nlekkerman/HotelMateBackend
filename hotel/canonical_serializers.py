@@ -167,6 +167,11 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     party_primary_full_name = serializers.SerializerMethodField()  # NEW: primary name explicitly
     party_total_count = serializers.SerializerMethodField()
     party_status_display = serializers.SerializerMethodField()
+    
+    # Survey operational flags (Tier 1 Backend Hardening)
+    survey_sent = serializers.ReadOnlyField()
+    survey_completed = serializers.ReadOnlyField()
+    survey_rating = serializers.ReadOnlyField()
 
     class Meta:
         model = RoomBooking
@@ -206,6 +211,12 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'precheckin_submitted_at',
             'total_amount',
             'currency',
+            
+            # survey flags (Tier 1 Backend Hardening)
+            'survey_sent',
+            'survey_completed', 
+            'survey_rating',
+            'survey_sent_at',
 
             # timestamps
             'created_at',
@@ -272,6 +283,11 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     # Computed flags
     flags = serializers.SerializerMethodField()
     
+    # Survey operational flags (Tier 1 Backend Hardening)
+    survey_sent = serializers.ReadOnlyField()
+    survey_completed = serializers.ReadOnlyField()
+    survey_rating = serializers.ReadOnlyField()
+    
     class Meta:
         model = RoomBooking
         fields = [
@@ -299,6 +315,13 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'precheckin_payload',       # Add booking-level precheckin data
             'party_complete',           # Party completion status (authoritative)
             'party_missing_count',      # Number of missing party members (authoritative)
+            
+            # Survey operational flags (Tier 1 Backend Hardening)
+            'survey_sent',
+            'survey_completed',
+            'survey_rating',
+            'survey_sent_at',
+            
             'booker',
             'party',
             'in_house',

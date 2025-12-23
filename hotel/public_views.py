@@ -616,3 +616,245 @@ class SubmitPrecheckinDataView(APIView):
             'party': party_serializer_data,
             'party_complete': booking.party_complete
         })
+
+
+# ============================================================================
+# SURVEY SYSTEM - PUBLIC GUEST ENDPOINTS
+# ============================================================================
+
+class ValidateSurveyTokenView(APIView):
+    """Validate survey token and return booking information for survey form"""
+    permission_classes = [AllowAny]
+
+    def get(self, request, hotel_slug):
+        """Validate token and return booking information for survey submission"""
+        import hashlib
+        from django.utils import timezone
+        from .models import BookingSurveyToken, RoomBooking
+        
+        raw_token = request.query_params.get('token')
+        if not raw_token:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find token with constant-time lookup
+            token = BookingSurveyToken.objects.select_related(
+                'booking', 'booking__hotel', 'booking__room_type'
+            ).get(
+                token_hash=token_hash,
+                booking__hotel__slug=hotel_slug
+            )
+        except BookingSurveyToken.DoesNotExist:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Validate token status (unified 404 response for all invalid states)
+        if not token.is_valid:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        booking = token.booking
+        
+        # Get survey configuration (use snapshot if available, fallback to hotel config)
+        from .models import HotelSurveyConfig
+        from .survey.field_registry import SURVEY_FIELD_REGISTRY
+        
+        # Use token snapshot if present, otherwise current hotel config
+        if token.config_snapshot_enabled or token.config_snapshot_required:
+            survey_config = {
+                'enabled': token.config_snapshot_enabled,
+                'required': token.config_snapshot_required
+            }
+        else:
+            # Fallback for old tokens - use current hotel config
+            hotel_config = HotelSurveyConfig.get_or_create_default(booking.hotel)
+            survey_config = {
+                'enabled': hotel_config.fields_enabled,
+                'required': hotel_config.fields_required
+            }
+        
+        # Build registry subset for enabled fields only
+        enabled_registry = {}
+        for field_key in survey_config['enabled'].keys():
+            if survey_config['enabled'].get(field_key) and field_key in SURVEY_FIELD_REGISTRY:
+                enabled_registry[field_key] = SURVEY_FIELD_REGISTRY[field_key]
+
+        # Check if survey already submitted
+        survey_already_submitted = hasattr(booking, 'survey_response') and booking.survey_response is not None
+
+        return Response({
+            'booking': {
+                'id': booking.booking_id,
+                'check_in': str(booking.check_in),
+                'check_out': str(booking.check_out),
+                'room_type_name': booking.room_type.name,
+                'hotel_name': booking.hotel.name,
+                'nights': booking.nights,
+                'adults': booking.adults,
+                'children': booking.children,
+                'checked_out_at': booking.checked_out_at.isoformat() if booking.checked_out_at else None
+            },
+            'hotel': {
+                'name': booking.hotel.name,
+                'slug': booking.hotel.slug
+            },
+            'survey_config': survey_config,
+            'survey_field_registry': enabled_registry,
+            'survey_already_submitted': survey_already_submitted,
+            'existing_response': booking.survey_response.payload if survey_already_submitted else None
+        })
+
+
+class SubmitSurveyDataView(APIView):
+    """Submit survey response and mark token as used"""
+    permission_classes = [AllowAny]
+
+    def post(self, request, hotel_slug):
+        """Process survey submission and mark token as used"""
+        import hashlib
+        from django.utils import timezone
+        from django.db import transaction
+        from .models import BookingSurveyToken, BookingSurveyResponse
+        
+        raw_token = request.data.get('token')
+        survey_payload = request.data.get('survey', {})
+        
+        if not raw_token:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find token with constant-time lookup
+            token = BookingSurveyToken.objects.select_related(
+                'booking', 'booking__hotel'
+            ).get(
+                token_hash=token_hash,
+                booking__hotel__slug=hotel_slug
+            )
+        except BookingSurveyToken.DoesNotExist:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        # Validate token status
+        if not token.is_valid:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=404
+            )
+        
+        booking = token.booking
+        
+        # Check if survey already submitted
+        if hasattr(booking, 'survey_response') and booking.survey_response is not None:
+            return Response(
+                {'code': 'ALREADY_SUBMITTED', 'message': 'Survey has already been submitted for this booking.'},
+                status=400
+            )
+        
+        # Get survey configuration for validation
+        from .models import HotelSurveyConfig
+        from .survey.field_registry import SURVEY_FIELD_REGISTRY
+        
+        # Use token snapshot if present, otherwise current hotel config
+        if token.config_snapshot_enabled or token.config_snapshot_required:
+            config_enabled = token.config_snapshot_enabled
+            config_required = token.config_snapshot_required
+        else:
+            # Fallback for old tokens - use current hotel config
+            hotel_config = HotelSurveyConfig.get_or_create_default(booking.hotel)
+            config_enabled = hotel_config.fields_enabled
+            config_required = hotel_config.fields_required
+        
+        # Validate required survey fields
+        missing_fields = []
+        for field_key, is_required in config_required.items():
+            if is_required and field_key not in survey_payload:
+                field_label = SURVEY_FIELD_REGISTRY.get(field_key, {}).get('label', field_key)
+                missing_fields.append(field_label)
+        
+        if missing_fields:
+            # Stronger validation logging
+            logger.error(
+                f"Survey validation failed for booking {booking.booking_id} at hotel {booking.hotel.slug}: "
+                f"Missing required fields: {missing_fields}. Token state: valid={token.is_valid}, "
+                f"expired={token.is_expired}, used={token.is_used}"
+            )
+            return Response(
+                {'code': 'VALIDATION_ERROR', 'message': f'Required fields missing: {", ".join(missing_fields)}'},
+                status=400
+            )
+        
+        # Reject unknown field keys
+        for field_key in survey_payload.keys():
+            if field_key not in SURVEY_FIELD_REGISTRY:
+                return Response(
+                    {'code': 'VALIDATION_ERROR', 'message': f'Unknown field: {field_key}'},
+                    status=400
+                )
+            # Only store enabled fields
+            if not config_enabled.get(field_key, False):
+                return Response(
+                    {'code': 'VALIDATION_ERROR', 'message': f'Field {field_key} is not enabled for this survey'},
+                    status=400
+                )
+        
+        # Validate overall_rating if provided
+        overall_rating = survey_payload.get('overall_rating')
+        if overall_rating is not None:
+            if not isinstance(overall_rating, int) or overall_rating < 1 or overall_rating > 5:
+                return Response(
+                    {'code': 'VALIDATION_ERROR', 'message': 'Overall rating must be between 1 and 5'},
+                    status=400
+                )
+        
+        # Filter payload to only include enabled fields
+        filtered_payload = {}
+        for field_key, value in survey_payload.items():
+            if config_enabled.get(field_key, False):
+                filtered_payload[field_key] = value
+        
+        # Process submission atomically
+        try:
+            with transaction.atomic():
+                # Create survey response
+                survey_response = BookingSurveyResponse.objects.create(
+                    booking=booking,
+                    hotel=booking.hotel,
+                    payload=filtered_payload,
+                    overall_rating=overall_rating,
+                    token_used=token
+                )
+                
+                # Mark token as used
+                token.used_at = timezone.now()
+                token.save()
+                
+        except Exception as e:
+            return Response(
+                {'code': 'SUBMISSION_ERROR', 'message': 'Failed to save survey response'},
+                status=400
+            )
+        
+        return Response({
+            'success': True,
+            'message': 'Thank you for your feedback!',
+            'submitted_at': survey_response.submitted_at.isoformat(),
+            'booking_id': booking.booking_id
+        })

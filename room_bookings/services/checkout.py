@@ -132,6 +132,11 @@ def checkout_booking(
             )
         )
 
+        # 7️⃣ Trigger survey email (after transaction commits)
+        transaction.on_commit(
+            lambda: _trigger_survey_email(booking)
+        )
+
     logger.info(f"Successfully checked out booking {booking.booking_id} from room {room.room_number}")
     return booking
 
@@ -195,3 +200,154 @@ def _emit_checkout_events(*, booking, room, hotel, source):
         
     except Exception as e:
         logger.error(f"Failed to emit realtime checkout events: {e}")
+
+
+def _trigger_survey_email(booking):
+    """Trigger survey email based on hotel configuration"""
+    try:
+        # GUARD: Do nothing if survey already sent or completed (prevent duplicates)
+        if booking.survey_sent_at:
+            logger.info(f"Survey already sent for booking {booking.booking_id} at {booking.survey_sent_at}, skipping")
+            return
+            
+        if hasattr(booking, 'survey_response') and booking.survey_response is not None:
+            logger.info(f"Survey already completed for booking {booking.booking_id}, skipping")
+            return
+        
+        from hotel.models import HotelSurveyConfig
+        from datetime import timedelta
+        
+        # Get hotel survey configuration
+        hotel_config = HotelSurveyConfig.get_or_create_default(booking.hotel)
+        
+        if hotel_config.send_mode == 'AUTO_IMMEDIATE':
+            _send_survey_email_now(booking, hotel_config)
+        elif hotel_config.send_mode == 'AUTO_DELAYED':
+            _schedule_survey_email(booking, hotel_config)
+        elif hotel_config.send_mode == 'MANUAL_ONLY':
+            logger.info(f"Survey set to MANUAL_ONLY for booking {booking.booking_id}, skipping auto-send")
+        else:
+            logger.warning(f"Unknown survey send_mode '{hotel_config.send_mode}' for booking {booking.booking_id}")
+            
+    except Exception as e:
+        logger.error(f"Survey email trigger failed for booking {booking.booking_id}: {e}")
+        # Do not break checkout if survey fails
+
+
+def _send_survey_email_now(booking, hotel_config):
+    """Send survey email immediately"""
+    from hotel.models import BookingSurveyToken
+    from django.conf import settings
+    from django.core.mail import send_mail
+    from django.utils import timezone
+    from datetime import timedelta
+    import hashlib
+    import secrets
+    
+    # Check if survey already sent to prevent duplicates
+    if booking.survey_sent_at:
+        logger.info(f"Survey already sent for booking {booking.booking_id}, skipping")
+        return
+    
+    # Determine target email
+    target_email = booking.primary_email or booking.booker_email
+    if not target_email:
+        logger.warning(f"No email address found for booking {booking.booking_id}, cannot send survey")
+        return
+    
+    try:
+        # Generate secure token
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        expires_at = timezone.now() + timedelta(hours=hotel_config.token_expiry_hours)
+        
+        # Revoke any existing active tokens for this booking
+        BookingSurveyToken.objects.filter(
+            booking=booking,
+            used_at__isnull=True,
+            revoked_at__isnull=True
+        ).update(revoked_at=timezone.now())
+        
+        # Create new token with config snapshot
+        token = BookingSurveyToken.objects.create(
+            booking=booking,
+            token_hash=token_hash,
+            expires_at=expires_at,
+            sent_to_email=target_email,
+            config_snapshot_enabled=hotel_config.fields_enabled.copy(),
+            config_snapshot_required=hotel_config.fields_required.copy(),
+            config_snapshot_send_mode=hotel_config.send_mode
+        )
+        
+        # Send survey email
+        base_domain = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
+        survey_url = f"{base_domain}/guest/hotel/{booking.hotel.slug}/survey?token={raw_token}"
+        
+        subject = hotel_config.email_subject_template or f"Share your experience at {booking.hotel.name}"
+        
+        if hotel_config.email_body_template:
+            message = hotel_config.email_body_template.format(
+                guest_name=booking.primary_guest_name or 'Guest',
+                hotel_name=booking.hotel.name,
+                booking_id=booking.booking_id,
+                survey_url=survey_url,
+                expiry_days=hotel_config.token_expiry_hours // 24
+            )
+        else:
+            message = f"""
+Dear {booking.primary_guest_name or 'Guest'},
+
+Thank you for staying with us at {booking.hotel.name}. We'd love to hear about your experience.
+
+Booking: {booking.booking_id}
+Dates: {booking.check_in} to {booking.check_out}
+
+Please take a moment to share your feedback: {survey_url}
+
+This survey takes less than a minute and helps us improve our service.
+
+Your feedback link expires in {hotel_config.token_expiry_hours // 24} days.
+
+Best regards,
+{booking.hotel.name} Team
+            """
+        
+        send_mail(
+            subject=subject,
+            message=message,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[target_email],
+            fail_silently=False,
+        )
+        
+        # Update booking audit fields
+        booking.survey_sent_at = timezone.now()
+        booking.survey_last_sent_to = target_email
+        booking.save(update_fields=['survey_sent_at', 'survey_last_sent_to'])
+        
+        logger.info(f"Survey email sent immediately to {target_email} for booking {booking.booking_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to send immediate survey email for booking {booking.booking_id}: {e}")
+        # If email fails, revoke the token for security
+        if 'token' in locals():
+            token.revoked_at = timezone.now()
+            token.save()
+
+
+def _schedule_survey_email(booking, hotel_config):
+    """Schedule survey email for later delivery"""
+    from django.utils import timezone
+    from datetime import timedelta
+    
+    # Check if survey already sent or scheduled to prevent duplicates
+    if booking.survey_sent_at or booking.survey_send_at:
+        logger.info(f"Survey already sent or scheduled for booking {booking.booking_id}, skipping")
+        return
+    
+    # Schedule for later
+    send_at = timezone.now() + timedelta(hours=hotel_config.delay_hours)
+    booking.survey_send_at = send_at
+    booking.save(update_fields=['survey_send_at'])
+    
+    logger.info(f"Survey email scheduled for {send_at} for booking {booking.booking_id}")

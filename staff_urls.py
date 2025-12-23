@@ -17,6 +17,7 @@ from hotel.staff_views import (
     HotelStatusCheckView,
     SectionCreateView,
     HotelPrecheckinConfigView,
+    HotelSurveyConfigView,
     # CRUD ViewSets
     StaffRoomTypeViewSet,
     PresetViewSet,
@@ -212,6 +213,13 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/precheckin-config/',
         HotelPrecheckinConfigView.as_view(),
         name='staff-precheckin-config'
+    ),
+    
+    # Survey Configuration (Super Staff Admin only)
+    path(
+        'hotel/<str:hotel_slug>/survey-config/',
+        HotelSurveyConfigView.as_view(),
+        name='staff-survey-config'
     ),
     
     # Room Types & Section CRUD (clean path)

@@ -402,6 +402,107 @@ class HotelPrecheckinConfig(models.Model):
         return f"Precheckin config for {self.hotel.name}"
 
 
+class HotelSurveyConfig(models.Model):
+    """
+    Per-hotel configuration for survey field visibility, requirements, and sending policy.
+    Controls which fields are shown/required on guest survey pages and when surveys are sent.
+    """
+    hotel = models.OneToOneField(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name="survey_config"
+    )
+    fields_enabled = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Dict of field_key: boolean for enabled survey fields"
+    )
+    fields_required = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Dict of field_key: boolean for required survey fields"
+    )
+    
+    # Survey Email Send Policy Fields
+    SEND_MODE_CHOICES = [
+        ('AUTO_IMMEDIATE', 'Send immediately after checkout'),
+        ('AUTO_DELAYED', 'Send after delay'),
+        ('MANUAL_ONLY', 'Manual sending only')
+    ]
+    send_mode = models.CharField(
+        max_length=20, 
+        choices=SEND_MODE_CHOICES, 
+        default='AUTO_DELAYED',
+        help_text="Survey email sending policy"
+    )
+    
+    delay_hours = models.PositiveIntegerField(
+        default=24,
+        help_text="Hours to delay survey email after checkout (for AUTO_DELAYED mode)"
+    )
+    token_expiry_hours = models.PositiveIntegerField(
+        default=168,  # 7 days
+        help_text="Survey token expiry time in hours"
+    )
+    email_subject_template = models.TextField(
+        blank=True,
+        help_text="Optional custom email subject template"
+    )
+    email_body_template = models.TextField(
+        blank=True,
+        help_text="Optional custom email body template"
+    )
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    @classmethod
+    def get_or_create_default(cls, hotel):
+        """
+        Get existing config or create default minimal config for hotel.
+        Auto-creates with high completion rate defaults.
+        """
+        from .survey.field_registry import DEFAULT_SURVEY_CONFIG
+        
+        config, created = cls.objects.get_or_create(
+            hotel=hotel,
+            defaults={
+                'fields_enabled': DEFAULT_SURVEY_CONFIG['enabled'].copy(),
+                'fields_required': DEFAULT_SURVEY_CONFIG['required'].copy(),
+                'send_mode': DEFAULT_SURVEY_CONFIG['send_mode'],
+                'delay_hours': DEFAULT_SURVEY_CONFIG['delay_hours'],
+            }
+        )
+        return config
+    
+    def clean(self):
+        """
+        Validate that required fields are subset of enabled fields
+        and that all field keys exist in registry.
+        """
+        from django.core.exceptions import ValidationError
+        from .survey.field_registry import SURVEY_FIELD_REGISTRY
+        
+        # Validate registry keys
+        for field_key in self.fields_enabled.keys():
+            if field_key not in SURVEY_FIELD_REGISTRY:
+                raise ValidationError(f"Unknown field key '{field_key}' in fields_enabled")
+        
+        for field_key in self.fields_required.keys():
+            if field_key not in SURVEY_FIELD_REGISTRY:
+                raise ValidationError(f"Unknown field key '{field_key}' in fields_required")
+        
+        # Validate subset rule: required must be subset of enabled
+        for field_key, is_required in self.fields_required.items():
+            if is_required and not self.fields_enabled.get(field_key, False):
+                raise ValidationError(
+                    f"Field '{field_key}' cannot be required without being enabled"
+                )
+    
+    def __str__(self):
+        return f"Survey config for {self.hotel.name}"
+
+
 class BookingOptions(models.Model):
     """
     Booking call-to-action configuration for hotel public pages.
@@ -843,6 +944,40 @@ class RoomBooking(models.Model):
         blank=True,
         help_text="Timestamp when guest completed precheckin submission"
     )
+    
+    # Survey configuration fields
+    survey_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when survey email was sent (idempotency tracking)"
+    )
+    survey_last_sent_to = models.EmailField(
+        blank=True,
+        help_text="Email address where survey was last sent (audit trail)"
+    )
+    survey_send_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Scheduled time for delayed survey sending"
+    )
+    
+    # Survey derived flags (computed properties for efficient access)
+    @property
+    def survey_sent(self):
+        """Boolean: Has survey email been sent for this booking?"""
+        return self.survey_sent_at is not None
+    
+    @property
+    def survey_completed(self):
+        """Boolean: Has guest completed the survey for this booking?"""
+        return hasattr(self, 'survey_response') and self.survey_response is not None
+    
+    @property
+    def survey_rating(self):
+        """Integer or None: Overall rating from survey response (shortcut for analytics)"""
+        if self.survey_completed:
+            return self.survey_response.overall_rating
+        return None
 
     def __str__(self):
         return f"{self.booking_id} - {self.primary_guest_name} @ {self.hotel.name}"
@@ -1747,6 +1882,195 @@ class BookingPrecheckinToken(models.Model):
             self.revoked_at is None and 
             self.expires_at > now
         )
+
+
+# ============================================================================
+# SURVEY MODELS - CANONICAL BACKEND RULE
+# ============================================================================
+# Survey is a post-checkout, immutable, one-to-one artifact of a booking.
+# Backend enforces lifecycle, frontend only reflects it.
+# - One survey per booking (DB constraint enforced)
+# - Immutable once submitted (no editing)
+# - Post-checkout only (status must be COMPLETED)
+# - Token-based security with config snapshots
+# ============================================================================
+
+class BookingSurveyToken(models.Model):
+    """
+    Secure tokens for guest survey links.
+    Allows guests to submit feedback via time-limited, one-time links.
+    """
+    booking = models.ForeignKey(
+        RoomBooking, 
+        on_delete=models.CASCADE, 
+        related_name='survey_tokens'
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        help_text="SHA256 hash of the raw token"
+    )
+    expires_at = models.DateTimeField(
+        help_text="Token expiry timestamp"
+    )
+    used_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Timestamp when token was successfully used"
+    )
+    revoked_at = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Timestamp when token was revoked"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Token creation timestamp"
+    )
+    sent_to_email = models.EmailField(
+        blank=True,
+        help_text="Email address where link was sent (audit trail)"
+    )
+    
+    # Config snapshot fields for stable survey validation
+    config_snapshot_enabled = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Snapshot of hotel's enabled fields at token creation time"
+    )
+    config_snapshot_required = models.JSONField(
+        default=dict, 
+        blank=True,
+        help_text="Snapshot of hotel's required fields at token creation time"
+    )
+    config_snapshot_send_mode = models.CharField(
+        max_length=20,
+        blank=True,
+        help_text="Snapshot of send mode at token creation time"
+    )
+
+    class Meta:
+        db_table = 'hotel_booking_survey_token'
+        indexes = [
+            models.Index(fields=['token_hash']),
+            models.Index(fields=['booking']),
+            models.Index(fields=['expires_at']),
+            models.Index(fields=['used_at']),
+        ]
+        verbose_name = "Booking Survey Token"
+        verbose_name_plural = "Booking Survey Tokens"
+
+    @property
+    def is_valid(self):
+        """Check if token is valid (not expired, used, or revoked)"""
+        from django.utils import timezone
+        return not self.is_expired and not self.is_used and not self.is_revoked
+
+    @property  
+    def is_expired(self):
+        """Check if token has expired"""
+        from django.utils import timezone
+        return timezone.now() > self.expires_at
+        
+    @property
+    def is_used(self):
+        """Check if token has been used"""
+        return self.used_at is not None
+        
+    @property
+    def is_revoked(self):
+        """Check if token has been revoked"""
+        return self.revoked_at is not None
+
+    def __str__(self):
+        return f"Survey Token for {self.booking.booking_id} (expires {self.expires_at})"
+
+
+class BookingSurveyResponse(models.Model):
+    """
+    Guest survey responses linked to bookings.
+    Stores both full response payload and extracted analytics data.
+    """
+    booking = models.OneToOneField(
+        RoomBooking,
+        on_delete=models.CASCADE,
+        related_name='survey_response'
+    )
+    hotel = models.ForeignKey(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name='survey_responses'
+    )
+    
+    # Dual storage approach (frozen decision)
+    payload = models.JSONField(
+        default=dict,
+        help_text="Full survey response data"
+    )
+    overall_rating = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Overall rating extracted for analytics (1-5)"
+    )
+    
+    submitted_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Survey submission timestamp"
+    )
+    token_used = models.ForeignKey(
+        BookingSurveyToken,
+        on_delete=models.CASCADE,
+        help_text="Token that was used to submit this survey (audit trail)"
+    )
+    
+    # Operational Intelligence Properties
+    @property
+    def response_delay_hours(self):
+        """Hours between checkout and survey submission for timing analytics"""
+        if self.booking.checked_out_at and self.submitted_at:
+            delta = self.submitted_at - self.booking.checked_out_at
+            return round(delta.total_seconds() / 3600, 1)
+        return None
+    
+    @property
+    def is_low_rating(self):
+        """Boolean: Is this a low rating (2 or below) requiring attention?"""
+        return self.overall_rating is not None and self.overall_rating <= 2
+    
+    def save(self, *args, **kwargs):
+        """Override save to add operational intelligence hooks"""
+        is_new = self.pk is None
+        super().save(*args, **kwargs)
+        
+        # Low-rating detection hook (backend-only, no notifications yet)
+        if is_new and self.is_low_rating:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"LOW_RATING_ALERT: Booking {self.booking.booking_id} at {self.hotel.name} "
+                f"received rating {self.overall_rating}/5. Response delay: {self.response_delay_hours}h"
+            )
+            # Future: Add flag to booking or create alert record
+
+    class Meta:
+        db_table = 'hotel_booking_survey_response'
+        indexes = [
+            models.Index(fields=['hotel', 'submitted_at']),
+            models.Index(fields=['booking']),
+            models.Index(fields=['overall_rating']),
+        ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['booking'],
+                name='unique_survey_per_booking',
+                violation_error_message='Only one survey response allowed per booking'
+            )
+        ]
+        verbose_name = "Booking Survey Response"
+        verbose_name_plural = "Booking Survey Responses"
+
+    def __str__(self):
+        rating_text = f" (Rating: {self.overall_rating})" if self.overall_rating else ""
+        return f"Survey Response for {self.booking.booking_id}{rating_text}"
 
 
 class StripeWebhookEvent(models.Model):

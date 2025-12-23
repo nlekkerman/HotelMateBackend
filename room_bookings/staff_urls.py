@@ -25,6 +25,8 @@ from hotel.staff_views import (
     BookingCheckOutView,
     # Pre-check-in functionality
     SendPrecheckinLinkView,
+    # Survey functionality
+    SendSurveyLinkView,
     # Stripe Authorize-Capture Flow Views
     StaffBookingAcceptView,
     StaffBookingDeclineView,
@@ -125,6 +127,13 @@ urlpatterns = [
         '<str:booking_id>/send-precheckin-link/',
         SendPrecheckinLinkView.as_view(),
         name='send-precheckin-link'
+    ),
+    
+    # Send survey link to guests
+    path(
+        '<str:booking_id>/send-survey-link/',
+        SendSurveyLinkView.as_view(),
+        name='send-survey-link'
     ),
     
     # ===== STRIPE AUTHORIZE-CAPTURE FLOW ENDPOINTS =====
