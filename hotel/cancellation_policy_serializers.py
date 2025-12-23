@@ -21,7 +21,7 @@ class CancellationPolicySerializer(serializers.ModelSerializer):
     class Meta:
         model = CancellationPolicy
         fields = [
-            'id', 'name', 'template', 'free_until_hours', 'penalty_type',
+            'id', 'name', 'template_type', 'free_until_hours', 'penalty_type',
             'penalty_amount', 'no_show_penalty_type', 'no_show_penalty_amount',
             'description', 'is_active', 'tiers'
         ]
@@ -29,7 +29,7 @@ class CancellationPolicySerializer(serializers.ModelSerializer):
     
     def validate(self, attrs):
         """Validate cancellation policy based on template rules."""
-        template = attrs.get('template')
+        template = attrs.get('template_type')
         if not template:
             return attrs
         
@@ -136,7 +136,7 @@ class CancellationPolicyListSerializer(serializers.ModelSerializer):
     class Meta:
         model = CancellationPolicy
         fields = [
-            'id', 'name', 'template', 'free_until_hours', 'penalty_type',
+            'id', 'name', 'template_type', 'free_until_hours', 'penalty_type',
             'is_active', 'tier_count'
         ]
     
