@@ -924,6 +924,9 @@ class HotelSettingsView(APIView):
             'hotel_type': hotel.hotel_type,
             'tags': hotel.tags,
             
+            # Default cancellation policy  
+            'default_cancellation_policy': hotel.default_cancellation_policy.id if hotel.default_cancellation_policy else None,
+            
             # Images
             'logo': hotel.logo.url if hotel.logo else None,
             'hero_image': hotel.hero_image.url if hotel.hero_image else None,
@@ -948,7 +951,7 @@ class HotelSettingsView(APIView):
         """Update any hotel information and theme"""
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
-        # All updatable hotel fields
+        # All updatable hotel fields (excluding ForeignKey fields)
         hotel_fields = [
             'name', 'subdomain', 'is_active', 'sort_order',
             'tagline', 'short_description', 'long_description',
@@ -961,6 +964,19 @@ class HotelSettingsView(APIView):
         for field in hotel_fields:
             if field in request.data:
                 setattr(hotel, field, request.data[field])
+        
+        # Handle ForeignKey fields specially
+        if 'default_cancellation_policy' in request.data:
+            policy_id = request.data['default_cancellation_policy']
+            if policy_id:
+                from .models import CancellationPolicy
+                try:
+                    policy = CancellationPolicy.objects.get(id=policy_id, hotel=hotel)
+                    hotel.default_cancellation_policy = policy
+                except CancellationPolicy.DoesNotExist:
+                    pass  # Invalid policy ID, skip
+            else:
+                hotel.default_cancellation_policy = None
         
         # Handle file uploads
         if 'logo' in request.FILES:

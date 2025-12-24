@@ -229,6 +229,16 @@ class Hotel(models.Model):
         default='',
         help_text="Primary hotel type classification"
     )
+    
+    # Default cancellation policy for bookings
+    default_cancellation_policy = models.ForeignKey(
+        'hotel.CancellationPolicy',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='hotels_using_as_default',
+        help_text='Default cancellation policy for new bookings when rate plans don\'t have policies'
+    )
 
     def __str__(self):
         return self.name

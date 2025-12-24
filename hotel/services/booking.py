@@ -125,7 +125,10 @@ def create_room_booking_from_request(
         promo_code=promo_code if promo_code else '',
         # Policy snapshotting: snapshot cancellation policy from rate plan at creation time
         rate_plan=rate_plan,  # Store rate plan reference for debugging
-        cancellation_policy=rate_plan.cancellation_policy if rate_plan.cancellation_policy else None
+        cancellation_policy=(
+            rate_plan.cancellation_policy or 
+            hotel.default_cancellation_policy
+        )
     )
     
     # Phase 3: The PRIMARY BookingGuest will be auto-created by the save() method
