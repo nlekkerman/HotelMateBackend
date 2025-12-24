@@ -14,6 +14,8 @@ from .models import (
     PublicElement,
     PublicElementItem,
     AttendanceSettings,
+    CancellationPolicy,
+    CancellationPolicyTier,
 )
 
 
@@ -330,29 +332,32 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'party_status_display',
         'precheckin_status_display',
         'precheckin_data_display',
+        'cancellation_policy_info_display',
         'cancellation_details_formatted',
         'cancelled_by_display',
         'cancellation_date_display',
-        'cancellation_reason_display'
+        'cancellation_reason_display',
+        'cancellation_policy_display',
+        'cancellation_fee_display',
+        'refund_amount_display',
+        'refund_processed_display'
     )
 
     def cancellation_info(self, obj):
-        """Display cancellation info in list view"""
-        if obj.status == 'CANCELLED' and obj.special_requests:
-            # Handle simple format: "CANCELLATION REASON: payment data wrong"
-            if obj.special_requests.startswith('CANCELLATION REASON:'):
-                reason = obj.special_requests.replace('CANCELLATION REASON:', '').strip()
-                return f"❌ {reason[:30]}..."
-            # Handle structured format with "--- BOOKING CANCELLED ---"
-            elif '--- BOOKING CANCELLED ---' in obj.special_requests:
-                parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
-                if len(parts) > 1:
-                    lines = parts[1].strip().split('\n')
-                    for line in lines:
-                        if line.startswith('Reason:'):
-                            reason = line.replace('Reason:', '').strip()
-                            return f"❌ {reason[:30]}..."
-            return "❌ Cancelled"
+        """Display cancellation info in list view using actual database fields"""
+        if obj.status == 'CANCELLED':
+            info_parts = []
+            if obj.cancelled_at:
+                info_parts.append(f"📅 {obj.cancelled_at.strftime('%m/%d')}")  
+            if obj.cancellation_fee and obj.cancellation_fee > 0:
+                info_parts.append(f"💰 €{obj.cancellation_fee}")
+            if obj.refund_amount and obj.refund_amount > 0:
+                info_parts.append(f"💳 €{obj.refund_amount}")
+            
+            if info_parts:
+                return f"❌ {' • '.join(info_parts)}"
+            else:
+                return "❌ Cancelled"
         return "-"
     cancellation_info.short_description = "Cancellation"
 
@@ -399,67 +404,153 @@ class RoomBookingAdmin(admin.ModelAdmin):
     cancellation_details_formatted.short_description = "Cancellation Details"
 
     def cancelled_by_display(self, obj):
-        """Display who cancelled the booking"""
-        if obj.status != 'CANCELLED' or not obj.special_requests:
+        """Display who cancelled the booking using actual database field"""
+        if obj.status != 'CANCELLED':
             return "-"
         
-        # Handle simple format: "CANCELLATION REASON: payment data wrong"
-        if obj.special_requests.startswith('CANCELLATION REASON:'):
-            return "Staff (via admin)"
-        
-        # Handle structured format with "--- BOOKING CANCELLED ---"
-        elif '--- BOOKING CANCELLED ---' in obj.special_requests:
-            parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
-            if len(parts) > 1:
-                lines = parts[1].strip().split('\n')
-                for line in lines:
-                    if line.startswith('By:'):
-                        return line.replace('By:', '').strip()
+        # Use actual cancellation_reason field instead of parsing special_requests
+        if obj.cancellation_reason:
+            # Extract who cancelled from the reason string if it contains that info
+            if 'staff cancellation' in obj.cancellation_reason.lower():
+                return "Staff"
+            elif 'guest cancellation' in obj.cancellation_reason.lower():
+                return "Guest"  
+            elif 'token' in obj.cancellation_reason.lower():
+                return "Guest (via token)"
+            elif 'admin' in obj.cancellation_reason.lower():
+                return "Staff (admin)"
+            else:
+                return "Staff"  # Default for most cancellations
         
         return "Unknown"
     cancelled_by_display.short_description = "Cancelled By"
 
     def cancellation_date_display(self, obj):
-        """Display cancellation date"""
-        if obj.status != 'CANCELLED' or not obj.special_requests:
-            return "-"
-        
-        # Handle simple format: use updated_at timestamp
-        if obj.special_requests.startswith('CANCELLATION REASON:'):
-            return obj.updated_at.strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Handle structured format with "--- BOOKING CANCELLED ---"
-        elif '--- BOOKING CANCELLED ---' in obj.special_requests:
-            parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
-            if len(parts) > 1:
-                lines = parts[1].strip().split('\n')
-                for line in lines:
-                    if line.startswith('Date:'):
-                        return line.replace('Date:', '').strip()
-        
-        return "Unknown"
+        """Display cancellation date using actual database field"""
+        if obj.cancelled_at:
+            return obj.cancelled_at.strftime('%Y-%m-%d %H:%M:%S')
+        return "-"
     cancellation_date_display.short_description = "Cancelled Date"
 
     def cancellation_reason_display(self, obj):
-        """Display cancellation reason"""
-        if obj.status != 'CANCELLED' or not obj.special_requests:
-            return "-"
-        
-        # Handle simple format: "CANCELLATION REASON: payment data wrong"
-        if obj.special_requests.startswith('CANCELLATION REASON:'):
-            return obj.special_requests.replace('CANCELLATION REASON:', '').strip()
-        
-        # Handle structured format with "--- BOOKING CANCELLED ---"
-        elif '--- BOOKING CANCELLED ---' in obj.special_requests:
-            parts = obj.special_requests.split('--- BOOKING CANCELLED ---')
-            if len(parts) > 1:
-                lines = parts[1].strip().split('\n')
-                for line in lines:
-                    if line.startswith('Reason:'):
-                        return line.replace('Reason:', '').strip()
-        
+        """Display cancellation reason using actual database field"""
+        if obj.cancellation_reason:
+            return obj.cancellation_reason
         return "No reason provided"
     cancellation_reason_display.short_description = "Cancellation Reason"
+    
+    def cancellation_policy_display(self, obj):
+        """Display cancellation policy information"""
+        if obj.cancellation_policy_snapshot:
+            policy_data = obj.cancellation_policy_snapshot
+            template = policy_data.get('template', 'Unknown')
+            hours_before = policy_data.get('hours_before_checkin', 'N/A')
+            penalty_type = policy_data.get('penalty_type', 'N/A')
+            
+            formatted_lines = [
+                f"📋 Template: {template}",
+                f"⏰ Hours before check-in: {hours_before}",
+                f"💸 Penalty type: {penalty_type}"
+            ]
+            
+            if penalty_type == 'PERCENTAGE' and 'penalty_percentage' in policy_data:
+                formatted_lines.append(f"📊 Penalty: {policy_data['penalty_percentage']}%")
+            elif penalty_type == 'FIXED' and 'penalty_amount' in policy_data:
+                formatted_lines.append(f"💰 Penalty: €{policy_data['penalty_amount']}")
+                
+            return '\n'.join(formatted_lines)
+        elif obj.cancellation_policy:
+            # Fall back to direct policy relation
+            policy = obj.cancellation_policy
+            return f"📋 {policy.template} policy (ID: {policy.id})"
+        else:
+            return "No policy set"
+    cancellation_policy_display.short_description = "Cancellation Policy"
+    
+    def cancellation_fee_display(self, obj):
+        """Display cancellation fee from database field"""
+        if obj.cancellation_fee is not None:
+            return f"€{obj.cancellation_fee}"
+        return "-"
+    cancellation_fee_display.short_description = "Cancellation Fee"
+    
+    def refund_amount_display(self, obj):
+        """Display refund amount from database field"""
+        if obj.refund_amount is not None:
+            return f"€{obj.refund_amount}"
+        return "-"
+    refund_amount_display.short_description = "Refund Amount"
+    
+    def refund_processed_display(self, obj):
+        """Display when refund was processed"""
+        if obj.refund_processed_at:
+            return obj.refund_processed_at.strftime('%Y-%m-%d %H:%M:%S')
+        return "-"
+    refund_processed_display.short_description = "Refund Processed At"
+    
+    def cancellation_policy_info_display(self, obj):
+        """Display cancellation policy information for any booking status"""
+        policy_info = []
+        
+        # Check for direct policy relation first
+        if obj.cancellation_policy:
+            policy = obj.cancellation_policy
+            policy_info.append(f"📋 Policy: {policy.name} ({policy.code})")
+            policy_info.append(f"🏷️ Template: {policy.template_type}")
+            
+            if policy.free_until_hours:
+                policy_info.append(f"⏰ Free until: {policy.free_until_hours} hours before check-in")
+            
+            if policy.penalty_type and policy.penalty_type != 'NONE':
+                penalty_desc = ""
+                if policy.penalty_type == 'FIXED' and policy.penalty_amount:
+                    penalty_desc = f"€{policy.penalty_amount}"
+                elif policy.penalty_type == 'PERCENTAGE' and policy.penalty_percentage:
+                    penalty_desc = f"{policy.penalty_percentage}%"
+                elif policy.penalty_type == 'FIRST_NIGHT':
+                    penalty_desc = "First night cost"
+                elif policy.penalty_type == 'FULL_STAY':
+                    penalty_desc = "Full stay cost"
+                else:
+                    penalty_desc = policy.penalty_type
+                policy_info.append(f"💰 Penalty: {penalty_desc}")
+            else:
+                policy_info.append("💰 Penalty: No penalty")
+                
+        # Check for policy snapshot (for older bookings or bookings with snapshotted policies)
+        elif hasattr(obj, 'cancellation_policy_snapshot') and obj.cancellation_policy_snapshot:
+            policy_data = obj.cancellation_policy_snapshot
+            policy_info.append("📸 Snapshot Policy (from booking time):")
+            
+            template = policy_data.get('template_type', policy_data.get('template', 'Unknown'))
+            policy_info.append(f"🏷️ Template: {template}")
+            
+            free_hours = policy_data.get('free_until_hours', policy_data.get('hours_before_checkin'))
+            if free_hours:
+                policy_info.append(f"⏰ Free until: {free_hours} hours before check-in")
+            
+            penalty_type = policy_data.get('penalty_type', 'Unknown')
+            if penalty_type and penalty_type != 'NONE':
+                penalty_desc = ""
+                if penalty_type == 'FIXED' and 'penalty_amount' in policy_data:
+                    penalty_desc = f"€{policy_data['penalty_amount']}"
+                elif penalty_type == 'PERCENTAGE' and 'penalty_percentage' in policy_data:
+                    penalty_desc = f"{policy_data['penalty_percentage']}%"
+                elif penalty_type == 'FIRST_NIGHT':
+                    penalty_desc = "First night cost"
+                elif penalty_type == 'FULL_STAY':
+                    penalty_desc = "Full stay cost"
+                else:
+                    penalty_desc = penalty_type
+                policy_info.append(f"💰 Penalty: {penalty_desc}")
+        else:
+            policy_info.append("❌ No cancellation policy set")
+            
+        if policy_info:
+            return '\n'.join(policy_info)
+        else:
+            return "No policy information available"
+    cancellation_policy_info_display.short_description = "Cancellation Policy"
     
     def party_status_display(self, obj):
         """Display party completion status"""
@@ -616,15 +707,23 @@ class RoomBookingAdmin(admin.ModelAdmin):
                 'paid_at'
             )
         }),
-        ('Cancellation Information', {
+        ('Cancellation Policy', {
             'fields': (
-                'cancellation_details_formatted',
-                'cancelled_by_display', 
-                'cancellation_date_display',
-                'cancellation_reason_display'
+                'cancellation_policy_info_display',
+            ),
+            'description': 'Cancellation policy attached to this booking'
+        }),
+        ('Cancellation Details', {
+            'fields': (
+                ('cancelled_by_display', 'cancellation_date_display'),
+                'cancellation_reason_display',
+                'cancellation_policy_display', 
+                ('cancellation_fee_display', 'refund_amount_display'),
+                'refund_processed_display',
+                'cancellation_details_formatted'  # Keep legacy formatted view for reference
             ),
             'classes': ('collapse',),
-            'description': 'Cancellation details (only visible for cancelled bookings)'
+            'description': 'Cancellation details including policy, fees, and refunds (only visible for cancelled bookings)'
         }),
         ('Pre-check-in Information', {
             'fields': (
@@ -639,15 +738,15 @@ class RoomBookingAdmin(admin.ModelAdmin):
     )
 
     def get_fieldsets(self, request, obj=None):
-        """Show cancellation section only for cancelled bookings"""
+        """Show cancellation details section only for cancelled bookings"""
         fieldsets = list(self.fieldsets)
         
         if obj and obj.status == 'CANCELLED':
-            # Show cancellation section for cancelled bookings
+            # Show both policy info and cancellation details for cancelled bookings
             return fieldsets
         else:
-            # Hide cancellation section for non-cancelled bookings
-            return [fs for fs in fieldsets if fs[0] != 'Cancellation Information']
+            # Show only policy info, hide cancellation details for non-cancelled bookings
+            return [fs for fs in fieldsets if fs[0] != 'Cancellation Details']
 
 
 @admin.register(PricingQuote)
@@ -929,3 +1028,101 @@ class AttendanceSettingsAdmin(admin.ModelAdmin):
             return f"Error: {str(obj.face_attendance_departments)}"
     
     face_departments_display.short_description = "Allowed Departments"
+
+
+# Cancellation Policy Admin
+class CancellationPolicyTierInline(admin.TabularInline):
+    model = CancellationPolicyTier
+    extra = 0
+    fields = ('hours_before_checkin', 'penalty_type', 'penalty_amount', 'penalty_percentage')
+    ordering = ['-hours_before_checkin']  # Show highest hours first (earliest deadlines)
+
+
+@admin.register(CancellationPolicy)
+class CancellationPolicyAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'hotel',
+        'name',
+        'code', 
+        'template_type',
+        'free_until_hours',
+        'penalty_display',
+        'is_active',
+        'created_at'
+    )
+    list_filter = ('hotel', 'template_type', 'penalty_type', 'is_active', 'created_at')
+    search_fields = ('hotel__name', 'name', 'code')
+    readonly_fields = ('created_at', 'updated_at')
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('hotel', 'name', 'code', 'description', 'template_type', 'is_active')
+        }),
+        ('Policy Settings', {
+            'fields': (
+                'free_until_hours',
+                'penalty_type', 
+                'penalty_amount',
+                'penalty_percentage',
+                'no_show_penalty_type'
+            )
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    inlines = [CancellationPolicyTierInline]
+    
+    def penalty_display(self, obj):
+        """Display penalty information"""
+        if obj.penalty_type == 'NONE':
+            return "No penalty"
+        elif obj.penalty_type == 'FIXED' and obj.penalty_amount:
+            return f"€{obj.penalty_amount}"
+        elif obj.penalty_type == 'PERCENTAGE' and obj.penalty_percentage:
+            return f"{obj.penalty_percentage}%"
+        elif obj.penalty_type == 'FIRST_NIGHT':
+            return "First night cost"
+        elif obj.penalty_type == 'FULL_STAY':
+            return "Full stay cost"
+        else:
+            return obj.penalty_type
+    penalty_display.short_description = "Penalty"
+    
+    def get_queryset(self, request):
+        """Filter by hotel if user has hotel scope"""
+        qs = super().get_queryset(request)
+        # Add hotel filtering logic here if needed
+        return qs
+
+
+@admin.register(CancellationPolicyTier) 
+class CancellationPolicyTierAdmin(admin.ModelAdmin):
+    list_display = (
+        'id',
+        'policy',
+        'hours_before_checkin', 
+        'penalty_type',
+        'penalty_display'
+    )
+    list_filter = ('policy__hotel', 'penalty_type')
+    search_fields = ('policy__hotel__name',)
+    
+    def penalty_display(self, obj):
+        """Display penalty information for tier"""
+        if obj.penalty_type == 'NONE':
+            return "No penalty"
+        elif obj.penalty_type == 'FIXED' and obj.penalty_amount:
+            return f"€{obj.penalty_amount}"
+        elif obj.penalty_type == 'PERCENTAGE' and obj.penalty_percentage:
+            return f"{obj.penalty_percentage}%"
+        elif obj.penalty_type == 'FIRST_NIGHT':
+            return "First night cost"
+        elif obj.penalty_type == 'FULL_STAY':
+            return "Full stay cost"
+        else:
+            return obj.penalty_type
+    penalty_display.short_description = "Penalty"
