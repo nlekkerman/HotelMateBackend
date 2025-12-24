@@ -10,7 +10,8 @@ class CancellationPolicyTierSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = CancellationPolicyTier
-        fields = ['id', 'hours_before_checkin', 'penalty_type', 'penalty_amount']
+        fields = ['id', 'hours_before_checkin', 'penalty_type', 'penalty_amount', 'penalty_percentage']
+        read_only_fields = ['id']
 
 
 class CancellationPolicySerializer(serializers.ModelSerializer):
@@ -21,11 +22,11 @@ class CancellationPolicySerializer(serializers.ModelSerializer):
     class Meta:
         model = CancellationPolicy
         fields = [
-            'id', 'name', 'template_type', 'free_until_hours', 'penalty_type',
-            'penalty_amount', 'no_show_penalty_type', 'no_show_penalty_amount',
-            'description', 'is_active', 'tiers'
+            'id', 'name', 'code', 'template_type', 'description', 'is_active',
+            'free_until_hours', 'penalty_type', 'penalty_amount', 'penalty_percentage',
+            'no_show_penalty_type', 'created_at', 'updated_at', 'tiers'
         ]
-        read_only_fields = ['id', 'hotel']
+        read_only_fields = ['id', 'hotel', 'created_at', 'updated_at']
     
     def validate(self, attrs):
         """Validate cancellation policy based on template rules."""
