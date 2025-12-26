@@ -1242,7 +1242,7 @@ class BookingStatusView(APIView):
     def post(self, request, hotel_slug, booking_id):
         """Cancel booking with token validation and hotel verification using guest cancellation service"""
         import hashlib
-        from .models import BookingManagementToken, Hotel
+        from .models import BookingManagementToken, Hotel, RoomBooking
         from hotel.services.guest_cancellation import (
             cancel_booking_with_token, 
             GuestCancellationError, 
