@@ -983,6 +983,10 @@ class RoomBooking(models.Model):
         null=True, blank=True,
         help_text="Timestamp when refund was processed (idempotency guard)"
     )
+    refund_reference = models.CharField(
+        max_length=255, blank=True, default="",
+        help_text="Stripe refund ID or other payment provider refund reference"
+    )
     
     # Optional rate plan tracking for debugging
     rate_plan = models.ForeignKey(

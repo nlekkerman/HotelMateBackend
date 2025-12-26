@@ -979,7 +979,7 @@ class ValidateBookingManagementTokenView(APIView):
         
         # Calculate cancellation fees if booking can be cancelled
         cancellation_preview = None
-        can_cancel = booking.status in ['CONFIRMED', 'PENDING_PAYMENT'] and not booking.cancelled_at
+        can_cancel = booking.status in ['CONFIRMED', 'PENDING_PAYMENT', 'PENDING_APPROVAL'] and not booking.cancelled_at
         
         if can_cancel:
             try:
@@ -1030,12 +1030,14 @@ class CancelBookingView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request, hotel_slug):
-        """Process booking cancellation with management token"""
+        """Process booking cancellation with management token using guest cancellation service"""
         import hashlib
-        from django.utils import timezone
-        from django.db import transaction
         from .models import BookingManagementToken
-        from hotel.services.cancellation import CancellationCalculator
+        from hotel.services.guest_cancellation import (
+            cancel_booking_with_token, 
+            GuestCancellationError, 
+            StripeOperationError
+        )
         
         raw_token = request.data.get('token')
         cancellation_reason = request.data.get('reason', 'Guest cancellation via management link')
@@ -1072,61 +1074,45 @@ class CancelBookingView(APIView):
         
         booking = token.booking
         
-        # Check if booking can be cancelled
-        if booking.status not in ['CONFIRMED', 'PENDING_PAYMENT']:
+        # Call the shared cancellation service with pre-validated booking and token
+        try:
+            cancellation_result = cancel_booking_with_token(
+                booking=booking,
+                token_obj=token,
+                reason=cancellation_reason
+            )
+            
+            # Return consistent JSON format (matching BookingStatusView)
+            return Response({
+                'success': True,
+                'message': 'Your booking has been successfully cancelled.',
+                'cancellation': {
+                    'cancelled_at': cancellation_result['cancelled_at'],
+                    'cancellation_fee': str(cancellation_result['fee_amount']),
+                    'refund_amount': str(cancellation_result['refund_amount']),
+                    'description': cancellation_result['description'],
+                    'refund_reference': cancellation_result.get('refund_reference', '')
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except GuestCancellationError as e:
+            # Business logic errors - safe to expose message
             return Response(
-                {'message': 'This booking cannot be cancelled.'},
+                {'message': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        if booking.cancelled_at:
+        except StripeOperationError as e:
+            # Stripe errors - return safe message (no Stripe details leaked)
             return Response(
-                {'message': 'This booking has already been cancelled.'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'message': 'Payment processing failed. Please contact hotel directly.'},
+                status=status.HTTP_502_BAD_GATEWAY
             )
-        
-        # Calculate cancellation fees
-        try:
-            calculator = CancellationCalculator(booking)
-            cancellation_result = calculator.calculate()
         except Exception as e:
-            return Response(
-                {'message': 'Unable to process cancellation at this time.'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-        # Process cancellation atomically
-        try:
-            with transaction.atomic():
-                # Update booking status
-                booking.status = 'CANCELLED'
-                booking.cancelled_at = timezone.now()
-                booking.cancellation_reason = cancellation_reason
-                booking.cancellation_fee = cancellation_result['fee_amount']
-                booking.refund_amount = cancellation_result['refund_amount']
-                booking.save()
-                
-                # Record cancellation action and mark token as used
-                token.record_action('CANCEL')
-                token.used_at = timezone.now()
-                token.save()
-                
-        except Exception as e:
+            # Unexpected errors - safe generic message
             return Response(
                 {'message': 'Failed to process cancellation.'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        return Response({
-            'success': True,
-            'message': 'Your booking has been successfully cancelled.',
-            'cancellation': {
-                'cancelled_at': booking.cancelled_at.isoformat(),
-                'cancellation_fee': str(booking.cancellation_fee),
-                'refund_amount': str(booking.refund_amount),
-                'description': cancellation_result['description']
-            }
-        }, status=status.HTTP_200_OK)
 
 
 class BookingStatusView(APIView):
@@ -1212,7 +1198,7 @@ class BookingStatusView(APIView):
         
         # Calculate cancellation fees if booking can be cancelled
         cancellation_preview = None
-        can_cancel = booking.status in ['CONFIRMED', 'PENDING_PAYMENT'] and not booking.cancelled_at
+        can_cancel = booking.status in ['CONFIRMED', 'PENDING_PAYMENT', 'PENDING_APPROVAL'] and not booking.cancelled_at
         
         if can_cancel:
             try:
@@ -1254,14 +1240,17 @@ class BookingStatusView(APIView):
         }, status=status.HTTP_200_OK)
     
     def post(self, request, hotel_slug, booking_id):
-        """Cancel booking with token validation and hotel verification"""
+        """Cancel booking with token validation and hotel verification using guest cancellation service"""
         import hashlib
-        from django.utils import timezone
-        from django.db import transaction
         from .models import BookingManagementToken, Hotel
-        from hotel.services.cancellation import CancellationCalculator
+        from hotel.services.guest_cancellation import (
+            cancel_booking_with_token, 
+            GuestCancellationError, 
+            StripeOperationError
+        )
         
-        raw_token = request.data.get('token')
+        # Accept token from request.data OR query_params (support both)
+        raw_token = request.data.get('token') or request.query_params.get('token')
         cancellation_reason = request.data.get('reason', 'Guest cancellation via management link')
         
         if not raw_token:
@@ -1274,7 +1263,7 @@ class BookingStatusView(APIView):
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         
         try:
-            # Validate hotel exists
+            # Views retain full responsibility for hotel + booking + token validation
             hotel = Hotel.objects.get(slug=hotel_slug)
             
             # Find booking - must belong to this hotel
@@ -1305,64 +1294,50 @@ class BookingStatusView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Validate token status
+        # Validate token status (views handle token validation BEFORE calling service)
         if not token.is_valid:
             return Response(
                 {'error': 'Token is no longer valid'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Check if booking can be cancelled
-        if booking.status not in ['CONFIRMED', 'PENDING_PAYMENT']:
+        # Call the shared cancellation service with pre-validated booking and token
+        try:
+            cancellation_result = cancel_booking_with_token(
+                booking=booking,
+                token_obj=token,
+                reason=cancellation_reason
+            )
+            
+            # Return consistent JSON format
+            return Response({
+                'success': True,
+                'message': 'Your booking has been successfully cancelled.',
+                'cancellation': {
+                    'cancelled_at': cancellation_result['cancelled_at'],
+                    'cancellation_fee': str(cancellation_result['fee_amount']),
+                    'refund_amount': str(cancellation_result['refund_amount']),
+                    'description': cancellation_result['description'],
+                    'refund_reference': cancellation_result.get('refund_reference', '')
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except GuestCancellationError as e:
+            # Business logic errors - safe to expose message
             return Response(
-                {'error': 'This booking cannot be cancelled'},
+                {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
-        if booking.cancelled_at:
+        except StripeOperationError as e:
+            # Stripe errors - return 502 with safe message (no Stripe details leaked)
             return Response(
-                {'error': 'This booking has already been cancelled'},
-                status=status.HTTP_400_BAD_REQUEST
+                {'error': 'Payment processing failed. Please contact hotel directly.'},
+                status=status.HTTP_502_BAD_GATEWAY
             )
-        
-        # Calculate cancellation fees
-        try:
-            calculator = CancellationCalculator(booking)
-            cancellation_result = calculator.calculate()
-        except Exception:
-            return Response(
-                {'error': 'Unable to process cancellation at this time'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-        # Process cancellation atomically
-        try:
-            with transaction.atomic():
-                booking.status = 'CANCELLED'
-                booking.cancelled_at = timezone.now()
-                booking.cancellation_reason = cancellation_reason
-                booking.cancellation_fee = cancellation_result['fee_amount']
-                booking.refund_amount = cancellation_result['refund_amount']
-                booking.save()
-                
-                # Record cancellation action and mark token as used
-                token.record_action('CANCEL')
-                token.used_at = timezone.now()
-                token.save()
-                
-        except Exception:
+        except Exception as e:
+            # Unexpected errors - safe generic message
             return Response(
                 {'error': 'Failed to process cancellation'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
-        return Response({
-            'success': True,
-            'message': 'Your booking has been successfully cancelled.',
-            'cancellation': {
-                'cancelled_at': booking.cancelled_at.isoformat(),
-                'cancellation_fee': str(booking.cancellation_fee),
-                'refund_amount': str(booking.refund_amount),
-                'description': cancellation_result['description']
-            }
-        }, status=status.HTTP_200_OK)
+    
