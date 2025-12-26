@@ -2,6 +2,10 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from cloudinary.models import CloudinaryField
+import secrets
+import hashlib
+from datetime import timedelta
+from django.utils import timezone
 
 
 # ============================================================================
@@ -1035,6 +1039,188 @@ class RoomBooking(models.Model):
         return f"{self.booking_id} - {self.primary_guest_name} @ {self.hotel.name}"
 
 
+class GuestBookingToken(models.Model):
+    """
+    Secure tokens for guest-specific booking access and realtime updates.
+    Enables guests to view their booking status without authentication.
+    """
+    
+    PURPOSE_CHOICES = [
+        ('STATUS', 'Booking Status Access'),
+        ('PRECHECKIN', 'Pre-checkin Process'),
+    ]
+    
+    # Secure token (stored hashed)
+    token_hash = models.CharField(
+        max_length=64,  # SHA-256 hex digest
+        unique=True,
+        db_index=True,
+        help_text="SHA-256 hash of the actual token"
+    )
+    
+    # Relationships
+    booking = models.ForeignKey(
+        RoomBooking,
+        on_delete=models.CASCADE,
+        related_name='guest_tokens',
+        db_index=True
+    )
+    hotel = models.ForeignKey(
+        Hotel,
+        on_delete=models.CASCADE,
+        related_name='guest_booking_tokens',
+        help_text="Derived from booking.hotel for query optimization"
+    )
+    
+    # Token metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Token expiration (recommended: check_out + 30 days)"
+    )
+    revoked_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When token was revoked (for security/cancellation)"
+    )
+    last_used_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Last time token was used (for debugging/security)"
+    )
+    
+    purpose = models.CharField(
+        max_length=20,
+        choices=PURPOSE_CHOICES,
+        default='STATUS',
+        help_text="Token purpose for future extensibility"
+    )
+    
+    class Meta:
+        verbose_name = 'Guest Booking Token'
+        verbose_name_plural = 'Guest Booking Tokens'
+        
+        # One active token per booking
+        constraints = [
+            models.UniqueConstraint(
+                fields=['booking'],
+                condition=models.Q(revoked_at__isnull=True),
+                name='one_active_token_per_booking'
+            )
+        ]
+        
+        indexes = [
+            models.Index(fields=['token_hash']),
+            models.Index(fields=['booking']),
+            models.Index(fields=['hotel']),
+            models.Index(fields=['expires_at']),
+        ]
+    
+    @classmethod
+    def generate_token(cls, booking, purpose='STATUS', expires_days=None):
+        """
+        Generate a new secure token for a booking.
+        
+        Args:
+            booking: RoomBooking instance
+            purpose: Token purpose ('STATUS', 'PRECHECKIN')
+            expires_days: Days until expiry (default: check_out + 30 days)
+        
+        Returns:
+            tuple: (GuestBookingToken instance, raw_token_string)
+        """
+        # Generate 32-byte random token
+        raw_token = secrets.token_urlsafe(32)
+        
+        # Hash token for storage (constant-time comparison security)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        # Calculate expiry
+        if expires_days is None:
+            # Default: check_out + 30 days for best UX
+            expires_at = booking.check_out + timedelta(days=30)
+        else:
+            expires_at = timezone.now() + timedelta(days=expires_days)
+        
+        # Revoke any existing active token for this booking
+        cls.objects.filter(
+            booking=booking,
+            revoked_at__isnull=True
+        ).update(revoked_at=timezone.now())
+        
+        # Create new token
+        token_obj = cls.objects.create(
+            token_hash=token_hash,
+            booking=booking,
+            hotel=booking.hotel,
+            expires_at=expires_at,
+            purpose=purpose
+        )
+        
+        return token_obj, raw_token
+    
+    @classmethod
+    def validate_token(cls, raw_token, booking_id=None):
+        """
+        Validate a raw token and return the associated booking if valid.
+        
+        Args:
+            raw_token: The raw token string from the guest
+            booking_id: Optional booking ID to match (for channel auth)
+        
+        Returns:
+            GuestBookingToken instance if valid, None otherwise
+        """
+        if not raw_token:
+            return None
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find token with constant-time comparison protection
+            token_obj = cls.objects.select_related('booking', 'hotel').get(
+                token_hash=token_hash,
+                revoked_at__isnull=True
+            )
+            
+            # Check expiry
+            if token_obj.expires_at and timezone.now() > token_obj.expires_at:
+                return None
+            
+            # Check booking ID match if provided (for channel auth)
+            if booking_id and token_obj.booking.booking_id != booking_id:
+                return None
+            
+            # Update last used timestamp
+            token_obj.last_used_at = timezone.now()
+            token_obj.save(update_fields=['last_used_at'])
+            
+            return token_obj
+            
+        except cls.DoesNotExist:
+            return None
+    
+    def is_valid(self):
+        """
+        Check if token is currently valid.
+        """
+        if self.revoked_at:
+            return False
+        if self.expires_at and timezone.now() > self.expires_at:
+            return False
+        return True
+    
+    def revoke(self):
+        """
+        Revoke this token.
+        """
+        self.revoked_at = timezone.now()
+        self.save(update_fields=['revoked_at'])
+    
+    def __str__(self):
+        status = "active" if self.is_valid() else "inactive"
+        return f"Token for {self.booking.booking_id} ({status})"
+
+
 class CancellationPolicy(models.Model):
     """
     Cancellation policy templates for room bookings with flexible rules.
@@ -1889,6 +2075,14 @@ class AttendanceSettings(models.Model):
     
     def __str__(self):
         return f"AttendanceSettings({self.hotel.slug})"
+
+
+# Auto-generate hotel field for guest tokens
+@receiver(models.signals.pre_save, sender=GuestBookingToken)
+def auto_populate_guest_token_hotel(sender, instance, **kwargs):
+    """Auto-populate hotel field from booking if not set."""
+    if not instance.hotel_id and instance.booking:
+        instance.hotel = instance.booking.hotel
 
 
 # Signal to auto-add new departments to face attendance

@@ -174,9 +174,171 @@ def cancel_booking_programmatically(booking: RoomBooking, reason: str = "Cancell
     from django.utils import timezone
     from django.db import transaction
     from hotel.services.cancellation import CancellationCalculator
+
+
+def payment_stage(booking):
+    """
+    Classify payment stage from existing booking fields.
     
-    # Check if booking can be cancelled
-    if booking.status not in ['CONFIRMED', 'PENDING_PAYMENT', 'PENDING_APPROVAL']:
+    Returns one of: NONE, SESSION_CREATED, AUTHORIZED, CAPTURED
+    
+    Based on canonical field mappings:
+    - NONE: payment_reference empty AND paid_at is null
+    - SESSION_CREATED: payment_reference startswith "cs_" (Stripe Checkout Session ID)
+    - AUTHORIZED: payment_reference startswith "pi_" AND paid_at is null (PaymentIntent authorized)
+    - CAPTURED: paid_at is not null (payment completed)
+    """
+    # CAPTURED: payment completed (highest priority)
+    if booking.paid_at is not None:
+        return "CAPTURED"
+    
+    # Check payment_reference for session/intent indicators
+    payment_ref = booking.payment_reference or ""
+    
+    if payment_ref.startswith("pi_"):
+        # PaymentIntent authorized but not captured
+        return "AUTHORIZED"
+    elif payment_ref.startswith("cs_"):
+        # Checkout Session created
+        return "SESSION_CREATED"
+    
+    # No payment activity
+    return "NONE"
+
+
+def cancel_booking(booking, reason="Booking cancelled", actor="System"):
+    """
+    Smart cancellation service using payment_stage() to determine correct Stripe actions.
+    
+    Args:
+        booking: RoomBooking instance
+        reason: Cancellation reason
+        actor: Who/what cancelled the booking
+        
+    Returns:
+        dict: Cancellation result with actions taken
+    """
+    from django.utils import timezone
+    from notifications.notification_manager import notification_manager
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    result = {"booking_id": booking.booking_id, "actions": []}
+    
+    # Determine payment stage
+    stage = payment_stage(booking)
+    result["payment_stage"] = stage
+    
+    # Process cancellation atomically
+    with transaction.atomic():
+        # Update booking status
+        booking.status = 'CANCELLED'
+        booking.cancelled_at = timezone.now()
+        booking.cancellation_reason = reason
+        booking.save(update_fields=['status', 'cancelled_at', 'cancellation_reason'])
+        result["actions"].append("DB_CANCELLED")
+        
+        # Handle Stripe actions based on payment stage
+        if stage == "NONE":
+            # No payment to handle
+            result["actions"].append("NO_PAYMENT_ACTION")
+            
+        elif stage in ["SESSION_CREATED", "AUTHORIZED"]:
+            # Void/expire session or cancel authorization
+            try:
+                if stage == "SESSION_CREATED" and booking.payment_reference.startswith("cs_"):
+                    # Stripe session - expires automatically, no action needed
+                    result["actions"].append("SESSION_EXPIRES_AUTOMATICALLY")
+                elif stage == "AUTHORIZED" and booking.payment_intent_id:
+                    # Cancel PaymentIntent authorization
+                    import stripe
+                    from django.conf import settings
+                    stripe.api_key = settings.STRIPE_SECRET_KEY
+                    
+                    stripe.PaymentIntent.cancel(booking.payment_intent_id)
+                    result["actions"].append("PAYMENT_INTENT_CANCELLED")
+                    logger.info(f"Cancelled Stripe PaymentIntent {booking.payment_intent_id}")
+            except Exception as e:
+                result["actions"].append(f"STRIPE_ERROR: {str(e)}")
+                logger.error(f"Failed to cancel Stripe payment for booking {booking.booking_id}: {e}")
+                
+        elif stage == "CAPTURED":
+            # Refund captured payment
+            try:
+                # Calculate refund based on cancellation policy
+                calculator = CancellationCalculator(booking)
+                cancellation_result = calculator.calculate()
+                
+                refund_amount = cancellation_result['refund_amount']
+                result["cancellation_fee"] = cancellation_result['fee_amount']
+                result["refund_amount"] = refund_amount
+                
+                if refund_amount > 0:
+                    # Process Stripe refund
+                    import stripe
+                    from django.conf import settings
+                    stripe.api_key = settings.STRIPE_SECRET_KEY
+                    
+                    # Find charge ID from payment intent
+                    if booking.payment_intent_id:
+                        payment_intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
+                        if payment_intent.charges.data:
+                            charge_id = payment_intent.charges.data[0].id
+                            
+                            # Create refund
+                            refund = stripe.Refund.create(
+                                charge=charge_id,
+                                amount=int(refund_amount * 100),  # Convert to cents
+                                reason='requested_by_customer'
+                            )
+                            
+                            # Update booking record
+                            booking.refund_amount = refund_amount
+                            booking.refund_processed_at = timezone.now()
+                            booking.refund_reference = refund.id
+                            booking.save(update_fields=['refund_amount', 'refund_processed_at', 'refund_reference'])
+                            
+                            result["actions"].append(f"REFUND_PROCESSED: {refund.id}")
+                            logger.info(f"Processed refund {refund.id} for booking {booking.booking_id}")
+                else:
+                    result["actions"].append("NO_REFUND_DUE")
+                    
+            except Exception as e:
+                result["actions"].append(f"REFUND_ERROR: {str(e)}")
+                logger.error(f"Failed to process refund for booking {booking.booking_id}: {e}")
+        
+        # Emit realtime events after commit
+        transaction.on_commit(
+            lambda: emit_cancellation_events(booking, reason, actor)
+        )
+        
+    return result
+
+
+def emit_cancellation_events(booking, reason, actor):
+    """
+    Emit cancellation events to both staff and guest channels.
+    Called after transaction commit for realtime safety.
+    """
+    from notifications.notification_manager import notification_manager
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Staff channel event
+        notification_manager.realtime_booking_cancelled(booking, reason)
+        
+        # Guest channel event
+        notification_manager.realtime_guest_booking_cancelled(
+            booking=booking,
+            cancelled_at=booking.cancelled_at,
+            cancellation_reason=reason
+        )
+        
+        logger.info(f"Emitted cancellation events for booking {booking.booking_id}")
+    except Exception as e:
+        logger.error(f"Failed to emit cancellation events for booking {booking.booking_id}: {e}")
         raise ValueError(f"Booking {booking.booking_id} cannot be cancelled (status: {booking.status})")
     
     if booking.cancelled_at:

@@ -1311,6 +1311,19 @@ class StaffBookingCancelView(APIView):
         except Exception as e:
             logger.error(f"NotificationManager failed for booking cancellation {booking.booking_id}: {e}")
             
+        # Send guest-scoped realtime event (booking cancelled)
+        try:
+            from django.db import transaction
+            transaction.on_commit(
+                lambda: notification_manager.realtime_guest_booking_cancelled(
+                    booking=booking,
+                    cancelled_at=booking.cancelled_at,
+                    cancellation_reason=cancellation_reason
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to send guest realtime cancellation event for booking {booking.booking_id}: {e}")
+            
             # Fallback to direct FCM
             try:
                 # Try to find guest FCM token from room if they're checked in
@@ -3009,6 +3022,18 @@ class StaffBookingAcceptView(APIView):
             notification_manager.realtime_booking_updated(booking)
         except Exception as e:
             logger.error(f"Failed to send realtime update for booking {booking_id}: {e}")
+        
+        # Send guest-scoped realtime event (booking confirmed)
+        try:
+            from django.db import transaction
+            transaction.on_commit(
+                lambda: notification_manager.realtime_guest_booking_confirmed(
+                    booking=booking,
+                    confirmed_at=booking.paid_at
+                )
+            )
+        except Exception as e:
+            logger.error(f"Failed to send guest realtime event for booking {booking_id}: {e}")
         
         return Response({
             'status': 'approved',

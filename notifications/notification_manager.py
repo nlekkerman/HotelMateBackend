@@ -125,6 +125,103 @@ class NotificationManager:
             return False
     
     # -------------------------------------------------------------------------
+    # GUEST BOOKING REALTIME METHODS
+    # -------------------------------------------------------------------------
+    
+    def realtime_guest_booking_payment_required(self, booking, reason="Hotel accepted booking"):
+        """
+        Emit guest-scoped event when payment is required for booking.
+        
+        Args:
+            booking: RoomBooking instance
+            reason: Why payment is required
+        """
+        normalized_event = self._create_normalized_event(
+            category="room_booking",
+            type="booking_payment_required",
+            payload={
+                "booking_id": booking.booking_id,
+                "status": "PENDING_PAYMENT",
+                "payment_required": True,
+                "reason": reason,
+                "hotel_name": booking.hotel.name,
+                "hotel_phone": booking.hotel.phone or "",
+            },
+            scope={
+                "type": "guest_booking",
+                "booking_id": booking.booking_id
+            }
+        )
+        
+        # Emit to guest booking channel
+        channel = f"private-guest-booking.{booking.booking_id}"
+        return self._safe_pusher_trigger(channel, "booking_payment_required", normalized_event)
+    
+    def realtime_guest_booking_confirmed(self, booking, confirmed_at=None):
+        """
+        Emit guest-scoped event when booking is confirmed.
+        
+        Args:
+            booking: RoomBooking instance  
+            confirmed_at: When booking was confirmed (defaults to now)
+        """
+        if not confirmed_at:
+            confirmed_at = timezone.now()
+            
+        normalized_event = self._create_normalized_event(
+            category="room_booking",
+            type="booking_confirmed",
+            payload={
+                "booking_id": booking.booking_id,
+                "status": "CONFIRMED",
+                "confirmed_at": confirmed_at.isoformat(),
+                "hotel_name": booking.hotel.name,
+                "hotel_phone": booking.hotel.phone or "",
+            },
+            scope={
+                "type": "guest_booking",
+                "booking_id": booking.booking_id
+            }
+        )
+        
+        # Emit to guest booking channel
+        channel = f"private-guest-booking.{booking.booking_id}"
+        return self._safe_pusher_trigger(channel, "booking_confirmed", normalized_event)
+    
+    def realtime_guest_booking_cancelled(self, booking, cancelled_at=None, cancellation_reason=""):
+        """
+        Emit guest-scoped event when booking is cancelled.
+        
+        Args:
+            booking: RoomBooking instance
+            cancelled_at: When booking was cancelled (defaults to now)
+            cancellation_reason: Reason for cancellation
+        """
+        if not cancelled_at:
+            cancelled_at = timezone.now()
+            
+        normalized_event = self._create_normalized_event(
+            category="room_booking",
+            type="booking_cancelled", 
+            payload={
+                "booking_id": booking.booking_id,
+                "status": "CANCELLED",
+                "cancelled_at": cancelled_at.isoformat(),
+                "cancellation_reason": cancellation_reason,
+                "hotel_name": booking.hotel.name,
+                "hotel_phone": booking.hotel.phone or "",
+            },
+            scope={
+                "type": "guest_booking",
+                "booking_id": booking.booking_id
+            }
+        )
+        
+        # Emit to guest booking channel
+        channel = f"private-guest-booking.{booking.booking_id}"
+        return self._safe_pusher_trigger(channel, "booking_cancelled", normalized_event)
+    
+    # -------------------------------------------------------------------------
     # ATTENDANCE REALTIME METHODS
     # -------------------------------------------------------------------------
     

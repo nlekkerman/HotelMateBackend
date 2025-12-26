@@ -375,7 +375,14 @@ class HotelBookingCreateView(APIView):
         # Count party members (1 PRIMARY + companions)
         party_count = 1 + len(party_data)  # 1 PRIMARY + companions
         
-        # Return public-safe response payload
+        # Generate secure guest booking token
+        from .models import GuestBookingToken
+        token_obj, raw_token = GuestBookingToken.generate_token(
+            booking=booking,
+            purpose='STATUS'
+        )
+        
+        # Return public-safe response payload with guest token
         response_data = {
             "success": True,
             "data": {
@@ -386,7 +393,9 @@ class HotelBookingCreateView(APIView):
                     f"{booking.primary_last_name}"
                 ),
                 "booker_type": booking.booker_type,
-                "party_count": party_count
+                "party_count": party_count,
+                "guest_token": raw_token,  # Secure token for guest realtime access
+                "token_expires": token_obj.expires_at.isoformat() if token_obj.expires_at else None
             }
         }
         

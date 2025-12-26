@@ -456,6 +456,15 @@ class StripeWebhookView(APIView):
                         from notifications.notification_manager import notification_manager
                         notification_manager.realtime_booking_updated(booking)
                         print(f"📡 Pusher event sent for booking {booking_id} -> PENDING_APPROVAL")
+                        
+                        # Send guest-scoped realtime event (payment required)
+                        from django.db import transaction
+                        transaction.on_commit(
+                            lambda: notification_manager.realtime_guest_booking_payment_required(
+                                booking=booking,
+                                reason="Hotel accepted booking - payment required"
+                            )
+                        )
                     except Exception as e:
                         print(f"❌ Failed to send Pusher event for booking {booking_id}: {e}")
                     
