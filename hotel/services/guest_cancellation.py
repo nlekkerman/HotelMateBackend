@@ -87,6 +87,22 @@ def cancel_booking_with_token(*, booking, token_obj, reason="Guest cancellation 
             token_obj.used_at = timezone.now()
             token_obj.save()
             
+            # Step 3d: Send cancellation confirmation email
+            try:
+                _send_cancellation_confirmation_email(booking, cancellation_result)
+            except Exception as e:
+                logger.warning(f"Failed to send cancellation email for {booking.booking_id}: {e}")
+                # Don't fail the cancellation if email fails
+            
+            # Step 3e: Send real-time notifications (both FCM and Pusher via NotificationManager)
+            try:
+                from notifications.notification_manager import notification_manager
+                notification_manager.realtime_booking_cancelled(booking, reason)
+                logger.info(f"NotificationManager sent cancellation notifications for {booking.booking_id}")
+            except Exception as e:
+                logger.warning(f"NotificationManager failed for {booking.booking_id}: {e}")
+                # Don't fail the cancellation if notifications fail
+            
     except StripeOperationError:
         # Re-raise Stripe errors without wrapping
         raise
@@ -189,3 +205,63 @@ def _handle_stripe_operations(booking, cancellation_result) -> str:
         raise StripeOperationError(f"Payment processing error: {str(e)}")
     
     return refund_reference
+
+
+def _send_cancellation_confirmation_email(booking, cancellation_result):
+    """Send cancellation confirmation email to guest."""
+    try:
+        from django.core.mail import send_mail
+        from django.template.loader import render_to_string
+        from django.conf import settings
+        
+        # Prepare email context
+        context = {
+            'booking': booking,
+            'hotel': booking.hotel,
+            'cancellation_fee': cancellation_result['fee_amount'],
+            'refund_amount': cancellation_result['refund_amount'],
+            'description': cancellation_result['description'],
+            'refund_reference': cancellation_result.get('refund_reference', ''),
+            'cancelled_at': cancellation_result['cancelled_at']
+        }
+        
+        # Email subject
+        subject = f"Booking Cancelled - {booking.hotel.name} - {booking.booking_id}"
+        
+        # Email content (plain text fallback)
+        message = f"""
+Dear {booking.primary_guest_name},
+
+Your booking has been successfully cancelled.
+
+Booking Details:
+- Booking ID: {booking.booking_id}
+- Hotel: {booking.hotel.name}
+- Check-in: {booking.check_in}
+- Check-out: {booking.check_out}
+
+Cancellation Summary:
+- Cancellation Fee: €{cancellation_result['fee_amount']}
+- Refund Amount: €{cancellation_result['refund_amount']}
+- {cancellation_result['description']}
+
+If you have any questions, please contact the hotel directly at {booking.hotel.email}.
+
+Thank you,
+{booking.hotel.name}
+        """
+        
+        # Send email
+        send_mail(
+            subject=subject,
+            message=message.strip(),
+            from_email=settings.EMAIL_HOST_USER,
+            recipient_list=[booking.primary_email],
+            fail_silently=False,
+        )
+        
+        logger.info(f"Cancellation confirmation email sent for booking {booking.booking_id}")
+        
+    except Exception as e:
+        logger.error(f"Failed to send cancellation email for {booking.booking_id}: {e}")
+        raise

@@ -777,8 +777,8 @@ class NotificationManager:
         hotel_slug = booking.hotel.slug
         channel = self._room_booking_channel(hotel_slug)
         
-        # Send FCM to guest if token available
-        self._notify_guest_booking_confirmed(booking)
+        # NOTE: Don't send guest confirmation here - booking may still be PENDING_PAYMENT
+        # Guest confirmation should only be sent when booking is actually confirmed
         
         return self._safe_pusher_trigger(channel, "booking_created", event_data)
     
@@ -808,6 +808,42 @@ class NotificationManager:
         hotel_slug = booking.hotel.slug
         channel = self._room_booking_channel(hotel_slug)
         return self._safe_pusher_trigger(channel, "booking_updated", event_data)
+    
+    def realtime_booking_confirmed(self, booking):
+        """Emit normalized booking confirmed event when payment is actually confirmed."""
+        self.logger.info(f"✅ Realtime booking: {booking.booking_id} confirmed")
+        
+        payload = {
+            'booking_id': booking.booking_id,
+            'confirmation_number': getattr(booking, 'confirmation_number', None),
+            'primary_guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
+            'primary_email': booking.primary_email,
+            'room_type': str(booking.room_type) if booking.room_type else None,
+            'assigned_room_number': booking.assigned_room.room_number if booking.assigned_room else None,
+            'check_in': booking.check_in.isoformat(),
+            'check_out': booking.check_out.isoformat(),
+            'nights': (booking.check_out - booking.check_in).days,
+            'total_amount': float(getattr(booking, 'total_amount', 0)),
+            'status': 'CONFIRMED',
+            'confirmed_at': timezone.now().isoformat(),
+            'adults': getattr(booking, 'adults', 1),
+            'children': getattr(booking, 'children', 0)
+        }
+        
+        event_data = self._create_normalized_event(
+            category="room_booking",
+            event_type="booking_confirmed",
+            payload=payload,
+            hotel=booking.hotel,
+            scope={'booking_id': booking.booking_id, 'primary_email': booking.primary_email}
+        )
+        
+        # Send FCM confirmation to guest (now it's actually confirmed)
+        self._notify_guest_booking_confirmed(booking)
+        
+        hotel_slug = booking.hotel.slug
+        channel = self._room_booking_channel(hotel_slug)
+        return self._safe_pusher_trigger(channel, "booking_confirmed", event_data)
     
     def realtime_booking_party_updated(self, booking, party_members=None):
         """
@@ -846,35 +882,42 @@ class NotificationManager:
         return self._safe_pusher_trigger(channel, "booking_party_updated", event_data)
     
     def realtime_booking_cancelled(self, booking, reason=None):
-        """Emit normalized booking cancelled event."""
-        self.logger.info(f"❌ Realtime booking: {booking.booking_id} cancelled")
+        """Emit normalized booking cancelled event AFTER database commit."""
+        from django.db import transaction
         
-        payload = {
-            'booking_id': booking.booking_id,
-            'confirmation_number': getattr(booking, 'confirmation_number', None),
-            'guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
-            'room': booking.room_number if hasattr(booking, 'room_number') else None,
-            'check_in': booking.check_in.isoformat(),
-            'check_out': booking.check_out.isoformat(),
-            'status': 'cancelled',
-            'cancellation_reason': reason or 'No reason provided',
-            'cancelled_at': timezone.now().isoformat()
-        }
+        def emit_cancellation_event():
+            self.logger.info(f"❌ Realtime booking: {booking.booking_id} cancelled")
+            
+            payload = {
+                'booking_id': booking.booking_id,
+                'confirmation_number': getattr(booking, 'confirmation_number', None),
+                'guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
+                'room': booking.room_number if hasattr(booking, 'room_number') else None,
+                'assigned_room_number': booking.assigned_room.room_number if booking.assigned_room else None,
+                'check_in': booking.check_in.isoformat(),
+                'check_out': booking.check_out.isoformat(),
+                'status': 'CANCELLED',
+                'cancellation_reason': reason or 'No reason provided',
+                'cancelled_at': timezone.now().isoformat()
+            }
+            
+            event_data = self._create_normalized_event(
+                category="room_booking",
+                event_type="booking_cancelled",
+                payload=payload,
+                hotel=booking.hotel,
+                scope={'booking_id': booking.booking_id, 'reason': reason}
+            )
+            
+            # Send FCM cancellation to guest
+            self._notify_guest_booking_cancelled(booking, reason)
+            
+            hotel_slug = booking.hotel.slug
+            channel = self._room_booking_channel(hotel_slug)
+            return self._safe_pusher_trigger(channel, "booking_cancelled", event_data)
         
-        event_data = self._create_normalized_event(
-            category="room_booking",
-            event_type="booking_cancelled",
-            payload=payload,
-            hotel=booking.hotel,
-            scope={'booking_id': booking.booking_id, 'reason': reason}
-        )
-        
-        # Send FCM cancellation to guest
-        self._notify_guest_booking_cancelled(booking, reason)
-        
-        hotel_slug = booking.hotel.slug
-        channel = self._room_booking_channel(hotel_slug)
-        return self._safe_pusher_trigger(channel, "booking_cancelled", event_data)
+        # Only emit after database transaction commits
+        transaction.on_commit(emit_cancellation_event)
     
     # -------------------------------------------------------------------------
     # HELPER METHODS
