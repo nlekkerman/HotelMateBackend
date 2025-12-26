@@ -7,6 +7,13 @@ from django.urls import path
 from . import public_views
 
 urlpatterns = [
+    # Cancellation policy endpoint
+    path(
+        'hotel/<slug:hotel_slug>/cancellation-policy/',
+        public_views.HotelCancellationPolicyView.as_view(),
+        name='hotel-cancellation-policy'
+    ),
+    
     # Guest pre-check-in endpoints
     path(
         'hotel/<slug:hotel_slug>/precheckin/',

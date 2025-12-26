@@ -861,3 +861,52 @@ class SubmitSurveyDataView(APIView):
             'submitted_at': survey_response.submitted_at.isoformat(),
             'booking_id': booking.booking_id
         })
+
+
+class HotelCancellationPolicyView(APIView):
+    """
+    Get detailed cancellation policy information for a hotel.
+    Public endpoint - no authentication required.
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, hotel_slug):
+        """Return hotel's default cancellation policy details"""
+        hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
+        
+        if not hotel.default_cancellation_policy:
+            return Response({
+                'error': 'No default cancellation policy configured for this hotel'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        policy = hotel.default_cancellation_policy
+        
+        # Include tier information for custom policies
+        tiers_data = []
+        if policy.template_type == 'CUSTOM':
+            for tier in policy.tiers.all().order_by('hours_before_checkin'):
+                tiers_data.append({
+                    'hours_before_checkin': tier.hours_before_checkin,
+                    'penalty_type': tier.penalty_type,
+                    'penalty_amount': str(tier.penalty_amount) if tier.penalty_amount else None,
+                    'penalty_percentage': str(tier.penalty_percentage) if tier.penalty_percentage else None
+                })
+        
+        policy_data = {
+            'id': policy.id,
+            'code': policy.code,
+            'name': policy.name,
+            'description': policy.description,
+            'template_type': policy.template_type,
+            'free_until_hours': policy.free_until_hours,
+            'penalty_type': policy.penalty_type,
+            'penalty_amount': str(policy.penalty_amount) if policy.penalty_amount else None,
+            'penalty_percentage': str(policy.penalty_percentage) if policy.penalty_percentage else None,
+            'no_show_penalty_type': policy.no_show_penalty_type,
+            'is_active': policy.is_active,
+            'tiers': tiers_data if tiers_data else None
+        }
+        
+        return Response({
+            'policy': policy_data
+        }, status=status.HTTP_200_OK)

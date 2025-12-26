@@ -344,6 +344,22 @@ def build_pricing_quote_data(
                     "discount_percentage": "10.00"
                 }
     
+    # Get hotel's default cancellation policy
+    cancellation_policy_data = None
+    if hotel.default_cancellation_policy:
+        policy = hotel.default_cancellation_policy
+        cancellation_policy_data = {
+            'id': policy.id,
+            'code': policy.code,
+            'name': policy.name,
+            'description': policy.description,
+            'template_type': policy.template_type,
+            'free_until_hours': policy.free_until_hours,
+            'penalty_type': policy.penalty_type,
+            'no_show_penalty_type': policy.no_show_penalty_type,
+            'is_active': policy.is_active
+        }
+
     # Build response dict matching existing schema
     response_data = {
         "quote_id": quote.quote_id,
@@ -373,7 +389,8 @@ def build_pricing_quote_data(
             "discount": f"-{discount:.2f}" if discount > 0 else "0.00",
             "total": f"{total:.2f}"
         },
-        "applied_promo": applied_promo
+        "applied_promo": applied_promo,
+        "cancellation_policy": cancellation_policy_data
     }
     
     return response_data
