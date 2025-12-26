@@ -163,6 +163,46 @@ def check_availability(request, hotel_slug):
     })
 
 
+def get_cancellation_policy_details(request, hotel_slug):
+    """Get detailed cancellation policy information for a hotel"""
+    hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    
+    if not hotel.default_cancellation_policy:
+        return JsonResponse({
+            'error': 'No default cancellation policy configured for this hotel'
+        }, status=404)
+    
+    policy = hotel.default_cancellation_policy
+    
+    # Include tier information for custom policies
+    tiers_data = []
+    if policy.template_type == 'CUSTOM':
+        for tier in policy.tiers.all().order_by('hours_before_checkin'):
+            tiers_data.append({
+                'hours_before_checkin': tier.hours_before_checkin,
+                'penalty_type': tier.penalty_type,
+                'penalty_amount': str(tier.penalty_amount) if tier.penalty_amount else None,
+                'penalty_percentage': str(tier.penalty_percentage) if tier.penalty_percentage else None
+            })
+    
+    return JsonResponse({
+        'policy': {
+            'id': policy.id,
+            'code': policy.code,
+            'name': policy.name,
+            'description': policy.description,
+            'template_type': policy.template_type,
+            'free_until_hours': policy.free_until_hours,
+            'penalty_type': policy.penalty_type,
+            'penalty_amount': str(policy.penalty_amount) if policy.penalty_amount else None,
+            'penalty_percentage': str(policy.penalty_percentage) if policy.penalty_percentage else None,
+            'no_show_penalty_type': policy.no_show_penalty_type,
+            'is_active': policy.is_active,
+            'tiers': tiers_data if tiers_data else None
+        }
+    })
+
+
 @csrf_exempt
 def get_pricing_quote(request, hotel_slug):
     """Calculate pricing quote for a booking"""
@@ -256,6 +296,22 @@ def get_pricing_quote(request, hotel_slug):
         valid_until=timezone.now() + timedelta(minutes=30)
     )
     
+    # Get hotel's default cancellation policy
+    cancellation_policy_data = None
+    if hotel.default_cancellation_policy:
+        policy = hotel.default_cancellation_policy
+        cancellation_policy_data = {
+            'id': policy.id,
+            'code': policy.code,
+            'name': policy.name,
+            'description': policy.description,
+            'template_type': policy.template_type,
+            'free_until_hours': policy.free_until_hours,
+            'penalty_type': policy.penalty_type,
+            'no_show_penalty_type': policy.no_show_penalty_type,
+            'is_active': policy.is_active
+        }
+
     return JsonResponse({
         'quote_id': quote.quote_id,
         'valid_until': quote.valid_until.isoformat(),
@@ -269,7 +325,8 @@ def get_pricing_quote(request, hotel_slug):
             'discount': str(discount),
             'total': str(total)
         },
-        'applied_promo': applied_offer
+        'applied_promo': applied_offer,
+        'cancellation_policy': cancellation_policy_data
     })
 
 
@@ -427,6 +484,11 @@ urlpatterns = [
         'hotels/<str:hotel_slug>/pricing/quote/',
         get_pricing_quote,
         name='pricing-quote'
+    ),
+    path(
+        'hotels/<str:hotel_slug>/cancellation-policy/',
+        get_cancellation_policy_details,
+        name='cancellation-policy-details'
     ),
     path(
         'hotels/<str:hotel_slug>/bookings/',
