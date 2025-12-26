@@ -475,6 +475,16 @@ class StripeWebhookView(APIView):
         # Send authorization email only if DB update succeeded
         if booking_updated and customer_email:
             try:
+                # Generate booking management token for secure access
+                from hotel.services.booking_management import generate_booking_management_token
+                raw_token, token_obj = generate_booking_management_token(booking)
+                
+                # Get hotel slug for the URL
+                hotel_slug = booking.hotel.slug
+                
+                # Build secure management URL
+                management_url = f"https://hotelsmates.com/booking/status/{hotel_slug}/{booking_id}?token={raw_token}"
+                
                 email_subject = f"Payment authorized — awaiting hotel confirmation ({booking_id})"
                 email_message = f"""
 Dear {guest_name or 'Guest'},
@@ -491,8 +501,15 @@ Your payment authorization has been successfully processed. Your booking is now 
 
 No charge will be captured unless the hotel accepts your booking. If not accepted, the authorization will be released by your bank.
 
-You can view your booking status at:
-https://hotelsmates.com/booking/status/{booking_id}
+You can view your booking status and manage your reservation at:
+{management_url}
+
+This secure link allows you to:
+- View your booking details and status
+- Cancel your booking if needed (subject to cancellation policy)
+- Check cancellation fees before confirming
+
+Important: Keep this link secure - it provides access to your booking management.
 
 If you have any questions, please contact the hotel directly.
 
