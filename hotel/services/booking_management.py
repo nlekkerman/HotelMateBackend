@@ -65,9 +65,9 @@ def send_booking_management_email(booking: RoomBooking, raw_token: str, recipien
     if not recipient_email:
         raise ValueError("No recipient email provided")
     
-    # Build management URL
+    # Build management URL with hotel slug, booking ID, and token
     base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
-    management_url = f"{base_url}/booking/status/{booking.booking_id}?token={raw_token}"
+    management_url = f"{base_url}/booking/status/{booking.hotel.slug}/{booking.booking_id}?token={raw_token}"
     
     # Prepare email context
     context = {

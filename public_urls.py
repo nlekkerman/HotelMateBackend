@@ -9,6 +9,9 @@ from hotel.public_views import (
     HotelPublicPageView,
     PublicPresetsView,
     BookingStatusView,
+    ValidateBookingManagementTokenView,
+    CancelBookingView,
+    HotelCancellationPolicyView,
 )
 
 from hotel.booking_views import (
@@ -102,11 +105,26 @@ urlpatterns = [
         name="public-stripe-webhook"
     ),
     
-    # Booking status endpoint (matches frontend expectation)
+    # Booking management endpoints (secure with hotel slug)
     path(
-        "booking/status/<str:booking_id>/",
+        "hotels/<slug:hotel_slug>/booking/status/<str:booking_id>/",
         BookingStatusView.as_view(),
         name="public-booking-status"
+    ),
+    path(
+        "booking/validate-token/",
+        ValidateBookingManagementTokenView.as_view(),
+        name="public-validate-booking-token"
+    ),
+    path(
+        "booking/cancel/",
+        CancelBookingView.as_view(),
+        name="public-cancel-booking"
+    ),
+    path(
+        "hotels/<slug:hotel_slug>/cancellation-policy/",
+        HotelCancellationPolicyView.as_view(),
+        name="public-hotel-cancellation-policy"
     ),
     
     # Include hotel public URLs (pre-check-in endpoints)
