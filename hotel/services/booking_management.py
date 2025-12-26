@@ -10,9 +10,10 @@ from datetime import timedelta
 from django.utils import timezone
 from django.template.loader import render_to_string
 from django.conf import settings
+from django.core.mail import send_mail
+from django.utils.html import strip_tags
 
 from hotel.models import RoomBooking, BookingManagementToken
-from notifications.email_service import send_html_email
 
 
 def generate_booking_management_token(booking: RoomBooking) -> tuple[str, BookingManagementToken]:
@@ -83,11 +84,16 @@ def send_booking_management_email(booking: RoomBooking, raw_token: str, recipien
     
     # Send email
     try:
-        success = send_html_email(
-            recipient_email=recipient_email,
+        # Create plain text version from HTML
+        plain_message = strip_tags(html_content)
+        
+        success = send_mail(
             subject=subject,
-            html_content=html_content,
-            sender_name=booking.hotel.name
+            message=plain_message,
+            html_message=html_content,
+            from_email=f"{booking.hotel.name} <{settings.EMAIL_HOST_USER}>",
+            recipient_list=[recipient_email],
+            fail_silently=False,
         )
         
         if success:
