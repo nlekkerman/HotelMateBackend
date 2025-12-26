@@ -134,4 +134,22 @@ def create_room_booking_from_request(
     # Phase 3: The PRIMARY BookingGuest will be auto-created by the save() method
     # Additional party members can be added separately via staff API
     
+    # Generate and send booking management token automatically
+    try:
+        from hotel.services.booking_management import create_and_send_booking_management_token
+        
+        # Only send if primary email is provided
+        if primary_email:
+            success = create_and_send_booking_management_token(booking, primary_email)
+            if success:
+                print(f"✅ Booking management email sent for {booking.booking_id} to {primary_email}")
+            else:
+                print(f"⚠️ Failed to send booking management email for {booking.booking_id}")
+        else:
+            print(f"⚠️ No primary email provided for {booking.booking_id}, skipping management email")
+            
+    except Exception as e:
+        # Don't fail the booking creation if email fails
+        print(f"❌ Error sending booking management email for {booking.booking_id}: {e}")
+    
     return booking

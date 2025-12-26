@@ -910,3 +910,440 @@ class HotelCancellationPolicyView(APIView):
         return Response({
             'policy': policy_data
         }, status=status.HTTP_200_OK)
+
+
+class ValidateBookingManagementTokenView(APIView):
+    """
+    Validate booking management token and return booking information.
+    Allows guests to view their booking status and manage their booking.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, hotel_slug):
+        """Validate token and return booking information for management page"""
+        import hashlib
+        from django.utils import timezone
+        from .models import BookingManagementToken, RoomBooking
+        from hotel.services.cancellation import CancellationCalculator
+        
+        raw_token = request.query_params.get('token')
+        if not raw_token:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find token with constant-time lookup
+            token = BookingManagementToken.objects.select_related(
+                'booking', 'booking__hotel', 'booking__room_type', 'booking__cancellation_policy'
+            ).get(
+                token_hash=token_hash,
+                booking__hotel__slug=hotel_slug
+            )
+        except BookingManagementToken.DoesNotExist:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate token status
+        if not token.is_valid:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        booking = token.booking
+        
+        # Record view action
+        token.record_action('VIEW')
+        
+        # Get cancellation policy information
+        cancellation_policy_data = None
+        if booking.cancellation_policy:
+            policy = booking.cancellation_policy
+            cancellation_policy_data = {
+                'id': policy.id,
+                'code': policy.code,
+                'name': policy.name,
+                'description': policy.description,
+                'template_type': policy.template_type,
+                'free_until_hours': policy.free_until_hours,
+                'penalty_type': policy.penalty_type,
+                'no_show_penalty_type': policy.no_show_penalty_type
+            }
+        
+        # Calculate cancellation fees if booking can be cancelled
+        cancellation_preview = None
+        can_cancel = booking.status in ['CONFIRMED', 'PENDING_PAYMENT'] and not booking.cancelled_at
+        
+        if can_cancel:
+            try:
+                calculator = CancellationCalculator(booking)
+                cancellation_preview = calculator.calculate()
+            except Exception:
+                # If calculation fails, still allow viewing but disable cancellation
+                can_cancel = False
+        
+        return Response({
+            'booking': {
+                'id': booking.booking_id,
+                'confirmation_number': booking.confirmation_number,
+                'status': booking.status,
+                'check_in': str(booking.check_in),
+                'check_out': str(booking.check_out),
+                'room_type_name': booking.room_type.name,
+                'hotel_name': booking.hotel.name,
+                'nights': booking.nights,
+                'adults': booking.adults,
+                'children': booking.children,
+                'total_amount': str(booking.total_amount),
+                'currency': booking.currency,
+                'special_requests': booking.special_requests or '',
+                'primary_guest_name': booking.primary_guest_name,
+                'primary_email': booking.primary_email,
+                'created_at': booking.created_at.isoformat(),
+                'cancelled_at': booking.cancelled_at.isoformat() if booking.cancelled_at else None,
+                'cancellation_reason': booking.cancellation_reason or ''
+            },
+            'hotel': {
+                'name': booking.hotel.name,
+                'slug': booking.hotel.slug,
+                'phone': booking.hotel.phone,
+                'email': booking.hotel.email
+            },
+            'cancellation_policy': cancellation_policy_data,
+            'can_cancel': can_cancel,
+            'cancellation_preview': cancellation_preview,
+            'token_actions': token.actions_performed
+        }, status=status.HTTP_200_OK)
+
+
+class CancelBookingView(APIView):
+    """
+    Cancel a booking using a valid management token.
+    """
+    permission_classes = [AllowAny]
+
+    def post(self, request, hotel_slug):
+        """Process booking cancellation with management token"""
+        import hashlib
+        from django.utils import timezone
+        from django.db import transaction
+        from .models import BookingManagementToken
+        from hotel.services.cancellation import CancellationCalculator
+        
+        raw_token = request.data.get('token')
+        cancellation_reason = request.data.get('reason', 'Guest cancellation via management link')
+        
+        if not raw_token:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find token with constant-time lookup
+            token = BookingManagementToken.objects.select_related(
+                'booking', 'booking__hotel'
+            ).get(
+                token_hash=token_hash,
+                booking__hotel__slug=hotel_slug
+            )
+        except BookingManagementToken.DoesNotExist:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate token status
+        if not token.is_valid:
+            return Response(
+                {'message': 'Link invalid or expired.'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        booking = token.booking
+        
+        # Check if booking can be cancelled
+        if booking.status not in ['CONFIRMED', 'PENDING_PAYMENT']:
+            return Response(
+                {'message': 'This booking cannot be cancelled.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if booking.cancelled_at:
+            return Response(
+                {'message': 'This booking has already been cancelled.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Calculate cancellation fees
+        try:
+            calculator = CancellationCalculator(booking)
+            cancellation_result = calculator.calculate()
+        except Exception as e:
+            return Response(
+                {'message': 'Unable to process cancellation at this time.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # Process cancellation atomically
+        try:
+            with transaction.atomic():
+                # Update booking status
+                booking.status = 'CANCELLED'
+                booking.cancelled_at = timezone.now()
+                booking.cancellation_reason = cancellation_reason
+                booking.cancellation_fee = cancellation_result['fee_amount']
+                booking.refund_amount = cancellation_result['refund_amount']
+                booking.save()
+                
+                # Record cancellation action and mark token as used
+                token.record_action('CANCEL')
+                token.used_at = timezone.now()
+                token.save()
+                
+        except Exception as e:
+            return Response(
+                {'message': 'Failed to process cancellation.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        return Response({
+            'success': True,
+            'message': 'Your booking has been successfully cancelled.',
+            'cancellation': {
+                'cancelled_at': booking.cancelled_at.isoformat(),
+                'cancellation_fee': str(booking.cancellation_fee),
+                'refund_amount': str(booking.refund_amount),
+                'description': cancellation_result['description']
+            }
+        }, status=status.HTTP_200_OK)
+
+
+class BookingStatusView(APIView):
+    """
+    Get booking status by booking ID with token validation.
+    Matches frontend expectation: GET /api/public/booking/status/{booking_id}/?token={token}
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request, booking_id):
+        """Return booking status and details with token validation"""
+        import hashlib
+        from .models import BookingManagementToken, RoomBooking
+        from hotel.services.cancellation import CancellationCalculator
+        
+        raw_token = request.query_params.get('token')
+        if not raw_token:
+            return Response(
+                {'error': 'Token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find booking first
+            booking = RoomBooking.objects.select_related(
+                'hotel', 'room_type', 'cancellation_policy'
+            ).get(booking_id=booking_id)
+            
+            # Find token for this booking
+            token = BookingManagementToken.objects.filter(
+                booking=booking,
+                token_hash=token_hash
+            ).first()
+            
+            if not token:
+                return Response(
+                    {'error': 'Invalid token'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+                
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': 'Booking not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate token status
+        if not token.is_valid:
+            return Response(
+                {'error': 'Token is no longer valid'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Record view action
+        token.record_action('VIEW')
+        
+        # Get cancellation policy information
+        cancellation_policy_data = None
+        if booking.cancellation_policy:
+            policy = booking.cancellation_policy
+            cancellation_policy_data = {
+                'id': policy.id,
+                'code': policy.code,
+                'name': policy.name,
+                'description': policy.description,
+                'template_type': policy.template_type,
+                'free_until_hours': policy.free_until_hours,
+                'penalty_type': policy.penalty_type,
+                'no_show_penalty_type': policy.no_show_penalty_type
+            }
+        
+        # Calculate cancellation fees if booking can be cancelled
+        cancellation_preview = None
+        can_cancel = booking.status in ['CONFIRMED', 'PENDING_PAYMENT'] and not booking.cancelled_at
+        
+        if can_cancel:
+            try:
+                calculator = CancellationCalculator(booking)
+                cancellation_preview = calculator.calculate()
+            except Exception:
+                can_cancel = False
+        
+        return Response({
+            'booking': {
+                'id': booking.booking_id,
+                'confirmation_number': booking.confirmation_number,
+                'status': booking.status,
+                'check_in': str(booking.check_in),
+                'check_out': str(booking.check_out),
+                'room_type_name': booking.room_type.name,
+                'hotel_name': booking.hotel.name,
+                'nights': booking.nights,
+                'adults': booking.adults,
+                'children': booking.children,
+                'total_amount': str(booking.total_amount),
+                'currency': booking.currency,
+                'special_requests': booking.special_requests or '',
+                'primary_guest_name': booking.primary_guest_name,
+                'primary_email': booking.primary_email,
+                'created_at': booking.created_at.isoformat(),
+                'cancelled_at': booking.cancelled_at.isoformat() if booking.cancelled_at else None,
+                'cancellation_reason': booking.cancellation_reason or ''
+            },
+            'hotel': {
+                'name': booking.hotel.name,
+                'slug': booking.hotel.slug,
+                'phone': booking.hotel.phone,
+                'email': booking.hotel.email
+            },
+            'cancellation_policy': cancellation_policy_data,
+            'can_cancel': can_cancel,
+            'cancellation_preview': cancellation_preview
+        }, status=status.HTTP_200_OK)
+    
+    def post(self, request, booking_id):
+        """Cancel booking with token validation"""
+        import hashlib
+        from django.utils import timezone
+        from django.db import transaction
+        from .models import BookingManagementToken
+        from hotel.services.cancellation import CancellationCalculator
+        
+        raw_token = request.data.get('token')
+        cancellation_reason = request.data.get('reason', 'Guest cancellation via management link')
+        
+        if not raw_token:
+            return Response(
+                {'error': 'Token is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Hash the provided token
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        
+        try:
+            # Find booking first
+            booking = RoomBooking.objects.select_related('hotel').get(booking_id=booking_id)
+            
+            # Find token for this booking
+            token = BookingManagementToken.objects.filter(
+                booking=booking,
+                token_hash=token_hash
+            ).first()
+            
+            if not token:
+                return Response(
+                    {'error': 'Invalid token'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+                
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': 'Booking not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate token status
+        if not token.is_valid:
+            return Response(
+                {'error': 'Token is no longer valid'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if booking can be cancelled
+        if booking.status not in ['CONFIRMED', 'PENDING_PAYMENT']:
+            return Response(
+                {'error': 'This booking cannot be cancelled'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if booking.cancelled_at:
+            return Response(
+                {'error': 'This booking has already been cancelled'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Calculate cancellation fees
+        try:
+            calculator = CancellationCalculator(booking)
+            cancellation_result = calculator.calculate()
+        except Exception:
+            return Response(
+                {'error': 'Unable to process cancellation at this time'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        # Process cancellation atomically
+        try:
+            with transaction.atomic():
+                booking.status = 'CANCELLED'
+                booking.cancelled_at = timezone.now()
+                booking.cancellation_reason = cancellation_reason
+                booking.cancellation_fee = cancellation_result['fee_amount']
+                booking.refund_amount = cancellation_result['refund_amount']
+                booking.save()
+                
+                # Record cancellation action and mark token as used
+                token.record_action('CANCEL')
+                token.used_at = timezone.now()
+                token.save()
+                
+        except Exception:
+            return Response(
+                {'error': 'Failed to process cancellation'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+        return Response({
+            'success': True,
+            'message': 'Your booking has been successfully cancelled.',
+            'cancellation': {
+                'cancelled_at': booking.cancelled_at.isoformat(),
+                'cancellation_fee': str(booking.cancellation_fee),
+                'refund_amount': str(booking.refund_amount),
+                'description': cancellation_result['description']
+            }
+        }, status=status.HTTP_200_OK)

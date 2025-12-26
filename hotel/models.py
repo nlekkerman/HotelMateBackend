@@ -2049,6 +2049,106 @@ class BookingPrecheckinToken(models.Model):
         )
 
 
+class BookingManagementToken(models.Model):
+    """
+    Secure tokens for guest booking management links.
+    Allows guests to view booking status and cancel bookings via time-limited links.
+    """
+    booking = models.ForeignKey(
+        RoomBooking,
+        on_delete=models.CASCADE,
+        related_name='management_tokens'
+    )
+    token_hash = models.CharField(
+        max_length=64,
+        help_text="SHA256 hash of the raw token"
+    )
+    expires_at = models.DateTimeField(
+        help_text="Token expiry timestamp"
+    )
+    used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when token was successfully used for cancellation"
+    )
+    revoked_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Timestamp when token was revoked"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Token creation timestamp"
+    )
+    sent_to_email = models.EmailField(
+        blank=True,
+        help_text="Email address where management link was sent (audit trail)"
+    )
+    
+    # Track what actions have been performed with this token
+    actions_performed = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="List of actions performed with this token (view, cancel, etc.)"
+    )
+
+    class Meta:
+        db_table = 'hotel_booking_management_token'
+        indexes = [
+            models.Index(fields=['token_hash']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def __str__(self):
+        return f"Management token for {self.booking.booking_id}"
+
+    @property
+    def is_valid(self):
+        """Check if token is currently valid for use - based on booking status, not time"""
+        if self.revoked_at is not None:
+            return False
+            
+        # Token is valid as long as the booking can be managed
+        booking = self.booking
+        
+        # Invalid if booking is already cancelled
+        if booking.cancelled_at:
+            return False
+            
+        # Invalid if booking is completed (checked out)
+        if booking.status == 'COMPLETED':
+            return False
+            
+        # Invalid if booking is declined
+        if booking.status == 'DECLINED':
+            return False
+            
+        # Valid for all other statuses (PENDING_PAYMENT, PENDING_APPROVAL, CONFIRMED)
+        return True
+    
+    @property
+    def is_expired(self):
+        """Token doesn't expire by time - only by booking status"""
+        return not self.is_valid
+    
+    @property
+    def is_used_for_cancellation(self):
+        """Check if token has been used for booking cancellation"""
+        return self.used_at is not None
+    
+    def record_action(self, action_type):
+        """Record an action performed with this token"""
+        from django.utils import timezone
+        action_record = {
+            'action': action_type,
+            'timestamp': timezone.now().isoformat()
+        }
+        if not isinstance(self.actions_performed, list):
+            self.actions_performed = []
+        self.actions_performed.append(action_record)
+        self.save()
+
+
 # ============================================================================
 # SURVEY MODELS - CANONICAL BACKEND RULE
 # ============================================================================

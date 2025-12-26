@@ -14,6 +14,18 @@ urlpatterns = [
         name='hotel-cancellation-policy'
     ),
     
+    # Guest booking management endpoints
+    path(
+        'hotel/<slug:hotel_slug>/booking-management/',
+        public_views.ValidateBookingManagementTokenView.as_view(),
+        name='validate-booking-management-token'
+    ),
+    path(
+        'hotel/<slug:hotel_slug>/booking-management/cancel/',
+        public_views.CancelBookingView.as_view(),
+        name='cancel-booking'
+    ),
+    
     # Guest pre-check-in endpoints
     path(
         'hotel/<slug:hotel_slug>/precheckin/',

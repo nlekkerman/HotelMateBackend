@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage Your Booking - {{ booking.confirmation_number }}</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .booking-details {
+            background-color: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .detail-row {
+            display: flex;
+            justify-content: space-between;
+            margin: 10px 0;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .label {
+            font-weight: bold;
+            color: #666;
+        }
+        .value {
+            color: #333;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #007bff;
+            color: white;
+            padding: 15px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: bold;
+            text-align: center;
+            margin: 20px 0;
+        }
+        .cta-button:hover {
+            background-color: #0056b3;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .footer {
+            text-align: center;
+            font-size: 12px;
+            color: #666;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Manage Your Booking</h1>
+            <h2>{{ hotel.name }}</h2>
+        </div>
+
+        <p>Dear {{ guest_name }},</p>
+        
+        <p>You can now view and manage your booking using the secure link below. This link allows you to:</p>
+        
+        <ul>
+            <li>✅ View your booking details and status</li>
+            <li>✅ Check cancellation policy information</li>
+            <li>✅ Cancel your booking if needed</li>
+            <li>✅ View cancellation fees before confirming</li>
+        </ul>
+
+        <div class="booking-details">
+            <h3>📋 Your Booking Details</h3>
+            <div class="detail-row">
+                <span class="label">Booking ID:</span>
+                <span class="value">{{ booking.booking_id }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Confirmation:</span>
+                <span class="value">{{ booking.confirmation_number }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Guest Name:</span>
+                <span class="value">{{ booking.primary_guest_name }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Room Type:</span>
+                <span class="value">{{ booking.room_type.name }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Check-in:</span>
+                <span class="value">{{ booking.check_in|date:"F j, Y" }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Check-out:</span>
+                <span class="value">{{ booking.check_out|date:"F j, Y" }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Nights:</span>
+                <span class="value">{{ booking.nights }}</span>
+            </div>
+            <div class="detail-row">
+                <span class="label">Total Amount:</span>
+                <span class="value">{{ booking.currency }} {{ booking.total_amount }}</span>
+            </div>
+        </div>
+
+        <div style="text-align: center;">
+            <a href="{{ management_url }}" class="cta-button">
+                🔗 Manage Your Booking
+            </a>
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ Important Security Information:</strong><br>
+            • This link remains valid until your booking is completed or cancelled<br>
+            • Do not share this link with others - it provides access to your booking<br>
+            • If you didn't request this link, please contact the hotel directly<br>
+        </div>
+
+        <p><strong>Need Help?</strong></p>
+        <p>If you have any questions or need assistance, please contact {{ hotel.name }} directly:</p>
+        <ul>
+            {% if hotel.phone %}
+            <li>📞 Phone: {{ hotel.phone }}</li>
+            {% endif %}
+            {% if hotel.email %}
+            <li>✉️ Email: {{ hotel.email }}</li>
+            {% endif %}
+        </ul>
+
+        <div class="footer">
+            <p>This is an automated booking management email from {{ hotel.name }}</p>
+            <p>Please do not reply to this email address</p>
+        </div>
+    </div>
+</body>
+</html>

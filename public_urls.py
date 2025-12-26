@@ -8,6 +8,7 @@ from hotel.public_views import (
     HotelFilterOptionsView,
     HotelPublicPageView,
     PublicPresetsView,
+    BookingStatusView,
 )
 
 from hotel.booking_views import (
@@ -99,6 +100,13 @@ urlpatterns = [
         "hotel/room-bookings/stripe-webhook/",
         StripeWebhookView.as_view(),
         name="public-stripe-webhook"
+    ),
+    
+    # Booking status endpoint (matches frontend expectation)
+    path(
+        "booking/status/<str:booking_id>/",
+        BookingStatusView.as_view(),
+        name="public-booking-status"
     ),
     
     # Include hotel public URLs (pre-check-in endpoints)
