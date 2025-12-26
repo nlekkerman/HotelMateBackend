@@ -335,6 +335,8 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     pricing_info = serializers.SerializerMethodField()
     payment_url = serializers.SerializerMethodField()
     payment_required = serializers.SerializerMethodField()
+    can_cancel = serializers.SerializerMethodField()
+    cancellation_preview = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -353,6 +355,8 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             'promo_code',
             'payment_required',
             'payment_url',
+            'can_cancel',
+            'cancellation_preview',
         ]
         read_only_fields = fields
     
@@ -425,6 +429,50 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
         # "needs payment" if pending and not marked paid
         return (obj.status == "PENDING_PAYMENT") and (obj.paid_at is None)
     
+    def get_can_cancel(self, obj):
+        """Check if booking can be cancelled"""
+        return obj.status in ['CONFIRMED', 'PENDING_PAYMENT', 'PENDING_APPROVAL'] and not obj.cancelled_at
+    
+    def get_cancellation_preview(self, obj):
+        """Get cancellation fee preview if booking can be cancelled"""
+        if not self.get_can_cancel(obj):
+            return None
+            
+        try:
+            from hotel.services.cancellation import CancellationCalculator
+            calculator = CancellationCalculator(obj)
+            result = calculator.calculate()
+            return {
+                'fee_amount': str(result['fee_amount']),
+                'refund_amount': str(result['refund_amount']),
+                'description': result['description'],
+                'applied_rule': result.get('applied_rule', '')
+            }
+        except Exception:
+            return None
+    
+    def get_can_cancel(self, obj):
+        """Check if booking can be cancelled"""
+        return obj.status in ['CONFIRMED', 'PENDING_PAYMENT', 'PENDING_APPROVAL'] and not obj.cancelled_at
+    
+    def get_cancellation_preview(self, obj):
+        """Get cancellation fee preview if booking can be cancelled"""
+        if not self.get_can_cancel(obj):
+            return None
+            
+        try:
+            from hotel.services.cancellation import CancellationCalculator
+            calculator = CancellationCalculator(obj)
+            result = calculator.calculate()
+            return {
+                'fee_amount': str(result['fee_amount']),
+                'refund_amount': str(result['refund_amount']),
+                'description': result['description'],
+                'applied_rule': result.get('applied_rule', '')
+            }
+        except Exception:
+            return None
+    
     def to_representation(self, instance):
         """Custom representation to match expected API format"""
         data = super().to_representation(instance)
@@ -444,7 +492,9 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             "pricing": data['pricing_info'],
             "promo_code": data['promo_code'],
             "payment_required": data['status'] == 'PENDING_PAYMENT',
-            "payment_url": data['payment_url']
+            "payment_url": data['payment_url'],
+            "can_cancel": data['can_cancel'],
+            "cancellation_preview": data['cancellation_preview']
         }
         
         return result
