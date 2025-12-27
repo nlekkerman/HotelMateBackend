@@ -10,6 +10,175 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def send_booking_received_email(booking, status_url, guest_token):
+    """
+    Send "Booking Received" email to guest when booking is created (PENDING_APPROVAL)
+    Includes link to status page for tracking.
+    
+    Args:
+        booking: RoomBooking instance
+        status_url: Full URL to booking status page with token
+        guest_token: Raw guest token for access
+    
+    Returns:
+        bool: True if email sent successfully
+    """
+    try:
+        # Email subject
+        subject = f"📋 Booking Received - {booking.hotel.name} - {booking.confirmation_number}"
+        
+        # Email content
+        guest_name = booking.guest_display_name
+        hotel_name = booking.hotel.name
+        check_in = booking.check_in.strftime('%B %d, %Y')
+        check_out = booking.check_out.strftime('%B %d, %Y')
+        nights = booking.nights
+        room_type = booking.room_type.name if booking.room_type else 'Room'
+        total_amount = f"{booking.currency} {booking.total_amount:.2f}"
+        
+        # HTML email content
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background: linear-gradient(135deg, #ff7e5f 0%, #feb47b 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }}
+                .content {{ background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }}
+                .booking-details {{ background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+                .detail-row {{ display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #eee; }}
+                .detail-row:last-child {{ border-bottom: none; }}
+                .label {{ font-weight: bold; color: #555; }}
+                .value {{ color: #333; }}
+                .status-button {{ 
+                    display: inline-block; 
+                    background: #007bff; 
+                    color: white; 
+                    padding: 15px 30px; 
+                    text-decoration: none; 
+                    border-radius: 5px; 
+                    margin: 20px 0; 
+                    font-weight: bold;
+                    text-align: center;
+                }}
+                .pending-notice {{ 
+                    background: #fff3cd; 
+                    color: #856404; 
+                    padding: 15px; 
+                    border-radius: 5px; 
+                    margin: 20px 0; 
+                    border-left: 4px solid #ffc107;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>📋 Booking Received!</h1>
+                    <p>We've received your booking request</p>
+                </div>
+                
+                <div class="content">
+                    <h2>Hello {guest_name},</h2>
+                    
+                    <div class="pending-notice">
+                        <strong>⏳ Pending Approval</strong><br>
+                        Your booking is currently being reviewed by our team. 
+                        You'll receive a confirmation email once approved.
+                    </div>
+                    
+                    <p>Track your booking status in real-time:</p>
+                    <a href="{status_url}" class="status-button">
+                        📱 View Booking Status
+                    </a>
+                    
+                    <div class="booking-details">
+                        <h3>Booking Details</h3>
+                        <div class="detail-row">
+                            <span class="label">Booking Reference:</span>
+                            <span class="value">{booking.confirmation_number}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">Hotel:</span>
+                            <span class="value">{hotel_name}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">Room Type:</span>
+                            <span class="value">{room_type}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">Check-in:</span>
+                            <span class="value">{check_in}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">Check-out:</span>
+                            <span class="value">{check_out}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">Nights:</span>
+                            <span class="value">{nights}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="label">Total Amount:</span>
+                            <span class="value"><strong>{total_amount}</strong></span>
+                        </div>
+                    </div>
+                    
+                    <p>💡 <strong>Tip:</strong> Save the booking status link for instant updates on your booking progress.</p>
+                    
+                    <p>If you have any questions, please contact {hotel_name} directly.</p>
+                    
+                    <p>Thank you for choosing {hotel_name}!</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        # Plain text version
+        text_content = f"""
+        Booking Received - {hotel_name}
+        
+        Hello {guest_name},
+        
+        We've received your booking request and it's currently being reviewed by our team.
+        You'll receive a confirmation email once approved.
+        
+        Track your booking status: {status_url}
+        
+        Booking Details:
+        - Reference: {booking.confirmation_number}
+        - Hotel: {hotel_name}
+        - Room: {room_type}
+        - Check-in: {check_in}
+        - Check-out: {check_out}
+        - Nights: {nights}
+        - Total: {total_amount}
+        
+        Status: PENDING APPROVAL
+        
+        Thank you for choosing {hotel_name}!
+        """
+        
+        # Send email
+        send_mail(
+            subject=subject,
+            message=text_content,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            recipient_list=[booking.primary_email],
+            html_message=html_content,
+            fail_silently=False,
+        )
+        
+        logger.info(f"Booking received email sent to {booking.primary_email} for booking {booking.booking_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to send booking received email for {booking.booking_id}: {str(e)}")
+        return False
+
+
 def send_booking_confirmation_email(booking):
     """
     Send confirmation email to guest when booking is confirmed by staff

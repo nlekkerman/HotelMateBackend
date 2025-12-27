@@ -20,7 +20,7 @@ from hotel.services.pricing import build_pricing_quote_data
 from hotel.services.booking import create_room_booking_from_request
 
 # Import email service
-from notifications.email_service import send_booking_confirmation_email
+from notifications.email_service import send_booking_confirmation_email, send_booking_received_email
 
 logger = logging.getLogger(__name__)
 
@@ -388,14 +388,18 @@ class HotelBookingCreateView(APIView):
             purpose='STATUS'
         )
         
-        # Send booking confirmation email
+        # Send "Booking Received" email with status page link (NOT confirmation)
         try:
-            send_booking_confirmation_email(booking)
-            logger.info(f"Booking confirmation email sent for booking {booking.booking_id}")
+            # Create status page URL with guest token
+            status_url = f"https://{request.get_host()}/api/public/hotel/{hotel_slug}/room-bookings/{booking.booking_id}/?token={raw_token}"
+            
+            # Send booking received email (pending approval, not confirmed)
+            send_booking_received_email(booking, status_url, raw_token)
+            logger.info(f"Booking received email sent for booking {booking.booking_id}")
         except ImportError:
-            logger.warning(f"Email service not available for booking confirmation")
+            logger.warning(f"Email service not available for booking received notification")
         except Exception as e:
-            logger.error(f"Failed to send booking confirmation email for {booking.booking_id}: {e}")
+            logger.error(f"Failed to send booking received email for {booking.booking_id}: {e}")
         
         # Return public-safe response payload with guest token
         response_data = {
