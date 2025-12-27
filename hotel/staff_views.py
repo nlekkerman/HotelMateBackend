@@ -2199,12 +2199,16 @@ class BookingCheckInView(APIView):
             notification_manager.realtime_room_occupancy_updated(room)
             
             # Guest event - notify guest their booking is checked in
-            notification_manager.realtime_guest_booking_checked_in(
+            print(f"🔄 Emitting guest check-in event for booking {booking.booking_id}, room {room.room_number}")
+            guest_event_result = notification_manager.realtime_guest_booking_checked_in(
                 booking=booking,
                 room_number=room.room_number
             )
+            print(f"✅ Guest check-in event sent: {guest_event_result}")
+            
         except Exception as e:
             logger.error(f"Failed to emit check-in realtime events for booking {booking.booking_id}: {e}")
+            print(f"❌ Error emitting guest check-in event: {e}")
     
     def post(self, request, hotel_slug, booking_id):
         try:

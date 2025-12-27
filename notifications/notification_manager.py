@@ -247,6 +247,8 @@ class NotificationManager:
             if booking.assigned_room:
                 booking_data["room"]["floor"] = booking.assigned_room.floor
         
+        print(f"🔄 Guest check-in payload: status={booking_data['status']}, room_number={booking_data.get('room', {}).get('number')}")
+        
         normalized_event = self._create_normalized_event(
             category="room_booking",
             type="booking_checked_in",
@@ -259,7 +261,10 @@ class NotificationManager:
         
         # Emit to guest booking channel
         channel = f"private-guest-booking.{booking.booking_id}"
-        return self._safe_pusher_trigger(channel, "booking_checked_in", normalized_event)
+        print(f"🔄 Emitting to channel: {channel}")
+        result = self._safe_pusher_trigger(channel, "booking_checked_in", normalized_event)
+        print(f"✅ Pusher trigger result: {result}")
+        return result
     
     def realtime_guest_booking_checked_out(self, booking, room_number=None):
         """
