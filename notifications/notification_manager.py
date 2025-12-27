@@ -230,6 +230,7 @@ class NotificationManager:
             room_number: Room number (optional, derived from booking if not provided)
         """
         room_num = room_number or (booking.assigned_room.room_number if booking.assigned_room else None)
+        room = booking.assigned_room
         
         normalized_event = self._create_normalized_event(
             category="room_booking",
@@ -238,9 +239,22 @@ class NotificationManager:
                 "booking_id": booking.booking_id,
                 "status": "CHECKED_IN",
                 "checked_in_at": booking.checked_in_at.isoformat() if booking.checked_in_at else timezone.now().isoformat(),
+                "expected_checkout_date": booking.check_out_date.isoformat(),
                 "room_number": room_num,
-                "hotel_name": booking.hotel.name,
-                "hotel_phone": booking.hotel.phone or "",
+                "room_type": room.room_type.name if room and room.room_type else None,
+                "room_floor": room.floor if room else None,
+                "guest_name": booking.primary_guest_name,
+                "party_size": booking.party_size,
+                "total_nights": (booking.check_out_date - booking.check_in_date).days,
+                "hotel": {
+                    "name": booking.hotel.name,
+                    "phone": booking.hotel.phone or "",
+                    "address": booking.hotel.address or "",
+                    "city": booking.hotel.city or "",
+                    "wifi_name": getattr(booking.hotel, 'wifi_name', '') or "",
+                    "wifi_password": getattr(booking.hotel, 'wifi_password', '') or "",
+                },
+                "special_requests": booking.special_requests or "",
             },
             scope={
                 "type": "guest_booking",
@@ -292,6 +306,7 @@ class NotificationManager:
             room_number: Room number (optional, derived from booking if not provided)
         """
         room_num = room_number or (booking.assigned_room.room_number if booking.assigned_room else None)
+        room = booking.assigned_room
         
         normalized_event = self._create_normalized_event(
             category="room_booking",
@@ -300,9 +315,19 @@ class NotificationManager:
                 "booking_id": booking.booking_id,
                 "status": booking.status,
                 "room_number": room_num,
+                "room_type": room.room_type.name if room and room.room_type else None,
+                "room_floor": room.floor if room else None,
                 "room_assigned_at": booking.room_assigned_at.isoformat() if booking.room_assigned_at else timezone.now().isoformat(),
-                "hotel_name": booking.hotel.name,
-                "hotel_phone": booking.hotel.phone or "",
+                "expected_checkin_date": booking.check_in_date.isoformat(),
+                "expected_checkout_date": booking.check_out_date.isoformat(),
+                "guest_name": booking.primary_guest_name,
+                "party_size": booking.party_size,
+                "hotel": {
+                    "name": booking.hotel.name,
+                    "phone": booking.hotel.phone or "",
+                    "address": booking.hotel.address or "",
+                    "city": booking.hotel.city or "",
+                },
             },
             scope={
                 "type": "guest_booking",
