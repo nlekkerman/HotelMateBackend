@@ -2929,10 +2929,10 @@ class StaffBookingAcceptView(APIView):
                     }
                 }, status=status.HTTP_200_OK)
             
-            # Validate booking state
-            if booking.status != 'PENDING_APPROVAL':
+            # Validate booking state - can approve from PENDING_PAYMENT or PENDING_APPROVAL
+            if booking.status not in ['PENDING_PAYMENT', 'PENDING_APPROVAL']:
                 return Response(
-                    {'error': f'Cannot approve booking with status {booking.status}. Expected PENDING_APPROVAL.'}, 
+                    {'error': f'Cannot approve booking with status {booking.status}. Expected PENDING_PAYMENT or PENDING_APPROVAL.'}, 
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
