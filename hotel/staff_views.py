@@ -1641,8 +1641,15 @@ class BookingAssignmentView(APIView):
     def _emit_assignment_realtime_events(self, booking, room, primary_guest, party_guest_objects):
         """Emit realtime events for room assignment - called after transaction commit"""
         try:
+            # Staff events
             notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
             notification_manager.realtime_room_occupancy_updated(room)
+            
+            # Guest event - notify guest their room has been assigned
+            notification_manager.realtime_guest_booking_room_assigned(
+                booking=booking,
+                room_number=room.room_number
+            )
         except Exception as e:
             logger.error(f"Failed to emit assignment realtime events for booking {booking.booking_id}: {e}")
     
@@ -2187,8 +2194,15 @@ class BookingCheckInView(APIView):
     def _emit_checkin_realtime_events(self, booking, room, primary_guest, party_guest_objects):
         """Emit realtime events for check-in - called after transaction commit"""
         try:
+            # Staff events
             notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
             notification_manager.realtime_room_occupancy_updated(room)
+            
+            # Guest event - notify guest their booking is checked in
+            notification_manager.realtime_guest_booking_checked_in(
+                booking=booking,
+                room_number=room.room_number
+            )
         except Exception as e:
             logger.error(f"Failed to emit check-in realtime events for booking {booking.booking_id}: {e}")
     
@@ -2321,8 +2335,15 @@ class BookingCheckOutView(APIView):
     def _emit_checkout_realtime_events(self, booking, room, hotel):
         """Emit realtime events for check-out - called after transaction commit"""
         try:
+            # Staff events
             notification_manager.realtime_booking_checked_out(booking, room.room_number)
             notification_manager.realtime_room_occupancy_updated(room)
+            
+            # Guest event - notify guest their booking is checked out
+            notification_manager.realtime_guest_booking_checked_out(
+                booking=booking,
+                room_number=room.room_number
+            )
             
             # Room status notification
             pusher_client.trigger(

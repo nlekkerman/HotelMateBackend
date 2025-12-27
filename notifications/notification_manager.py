@@ -221,6 +221,99 @@ class NotificationManager:
         channel = f"private-guest-booking.{booking.booking_id}"
         return self._safe_pusher_trigger(channel, "booking_cancelled", normalized_event)
     
+    def realtime_guest_booking_checked_in(self, booking, room_number=None):
+        """
+        Emit guest-scoped event when booking is checked in.
+        
+        Args:
+            booking: RoomBooking instance
+            room_number: Room number (optional, derived from booking if not provided)
+        """
+        room_num = room_number or (booking.assigned_room.room_number if booking.assigned_room else None)
+        
+        normalized_event = self._create_normalized_event(
+            category="room_booking",
+            type="booking_checked_in",
+            payload={
+                "booking_id": booking.booking_id,
+                "status": "CHECKED_IN",
+                "checked_in_at": booking.checked_in_at.isoformat() if booking.checked_in_at else timezone.now().isoformat(),
+                "room_number": room_num,
+                "hotel_name": booking.hotel.name,
+                "hotel_phone": booking.hotel.phone or "",
+            },
+            scope={
+                "type": "guest_booking",
+                "booking_id": booking.booking_id
+            }
+        )
+        
+        # Emit to guest booking channel
+        channel = f"private-guest-booking.{booking.booking_id}"
+        return self._safe_pusher_trigger(channel, "booking_checked_in", normalized_event)
+    
+    def realtime_guest_booking_checked_out(self, booking, room_number=None):
+        """
+        Emit guest-scoped event when booking is checked out.
+        
+        Args:
+            booking: RoomBooking instance
+            room_number: Room number (optional, derived from booking if not provided)
+        """
+        room_num = room_number or (booking.assigned_room.room_number if booking.assigned_room else None)
+        
+        normalized_event = self._create_normalized_event(
+            category="room_booking",
+            type="booking_checked_out",
+            payload={
+                "booking_id": booking.booking_id,
+                "status": "COMPLETED",
+                "checked_out_at": booking.checked_out_at.isoformat() if booking.checked_out_at else timezone.now().isoformat(),
+                "room_number": room_num,
+                "hotel_name": booking.hotel.name,
+                "hotel_phone": booking.hotel.phone or "",
+            },
+            scope={
+                "type": "guest_booking",
+                "booking_id": booking.booking_id
+            }
+        )
+        
+        # Emit to guest booking channel
+        channel = f"private-guest-booking.{booking.booking_id}"
+        return self._safe_pusher_trigger(channel, "booking_checked_out", normalized_event)
+    
+    def realtime_guest_booking_room_assigned(self, booking, room_number=None):
+        """
+        Emit guest-scoped event when room is assigned to booking.
+        
+        Args:
+            booking: RoomBooking instance
+            room_number: Room number (optional, derived from booking if not provided)
+        """
+        room_num = room_number or (booking.assigned_room.room_number if booking.assigned_room else None)
+        
+        normalized_event = self._create_normalized_event(
+            category="room_booking",
+            type="booking_room_assigned",
+            payload={
+                "booking_id": booking.booking_id,
+                "status": booking.status,
+                "room_number": room_num,
+                "room_assigned_at": booking.room_assigned_at.isoformat() if booking.room_assigned_at else timezone.now().isoformat(),
+                "hotel_name": booking.hotel.name,
+                "hotel_phone": booking.hotel.phone or "",
+            },
+            scope={
+                "type": "guest_booking",
+                "booking_id": booking.booking_id
+            }
+        )
+        
+        # Emit to guest booking channel
+        channel = f"private-guest-booking.{booking.booking_id}"
+        return self._safe_pusher_trigger(channel, "booking_room_assigned", normalized_event)
+    
     # -------------------------------------------------------------------------
     # ATTENDANCE REALTIME METHODS
     # -------------------------------------------------------------------------
