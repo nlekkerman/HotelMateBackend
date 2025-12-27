@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import models
+from django.conf import settings
 import logging
 
 from .models import Hotel, BookerType, BookingGuest, RoomBooking
@@ -390,8 +391,9 @@ class HotelBookingCreateView(APIView):
         
         # Send "Booking Received" email with status page link (NOT confirmation)
         try:
-            # Create status page URL with guest token
-            status_url = f"https://{request.get_host()}/api/public/hotel/{hotel_slug}/room-bookings/{booking.booking_id}/?token={raw_token}"
+            # Create FRONTEND status page URL with guest token (not API endpoint)
+            frontend_domain = getattr(settings, 'FRONTEND_DOMAIN', 'http://localhost:5173')
+            status_url = f"{frontend_domain}/booking-status/{booking.booking_id}?token={raw_token}"
             
             # Send booking received email (pending approval, not confirmed)
             send_booking_received_email(booking, status_url, raw_token)
