@@ -391,9 +391,9 @@ class HotelBookingCreateView(APIView):
         
         # Send "Booking Received" email with status page link (NOT confirmation)
         try:
-            # Create FRONTEND status page URL with guest token (not API endpoint)
+            # Create FRONTEND status page URL with hotel slug and guest token
             frontend_domain = getattr(settings, 'FRONTEND_DOMAIN', 'http://localhost:5173')
-            status_url = f"{frontend_domain}/booking-status/{booking.booking_id}?token={raw_token}"
+            status_url = f"{frontend_domain}/booking-status/{hotel_slug}/{booking.booking_id}?token={raw_token}"
             
             # Send booking received email (pending approval, not confirmed)
             send_booking_received_email(booking, status_url, raw_token)

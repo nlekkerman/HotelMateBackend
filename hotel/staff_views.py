@@ -2979,24 +2979,28 @@ class StaffBookingAcceptView(APIView):
                             captured_intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
                             if captured_intent.status == 'succeeded':
                                 print(f"✅ Confirmed payment already captured: {captured_intent.id}")
+                                # Payment is already captured, so mark booking as confirmed
+                                booking.status = 'CONFIRMED'
+                                booking.paid_at = timezone.now()
+                                booking.save()
                             else:
                                 raise Exception(f"PaymentIntent captured but status is: {captured_intent.status}")
                         except Exception as retrieve_error:
                             logger.error(f"Failed to retrieve already captured PaymentIntent {booking.payment_intent_id}: {retrieve_error}")
                             return Response(
-                                {'error': f'Payment verification failed: {str(retrieve_error)}'}, 
+                                {'error': f'Unable to verify payment status. Please check Stripe dashboard or contact support.'}, 
                                 status=status.HTTP_502_BAD_GATEWAY
                             )
                     else:
                         logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
                         return Response(
-                            {'error': f'Payment capture failed: {str(e)}'}, 
+                            {'error': f'Payment capture failed: {str(e)}. Please try again or check payment status in Stripe.'}, 
                             status=status.HTTP_502_BAD_GATEWAY
                         )
                 except stripe.error.StripeError as e:
                     logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
                     return Response(
-                        {'error': f'Payment capture failed: {str(e)}'}, 
+                        {'error': f'Stripe error: {str(e)}. Please check your Stripe configuration.'}, 
                         status=status.HTTP_502_BAD_GATEWAY
                     )
                 except Exception as e:
