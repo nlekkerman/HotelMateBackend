@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import models
+import logging
 
 from .models import Hotel, BookerType, BookingGuest, RoomBooking
 
@@ -17,6 +18,11 @@ from hotel.services.availability import (
 )
 from hotel.services.pricing import build_pricing_quote_data
 from hotel.services.booking import create_room_booking_from_request
+
+# Import email service
+from notifications.email_service import send_booking_confirmation_email
+
+logger = logging.getLogger(__name__)
 
 
 class HotelAvailabilityView(APIView):
@@ -381,6 +387,15 @@ class HotelBookingCreateView(APIView):
             booking=booking,
             purpose='STATUS'
         )
+        
+        # Send booking confirmation email
+        try:
+            send_booking_confirmation_email(booking)
+            logger.info(f"Booking confirmation email sent for booking {booking.booking_id}")
+        except ImportError:
+            logger.warning(f"Email service not available for booking confirmation")
+        except Exception as e:
+            logger.error(f"Failed to send booking confirmation email for {booking.booking_id}: {e}")
         
         # Return public-safe response payload with guest token
         response_data = {
