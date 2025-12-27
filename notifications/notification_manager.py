@@ -237,24 +237,40 @@ class NotificationManager:
             type="booking_checked_in",
             payload={
                 "booking_id": booking.booking_id,
+                "confirmation_number": booking.confirmation_number,
                 "status": "CHECKED_IN",
                 "checked_in_at": booking.checked_in_at.isoformat() if booking.checked_in_at else timezone.now().isoformat(),
-                "expected_checkout_date": booking.check_out_date.isoformat(),
-                "room_number": room_num,
-                "room_type": room.room_type.name if room and room.room_type else None,
-                "room_floor": room.floor if room else None,
-                "guest_name": booking.primary_guest_name,
-                "party_size": booking.party_size,
-                "total_nights": (booking.check_out_date - booking.check_in_date).days,
+                "dates": {
+                    "check_in": booking.check_in_date.isoformat(),
+                    "check_out": booking.check_out_date.isoformat(),
+                    "nights": (booking.check_out_date - booking.check_in_date).days
+                },
+                "guest": {
+                    "name": booking.primary_guest_name,
+                    "email": booking.primary_guest_email or "",
+                    "phone": booking.primary_guest_phone or ""
+                },
+                "guests": {
+                    "adults": booking.party_size,
+                    "children": 0,  # You may want to add this field to booking model
+                    "total": booking.party_size
+                },
+                "room": {
+                    "type": room.room_type.name if room and room.room_type else None,
+                    "number": room_num,
+                    "floor": room.floor if room else None,
+                    "code": room.room_type.code if room and room.room_type else "",
+                    "photo": room.room_type.photo.url if room and room.room_type and room.room_type.photo else ""
+                },
                 "hotel": {
                     "name": booking.hotel.name,
+                    "slug": booking.hotel.slug,
                     "phone": booking.hotel.phone or "",
-                    "address": booking.hotel.address or "",
-                    "city": booking.hotel.city or "",
+                    "email": booking.hotel.email or "",
                     "wifi_name": getattr(booking.hotel, 'wifi_name', '') or "",
-                    "wifi_password": getattr(booking.hotel, 'wifi_password', '') or "",
+                    "wifi_password": getattr(booking.hotel, 'wifi_password', '') or ""
                 },
-                "special_requests": booking.special_requests or "",
+                "special_requests": booking.special_requests or ""
             },
             scope={
                 "type": "guest_booking",
