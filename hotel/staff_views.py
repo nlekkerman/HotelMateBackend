@@ -2936,81 +2936,83 @@ class StaffBookingAcceptView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Validate payment provider and intent
-            if booking.payment_provider != 'stripe':
-                return Response(
-                    {'error': f'Invalid payment provider: {booking.payment_provider}. Expected stripe.'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if not booking.payment_intent_id:
-                return Response(
-                    {'error': 'No payment intent found for capture. Cannot approve booking.'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Capture payment via Stripe
-            try:
-                print(f"🔄 Capturing payment for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
+            # Validate payment setup (handle bookings with or without PaymentIntent)
+            if booking.payment_provider == 'stripe' and not booking.payment_intent_id:
+                # Stripe booking but no PaymentIntent - approve manually without capture
+                print(f"⚠️ Stripe booking {booking_id} has no PaymentIntent - approving manually")
+                booking.status = 'CONFIRMED'
+                booking.paid_at = timezone.now()
+                booking.save()
                 
-                # First, check if PaymentIntent is already captured
-                intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
+                # Skip Stripe capture since no PaymentIntent exists
+                print(f"✅ Manual approval for booking {booking_id} without PaymentIntent")
                 
-                if intent.status == 'succeeded':
-                    print(f"✅ Payment already captured: {intent.id}")
-                    captured_intent = intent
-                elif intent.status == 'requires_capture':
-                    captured_intent = stripe.PaymentIntent.capture(booking.payment_intent_id)
-                    if captured_intent.status != 'succeeded':
-                        raise Exception(f"Unexpected capture status: {captured_intent.status}")
-                    print(f"✅ Payment captured successfully: {captured_intent.id}")
-                else:
-                    raise Exception(f"PaymentIntent in unexpected state: {intent.status}")
-                
-            except stripe.error.InvalidRequestError as e:
-                if "already been captured" in str(e):
-                    # Handle already captured case by retrieving the intent
-                    print(f"⚠️ PaymentIntent already captured, retrieving status...")
-                    try:
-                        captured_intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
-                        if captured_intent.status == 'succeeded':
-                            print(f"✅ Confirmed payment already captured: {captured_intent.id}")
-                        else:
-                            raise Exception(f"PaymentIntent captured but status is: {captured_intent.status}")
-                    except Exception as retrieve_error:
-                        logger.error(f"Failed to retrieve already captured PaymentIntent {booking.payment_intent_id}: {retrieve_error}")
+            elif booking.payment_provider == 'stripe' and booking.payment_intent_id:
+                # Capture payment via Stripe
+                try:
+                    print(f"🔄 Capturing payment for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
+                    
+                    # First, check if PaymentIntent is already captured
+                    intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
+                    
+                    if intent.status == 'succeeded':
+                        print(f"✅ Payment already captured: {intent.id}")
+                        captured_intent = intent
+                    elif intent.status == 'requires_capture':
+                        captured_intent = stripe.PaymentIntent.capture(booking.payment_intent_id)
+                        if captured_intent.status != 'succeeded':
+                            raise Exception(f"Unexpected capture status: {captured_intent.status}")
+                        print(f"✅ Payment captured successfully: {captured_intent.id}")
+                    else:
+                        raise Exception(f"PaymentIntent in unexpected state: {intent.status}")
+                    
+                    # Update booking with payment confirmation
+                    booking.status = 'CONFIRMED'
+                    booking.paid_at = timezone.now()
+                    booking.save()
+                    
+                except stripe.error.InvalidRequestError as e:
+                    if "already been captured" in str(e):
+                        # Handle already captured case by retrieving the intent
+                        print(f"⚠️ PaymentIntent already captured, retrieving status...")
+                        try:
+                            captured_intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
+                            if captured_intent.status == 'succeeded':
+                                print(f"✅ Confirmed payment already captured: {captured_intent.id}")
+                            else:
+                                raise Exception(f"PaymentIntent captured but status is: {captured_intent.status}")
+                        except Exception as retrieve_error:
+                            logger.error(f"Failed to retrieve already captured PaymentIntent {booking.payment_intent_id}: {retrieve_error}")
+                            return Response(
+                                {'error': f'Payment verification failed: {str(retrieve_error)}'}, 
+                                status=status.HTTP_502_BAD_GATEWAY
+                            )
+                    else:
+                        logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
                         return Response(
-                            {'error': f'Payment verification failed: {str(retrieve_error)}'}, 
+                            {'error': f'Payment capture failed: {str(e)}'}, 
                             status=status.HTTP_502_BAD_GATEWAY
                         )
-                else:
+                except stripe.error.StripeError as e:
                     logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
                     return Response(
                         {'error': f'Payment capture failed: {str(e)}'}, 
                         status=status.HTTP_502_BAD_GATEWAY
                     )
-            except stripe.error.StripeError as e:
-                logger.error(f"Stripe capture failed for booking {booking_id}: {e}")
-                return Response(
-                    {'error': f'Payment capture failed: {str(e)}'}, 
-                    status=status.HTTP_502_BAD_GATEWAY
-                )
-            except Exception as e:
-                logger.error(f"Unexpected error during capture for booking {booking_id}: {e}")
-                return Response(
-                    {'error': f'Payment capture failed: {str(e)}'}, 
-                    status=status.HTTP_502_BAD_GATEWAY
-                )
+                except Exception as e:
+                    logger.error(f"Unexpected error during capture for booking {booking_id}: {e}")
+                    return Response(
+                        {'error': f'Payment capture failed: {str(e)}'}, 
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+            else:
+                # Non-Stripe bookings or manual approval
+                print(f"⚠️ Non-Stripe booking {booking_id} - approving manually")
+                booking.status = 'CONFIRMED'
+                booking.paid_at = timezone.now()
+                booking.save()
             
-            # Update booking to CONFIRMED state
-            booking.status = 'CONFIRMED'
-            booking.paid_at = timezone.now()
-            
-            booking.save(update_fields=[
-                'status', 'paid_at'
-            ])
-            
-            print(f"✅ Booking {booking_id} approved and confirmed by staff {staff.id}")
+            print(f"✅ Booking {booking_id} approved successfully")
         
         # Send confirmation notifications
         try:
