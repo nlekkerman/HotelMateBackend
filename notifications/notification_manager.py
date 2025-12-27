@@ -224,54 +224,33 @@ class NotificationManager:
     def realtime_guest_booking_checked_in(self, booking, room_number=None):
         """
         Emit guest-scoped event when booking is checked in.
+        Uses the same PublicRoomBookingDetailSerializer to ensure consistency.
         
         Args:
             booking: RoomBooking instance
             room_number: Room number (optional, derived from booking if not provided)
         """
-        room_num = room_number or (booking.assigned_room.room_number if booking.assigned_room else None)
-        room = booking.assigned_room
+        from hotel.booking_serializers import PublicRoomBookingDetailSerializer
+        
+        # Use the same serializer that generates the API response
+        serializer = PublicRoomBookingDetailSerializer(booking)
+        booking_data = serializer.data.copy()
+        
+        # Override status to CHECKED_IN and add check-in timestamp
+        booking_data["status"] = "CHECKED_IN"
+        booking_data["checked_in_at"] = booking.checked_in_at.isoformat() if booking.checked_in_at else timezone.now().isoformat()
+        
+        # Add room number if checked in
+        if room_number or booking.assigned_room:
+            room_num = room_number or booking.assigned_room.room_number
+            booking_data["room"]["number"] = room_num
+            if booking.assigned_room:
+                booking_data["room"]["floor"] = booking.assigned_room.floor
         
         normalized_event = self._create_normalized_event(
             category="room_booking",
             type="booking_checked_in",
-            payload={
-                "booking_id": booking.booking_id,
-                "confirmation_number": booking.confirmation_number,
-                "status": "CHECKED_IN",
-                "checked_in_at": booking.checked_in_at.isoformat() if booking.checked_in_at else timezone.now().isoformat(),
-                "dates": {
-                    "check_in": booking.check_in_date.isoformat(),
-                    "check_out": booking.check_out_date.isoformat(),
-                    "nights": (booking.check_out_date - booking.check_in_date).days
-                },
-                "guest": {
-                    "name": booking.primary_guest_name,
-                    "email": booking.primary_guest_email or "",
-                    "phone": booking.primary_guest_phone or ""
-                },
-                "guests": {
-                    "adults": booking.party_size,
-                    "children": 0,  # You may want to add this field to booking model
-                    "total": booking.party_size
-                },
-                "room": {
-                    "type": room.room_type.name if room and room.room_type else None,
-                    "number": room_num,
-                    "floor": room.floor if room else None,
-                    "code": room.room_type.code if room and room.room_type else "",
-                    "photo": room.room_type.photo.url if room and room.room_type and room.room_type.photo else ""
-                },
-                "hotel": {
-                    "name": booking.hotel.name,
-                    "slug": booking.hotel.slug,
-                    "phone": booking.hotel.phone or "",
-                    "email": booking.hotel.email or "",
-                    "wifi_name": getattr(booking.hotel, 'wifi_name', '') or "",
-                    "wifi_password": getattr(booking.hotel, 'wifi_password', '') or ""
-                },
-                "special_requests": booking.special_requests or ""
-            },
+            payload=booking_data,
             scope={
                 "type": "guest_booking",
                 "booking_id": booking.booking_id

@@ -3046,7 +3046,6 @@ class StaffBookingAcceptView(APIView):
         
         # Send guest-scoped realtime event (booking confirmed)
         try:
-            from django.db import transaction
             transaction.on_commit(
                 lambda: notification_manager.realtime_guest_booking_confirmed(
                     booking=booking,

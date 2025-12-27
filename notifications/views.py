@@ -25,7 +25,7 @@ class PusherAuthView(APIView):
     """
     permission_classes = [AllowAny]  # Custom auth logic inside
     
-    def post(self, request):
+    def post(self, request, hotel_slug=None):
         socket_id = request.data.get('socket_id')
         channel_name = request.data.get('channel_name')
         guest_token = request.data.get('guest_token') or request.headers.get('Authorization', '').replace('Bearer ', '')
