@@ -1298,9 +1298,11 @@ class NotificationManager:
         """
         self.logger.info(f"🏨 Realtime room occupancy updated: Room {room.room_number} → {room.is_occupied}")
         
-        # Get current booking for this room if any
-        current_booking = room.current_bookings.filter(
-            status__in=['checked_in', 'confirmed']
+        # Get current booking for this room if any - fix the relationship
+        from hotel.models import RoomBooking
+        current_booking = RoomBooking.objects.filter(
+            assigned_room=room,
+            status__in=['CHECKED_IN', 'CONFIRMED']
         ).first()
         
         # Use canonical serializer if there's a booking
@@ -1312,21 +1314,25 @@ class NotificationManager:
         
         # Get minimal guest info for compatibility
         guests_data = []
-        for guest in room.guests_in_room.all():
-            guests_data.append({
-                'id': guest.id,
-                'first_name': guest.first_name,
-                'last_name': guest.last_name,
-                'guest_type': guest.guest_type,
-                'id_pin': guest.id_pin
-            })
+        try:
+            for guest in room.guests_in_room.all():
+                guests_data.append({
+                    'id': guest.id,
+                    'first_name': guest.first_name,
+                    'last_name': guest.last_name,
+                    'guest_type': guest.guest_type,
+                    'id_pin': guest.id_pin
+                })
+        except AttributeError:
+            # Handle case where guests_in_room relationship doesn't exist
+            pass
         
         payload = {
             'room_number': room.room_number,
             'is_occupied': room.is_occupied,
             'room_type': room.room_type.name if room.room_type else None,
             'max_occupancy': room.room_type.max_occupancy if room.room_type else None,
-            'current_occupancy': room.guests_in_room.count(),
+            'current_occupancy': len(guests_data),
             'guests_in_room': guests_data,
             'current_booking': booking_data
         }

@@ -337,6 +337,9 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     payment_required = serializers.SerializerMethodField()
     can_cancel = serializers.SerializerMethodField()
     cancellation_preview = serializers.SerializerMethodField()
+    checked_in_at = serializers.SerializerMethodField()
+    checked_out_at = serializers.SerializerMethodField()
+    assigned_room_number = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -357,8 +360,19 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             'payment_url',
             'can_cancel',
             'cancellation_preview',
+            'checked_in_at',
+            'checked_out_at',
+            'assigned_room_number',
         ]
         read_only_fields = fields
+        def get_checked_in_at(self, obj):
+            return obj.checked_in_at.isoformat() if obj.checked_in_at else None
+
+        def get_checked_out_at(self, obj):
+            return obj.checked_out_at.isoformat() if obj.checked_out_at else None
+
+        def get_assigned_room_number(self, obj):
+            return obj.assigned_room.room_number if getattr(obj, 'assigned_room', None) else None
     
     def get_hotel_info(self, obj):
         """Hotel information"""
@@ -476,7 +490,6 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         """Custom representation to match expected API format"""
         data = super().to_representation(instance)
-        
         # Restructure to match expected format
         result = {
             "booking_id": data['booking_id'],
@@ -494,7 +507,9 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             "payment_required": data['status'] == 'PENDING_PAYMENT',
             "payment_url": data['payment_url'],
             "can_cancel": data['can_cancel'],
-            "cancellation_preview": data['cancellation_preview']
+            "cancellation_preview": data['cancellation_preview'],
+            "checked_in_at": data['checked_in_at'],
+            "checked_out_at": data['checked_out_at'],
+            "assigned_room_number": data['assigned_room_number'],
         }
-        
         return result
