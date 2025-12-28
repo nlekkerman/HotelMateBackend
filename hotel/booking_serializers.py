@@ -365,14 +365,15 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             'assigned_room_number',
         ]
         read_only_fields = fields
-        def get_checked_in_at(self, obj):
-            return obj.checked_in_at.isoformat() if obj.checked_in_at else None
 
-        def get_checked_out_at(self, obj):
-            return obj.checked_out_at.isoformat() if obj.checked_out_at else None
+    def get_checked_in_at(self, obj):
+        return obj.checked_in_at.isoformat() if obj.checked_in_at else None
 
-        def get_assigned_room_number(self, obj):
-            return obj.assigned_room.room_number if getattr(obj, 'assigned_room', None) else None
+    def get_checked_out_at(self, obj):
+        return obj.checked_out_at.isoformat() if obj.checked_out_at else None
+
+    def get_assigned_room_number(self, obj):
+        return obj.assigned_room.room_number if getattr(obj, 'assigned_room', None) else None
     
     def get_hotel_info(self, obj):
         """Hotel information"""
