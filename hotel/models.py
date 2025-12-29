@@ -810,6 +810,38 @@ class RoomBooking(models.Model):
         default=0,
         help_text="Assignment version for debugging concurrency issues"
     )
+    
+    # Room Move Audit Fields (NEW - additive only)
+    room_moved_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Timestamp when room was moved"
+    )
+    room_moved_by = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='room_moves_made',
+        help_text="Staff member who moved the room"
+    )
+    room_moved_from = models.ForeignKey(
+        'rooms.Room',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='room_moves_from',
+        help_text="Room moved from"
+    )
+    room_move_reason = models.TextField(
+        blank=True,
+        default='',
+        help_text="Reason for room move"
+    )
+    room_move_notes = models.TextField(
+        blank=True,
+        default='',
+        help_text="Additional notes about room move"
+    )
 
     class Meta:
         ordering = ['-created_at']

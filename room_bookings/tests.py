@@ -675,3 +675,415 @@ class RoomAssignmentAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         error_data = response.json()
         self.assertEqual(error_data['error']['code'], 'ROOM_NOT_BOOKABLE')
+
+
+# ============================================================================
+# ROOM MOVE TESTS - NEW ADDITIVE FUNCTIONALITY
+# ============================================================================
+
+from room_bookings.services.room_move import RoomMoveService, RoomMoveError
+
+
+class RoomMoveServiceTests(TestCase):
+    """Test room move service logic"""
+    
+    def setUp(self):
+        # Create hotel and room type
+        self.hotel = Hotel.objects.create(
+            name="Test Hotel",
+            slug="test-hotel",
+            is_active=True
+        )
+        
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            name="Standard",
+            max_occupancy=2,
+            base_price=100.00,
+            currency='EUR'
+        )
+        
+        # Create rooms
+        self.from_room = Room.objects.create(
+            hotel=self.hotel,
+            room_number=101,
+            room_type=self.room_type,
+            is_active=True,
+            is_out_of_order=False,
+            room_status='OCCUPIED',
+            is_occupied=True
+        )
+        
+        self.to_room = Room.objects.create(
+            hotel=self.hotel,
+            room_number=102,
+            room_type=self.room_type,
+            is_active=True,
+            is_out_of_order=False,
+            room_status='READY_FOR_GUEST',
+            is_occupied=False
+        )
+        
+        # Create staff
+        self.user = User.objects.create_user('staff', 'test@example.com', 'password')
+        self.staff = Staff.objects.create(
+            user=self.user,
+            hotel=self.hotel,
+            first_name='Test',
+            last_name='Staff',
+            is_active=True
+        )
+        
+        # Create in-house booking
+        self.booking = RoomBooking.objects.create(
+            hotel=self.hotel,
+            room_type=self.room_type,
+            check_in=date.today(),
+            check_out=date.today() + timedelta(days=2),
+            primary_first_name='John',
+            primary_last_name='Doe',
+            adults=1,
+            children=0,
+            total_amount=200.00,
+            status='CONFIRMED',
+            assigned_room=self.from_room,
+            checked_in_at=timezone.now(),  # In-house
+            checked_out_at=None,
+            assignment_version=1
+        )
+    
+    def test_successful_room_move(self):
+        """Test successful room move operation"""
+        result = RoomMoveService.move_room_atomic(
+            booking_id=self.booking.booking_id,
+            to_room_id=self.to_room.id,
+            staff_user=self.staff,
+            reason="Guest complaint about noise",
+            notes="Moved to quieter room"
+        )
+        
+        # Check booking was updated
+        self.assertEqual(result.assigned_room, self.to_room)
+        self.assertEqual(result.assignment_version, 2)
+        self.assertIsNotNone(result.room_moved_at)
+        self.assertEqual(result.room_moved_by, self.staff)
+        self.assertEqual(result.room_moved_from, self.from_room)
+        self.assertEqual(result.room_move_reason, "Guest complaint about noise")
+        self.assertEqual(result.room_move_notes, "Moved to quieter room")
+        
+        # Check from_room was updated
+        self.from_room.refresh_from_db()
+        self.assertFalse(self.from_room.is_occupied)
+        self.assertEqual(self.from_room.room_status, 'CHECKOUT_DIRTY')
+        self.assertIsNone(self.from_room.guest_fcm_token)
+        
+        # Check to_room was updated
+        self.to_room.refresh_from_db()
+        self.assertTrue(self.to_room.is_occupied)
+        self.assertEqual(self.to_room.room_status, 'OCCUPIED')
+    
+    def test_move_blocked_not_checked_in(self):
+        """Test move blocked when booking not checked in"""
+        self.booking.checked_in_at = None
+        self.booking.save()
+        
+        with self.assertRaises(RoomMoveError) as cm:
+            RoomMoveService.move_room_atomic(
+                booking_id=self.booking.booking_id,
+                to_room_id=self.to_room.id,
+                staff_user=self.staff
+            )
+        
+        self.assertEqual(cm.exception.code, 'BOOKING_NOT_CHECKED_IN')
+    
+    def test_move_blocked_already_checked_out(self):
+        """Test move blocked when booking already checked out"""
+        self.booking.checked_out_at = timezone.now()
+        self.booking.save()
+        
+        with self.assertRaises(RoomMoveError) as cm:
+            RoomMoveService.move_room_atomic(
+                booking_id=self.booking.booking_id,
+                to_room_id=self.to_room.id,
+                staff_user=self.staff
+            )
+        
+        self.assertEqual(cm.exception.code, 'BOOKING_ALREADY_CHECKED_OUT')
+    
+    def test_move_blocked_no_assigned_room(self):
+        """Test move blocked when booking has no assigned room"""
+        self.booking.assigned_room = None
+        self.booking.save()
+        
+        with self.assertRaises(RoomMoveError) as cm:
+            RoomMoveService.move_room_atomic(
+                booking_id=self.booking.booking_id,
+                to_room_id=self.to_room.id,
+                staff_user=self.staff
+            )
+        
+        self.assertEqual(cm.exception.code, 'NO_ROOM_ASSIGNED')
+    
+    def test_move_idempotent_same_room(self):
+        """Test idempotent operation when moving to same room"""
+        original_version = self.booking.assignment_version
+        
+        result = RoomMoveService.move_room_atomic(
+            booking_id=self.booking.booking_id,
+            to_room_id=self.from_room.id,  # Same room
+            staff_user=self.staff
+        )
+        
+        # Should return unchanged booking
+        self.assertEqual(result.assigned_room, self.from_room)
+        self.assertEqual(result.assignment_version, original_version)  # No increment
+        self.assertIsNone(result.room_moved_at)  # No move fields set
+    
+    def test_move_blocked_room_occupied(self):
+        """Test move blocked when target room is occupied"""
+        self.to_room.is_occupied = True
+        self.to_room.save()
+        
+        with self.assertRaises(RoomMoveError) as cm:
+            RoomMoveService.move_room_atomic(
+                booking_id=self.booking.booking_id,
+                to_room_id=self.to_room.id,
+                staff_user=self.staff
+            )
+        
+        self.assertEqual(cm.exception.code, 'ROOM_OCCUPIED')
+    
+    def test_move_blocked_room_out_of_order(self):
+        """Test move blocked when target room is out of order"""
+        self.to_room.is_out_of_order = True
+        self.to_room.save()
+        
+        with self.assertRaises(RoomMoveError) as cm:
+            RoomMoveService.move_room_atomic(
+                booking_id=self.booking.booking_id,
+                to_room_id=self.to_room.id,
+                staff_user=self.staff
+            )
+        
+        self.assertEqual(cm.exception.code, 'ROOM_OUT_OF_ORDER')
+    
+    def test_move_blocked_room_not_active(self):
+        """Test move blocked when target room is not active"""
+        self.to_room.is_active = False
+        self.to_room.save()
+        
+        with self.assertRaises(RoomMoveError) as cm:
+            RoomMoveService.move_room_atomic(
+                booking_id=self.booking.booking_id,
+                to_room_id=self.to_room.id,
+                staff_user=self.staff
+            )
+        
+        self.assertEqual(cm.exception.code, 'ROOM_NOT_ACTIVE')
+    
+    def test_move_blocked_different_hotel(self):
+        """Test move blocked when target room belongs to different hotel"""
+        other_hotel = Hotel.objects.create(
+            name="Other Hotel",
+            slug="other-hotel",
+            is_active=True
+        )
+        
+        other_room = Room.objects.create(
+            hotel=other_hotel,
+            room_number=201,
+            room_type=self.room_type,  # Note: This would fail in practice due to hotel FK
+            is_active=True,
+            is_out_of_order=False,
+            room_status='READY_FOR_GUEST',
+            is_occupied=False
+        )
+        
+        with self.assertRaises(RoomMoveError) as cm:
+            RoomMoveService.move_room_atomic(
+                booking_id=self.booking.booking_id,
+                to_room_id=other_room.id,
+                staff_user=self.staff
+            )
+        
+        self.assertEqual(cm.exception.code, 'HOTEL_MISMATCH')
+
+
+class RoomMoveAPITests(APITestCase):
+    """Test room move API endpoints"""
+    
+    def setUp(self):
+        # Create hotel and room type
+        self.hotel = Hotel.objects.create(
+            name="Test Hotel",
+            slug="test-hotel",
+            is_active=True
+        )
+        
+        self.room_type = RoomType.objects.create(
+            hotel=self.hotel,
+            name="Standard",
+            max_occupancy=2,
+            base_price=100.00,
+            currency='EUR'
+        )
+        
+        # Create rooms
+        self.from_room = Room.objects.create(
+            hotel=self.hotel,
+            room_number=101,
+            room_type=self.room_type,
+            is_active=True,
+            is_out_of_order=False,
+            room_status='OCCUPIED',
+            is_occupied=True
+        )
+        
+        self.to_room = Room.objects.create(
+            hotel=self.hotel,
+            room_number=102,
+            room_type=self.room_type,
+            is_active=True,
+            is_out_of_order=False,
+            room_status='READY_FOR_GUEST',
+            is_occupied=False
+        )
+        
+        # Create staff user and authenticate
+        self.user = User.objects.create_user('staff', 'test@example.com', 'password')
+        self.staff = Staff.objects.create(
+            user=self.user,
+            hotel=self.hotel,
+            first_name='Test',
+            last_name='Staff',
+            is_active=True
+        )
+        self.client.force_authenticate(user=self.user)
+        
+        # Create in-house booking
+        self.booking = RoomBooking.objects.create(
+            hotel=self.hotel,
+            room_type=self.room_type,
+            check_in=date.today(),
+            check_out=date.today() + timedelta(days=2),
+            primary_first_name='John',
+            primary_last_name='Doe',
+            adults=1,
+            children=0,
+            total_amount=200.00,
+            status='CONFIRMED',
+            assigned_room=self.from_room,
+            checked_in_at=timezone.now(),  # In-house
+            checked_out_at=None,
+            assignment_version=1
+        )
+        
+        self.url = reverse(
+            'room-bookings-move-room',
+            kwargs={
+                'hotel_slug': self.hotel.slug,
+                'booking_id': self.booking.booking_id
+            }
+        )
+    
+    def test_successful_move_room_api(self):
+        """Test successful room move via API"""
+        data = {
+            'to_room_id': self.to_room.id,
+            'reason': 'Guest complaint',
+            'notes': 'Moved to quieter room'
+        }
+        
+        response = self.client.post(self.url, data)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        
+        # Check response structure
+        self.assertIn('message', response_data)
+        self.assertIn('booking_id', response_data)
+        self.assertIn('assigned_room', response_data)
+        
+        # Check booking was moved
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.assigned_room, self.to_room)
+        self.assertEqual(self.booking.room_move_reason, 'Guest complaint')
+        self.assertEqual(self.booking.room_move_notes, 'Moved to quieter room')
+    
+    def test_api_booking_not_found(self):
+        """Test API returns 404 for non-existent booking"""
+        url = reverse(
+            'room-bookings-move-room',
+            kwargs={
+                'hotel_slug': self.hotel.slug,
+                'booking_id': 'BK-2025-9999'
+            }
+        )
+        
+        data = {'to_room_id': self.to_room.id}
+        response = self.client.post(url, data)
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        error_data = response.json()
+        self.assertEqual(error_data['error']['code'], 'BOOKING_NOT_FOUND')
+    
+    def test_api_room_not_found(self):
+        """Test API returns 404 for non-existent room"""
+        data = {'to_room_id': 99999}
+        response = self.client.post(self.url, data)
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        error_data = response.json()
+        self.assertEqual(error_data['error']['code'], 'ROOM_NOT_FOUND')
+    
+    def test_api_invalid_input(self):
+        """Test API returns 400 for invalid input"""
+        data = {}  # Missing required to_room_id
+        response = self.client.post(self.url, data)
+        
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertEqual(error_data['error']['code'], 'INVALID_INPUT')
+    
+    def test_api_booking_not_in_house(self):
+        """Test API returns 409 for booking not in-house"""
+        self.booking.checked_in_at = None
+        self.booking.save()
+        
+        data = {'to_room_id': self.to_room.id}
+        response = self.client.post(self.url, data)
+        
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        error_data = response.json()
+        self.assertEqual(error_data['error']['code'], 'BOOKING_NOT_CHECKED_IN')
+    
+    def test_api_hotel_scoping(self):
+        """Test API enforces hotel slug scoping"""
+        # Create booking in different hotel
+        other_hotel = Hotel.objects.create(
+            name="Other Hotel",
+            slug="other-hotel",
+            is_active=True
+        )
+        
+        url = reverse(
+            'room-bookings-move-room',
+            kwargs={
+                'hotel_slug': other_hotel.slug,
+                'booking_id': self.booking.booking_id
+            }
+        )
+        
+        data = {'to_room_id': self.to_room.id}
+        response = self.client.post(url, data)
+        
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+    
+    def test_api_unauthenticated_access(self):
+        """Test API requires authentication"""
+        self.client.force_authenticate(user=None)
+        
+        data = {'to_room_id': self.to_room.id}
+        response = self.client.post(self.url, data)
+        
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

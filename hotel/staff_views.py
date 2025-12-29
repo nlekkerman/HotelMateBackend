@@ -5,7 +5,7 @@ Provides staff-only CRUD operations for:
 - Rooms (inventory)
 - Access Configuration
 """
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -36,6 +36,7 @@ from notifications.email_service import send_booking_confirmation_email, send_bo
 from notifications.fcm_service import send_booking_confirmation_notification, send_booking_cancellation_notification
 from room_bookings.services.room_assignment import RoomAssignmentService
 from room_bookings.exceptions import RoomAssignmentError
+from room_bookings.services.room_move import RoomMoveService, RoomMoveError
 from rest_framework.pagination import PageNumberPagination
 from .models import (
     Hotel,
@@ -2184,6 +2185,87 @@ class UnassignRoomView(APIView):
         booking.save()
         
         return Response({'message': 'Room unassigned successfully'})
+
+
+class MoveRoomInputSerializer(serializers.Serializer):
+    """Input serializer for room move operation"""
+    to_room_id = serializers.IntegerField(required=True, help_text="Target room ID")
+    reason = serializers.CharField(required=False, allow_blank=True, default="", help_text="Reason for room move")
+    notes = serializers.CharField(required=False, allow_blank=True, default="", help_text="Additional notes")
+
+
+class MoveRoomView(APIView):
+    """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/move-room/"""
+    
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    
+    def post(self, request, hotel_slug, booking_id):
+        serializer = MoveRoomInputSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {'error': {'code': 'INVALID_INPUT', 'message': 'Invalid input data', 'details': serializer.errors}},
+                status=400
+            )
+        
+        validated_data = serializer.validated_data
+        to_room_id = validated_data['to_room_id']
+        reason = validated_data.get('reason', '')
+        notes = validated_data.get('notes', '')
+        
+        try:
+            # Verify booking exists and belongs to hotel
+            booking = RoomBooking.objects.get(
+                booking_id=booking_id,
+                hotel__slug=hotel_slug
+            )
+        except RoomBooking.DoesNotExist:
+            return Response(
+                {'error': {'code': 'BOOKING_NOT_FOUND', 'message': 'Booking not found'}},
+                status=404
+            )
+        
+        # Centralized staff resolution
+        staff_user = get_staff_or_403(request.user, booking.hotel)
+        
+        try:
+            # Verify target room exists
+            from rooms.models import Room
+            Room.objects.get(id=to_room_id, hotel=booking.hotel)
+        except Room.DoesNotExist:
+            return Response(
+                {'error': {'code': 'ROOM_NOT_FOUND', 'message': 'Target room not found'}},
+                status=404
+            )
+        
+        try:
+            # Perform the room move
+            updated_booking = RoomMoveService.move_room_atomic(
+                booking_id=booking_id,
+                to_room_id=to_room_id,
+                staff_user=staff_user,
+                reason=reason,
+                notes=notes
+            )
+            
+            # Return updated booking with room details
+            serializer = StaffRoomBookingDetailSerializer(updated_booking)
+            return Response({
+                'message': f'Successfully moved booking {booking_id} to room {updated_booking.assigned_room.room_number}',
+                **serializer.data
+            })
+            
+        except RoomMoveError as e:
+            status_code = 409 if e.code in ['BOOKING_NOT_CHECKED_IN', 'BOOKING_ALREADY_CHECKED_OUT', 'ROOM_OCCUPIED'] else 400
+            return Response(
+                {'error': {'code': e.code, 'message': e.message, 'details': e.details}},
+                status=status_code
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in room move: {e}")
+            return Response(
+                {'error': {'code': 'INTERNAL_ERROR', 'message': 'An unexpected error occurred'}},
+                status=500
+            )
 
 
 class BookingCheckInView(APIView):

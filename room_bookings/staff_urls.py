@@ -19,6 +19,7 @@ from hotel.staff_views import (
     AvailableRoomsView,
     SafeAssignRoomView,
     UnassignRoomView,
+    MoveRoomView,
     SafeStaffBookingListView,
     # Check-in/Check-out Views
     BookingCheckInView,
@@ -97,6 +98,13 @@ urlpatterns = [
         '<str:booking_id>/unassign-room/',
         UnassignRoomView.as_view(),
         name='room-bookings-unassign-room'
+    ),
+    
+    # Move room (in-house bookings only)
+    path(
+        '<str:booking_id>/move-room/',
+        MoveRoomView.as_view(),
+        name='room-bookings-move-room'
     ),
     
     # ===== CHECK-IN/CHECK-OUT ENDPOINTS =====
