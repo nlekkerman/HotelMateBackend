@@ -56,6 +56,8 @@ urlpatterns = [
     path('api/guest/', include('guest_urls')),
     # Public zone - No auth required (landing page, hotel discovery)
     path('api/public/', include('public_urls')),
+    # Global Pusher auth endpoint alias for guest access
+    path('api/notifications/', include('notifications.urls')),
 ]
 
 # Serve media files in development

@@ -5,9 +5,12 @@ from django.contrib.auth.models import AnonymousUser
 import json
 import hmac
 import hashlib
+import logging
 from django.conf import settings
 from staff.models import Staff
 from hotel.models import GuestBookingToken
+
+logger = logging.getLogger(__name__)
 
 
 class PusherAuthView(APIView):
@@ -28,9 +31,18 @@ class PusherAuthView(APIView):
     def post(self, request, hotel_slug=None):
         socket_id = request.data.get('socket_id')
         channel_name = request.data.get('channel_name')
-        guest_token = request.data.get('guest_token') or request.headers.get('Authorization', '').replace('Bearer ', '')
+        # Check token in multiple places: querystring, body, headers
+        guest_token = (
+            request.GET.get('token') or 
+            request.data.get('token') or 
+            request.data.get('guest_token') or 
+            request.headers.get('Authorization', '').replace('Bearer ', '')
+        )
+        
+        logger.info(f"Pusher auth request: channel={channel_name}, has_token={bool(guest_token)}, hotel_slug={hotel_slug}")
         
         if not socket_id or not channel_name:
+            logger.error("Pusher auth missing required fields")
             return Response({"error": "Missing socket_id or channel_name"}, status=400)
         
         # Determine auth mode
@@ -45,12 +57,14 @@ class PusherAuthView(APIView):
         """
         # Require staff authentication
         if isinstance(request.user, AnonymousUser) or not request.user.is_authenticated:
+            logger.warning(f"Staff auth failed: unauthenticated user for channel {channel_name}")
             return Response({"error": "Staff authentication required"}, status=401)
         
         # Get staff profile
         try:
             staff = Staff.objects.get(user=request.user)
         except Staff.DoesNotExist:
+            logger.warning(f"Staff auth failed: no staff profile for user {request.user.id}")
             return Response({"error": "Staff profile not found"}, status=401)
         
         # Validate channel access for staff
@@ -63,6 +77,7 @@ class PusherAuthView(APIView):
         ]
         
         if not any(channel_name.startswith(pattern) for pattern in allowed_patterns):
+            logger.warning(f"Staff auth failed: channel access denied for {channel_name} (hotel: {hotel_slug})")
             return Response({"error": "Channel access denied for staff"}, status=403)
         
         # Generate Pusher auth signature
@@ -75,6 +90,7 @@ class PusherAuthView(APIView):
             }
         })
         
+        logger.info(f"Staff auth successful: user={staff.id}, channel={channel_name}")
         return Response(auth)
     
     def _handle_guest_auth(self, socket_id, channel_name, guest_token):
@@ -83,22 +99,26 @@ class PusherAuthView(APIView):
         """
         # CRITICAL: Hard reject any hotel channels for guest tokens
         if '.' in channel_name and not channel_name.startswith('private-guest-booking.'):
+            logger.warning(f"Guest auth rejected: attempted access to staff channel {channel_name}")
             return Response({"error": "Guest tokens cannot access staff channels"}, status=403)
         
         # Validate guest booking channel format
         if not channel_name.startswith('private-guest-booking.'):
+            logger.warning(f"Guest auth rejected: invalid channel format {channel_name}")
             return Response({"error": "Invalid channel format for guest token"}, status=403)
         
         # Extract booking ID from channel name
         try:
             booking_id = channel_name.replace('private-guest-booking.', '')
         except:
+            logger.error(f"Guest auth failed: invalid booking channel format {channel_name}")
             return Response({"error": "Invalid booking channel format"}, status=400)
         
         # Validate guest token
         token_obj = GuestBookingToken.validate_token(guest_token, booking_id)
         if not token_obj:
-            return Response({"error": "Invalid or expired guest token"}, status=401)
+            logger.warning(f"Guest auth failed: invalid token for booking {booking_id}")
+            return Response({"error": "UNAUTHORIZED", "detail": "Invalid or expired guest token"}, status=403)
         
         # Generate Pusher auth signature for guest
         auth = self._generate_pusher_auth(socket_id, channel_name, {
@@ -110,6 +130,7 @@ class PusherAuthView(APIView):
             }
         })
         
+        logger.info(f"Guest auth successful: booking={booking_id}, channel={channel_name}")
         return Response(auth)
     
     def _generate_pusher_auth(self, socket_id, channel_name, channel_data=None):

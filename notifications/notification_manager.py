@@ -246,8 +246,7 @@ class NotificationManager:
         if room_number or booking.assigned_room:
             room_num = room_number or booking.assigned_room.room_number
             booking_data["room"]["number"] = room_num
-            if booking.assigned_room:
-                booking_data["room"]["floor"] = booking.assigned_room.floor
+            # Note: floor removed as it's not required and may not exist on Room model
         
         print(f"🔄 Guest check-in payload: status={booking_data['status']}, room_number={booking_data.get('room', {}).get('number')}")
         
@@ -318,7 +317,6 @@ class NotificationManager:
                 "status": booking.status,
                 "room_number": room_num,
                 "room_type": room.room_type.name if room and room.room_type else None,
-                "room_floor": room.floor if room else None,
                 "room_assigned_at": booking.room_assigned_at.isoformat() if booking.room_assigned_at else timezone.now().isoformat(),
                 "expected_checkin_date": booking.check_in_date.isoformat(),
                 "expected_checkout_date": booking.check_out_date.isoformat(),
