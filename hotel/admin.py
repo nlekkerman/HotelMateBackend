@@ -300,6 +300,7 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'hotel',
         'room_type',
         'assigned_room_display',
+        'room_move_info',
         'check_in',
         'check_out',
         'status',
@@ -329,6 +330,9 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'assigned_room_display',
         'room_assigned_at',
         'room_assigned_by',
+        'room_moved_at',
+        'room_moved_by',
+        'room_moved_from',
         'party_status_display',
         'precheckin_status_display',
         'precheckin_data_display',
@@ -342,6 +346,18 @@ class RoomBookingAdmin(admin.ModelAdmin):
         'refund_amount_display',
         'refund_processed_display'
     )
+
+    def room_move_info(self, obj):
+        """Display room move information in list view"""
+        if obj.room_moved_at and obj.room_moved_from:
+            return format_html(
+                '🔄 {} → {} <br/><small>📅 {}</small>',
+                obj.room_moved_from.room_number,
+                obj.assigned_room.room_number if obj.assigned_room else 'None',
+                obj.room_moved_at.strftime('%m/%d %H:%M')
+            )
+        return "-"
+    room_move_info.short_description = "Room Move"
 
     def cancellation_info(self, obj):
         """Display cancellation info in list view using actual database fields"""
@@ -684,6 +700,16 @@ class RoomBookingAdmin(admin.ModelAdmin):
         ('Room Assignment', {
             'fields': ('assigned_room', 'assigned_room_display', 'room_assigned_at', 'room_assigned_by'),
             'description': 'Physical room assignment and check-in status'
+        }),
+        ('Room Move History', {
+            'fields': (
+                ('room_moved_at', 'room_moved_by'),
+                'room_moved_from',
+                'room_move_reason',
+                'room_move_notes'
+            ),
+            'classes': ('collapse',),
+            'description': 'Room move audit trail for in-house guests (only visible if room was moved)'
         }),
         ('Guest Information', {
             'fields': (
