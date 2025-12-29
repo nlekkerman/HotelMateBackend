@@ -81,7 +81,7 @@ if (isPrecheckinComplete(staffBookingData)) {
       "role": "PRIMARY",
       "first_name": "Nikola",
       "last_name": "Simic", 
-      "email": "nlekkerman@gmail.com",
+      "email": "hotelsmatesapp@gmail.com",
       "phone": "0830945102",
       "is_staying": true,
       "precheckin_payload": {

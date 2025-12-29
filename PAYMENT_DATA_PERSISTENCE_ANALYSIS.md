@@ -97,7 +97,7 @@ paid_at = models.DateTimeField(
 # - Transaction ID matching this booking
 # - Payment amount (€2616.00)
 # - Payment timestamp
-# - Customer email (nlekkerman@gmail.com)
+# - Customer email (hotelsmatesapp@gmail.com)
 ```
 
 ### 2. Review UI Payment Code
