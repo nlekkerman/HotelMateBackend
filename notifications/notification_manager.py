@@ -138,7 +138,7 @@ class NotificationManager:
         """
         normalized_event = self._create_normalized_event(
             category="room_booking",
-            type="booking_payment_required",
+            event_type="booking_payment_required",
             payload={
                 "booking_id": booking.booking_id,
                 "status": "PENDING_PAYMENT",
@@ -147,6 +147,7 @@ class NotificationManager:
                 "hotel_name": booking.hotel.name,
                 "hotel_phone": booking.hotel.phone or "",
             },
+            hotel=booking.hotel,
             scope={
                 "type": "guest_booking",
                 "booking_id": booking.booking_id
@@ -170,7 +171,7 @@ class NotificationManager:
             
         normalized_event = self._create_normalized_event(
             category="room_booking",
-            type="booking_confirmed",
+            event_type="booking_confirmed",
             payload={
                 "booking_id": booking.booking_id,
                 "status": "CONFIRMED",
@@ -178,6 +179,7 @@ class NotificationManager:
                 "hotel_name": booking.hotel.name,
                 "hotel_phone": booking.hotel.phone or "",
             },
+            hotel=booking.hotel,
             scope={
                 "type": "guest_booking",
                 "booking_id": booking.booking_id
