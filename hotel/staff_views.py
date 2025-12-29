@@ -2211,48 +2211,43 @@ class BookingCheckInView(APIView):
             print(f"❌ Error emitting guest check-in event: {e}")
     
     def post(self, request, hotel_slug, booking_id):
+        # Get booking with hotel validation
         try:
-            # Get booking with hotel validation
             booking = RoomBooking.objects.get(
                 booking_id=booking_id,
                 hotel__slug=hotel_slug
             )
         except RoomBooking.DoesNotExist:
             return Response(
-                {'error': {'code': 'BOOKING_NOT_FOUND', 'message': 'Booking not found'}},
+                {'error': 'BOOKING_NOT_FOUND', 'detail': 'Booking not found'},
                 status=404
             )
         
         # Centralized staff resolution
         staff_user = get_staff_or_403(request.user, booking.hotel)
         
-        # Check if booking is eligible for check-in
-        if booking.status != 'CONFIRMED':
+        # Get hotel check-in policy configuration
+        from hotelmate.utils.checkin_policy import get_checkin_policy, get_hotel_now
+        from hotelmate.utils.checkin_validation import validate_checkin
+        
+        policy = get_checkin_policy(booking.hotel)
+        now_local = get_hotel_now(booking.hotel)
+        
+        # Single validation function call
+        is_valid, error_code, error_detail = validate_checkin(
+            booking=booking,
+            room=booking.assigned_room,
+            policy=policy,
+            now_local=now_local
+        )
+        
+        if not is_valid:
             return Response(
-                {'error': {'code': 'BOOKING_NOT_CONFIRMED', 'message': f'Booking must be CONFIRMED to check-in. Current status: {booking.status}'}},
+                {'error': error_code, 'detail': error_detail},
                 status=400
             )
         
-        if not booking.assigned_room:
-            return Response(
-                {'error': {'code': 'NO_ROOM_ASSIGNED', 'message': 'Room must be assigned before check-in'}},
-                status=400
-            )
-        
-        if not booking.party_complete:
-            return Response(
-                {'error': {'code': 'PARTY_INCOMPLETE', 'message': 'Please provide all staying guest names before check-in'}},
-                status=400
-            )
-        
-        # Check for double check-in (idempotency)
-        if booking.checked_in_at and not booking.checked_out_at:
-            return Response(
-                {'error': {'code': 'ALREADY_CHECKED_IN', 'message': 'Booking is already checked in'}},
-                status=409
-            )
-        
-        # PERFORM FULL CHECK-IN PROCESS
+        # All validations passed - perform check-in process
         with transaction.atomic():
             # Set check-in timestamp
             booking.checked_in_at = timezone.now()
