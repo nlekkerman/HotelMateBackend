@@ -1145,7 +1145,7 @@ class StaffBookingsListView(APIView):
                 bookings = bookings.filter(
                     Q(status__in=['PENDING_PAYMENT', 'PENDING_APPROVAL'])
                 )
-            elif bucket == 'completed':
+            elif bucket == 'checked_out':
                 # checked_out_at IS NOT NULL OR status == COMPLETED
                 bookings = bookings.filter(
                     Q(checked_out_at__isnull=False) | Q(status='COMPLETED')
@@ -1154,7 +1154,7 @@ class StaffBookingsListView(APIView):
                 # status == CANCELLED
                 bookings = bookings.filter(status='CANCELLED')
             else:
-                return Response({'error': 'Invalid bucket. Valid values: arrivals, in_house, departures, pending, completed, cancelled'}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({'error': 'Invalid bucket. Valid values: arrivals, in_house, departures, pending, checked_out, cancelled'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Apply search filtering
         if search_query:
@@ -1238,7 +1238,7 @@ class StaffBookingsListView(APIView):
                     'pending': base_queryset.filter(
                         Q(status__in=['PENDING_PAYMENT', 'PENDING_APPROVAL'])
                     ).count(),
-                    'completed': base_queryset.filter(
+                    'checked_out': base_queryset.filter(
                         Q(checked_out_at__isnull=False) | Q(status='COMPLETED')
                     ).count(),
                     'cancelled': base_queryset.filter(status='CANCELLED').count(),

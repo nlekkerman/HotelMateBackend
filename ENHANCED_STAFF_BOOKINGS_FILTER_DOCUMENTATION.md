@@ -14,7 +14,7 @@ Filter bookings by operational status categories:
 - **`in_house`**: Currently checked in guests (checked_in_at NOT NULL, checked_out_at NULL)  
 - **`departures`**: Bookings with check-out today (or date range), not checked out
 - **`pending`**: Bookings awaiting payment or approval (PENDING_PAYMENT/PENDING_APPROVAL)
-- **`completed`**: Checked out guests or COMPLETED status
+- **`checked_out`**: Checked out guests or COMPLETED status
 - **`cancelled`**: Cancelled bookings
 
 ### 2. Date Filters
@@ -103,7 +103,7 @@ GET /api/staff/hotels/myhotel/room-bookings/?bucket=arrivals&assigned=false&q=sm
     "in_house": 15,
     "departures": 6,
     "pending": 3,
-    "completed": 12,
+    "checked_out": 12,
     "cancelled": 1
   }
 }
@@ -138,7 +138,7 @@ Q(checked_out_at__isnull=True)
 # pending
 Q(status__in=['PENDING_PAYMENT', 'PENDING_APPROVAL'])
 
-# completed
+# checked_out
 Q(checked_out_at__isnull=False) | Q(status='COMPLETED')
 
 # cancelled
@@ -165,7 +165,7 @@ const searchResults = await api.get(`/staff/hotels/${hotelSlug}/room-bookings/?q
 
 // Get dashboard counts
 const dashboard = await api.get(`/staff/hotels/${hotelSlug}/room-bookings/`);
-console.log(dashboard.counts); // { arrivals: 8, in_house: 15, ... }
+console.log(dashboard.counts); // { arrivals: 8, in_house: 15, departures: 6, pending: 3, checked_out: 12, cancelled: 1 }
 ```
 
 ## Performance Notes
