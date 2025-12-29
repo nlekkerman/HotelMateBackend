@@ -23,7 +23,7 @@ Implement per-guest nationality selection in the precheckin form so each guest c
     "primary": {
       "first_name": "Nikola",
       "last_name": "Simic",
-      "email": "nlekkerman@gmail.com",
+      "email": "hotelsmatesapp@gmail.com",
       "phone": "0830945102"
     },
     "companions": [{
