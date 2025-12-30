@@ -389,18 +389,8 @@ class HotelBookingCreateView(APIView):
             purpose='STATUS'
         )
         
-        # Send "Booking Received" email with status page link (NOT confirmation)
-        try:
-            # Create FRONTEND status page URL with hotel slug and guest token
-            status_url = f"https://hotelsmates.com/booking/status/{hotel_slug}/{booking.booking_id}?token={raw_token}"
-            
-            # Send booking received email (pending approval, not confirmed)
-            send_booking_received_email(booking, status_url, raw_token)
-            logger.info(f"Booking received email sent for booking {booking.booking_id}")
-        except ImportError:
-            logger.warning(f"Email service not available for booking received notification")
-        except Exception as e:
-            logger.error(f"Failed to send booking received email for {booking.booking_id}: {e}")
+        # Email will be sent after payment completion (no immediate email needed)
+        logger.info(f"Booking {booking.booking_id} created - emails will be sent after payment")
         
         # Return public-safe response payload with guest token
         response_data = {
