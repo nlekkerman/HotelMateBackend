@@ -81,6 +81,13 @@ urlpatterns = [
         name="public-room-booking-detail",
     ),
     
+    # Room booking cancellation endpoint
+    path(
+        "hotel/<str:hotel_slug>/room-bookings/<str:booking_id>/cancel/",
+        BookingStatusView.as_view(),
+        name="public-room-booking-cancel",
+    ),
+    
     # Payment endpoints
     path(
         "hotel/<str:hotel_slug>/room-bookings/<str:booking_id>/payment/",
