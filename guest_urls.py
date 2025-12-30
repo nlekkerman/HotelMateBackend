@@ -423,7 +423,9 @@ def create_booking(request, hotel_slug):
         currency='EUR',
         status='PENDING_PAYMENT',
         special_requests=special_requests,
-        promo_code=promo_code
+        promo_code=promo_code,
+        # Set expiration for unpaid booking cleanup
+        expires_at=timezone.now() + timedelta(minutes=15)
     )
     
     return JsonResponse({

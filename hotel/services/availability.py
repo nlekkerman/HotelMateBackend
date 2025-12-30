@@ -103,6 +103,7 @@ def _booked_for_date(room_type: RoomType, day: date) -> int:
     - room_type matches
     - status is PENDING_PAYMENT or CONFIRMED
     - check_in <= day < check_out (overnight hotel logic)
+    - PENDING_PAYMENT bookings are only counted if not expired
     
     Args:
         room_type: RoomType instance
@@ -114,13 +115,23 @@ def _booked_for_date(room_type: RoomType, day: date) -> int:
     # Import here to avoid circular imports
     from hotel.models import RoomBooking
     from django.db.models import Q
+    from django.utils import timezone
+    
+    now = timezone.now()
     
     # Bookings overlap this date if: check_in <= day < check_out
+    # CONFIRMED always blocks inventory
+    # PENDING_PAYMENT only blocks if expires_at > now (not expired)
     overlapping_bookings = RoomBooking.objects.filter(
         room_type=room_type,
-        status__in=['PENDING_PAYMENT', 'CONFIRMED'],
         check_in__lte=day,
         check_out__gt=day
+    ).filter(
+        Q(status='CONFIRMED') |  # CONFIRMED always blocks
+        (
+            Q(status='PENDING_PAYMENT') & 
+            (Q(expires_at__isnull=True) | Q(expires_at__gt=now))  # Not expired
+        )
     ).count()
     
     return overlapping_bookings

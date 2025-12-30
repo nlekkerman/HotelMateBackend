@@ -1076,8 +1076,12 @@ class StaffBookingsListView(APIView):
         if staff.hotel.slug != hotel_slug:
             return Response({'error': 'You can only view bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
 
-        # Base queryset
-        bookings = RoomBooking.objects.filter(hotel=staff.hotel).select_related(
+        # Base queryset - exclude non-operational bookings from staff view
+        bookings = RoomBooking.objects.filter(
+            hotel=staff.hotel
+        ).exclude(
+            status__in=['DRAFT', 'PENDING_PAYMENT', 'CANCELLED_DRAFT']
+        ).select_related(
             'hotel', 'room_type', 'assigned_room'
         )
 
@@ -1219,7 +1223,11 @@ class StaffBookingsListView(APIView):
         if not bucket:
             # Only compute counts if safe to do so (no specific filtering)
             try:
-                base_queryset = RoomBooking.objects.filter(hotel=staff.hotel)
+                base_queryset = RoomBooking.objects.filter(
+                    hotel=staff.hotel
+                ).exclude(
+                    status__in=['DRAFT', 'PENDING_PAYMENT', 'CANCELLED_DRAFT']
+                )
                 today_date = today
                 
                 counts = {
@@ -2669,7 +2677,13 @@ class SafeStaffBookingListView(APIView):
     def get(self, request, hotel_slug):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
-        queryset = RoomBooking.objects.filter(hotel=hotel).select_related(
+        # Base queryset - exclude non-operational bookings from staff view
+        # Staff should only see real bookings, not drafts/holds/expired bookings
+        queryset = RoomBooking.objects.filter(
+            hotel=hotel
+        ).exclude(
+            status__in=['DRAFT', 'PENDING_PAYMENT', 'CANCELLED_DRAFT']
+        ).select_related(
             'assigned_room', 'room_type', 'room_assigned_by'
         )
         
@@ -3402,13 +3416,28 @@ class StaffBookingDeclineView(APIView):
             # Cancel authorization via Stripe (if payment_intent exists)
             if booking.payment_intent_id:
                 try:
-                    print(f"🔄 Cancelling authorization for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
-                    cancelled_intent = stripe.PaymentIntent.cancel(booking.payment_intent_id)
+                    print(f"🔄 Checking PaymentIntent status for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
                     
-                    if cancelled_intent.status != 'canceled':
-                        logger.warning(f"Unexpected cancellation status: {cancelled_intent.status} for booking {booking_id}")
+                    # First, retrieve the PaymentIntent to check its current status
+                    payment_intent = stripe.PaymentIntent.retrieve(booking.payment_intent_id)
                     
-                    print(f"✅ Authorization cancelled successfully: {cancelled_intent.id}")
+                    # Only attempt cancellation if the PaymentIntent can be cancelled
+                    cancellable_statuses = [
+                        'requires_payment_method', 'requires_capture', 'requires_reauthorization',
+                        'requires_confirmation', 'requires_action', 'processing'
+                    ]
+                    
+                    if payment_intent.status in cancellable_statuses:
+                        print(f"🔄 Cancelling authorization for booking {booking_id}, current status: {payment_intent.status}")
+                        cancelled_intent = stripe.PaymentIntent.cancel(booking.payment_intent_id)
+                        
+                        if cancelled_intent.status != 'canceled':
+                            logger.warning(f"Unexpected cancellation status: {cancelled_intent.status} for booking {booking_id}")
+                        
+                        print(f"✅ Authorization cancelled successfully: {cancelled_intent.id}")
+                    else:
+                        print(f"⚠️ PaymentIntent {booking.payment_intent_id} already has status '{payment_intent.status}' - skipping cancellation")
+                        # PaymentIntent is already in a final state (canceled, succeeded, etc.) - continue with booking decline
                     
                 except stripe.error.StripeError as e:
                     logger.error(f"Stripe cancellation failed for booking {booking_id}: {e}")

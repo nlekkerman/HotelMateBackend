@@ -591,6 +591,7 @@ class RoomBooking(models.Model):
         ('CONFIRMED', 'Confirmed'),
         ('DECLINED', 'Declined'),  # NEW: Authorization cancelled
         ('CANCELLED', 'Cancelled'),
+        ('CANCELLED_DRAFT', 'Cancelled Draft'),  # NEW: Expired unpaid bookings
         ('COMPLETED', 'Completed'),
         ('NO_SHOW', 'No Show'),
     ]
@@ -705,6 +706,14 @@ class RoomBooking(models.Model):
         null=True,
         blank=True,
         help_text="Timestamp of successful payment"
+    )
+    
+    # Booking expiration fields for unpaid booking cleanup
+    expires_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="When this unpaid booking expires (for PENDING_PAYMENT cleanup)"
     )
     
     # NEW: Authorization fields for manual capture flow
@@ -853,6 +862,7 @@ class RoomBooking(models.Model):
             models.Index(fields=['primary_email']),
             models.Index(fields=['status']),
             models.Index(fields=['assigned_room']),
+            models.Index(fields=['expires_at']),  # For efficient unpaid booking cleanup
         ]
 
     def save(self, *args, **kwargs):

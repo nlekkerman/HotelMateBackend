@@ -6,9 +6,10 @@ Reuses pricing service logic for consistent calculations.
 
 No DRF dependencies - pure business logic.
 """
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Dict
+from django.utils import timezone
 
 from hotel.models import Hotel, RoomBooking
 from rooms.models import RoomType
@@ -128,7 +129,9 @@ def create_room_booking_from_request(
         cancellation_policy=(
             rate_plan.cancellation_policy or 
             hotel.default_cancellation_policy
-        )
+        ),
+        # Booking expiration: Set 15-minute expiration for unpaid bookings
+        expires_at=timezone.now() + timedelta(minutes=15)
     )
     
     # Phase 3: The PRIMARY BookingGuest will be auto-created by the save() method
