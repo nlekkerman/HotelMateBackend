@@ -480,80 +480,17 @@ class StripeWebhookView(APIView):
         currency = session['metadata'].get('currency', 'EUR').upper()
         amount_total = float(session['metadata'].get('total_amount', 0))
         
-        # Send authorization email only if DB update succeeded
+        # Send booking management email after payment authorization
         if booking_updated and customer_email:
             try:
-                # Generate booking management token for secure access
-                from hotel.services.booking_management import generate_booking_management_token
-                raw_token, token_obj = generate_booking_management_token(booking)
-                
-                # Get hotel slug for the URL
-                hotel_slug = booking.hotel.slug
-                
-                # Build secure management URL
-                management_url = f"https://hotelsmates.com/booking/status/{hotel_slug}/{booking_id}?token={raw_token}"
-                
-                email_subject = f"⏳ Payment Reserved (NOT CONFIRMED) — Hotel Review Required ({booking_id})"
-                email_message = f"""
-Dear {guest_name or 'Guest'},
-
-🔒 Your payment has been RESERVED (not charged yet).
-
-⚠️ IMPORTANT: This is NOT a booking confirmation!
-
-Booking Request Details:
-- Booking ID: {booking_id}
-- Check-in: {check_in}
-- Check-out: {check_out}
-- Amount reserved: {currency} {amount_total:.2f}
-- Status: AWAITING HOTEL APPROVAL
-
-What happens next:
-1. Hotel staff will review your booking request
-2. If APPROVED: You'll receive a separate booking confirmation email
-3. If DECLINED: The payment authorization will be cancelled
-
-No charge will be made to your card until the hotel accepts your booking.
-
-You can view your booking status and manage your reservation at:
-{management_url}
-
-This secure link allows you to:
-- View your booking details and status
-- Cancel your booking if needed (subject to cancellation policy)
-- Check cancellation fees before confirming
-
-Important: Keep this link secure - it provides access to your booking management.
-
-If you have any questions, please contact the hotel directly.
-
-Best regards,
-HotelsMates Team
-"""
-                
-                sent = send_mail(
-                    subject=email_subject,
-                    message=email_message,
-                    from_email=f"HotelsMates <{settings.EMAIL_HOST_USER}>",
-                    recipient_list=[customer_email],
-                    fail_silently=False,
-                )
-                
-                print(f"📧 send_mail returned {sent} for {customer_email}")
-                
-                # Send booking management email after payment authorization
-                try:
-                    from hotel.services.booking_management import create_and_send_booking_management_token
-                    success = create_and_send_booking_management_token(booking, customer_email)
-                    if success:
-                        print(f"📧 Booking management email sent for {booking_id} after payment")
-                    else:
-                        print(f"⚠️ Failed to send booking management email for {booking_id}")
-                except Exception as mgmt_e:
-                    print(f"❌ Error sending booking management email for {booking_id}: {mgmt_e}")
-                
+                from hotel.services.booking_management import create_and_send_booking_management_token
+                success = create_and_send_booking_management_token(booking, customer_email)
+                if success:
+                    print(f"📧 Booking management email sent for {booking_id} after payment")
+                else:
+                    print(f"⚠️ Failed to send booking management email for {booking_id}")
             except Exception as e:
-                print(f"Failed to send payment confirmation email: {e}")
+                print(f"❌ Error sending booking management email for {booking_id}: {e}")
         
         print(f"Webhook processing complete for booking {booking_id}")
 
