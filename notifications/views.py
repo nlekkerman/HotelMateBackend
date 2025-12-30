@@ -114,11 +114,21 @@ class PusherAuthView(APIView):
             logger.error(f"Guest auth failed: invalid booking channel format {channel_name}")
             return Response({"error": "Invalid booking channel format"}, status=400)
         
+        # Clean token - remove common prefixes that frontend might add
+        clean_token = guest_token.strip()
+        if clean_token.startswith('GuestToken '):
+            clean_token = clean_token.replace('GuestToken ', '', 1)
+        elif clean_token.startswith('Bearer '):
+            clean_token = clean_token.replace('Bearer ', '', 1)
+        
+        logger.info(f"Token cleanup: original='{guest_token[:20]}...', cleaned='{clean_token[:20]}...'")
+        
         # Validate guest token
-        token_obj = GuestBookingToken.validate_token(guest_token, booking_id)
+        token_obj = GuestBookingToken.validate_token(clean_token, booking_id)
         if not token_obj:
             logger.warning(f"Guest auth failed: invalid token for booking {booking_id}")
             logger.warning(f"Frontend sent token: {guest_token[:20]}... (length: {len(guest_token)})")
+            logger.warning(f"Cleaned token: {clean_token[:20]}... (length: {len(clean_token)})")
             # Debug: Check if any tokens exist for this booking
             from hotel.models import RoomBooking
             try:
