@@ -3279,14 +3279,21 @@ class StaffBookingAcceptView(APIView):
             
             print(f"✅ Booking {booking_id} approved successfully")
         
-        # Send confirmation notifications
+        # Send confirmation notifications - CRITICAL for guest communication
+        confirmation_email_sent = False
         try:
             send_booking_confirmation_email(booking)
-            logger.info(f"Confirmation email sent for approved booking {booking_id}")
+            confirmation_email_sent = True
+            logger.info(f"✅ BOOKING CONFIRMATION email sent for approved booking {booking_id}")
         except ImportError:
-            logger.warning(f"Email service not available for booking confirmation")
+            logger.error(f"❌ Email service not available for booking confirmation {booking_id}")
         except Exception as e:
-            logger.error(f"Failed to send confirmation email for booking {booking_id}: {e}")
+            logger.error(f"❌ CRITICAL: Failed to send confirmation email for booking {booking_id}: {e}")
+            # Don't fail the approval, but log prominently
+            print(f"🚨 CONFIRMATION EMAIL FAILED for {booking_id}: {e}")
+        
+        if not confirmation_email_sent:
+            print(f"⚠️ WARNING: Booking {booking_id} approved but confirmation email NOT sent!")
         
         try:
             # Try to get FCM token if guest is checked in

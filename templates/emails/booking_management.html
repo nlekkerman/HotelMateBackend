@@ -80,13 +80,18 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>Manage Your Booking</h1>
+            <h1>⚠️ Booking Request Received</h1>
             <h2>{{ hotel.name }}</h2>
+            <p style="color: #e74c3c; font-weight: bold; margin: 10px 0;">NOT CONFIRMED YET - Awaiting Hotel Approval</p>
         </div>
 
         <p>Dear {{ guest_name }},</p>
         
-        <p>You can now view and manage your booking using the secure link below. This link allows you to:</p>
+        <div style="background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px; padding: 15px; margin: 20px 0;">
+            <p><strong>ℹ️ Important:</strong> This is NOT a booking confirmation! Your booking request is pending hotel approval.</p>
+        </div>
+        
+        <p>You can view your booking status and manage your request using the secure link below. This link allows you to:</p>
         
         <ul>
             <li>✅ View your booking details and status</li>

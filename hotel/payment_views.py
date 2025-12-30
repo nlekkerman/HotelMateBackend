@@ -493,21 +493,27 @@ class StripeWebhookView(APIView):
                 # Build secure management URL
                 management_url = f"https://hotelsmates.com/booking/status/{hotel_slug}/{booking_id}?token={raw_token}"
                 
-                email_subject = f"Payment authorized — awaiting hotel confirmation ({booking_id})"
+                email_subject = f"⏳ Payment Reserved (NOT CONFIRMED) — Hotel Review Required ({booking_id})"
                 email_message = f"""
 Dear {guest_name or 'Guest'},
 
-We have authorized your payment!
+🔒 Your payment has been RESERVED (not charged yet).
 
-Booking Details:
+⚠️ IMPORTANT: This is NOT a booking confirmation!
+
+Booking Request Details:
 - Booking ID: {booking_id}
 - Check-in: {check_in}
 - Check-out: {check_out}
-- Amount authorized: {currency} {amount_total:.2f}
+- Amount reserved: {currency} {amount_total:.2f}
+- Status: AWAITING HOTEL APPROVAL
 
-Your payment authorization has been successfully processed. Your booking is now awaiting hotel confirmation.
+What happens next:
+1. Hotel staff will review your booking request
+2. If APPROVED: You'll receive a separate booking confirmation email
+3. If DECLINED: The payment authorization will be cancelled
 
-No charge will be captured unless the hotel accepts your booking. If not accepted, the authorization will be released by your bank.
+No charge will be made to your card until the hotel accepts your booking.
 
 You can view your booking status and manage your reservation at:
 {management_url}
@@ -534,6 +540,17 @@ HotelsMates Team
                 )
                 
                 print(f"📧 send_mail returned {sent} for {customer_email}")
+                
+                # Send booking management email after payment authorization
+                try:
+                    from hotel.services.booking_management import create_and_send_booking_management_token
+                    success = create_and_send_booking_management_token(booking, customer_email)
+                    if success:
+                        print(f"📧 Booking management email sent for {booking_id} after payment")
+                    else:
+                        print(f"⚠️ Failed to send booking management email for {booking_id}")
+                except Exception as mgmt_e:
+                    print(f"❌ Error sending booking management email for {booking_id}: {mgmt_e}")
                 
             except Exception as e:
                 print(f"Failed to send payment confirmation email: {e}")

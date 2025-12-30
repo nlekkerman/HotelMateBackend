@@ -79,7 +79,7 @@ def send_booking_management_email(booking: RoomBooking, raw_token: str, recipien
     }
     
     # Render email templates
-    subject = f"Manage Your Booking - {booking.confirmation_number}"
+    subject = f"📋 Booking Request Received (NOT CONFIRMED) - {booking.confirmation_number}"
     html_content = render_to_string('emails/booking_management.html', context)
     
     # Send email
