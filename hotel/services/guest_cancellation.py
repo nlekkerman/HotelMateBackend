@@ -12,8 +12,36 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 from hotel.services.cancellation import CancellationCalculator
+from hotel.models import GuestBookingToken
 
 logger = logging.getLogger(__name__)
+
+
+def _revoke_guest_tokens(booking, reason):
+    """
+    Revoke all active guest tokens for a booking.
+    
+    Args:
+        booking: RoomBooking instance
+        reason: Revocation reason string
+    """
+    try:
+        # Revoke all active guest tokens for this booking
+        tokens_updated = GuestBookingToken.objects.filter(
+            booking=booking,
+            status='ACTIVE'
+        ).update(
+            status='REVOKED',
+            revoked_at=timezone.now(),
+            revoked_reason=reason
+        )
+        
+        if tokens_updated > 0:
+            logger.info(f"Revoked {tokens_updated} guest tokens for booking {booking.booking_id}: {reason}")
+        
+    except Exception as e:
+        logger.error(f"Failed to revoke guest tokens for booking {booking.booking_id}: {e}")
+        # Don't fail the entire cancellation if token revocation fails
 
 
 class GuestCancellationError(Exception):
@@ -82,7 +110,10 @@ def cancel_booking_with_token(*, booking, token_obj, reason="Guest cancellation 
             
             booking.save()
             
-            # Step 3c: Mark token as used
+            # Step 3c: Revoke guest booking tokens after cancellation
+            _revoke_guest_tokens(booking, "Booking cancelled")
+            
+            # Step 3d: Mark token as used
             token_obj.record_action("CANCEL")
             token_obj.used_at = timezone.now()
             token_obj.save()

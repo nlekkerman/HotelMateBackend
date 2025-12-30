@@ -8,10 +8,11 @@ No DRF dependencies - pure business logic.
 """
 from datetime import date, timedelta
 from decimal import Decimal
-from typing import Dict
+from typing import Dict, Optional, Tuple
 from django.utils import timezone
+from django.http import Http404
 
-from hotel.models import Hotel, RoomBooking
+from hotel.models import Hotel, RoomBooking, GuestBookingToken
 from rooms.models import RoomType
 
 # Import from pricing service to reuse logic
@@ -141,3 +142,133 @@ def create_room_booking_from_request(
     print(f"✅ Booking {booking.booking_id} created, management email will be sent after payment")
     
     return booking
+
+
+def resolve_token_context(raw_token: str) -> Dict:
+    """
+    Validate guest booking token and return booking context.
+    
+    Args:
+        raw_token: The raw token string from request
+        
+    Returns:
+        Dict containing booking context with assigned_room as room source
+        
+    Raises:
+        Http404: If token is invalid, expired, or booking not found
+        
+    Context structure:
+    {
+        'booking_id': str,
+        'hotel_slug': str,
+        'assigned_room': {
+            'room_number': str,
+            'room_type_name': str
+        } or None,
+        'guest_name': str,
+        'check_in': date,
+        'check_out': date,
+        'status': str,
+        'party_size': int,
+        'is_checked_in': bool,
+        'is_checked_out': bool,
+        'allowed_actions': list[str]
+    }
+    """
+    # Validate token and get token object
+    token = GuestBookingToken.validate_token(raw_token)
+    booking = token.booking
+    
+    # Build context using assigned_room as room source of truth
+    room_info = None
+    if booking.assigned_room:
+        room_info = {
+            'room_number': booking.assigned_room.room_number,
+            'room_type_name': booking.assigned_room.room_type.name
+        }
+    
+    # Determine allowed actions based on booking state
+    allowed_actions = []
+    
+    # Chat is always available for confirmed bookings
+    if booking.status in ['CONFIRMED', 'CHECKED_IN']:
+        allowed_actions.append('chat')
+    
+    # Room service only available when checked in and assigned to room
+    if booking.status == 'CHECKED_IN' and booking.assigned_room:
+        allowed_actions.append('room_service')
+    
+    # Context information always available
+    allowed_actions.append('view_booking')
+    
+    return {
+        'booking_id': booking.booking_id,
+        'hotel_slug': booking.hotel.slug,
+        'assigned_room': room_info,
+        'guest_name': booking.primary_guest_name,
+        'check_in': booking.check_in_date,
+        'check_out': booking.check_out_date,
+        'status': booking.status,
+        'party_size': booking.party_size,
+        'is_checked_in': booking.status == 'CHECKED_IN',
+        'is_checked_out': booking.status == 'CHECKED_OUT',
+        'allowed_actions': allowed_actions
+    }
+
+
+def resolve_in_house_context(raw_token: str) -> Tuple[bool, Optional[Dict]]:
+    """
+    Check if guest is currently in-house and return room context.
+    
+    Uses assigned_room and check-in/out status as source of truth.
+    No dependency on RoomOccupancy model.
+    
+    Args:
+        raw_token: The raw token string from request
+        
+    Returns:
+        Tuple of (is_in_house: bool, room_context: Dict or None)
+        
+    Raises:
+        Http404: If token is invalid, expired, or booking not found
+        
+    Room context structure when in-house:
+    {
+        'room_number': str,
+        'room_type_name': str,
+        'floor': str or None,
+        'amenities': list[str],
+        'check_in_time': datetime,
+        'expected_checkout': date
+    }
+    """
+    # Validate token and get booking
+    token = GuestBookingToken.validate_token(raw_token)
+    booking = token.booking
+    
+    # Guest is in-house if:
+    # 1. Status is CHECKED_IN
+    # 2. Has assigned room
+    # 3. Current date is within stay period
+    current_date = timezone.now().date()
+    is_in_house = (
+        booking.status == 'CHECKED_IN' and
+        booking.assigned_room is not None and
+        booking.check_in_date <= current_date <= booking.check_out_date
+    )
+    
+    if not is_in_house:
+        return False, None
+    
+    # Build room context
+    room = booking.assigned_room
+    room_context = {
+        'room_number': room.room_number,
+        'room_type_name': room.room_type.name,
+        'floor': room.floor,
+        'amenities': room.room_type.amenities or [],
+        'check_in_time': booking.actual_check_in_time,
+        'expected_checkout': booking.check_out_date
+    }
+    
+    return True, room_context

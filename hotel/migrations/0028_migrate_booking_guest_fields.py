@@ -45,6 +45,12 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Drop old index that references guest_email to avoid SQLite issues
+        migrations.RunSQL(
+            "DROP INDEX IF EXISTS hotel_roomb_guest_e_d67049_idx;",
+            "-- No reverse SQL needed"
+        ),
+        
         # Add new fields with temporary defaults
         migrations.AddField(
             model_name='roombooking',

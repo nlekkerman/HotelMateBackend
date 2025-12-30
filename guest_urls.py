@@ -16,6 +16,9 @@ import json
 from hotel.models import Hotel, RoomBooking, PricingQuote
 from rooms.models import RoomType, Room
 
+# Import guest portal views for token-authenticated endpoints
+from hotel.guest_portal_views import GuestContextView, GuestChatContextView, GuestRoomServiceView
+
 
 def guest_home(request, hotel_slug):
     """Guest home page - returns hotel info with booking options"""
@@ -460,6 +463,24 @@ def create_booking(request, hotel_slug):
 
 
 urlpatterns = [
+    # Guest Portal endpoints (token-authenticated)
+    # No hotel slug required - token contains booking context
+    path(
+        'context/',
+        GuestContextView.as_view(),
+        name='guest-context'
+    ),
+    path(
+        'chat/',
+        GuestChatContextView.as_view(),
+        name='guest-chat-context'
+    ),
+    path(
+        'room-service/',
+        GuestRoomServiceView.as_view(),
+        name='guest-room-service-context'
+    ),
+    
     # Base guest hotel endpoint
     path(
         'hotels/<str:hotel_slug>/',

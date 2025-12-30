@@ -2,6 +2,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from django.contrib.auth.models import AnonymousUser
+from django.http import Http404
 import json
 import hmac
 import hashlib
@@ -124,8 +125,9 @@ class PusherAuthView(APIView):
         logger.info(f"Token cleanup: original='{guest_token[:20]}...', cleaned='{clean_token[:20]}...'")
         
         # Validate guest token
-        token_obj = GuestBookingToken.validate_token(clean_token, booking_id)
-        if not token_obj:
+        try:
+            token_obj = GuestBookingToken.validate_token(clean_token, booking_id)
+        except Http404:
             logger.warning(f"Guest auth failed: invalid token for booking {booking_id}")
             logger.warning(f"Frontend sent token: {guest_token[:20]}... (length: {len(guest_token)})")
             logger.warning(f"Cleaned token: {clean_token[:20]}... (length: {len(clean_token)})")
@@ -133,7 +135,10 @@ class PusherAuthView(APIView):
             from hotel.models import RoomBooking
             try:
                 booking = RoomBooking.objects.get(booking_id=booking_id)
-                existing_tokens = GuestBookingToken.objects.filter(booking=booking, revoked_at__isnull=True)
+                existing_tokens = GuestBookingToken.objects.filter(
+                    booking=booking,
+                    status='ACTIVE'
+                )
                 logger.warning(f"Existing valid tokens for {booking_id}: {existing_tokens.count()}")
             except:
                 logger.warning(f"Booking {booking_id} not found during debug")

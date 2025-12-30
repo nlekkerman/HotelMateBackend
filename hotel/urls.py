@@ -21,6 +21,13 @@ from .booking_views import (
     HotelBookingCreateView,
 )
 
+# Guest portal views (token-authenticated)
+from .guest_portal_views import (
+    GuestContextView,
+    GuestChatContextView,
+    GuestRoomServiceView,
+)
+
 # Staff CRUD views and management views
 from .staff_views import (
     # ViewSets
@@ -137,6 +144,24 @@ staff_router.register(
 )
 
 urlpatterns = [
+    # Guest Portal endpoints (token-authenticated)
+    # No hotel slug required - token contains context
+    path(
+        "guest/context/",
+        GuestContextView.as_view(),
+        name="guest-context"
+    ),
+    path(
+        "guest/chat/",
+        GuestChatContextView.as_view(),
+        name="guest-chat-context"
+    ),
+    path(
+        "guest/room-service/",
+        GuestRoomServiceView.as_view(),
+        name="guest-room-service"
+    ),
+    
     # Staff CRUD endpoints (B5)
     # Accessed via: /api/staff/hotels/<slug>/hotel/offers/, etc.
     path(

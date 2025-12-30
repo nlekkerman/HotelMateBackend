@@ -1,4 +1,4 @@
-from django.db import models
+from django.db import models, transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from cloudinary.models import CloudinaryField
@@ -1087,9 +1087,17 @@ class GuestBookingToken(models.Model):
     Enables guests to view their booking status without authentication.
     """
     
+    STATUS_CHOICES = [
+        ('ACTIVE', 'Active'),
+        ('REVOKED', 'Revoked'),
+    ]
+    
     PURPOSE_CHOICES = [
         ('STATUS', 'Booking Status Access'),
         ('PRECHECKIN', 'Pre-checkin Process'),
+        ('CHAT', 'Guest Chat Messages'),
+        ('ROOM_SERVICE', 'Room Service Orders'),
+        ('FULL_ACCESS', 'Full Guest Portal Access'),
     ]
     
     # Secure token (stored hashed)
@@ -1129,6 +1137,19 @@ class GuestBookingToken(models.Model):
         help_text="Last time token was used (for debugging/security)"
     )
     
+    # Token status management
+    status = models.CharField(
+        max_length=10,
+        choices=STATUS_CHOICES,
+        default='ACTIVE',
+        help_text="Token status for lifecycle management"
+    )
+    revoked_reason = models.CharField(
+        max_length=50,
+        null=True, blank=True,
+        help_text="Reason for token revocation (CHECKOUT/CANCELLED/SECURITY)"
+    )
+    
     purpose = models.CharField(
         max_length=20,
         choices=PURPOSE_CHOICES,
@@ -1144,7 +1165,7 @@ class GuestBookingToken(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=['booking'],
-                condition=models.Q(revoked_at__isnull=True),
+                condition=models.Q(status='ACTIVE'),
                 name='one_active_token_per_booking'
             )
         ]
@@ -1182,37 +1203,47 @@ class GuestBookingToken(models.Model):
         else:
             expires_at = timezone.now() + timedelta(days=expires_days)
         
-        # Revoke any existing active token for this booking
-        cls.objects.filter(
-            booking=booking,
-            revoked_at__isnull=True
-        ).update(revoked_at=timezone.now())
-        
-        # Create new token
-        token_obj = cls.objects.create(
-            token_hash=token_hash,
-            booking=booking,
-            hotel=booking.hotel,
-            expires_at=expires_at,
-            purpose=purpose
-        )
+        with transaction.atomic():
+            # Revoke any existing active token for this booking
+            cls.objects.filter(
+                booking=booking,
+                status='ACTIVE'
+            ).update(
+                status='REVOKED',
+                revoked_at=timezone.now(),
+                revoked_reason='TOKEN_REPLACED'
+            )
+            
+            # Create new token
+            token_obj = cls.objects.create(
+                token_hash=token_hash,
+                booking=booking,
+                hotel=booking.hotel,
+                expires_at=expires_at,
+                purpose=purpose
+            )
         
         return token_obj, raw_token
     
     @classmethod
     def validate_token(cls, raw_token, booking_id=None):
         """
-        Validate a raw token and return the associated booking if valid.
+        Validate a raw token string and return the corresponding token object.
         
         Args:
-            raw_token: The raw token string from the guest
+            raw_token: The raw token string to validate
             booking_id: Optional booking ID to match (for channel auth)
         
         Returns:
-            GuestBookingToken instance if valid, None otherwise
+            GuestBookingToken instance if valid
+            
+        Raises:
+            Http404: If token is invalid, expired, or booking_id mismatch
         """
+        from django.http import Http404
+        
         if not raw_token:
-            return None
+            raise Http404("Invalid token")
         
         # Hash the provided token
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
@@ -1221,16 +1252,16 @@ class GuestBookingToken(models.Model):
             # Find token with constant-time comparison protection
             token_obj = cls.objects.select_related('booking', 'hotel').get(
                 token_hash=token_hash,
-                revoked_at__isnull=True
+                status='ACTIVE'
             )
             
             # Check expiry
             if token_obj.expires_at and timezone.now() > token_obj.expires_at:
-                return None
+                raise Http404("Token expired")
             
             # Check booking ID match if provided (for channel auth)
             if booking_id and token_obj.booking.booking_id != booking_id:
-                return None
+                raise Http404("Token not valid for this booking")
             
             # Update last used timestamp
             token_obj.last_used_at = timezone.now()
@@ -1239,28 +1270,32 @@ class GuestBookingToken(models.Model):
             return token_obj
             
         except cls.DoesNotExist:
-            return None
+            raise Http404("Invalid token")
     
     def is_valid(self):
         """
         Check if token is currently valid.
         """
-        if self.revoked_at:
+        if self.status != 'ACTIVE':
             return False
         if self.expires_at and timezone.now() > self.expires_at:
             return False
         return True
     
-    def revoke(self):
+    def revoke(self, reason=None):
         """
         Revoke this token.
         """
+        if self.status == 'REVOKED' and not reason:
+            return
+        self.status = 'REVOKED'
         self.revoked_at = timezone.now()
-        self.save(update_fields=['revoked_at'])
+        if reason:
+            self.revoked_reason = reason
+        self.save(update_fields=['status', 'revoked_at', 'revoked_reason'])
     
     def __str__(self):
-        status = "active" if self.is_valid() else "inactive"
-        return f"Token for {self.booking.booking_id} ({status})"
+        return f"Token for {self.booking.booking_id} ({self.status})"
 
 
 class CancellationPolicy(models.Model):
