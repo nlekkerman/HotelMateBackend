@@ -118,6 +118,15 @@ class PusherAuthView(APIView):
         token_obj = GuestBookingToken.validate_token(guest_token, booking_id)
         if not token_obj:
             logger.warning(f"Guest auth failed: invalid token for booking {booking_id}")
+            logger.warning(f"Frontend sent token: {guest_token[:20]}... (length: {len(guest_token)})")
+            # Debug: Check if any tokens exist for this booking
+            from hotel.models import RoomBooking
+            try:
+                booking = RoomBooking.objects.get(booking_id=booking_id)
+                existing_tokens = GuestBookingToken.objects.filter(booking=booking, revoked_at__isnull=True)
+                logger.warning(f"Existing valid tokens for {booking_id}: {existing_tokens.count()}")
+            except:
+                logger.warning(f"Booking {booking_id} not found during debug")
             return Response({"error": "UNAUTHORIZED", "detail": "Invalid or expired guest token"}, status=403)
         
         # Generate Pusher auth signature for guest
