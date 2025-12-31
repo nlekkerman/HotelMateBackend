@@ -39,12 +39,25 @@ def guest_home(request, hotel_slug):
             'policies_url': hotel.booking_options.policies_url,
         }
     
+    def get_hero_image_url(hero_image):
+        """Get proper hero image URL handling Cloudinary URLs"""
+        if not hero_image:
+            return None
+        
+        image_url = hero_image.url
+        # Cloudinary URLs are already absolute, don't modify them
+        if image_url.startswith('http://') or image_url.startswith('https://'):
+            return image_url
+        
+        # For local storage, build absolute URI
+        return request.build_absolute_uri(image_url)
+    
     return JsonResponse({
         'hotel': {
             'id': hotel.id,
             'name': hotel.name,
             'slug': hotel.slug,
-            'hero_image': hotel.hero_image.url if hotel.hero_image else None,
+            'hero_image': get_hero_image_url(hotel.hero_image),
             'description': hotel.description,
             'address': hotel.address,
             'phone': hotel.phone,
@@ -60,13 +73,26 @@ def guest_rooms(request, hotel_slug):
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     rooms = RoomType.objects.filter(hotel=hotel)
     
+    def get_photo_url(room_photo):
+        """Get proper photo URL handling Cloudinary URLs"""
+        if not room_photo:
+            return None
+        
+        photo_url = room_photo.url
+        # Cloudinary URLs are already absolute, don't modify them
+        if photo_url.startswith('http://') or photo_url.startswith('https://'):
+            return photo_url
+        
+        # For local storage, build absolute URI
+        return request.build_absolute_uri(photo_url)
+    
     return JsonResponse({
         'rooms': [
             {
                 'id': room.id,
                 'name': room.name,
                 'code': room.code,
-                'photo': room.photo.url if room.photo else None,
+                'photo': get_photo_url(room.photo),
                 'description': room.description,
                 'base_price': str(room.base_price),
                 'max_occupancy': room.max_occupancy,

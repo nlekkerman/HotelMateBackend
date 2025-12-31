@@ -58,9 +58,14 @@ class StaffMinimalSerializer(serializers.ModelSerializer):
 
     def get_profile_image_url(self, obj):
         url = obj.profile_image.url if obj.profile_image else None
-        request = self.context.get('request')
-        if url and request:
-            return request.build_absolute_uri(url)
+        if url:
+            # Cloudinary URLs are already absolute, don't modify them
+            if url.startswith('http://') or url.startswith('https://'):
+                return url
+            # For local storage, build absolute URI
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(url)
         return url
     
     def get_current_status(self, obj):
