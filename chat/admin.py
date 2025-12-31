@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Conversation, RoomMessage, GuestChatSession, MessageAttachment
+from .models import Conversation, RoomMessage, GuestChatSession, MessageAttachment, GuestConversationParticipant
 
 
 # Inline for MessageAttachment inside RoomMessage
@@ -138,3 +138,16 @@ class GuestChatSessionAdmin(admin.ModelAdmin):
             )
         }),
     )
+
+
+@admin.register(GuestConversationParticipant)
+class GuestConversationParticipantAdmin(admin.ModelAdmin):
+    list_display = ['conversation', 'staff', 'joined_at']
+    list_filter = ['joined_at', 'staff__role', 'conversation__room__hotel']
+    search_fields = ['staff__first_name', 'staff__last_name', 'conversation__room__room_number']
+    readonly_fields = ['joined_at']
+    
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related(
+            'conversation__room__hotel', 'staff'
+        )

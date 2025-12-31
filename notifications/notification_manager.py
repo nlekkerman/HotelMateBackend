@@ -716,10 +716,23 @@ class NotificationManager:
             }
         )
         
-        # Send to guest chat channel (room-specific)
+        # Send to guest chat channel (booking-scoped, survives room moves)
         hotel_slug = message.room.hotel.slug
-        room_pin = message.room.pin if hasattr(message.room, 'pin') else message.room.room_number
-        channel = f"{hotel_slug}.guest-chat.{room_pin}"
+        
+        # Get current booking for this room to determine channel
+        from hotel.models import RoomBooking
+        current_booking = RoomBooking.objects.filter(
+            assigned_room=message.room,
+            checked_in_at__isnull=False,
+            checked_out_at__isnull=True,
+            status__in=['CONFIRMED', 'COMPLETED']
+        ).first()
+        
+        if current_booking:
+            channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        else:
+            # Fallback to room-based for legacy compatibility
+            channel = f"{hotel_slug}.guest-chat.room-{message.room.room_number}"
         
         # Also send FCM if appropriate
         if sender_role == "guest" and hasattr(message, 'assigned_staff') and message.assigned_staff and message.assigned_staff.fcm_token:
@@ -765,8 +778,21 @@ class NotificationManager:
         )
         
         hotel_slug = room.hotel.slug
-        room_pin = room.pin if hasattr(room, 'pin') else room.room_number  
-        channel = f"{hotel_slug}.guest-chat.{room_pin}"
+        
+        # Get current booking for this room to determine channel
+        from hotel.models import RoomBooking
+        current_booking = RoomBooking.objects.filter(
+            assigned_room=room,
+            checked_in_at__isnull=False,
+            checked_out_at__isnull=True,
+            status__in=['CONFIRMED', 'COMPLETED']
+        ).first()
+        
+        if current_booking:
+            channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        else:
+            # Fallback to room-based for legacy compatibility
+            channel = f"{hotel_slug}.guest-chat.room-{room.room_number}"
         
         return self._safe_pusher_trigger(channel, "unread_updated", event_data)
     

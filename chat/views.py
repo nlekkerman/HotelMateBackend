@@ -118,6 +118,36 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # This supports conversation handoff - any staff who sends a message
     # becomes the current handler
     if sender_type == "staff":
+        # Check if this is a guest conversation (has room)
+        if room:
+            from .models import GuestConversationParticipant
+            
+            # Get or create participant record
+            participant, created = GuestConversationParticipant.objects.get_or_create(
+                conversation=conversation,
+                staff=staff_instance,
+                defaults={'joined_at': timezone.now()}
+            )
+            
+            # If staff member is new to this conversation, create system join message
+            if created:
+                staff_name = f"{staff_instance.first_name} {staff_instance.last_name}".strip()
+                join_message = RoomMessage.objects.create(
+                    conversation=conversation,
+                    room=room,
+                    staff=None,  # System message has no staff FK
+                    message=f"{staff_name} has joined the conversation.",
+                    sender_type="system",
+                    reply_to=None,
+                )
+                
+                # Emit system message via NotificationManager
+                try:
+                    notification_manager.realtime_guest_chat_message_created(join_message)
+                    logger.info(f"System join message created and emitted: {join_message.id}")
+                except Exception as e:
+                    logger.error(f"Failed to emit system join message {join_message.id}: {e}")
+        
         # Check if staff handler is changing before updating
         active_sessions = GuestChatSession.objects.filter(
             conversation=conversation,
@@ -316,6 +346,176 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     )
 
     return Response(response_data)
+
+
+# === NEW: Token-based Guest Chat Context ===
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def guest_chat_context(request, hotel_slug):
+    """
+    Get guest chat context using token authentication.
+    Replaces the PIN + GuestChatSession flow for the guest portal.
+    
+    Query Parameters:
+        token (required): Guest booking token
+        
+    Returns:
+        200: {
+            conversation_id: int,
+            room_number: str,
+            pusher_channel: str,
+            current_staff_handler: {name: str, role: str} | null
+        }
+        404: Invalid token or hotel mismatch
+        403: Guest not checked in
+        409: No room assigned
+    """
+    from bookings.services import resolve_guest_chat_context, GuestChatAccessError
+    
+    token = request.GET.get('token')
+    if not token:
+        return Response({"error": "Token parameter is required"}, status=400)
+    
+    try:
+        booking, room, conversation = resolve_guest_chat_context(
+            hotel_slug=hotel_slug,
+            token_str=token,
+            require_in_house=True
+        )
+        
+        # Get current staff handler from active guest sessions (if any)
+        current_staff_handler = None
+        active_session = GuestChatSession.objects.filter(
+            conversation=conversation,
+            is_active=True,
+            current_staff_handler__isnull=False
+        ).first()
+        
+        if active_session and active_session.current_staff_handler:
+            staff = active_session.current_staff_handler
+            current_staff_handler = {
+                "name": f"{staff.first_name} {staff.last_name}".strip(),
+                "role": staff.role.name if staff.role else "Staff"
+            }
+        
+        # Build pusher channel name (booking-scoped, survives room moves)
+        pusher_channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{booking.booking_id}"
+        
+        logger.info(
+            f"✅ Guest chat context provided: booking={booking.booking_id}, "
+            f"room={room.room_number}, conversation={conversation.id}"
+        )
+        
+        return Response({
+            "conversation_id": conversation.id,
+            "room_number": room.room_number,
+            "booking_id": booking.booking_id,
+            "pusher": {
+                "channel": pusher_channel,
+                "event": "realtime_event"  # Single event name for eventBus routing
+            },
+            "allowed_actions": {
+                "can_chat": True
+            },
+            "current_staff_handler": current_staff_handler,
+            "assigned_room_id": room.id
+        })
+        
+    except GuestChatAccessError as e:
+        logger.warning(f"Guest chat context denied: {e.message}")
+        return Response({"error": e.message}, status=e.status_code)
+    except Exception as e:
+        logger.error(f"Unexpected error in guest_chat_context: {e}")
+        return Response({"error": "Internal server error"}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def guest_send_message(request, hotel_slug):
+    """
+    Send a message as a guest using token authentication.
+    Dedicated endpoint for guest portal to send messages.
+    
+    Query Parameters:
+        token (required): Guest booking token
+        
+    Body:
+        message (required): Message text
+        reply_to (optional): Message ID to reply to
+        
+    Returns:
+        201: Message created successfully
+        400: Invalid request data
+        401: Token required
+        403/404/409: Access denied (various reasons)
+    """
+    from bookings.services import resolve_guest_chat_context, GuestChatAccessError
+    
+    token = request.GET.get('token')
+    if not token:
+        return Response({"error": "Token parameter is required"}, status=401)
+    
+    message_text = request.data.get("message", "").strip()
+    if not message_text:
+        return Response({"error": "Message cannot be empty"}, status=400)
+    
+    reply_to_id = request.data.get("reply_to")
+    reply_to_message = None
+    
+    try:
+        # Validate token and get guest context
+        booking, room, conversation = resolve_guest_chat_context(
+            hotel_slug=hotel_slug,
+            token_str=token,
+            require_in_house=True
+        )
+        
+        # Handle reply_to if provided
+        if reply_to_id:
+            try:
+                reply_to_message = RoomMessage.objects.get(
+                    id=reply_to_id,
+                    conversation=conversation
+                )
+                logger.info(f"Guest message replying to message ID: {reply_to_id}")
+            except RoomMessage.DoesNotExist:
+                logger.warning(f"Guest reply target message {reply_to_id} not found")
+                # Continue without reply - don't fail the request
+        
+        # Create the message
+        message = RoomMessage.objects.create(
+            conversation=conversation,
+            room=room,
+            staff=None,  # Guest message
+            message=message_text,
+            sender_type="guest",
+            reply_to=reply_to_message,
+        )
+        
+        logger.info(
+            f"✅ Guest message created: ID={message.id}, booking={booking.booking_id}, "
+            f"room={room.room_number}, conversation={conversation.id}"
+        )
+        
+        # Use existing NotificationManager for realtime events
+        try:
+            notification_manager.realtime_guest_chat_message_created(message)
+            logger.info(f"NotificationManager triggered for guest message {message.id}")
+        except Exception as e:
+            logger.error(f"NotificationManager failed for guest message {message.id}: {e}")
+        
+        # Serialize and return the message
+        serializer = RoomMessageSerializer(message)
+        return Response(serializer.data, status=201)
+        
+    except GuestChatAccessError as e:
+        logger.warning(f"Guest send message denied: {e.message}")
+        return Response({"error": e.message}, status=e.status_code)
+    except Exception as e:
+        logger.error(f"Unexpected error in guest_send_message: {e}")
+        return Response({"error": "Internal server error"}, status=500)
+
 
 # Keep validation unchanged
 @api_view(['POST'])

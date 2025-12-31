@@ -44,7 +44,7 @@ class RoomMessage(models.Model):
     )
     sender_type = models.CharField(
         max_length=10,
-        choices=(("guest", "Guest"), ("staff", "Staff")),
+        choices=(("guest", "Guest"), ("staff", "Staff"), ("system", "System")),
         default="guest"
     )
     staff = models.ForeignKey(
@@ -206,6 +206,33 @@ class GuestChatSession(models.Model):
         ordering = ['-last_activity']
         verbose_name = 'Guest Chat Session'
         verbose_name_plural = 'Guest Chat Sessions'
+
+
+class GuestConversationParticipant(models.Model):
+    """
+    Track staff members who have joined guest conversations.
+    Used for system join messages and conversation history.
+    """
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.CASCADE,
+        related_name='guest_participants'
+    )
+    staff = models.ForeignKey(
+        'staff.Staff',
+        on_delete=models.CASCADE,
+        related_name='guest_conversation_participations'
+    )
+    joined_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        unique_together = (('conversation', 'staff'),)
+        ordering = ['joined_at']
+        verbose_name = 'Guest Conversation Participant'
+        verbose_name_plural = 'Guest Conversation Participants'
+    
+    def __str__(self):
+        return f"{self.staff} joined conversation {self.conversation.id}"
 
 
 def message_attachment_path(instance, filename):

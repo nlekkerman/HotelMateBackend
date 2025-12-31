@@ -59,9 +59,7 @@ class RoomMessageSerializer(serializers.ModelSerializer):
     room_number = serializers.IntegerField(
         source='room.room_number', read_only=True
     )
-    staff_name = serializers.CharField(
-        source='staff.__str__', read_only=True
-    )
+    staff_name = serializers.SerializerMethodField()
     guest_name = serializers.SerializerMethodField()
     
     # Status fields
@@ -101,12 +99,46 @@ class RoomMessageSerializer(serializers.ModelSerializer):
             'timestamp', 'delivered_at', 'is_edited', 
             'edited_at', 'is_deleted', 'deleted_at'
         ]
+    
+    def get_staff_name(self, obj):
+        """Get staff name, handling system messages appropriately."""
+        if obj.sender_type == "system":
+            return None  # System messages have no staff name
+        elif obj.staff:
+            return f"{obj.staff.first_name} {obj.staff.last_name}".strip()
+        return None
 
     def get_guest_name(self, obj):
-        # Since only one guest per room, grab the first (if any)
-        guest = obj.room.guests_in_room.first()  # Using single source of truth
+        """
+        Get guest name, preferring current in-house booking data.
+        Falls back to room.guests_in_room for legacy compatibility.
+        """
+        from hotel.models import RoomBooking
+        
+        # Prefer current in-house booking for the room
+        try:
+            current_booking = RoomBooking.objects.filter(
+                assigned_room=obj.room,
+                checked_in_at__isnull=False,
+                checked_out_at__isnull=True,
+                status__in=['CONFIRMED', 'COMPLETED']  # Active statuses
+            ).select_related('hotel').first()
+            
+            if current_booking:
+                primary_name = f"{current_booking.primary_first_name} {current_booking.primary_last_name}".strip()
+                if primary_name:
+                    return primary_name
+        except Exception as e:
+            # Log but don't fail - fall back to legacy method
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to get guest name from booking for room {obj.room.room_number}: {e}")
+        
+        # Fallback to legacy room.guests_in_room system
+        guest = obj.room.guests_in_room.first()
         if guest:
             return f"{guest.first_name} {guest.last_name}".strip()
+        
         return None
 
     def get_is_read_by_recipient(self, obj):
@@ -125,12 +157,15 @@ class RoomMessageSerializer(serializers.ModelSerializer):
 
     def get_staff_info(self, obj):
         """Return staff info for guest-facing display"""
-        if obj.sender_type == 'staff' and obj.staff:
+        if obj.sender_type == 'system':
+            return None  # System messages have no staff info
+        elif obj.sender_type == 'staff' and obj.staff:
             return {
                 'name': (obj.staff_display_name or
                          f"{obj.staff.first_name} {obj.staff.last_name}"),
                 'role': (obj.staff_role_name or
                          (obj.staff.role.name if obj.staff.role else 'Staff')),
+                'department': (obj.staff.department.name if hasattr(obj.staff, 'department') and obj.staff.department else None),
                 'profile_image': (obj.staff.profile_image.url
                                   if obj.staff.profile_image else None)
             }
@@ -239,24 +274,98 @@ class ConversationSerializer(serializers.ModelSerializer):
         return None
     
     def get_guest_id(self, obj):
-        """Get guest ID"""
+        """Get guest ID, preferring current booking data"""
+        from hotel.models import RoomBooking
+        
+        # Try to get ID from current booking first
+        try:
+            current_booking = RoomBooking.objects.filter(
+                assigned_room=obj.room,
+                checked_in_at__isnull=False,
+                checked_out_at__isnull=True,
+                status__in=['CONFIRMED', 'COMPLETED']
+            ).first()
+            
+            if current_booking:
+                # Return booking ID as a fallback - there's no single guest ID in new system
+                return current_booking.id
+        except Exception:
+            pass
+        
+        # Fallback to legacy guest system
         guest = obj.room.guests_in_room.first()
         return guest.id if guest else None
     
     def get_guest_name(self, obj):
-        """Get full guest name"""
+        """
+        Get full guest name, preferring current booking data.
+        Falls back to room.guests_in_room for legacy compatibility.
+        """
+        from hotel.models import RoomBooking
+        
+        # Prefer current in-house booking for the room
+        try:
+            current_booking = RoomBooking.objects.filter(
+                assigned_room=obj.room,
+                checked_in_at__isnull=False,
+                checked_out_at__isnull=True,
+                status__in=['CONFIRMED', 'COMPLETED']
+            ).first()
+            
+            if current_booking:
+                primary_name = f"{current_booking.primary_first_name} {current_booking.primary_last_name}".strip()
+                if primary_name:
+                    return primary_name
+        except Exception:
+            pass
+        
+        # Fallback to legacy room.guests_in_room system
         guest = obj.room.guests_in_room.first()
         if guest:
             return f"{guest.first_name} {guest.last_name}".strip()
         return None
     
     def get_guest_first_name(self, obj):
-        """Get guest first name"""
+        """Get guest first name, preferring booking data"""
+        from hotel.models import RoomBooking
+        
+        # Try booking data first
+        try:
+            current_booking = RoomBooking.objects.filter(
+                assigned_room=obj.room,
+                checked_in_at__isnull=False,
+                checked_out_at__isnull=True,
+                status__in=['CONFIRMED', 'COMPLETED']
+            ).first()
+            
+            if current_booking and current_booking.primary_first_name:
+                return current_booking.primary_first_name
+        except Exception:
+            pass
+        
+        # Fallback to legacy system
         guest = obj.room.guests_in_room.first()
         return guest.first_name if guest else None
     
     def get_guest_last_name(self, obj):
-        """Get guest last name"""
+        """Get guest last name, preferring booking data"""
+        from hotel.models import RoomBooking
+        
+        # Try booking data first
+        try:
+            current_booking = RoomBooking.objects.filter(
+                assigned_room=obj.room,
+                checked_in_at__isnull=False,
+                checked_out_at__isnull=True,
+                status__in=['CONFIRMED', 'COMPLETED']
+            ).first()
+            
+            if current_booking and current_booking.primary_last_name:
+                return current_booking.primary_last_name
+        except Exception:
+            pass
+        
+        # Fallback to legacy system
         guest = obj.room.guests_in_room.first()
         return guest.last_name if guest else None
     

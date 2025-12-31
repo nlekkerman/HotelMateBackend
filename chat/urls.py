@@ -19,6 +19,8 @@ from .views import (
     delete_attachment,
     save_fcm_token,
     test_deletion_broadcast,
+    guest_chat_context,  # NEW: Token-based guest chat context
+    guest_send_message,  # NEW: Token-based guest send message
 )
 
 urlpatterns = [
@@ -34,6 +36,11 @@ urlpatterns = [
     # Send a message in a conversation for a specific hotel
     path("<slug:hotel_slug>/conversations/<int:conversation_id>/messages/send/", send_conversation_message, name="send_conversation_message"),
 
+    # === NEW: Token-based Guest Chat Endpoints ===
+    path("<slug:hotel_slug>/guest/chat/context/", guest_chat_context, name="guest_chat_context"),
+    path("<slug:hotel_slug>/guest/chat/messages/", guest_send_message, name="guest_send_message"),
+    
+    # === LEGACY: PIN-based endpoints (will be phased out) ===
     # Validate chat PIN (unchanged)
     path("<slug:hotel_slug>/messages/room/<int:room_number>/validate-chat-pin/", validate_chat_pin, name="validate_chat_pin"),
     path(
