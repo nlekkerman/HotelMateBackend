@@ -174,12 +174,11 @@ def checkout_booking(
 
 def _cleanup_room_data(room, hotel):
     """Clean up room-related data during checkout"""
-    from chat.models import GuestChatSession, Conversation
+    from chat.models import Conversation
     from chat.models import RoomMessage
     from room_services.models import Order, BreakfastOrder
     
-    # Delete guest chat sessions for this room
-    GuestChatSession.objects.filter(room=room).delete()
+    # Note: GuestChatSession removed - using token-based auth now
     
     # Delete conversations & messages for this room
     Conversation.objects.filter(room=room).delete()

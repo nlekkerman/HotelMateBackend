@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Conversation, RoomMessage, GuestChatSession, MessageAttachment, GuestConversationParticipant
+from .models import Conversation, RoomMessage, MessageAttachment, GuestConversationParticipant
 
 
 # Inline for MessageAttachment inside RoomMessage
@@ -106,38 +106,6 @@ class MessageAttachmentAdmin(admin.ModelAdmin):
             )
         return "-"
     file_url_link.short_description = "File"
-
-
-@admin.register(GuestChatSession)
-class GuestChatSessionAdmin(admin.ModelAdmin):
-    list_display = [
-        'session_token', 'room', 'current_staff_handler',
-        'is_active', 'created_at', 'last_activity', 'expires_at'
-    ]
-    list_filter = ['is_active', 'created_at', 'expires_at']
-    search_fields = [
-        'session_token', 'room__room_number',
-        'current_staff_handler__first_name'
-    ]
-    readonly_fields = [
-        'session_token', 'created_at', 'last_activity', 'last_ip'
-    ]
-    fieldsets = (
-        ('Session Info', {
-            'fields': (
-                'session_token', 'conversation', 'room',
-                'is_active', 'expires_at'
-            )
-        }),
-        ('Staff Handler', {
-            'fields': ('current_staff_handler',)
-        }),
-        ('Tracking', {
-            'fields': (
-                'created_at', 'last_activity', 'user_agent', 'last_ip'
-            )
-        }),
-    )
 
 
 @admin.register(GuestConversationParticipant)

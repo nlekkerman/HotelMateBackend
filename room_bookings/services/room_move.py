@@ -190,11 +190,10 @@ class RoomMoveService:
     @classmethod
     def _cleanup_from_room(cls, room, hotel):
         """Clean up room data when moving out (reuse existing patterns)"""
-        from chat.models import GuestChatSession, Conversation, RoomMessage
+        from chat.models import Conversation, RoomMessage
         from room_services.models import Order, BreakfastOrder
         
-        # Delete guest chat sessions for this room
-        GuestChatSession.objects.filter(room=room).delete()
+        # Note: GuestChatSession removed - using token-based auth now
         
         # Delete conversations & messages for this room
         Conversation.objects.filter(room=room).delete()

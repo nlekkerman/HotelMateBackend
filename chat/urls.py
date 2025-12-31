@@ -2,16 +2,12 @@ from django.urls import path
 from .views import (
     send_conversation_message,
     get_conversation_messages,
-    validate_chat_pin,
     get_active_conversations,
     get_or_create_conversation_from_room,
     get_active_rooms,
     get_unread_count,
     mark_conversation_read,
     get_unread_conversation_count,
-    initialize_guest_session,
-    validate_guest_session,
-    get_unread_messages_for_guest,
     assign_staff_to_conversation,
     update_message,
     delete_message,
@@ -19,8 +15,8 @@ from .views import (
     delete_attachment,
     save_fcm_token,
     test_deletion_broadcast,
-    guest_chat_context,  # NEW: Token-based guest chat context
-    guest_send_message,  # NEW: Token-based guest send message
+    guest_chat_context,  # Token-based guest chat context
+    guest_send_message,  # Token-based guest send message
 )
 
 urlpatterns = [
@@ -36,39 +32,18 @@ urlpatterns = [
     # Send a message in a conversation for a specific hotel
     path("<slug:hotel_slug>/conversations/<int:conversation_id>/messages/send/", send_conversation_message, name="send_conversation_message"),
 
-    # === NEW: Token-based Guest Chat Endpoints ===
+    # === Token-based Guest Chat Endpoints ===
     path("<slug:hotel_slug>/guest/chat/context/", guest_chat_context, name="guest_chat_context"),
     path("<slug:hotel_slug>/guest/chat/messages/", guest_send_message, name="guest_send_message"),
-    
-    # === LEGACY: PIN-based endpoints (will be phased out) ===
-    # Validate chat PIN (unchanged)
-    path("<slug:hotel_slug>/messages/room/<int:room_number>/validate-chat-pin/", validate_chat_pin, name="validate_chat_pin"),
+
+    # --- Unread tracking ---
     path(
         "hotels/<slug:hotel_slug>/conversations/unread-count/",
         get_unread_conversation_count,
         name="get_unread_conversation_count"
     ),
-
-    # --- New URLs for unread tracking ---
     path("<slug:hotel_slug>/conversations/unread-count/", get_unread_count, name="get_unread_count"),
     path("conversations/<int:conversation_id>/mark-read/", mark_conversation_read, name="mark_conversation_read"),
-    
-    # --- Guest session management ---
-    path(
-        "<slug:hotel_slug>/guest-session/room/<int:room_number>/initialize/",
-        initialize_guest_session,
-        name="initialize_guest_session"
-    ),
-    path(
-        "guest-session/<uuid:session_token>/validate/",
-        validate_guest_session,
-        name="validate_guest_session"
-    ),
-    path(
-        "guest-session/<uuid:session_token>/unread-count/",
-        get_unread_messages_for_guest,
-        name="get_unread_messages_for_guest"
-    ),
     
     # --- Staff assignment (conversation handoff) ---
     path(

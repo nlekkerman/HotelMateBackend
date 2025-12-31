@@ -188,9 +188,7 @@ def checkout_rooms(request, hotel_slug):
                 # Delete all Guest objects linked to this room
                 Guest.objects.filter(room=room).delete()
                 
-                # Delete all guest chat sessions for this room
-                from chat.models import GuestChatSession
-                GuestChatSession.objects.filter(room=room).delete()
+                # Note: GuestChatSession removed - using token-based auth now
                 
                 # Delete all conversations & their messages for this room
                 Conversation.objects.filter(room=room).delete()
