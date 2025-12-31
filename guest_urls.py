@@ -19,6 +19,9 @@ from rooms.models import RoomType, Room
 # Import guest portal views for token-authenticated endpoints
 from hotel.guest_portal_views import GuestContextView, GuestChatContextView, GuestRoomServiceView
 
+# Import room service views
+from room_services.views import RoomServiceItemViewSet, OrderViewSet
+
 
 def guest_home(request, hotel_slug):
     """Guest home page - returns hotel info with booking options"""
@@ -517,5 +520,17 @@ urlpatterns = [
         'hotels/<str:hotel_slug>/bookings/',
         create_booking,
         name='create-booking'
+    ),
+    
+    # Room service endpoints
+    path(
+        'hotels/<str:hotel_slug>/room-services/orders/',
+        OrderViewSet.as_view({'get': 'list', 'post': 'create'}),
+        name='guest-room-service-orders'
+    ),
+    path(
+        'hotels/<str:hotel_slug>/room/<int:room_number>/menu/',
+        RoomServiceItemViewSet.as_view({'get': 'menu'}),
+        name='guest-room-service-menu'
     ),
 ]
