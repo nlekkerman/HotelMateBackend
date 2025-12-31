@@ -136,4 +136,7 @@ urlpatterns = [
     
     # Include hotel public URLs (pre-check-in endpoints)
     path("", include("hotel.public_urls")),
+    
+    # Guest chat endpoints (token-based, no authentication required)
+    path("chat/", include("chat.urls")),
 ]
