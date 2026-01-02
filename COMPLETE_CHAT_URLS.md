@@ -9,7 +9,7 @@ GET /api/public/chat/{hotel_slug}/guest/chat/context/?token={guest_token}
 
 **Example**:
 ```
-GET /api/public/chat/killarney-hotel/guest/chat/context/?token=abc123def456
+GET /api/public/chat/hotel-killarney/guest/chat/context/?token=abc123def456
 ```
 
 ### Send Guest Message
@@ -19,7 +19,7 @@ POST /api/public/chat/{hotel_slug}/guest/chat/messages/?token={guest_token}
 
 **Example**:
 ```
-POST /api/public/chat/killarney-hotel/guest/chat/messages/?token=abc123def456
+POST /api/public/chat/hotel-killarney/guest/chat/messages/?token=abc123def456
 ```
 
 **Body**:
@@ -39,7 +39,7 @@ GET /api/chat/{hotel_slug}/conversations/
 
 **Example**:
 ```
-GET /api/chat/killarney-hotel/conversations/
+GET /api/chat/hotel-killarney/conversations/
 ```
 
 ### Get Messages in Conversation
@@ -51,8 +51,8 @@ GET /api/chat/{hotel_slug}/conversations/{conversation_id}/messages/
 
 **Example**:
 ```
-GET /api/chat/killarney-hotel/conversations/55/messages/?limit=50
-GET /api/chat/killarney-hotel/conversations/55/messages/?before_id=120&limit=20
+GET /api/chat/hotel-killarney/conversations/55/messages/?limit=50
+GET /api/chat/hotel-killarney/conversations/55/messages/?before_id=120&limit=20
 ```
 
 ### Send Staff Message
@@ -62,7 +62,7 @@ POST /api/chat/{hotel_slug}/conversations/{conversation_id}/messages/send/
 
 **Example**:
 ```
-POST /api/chat/killarney-hotel/conversations/55/messages/send/
+POST /api/chat/hotel-killarney/conversations/55/messages/send/
 ```
 
 **Body**:
@@ -127,7 +127,7 @@ private-hotel-{hotel_slug}-guest-chat-booking-{booking_id}
 
 **Examples**:
 ```
-private-hotel-killarney-guest-chat-booking-BK-2025-0123
+private-hotel-hotel-killarney-guest-chat-booking-BK-2025-0123
 private-hotel-dublin-central-guest-chat-booking-BK-2025-0456
 ```
 

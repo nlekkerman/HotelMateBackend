@@ -1157,6 +1157,13 @@ class GuestBookingToken(models.Model):
         help_text="Token purpose for future extensibility"
     )
     
+    # Capability-based permissions (preferred over purpose)
+    scopes = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Token capabilities: ['STATUS_READ', 'CHAT', 'ROOM_SERVICE']"
+    )
+    
     class Meta:
         verbose_name = 'Guest Booking Token'
         verbose_name_plural = 'Guest Booking Tokens'
@@ -1178,18 +1185,28 @@ class GuestBookingToken(models.Model):
         ]
     
     @classmethod
-    def generate_token(cls, booking, purpose='STATUS', expires_days=None):
+    def generate_token(cls, booking, purpose='STATUS', expires_days=None, scopes=None):
         """
         Generate a new secure token for a booking.
         
         Args:
             booking: RoomBooking instance
-            purpose: Token purpose ('STATUS', 'PRECHECKIN')
+            purpose: Token purpose ('STATUS', 'PRECHECKIN') - legacy
             expires_days: Days until expiry (default: check_out + 30 days)
+            scopes: List of capabilities ['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
         
         Returns:
             tuple: (GuestBookingToken instance, raw_token_string)
         """
+        # Default scopes based on purpose (backward compatibility)
+        if scopes is None:
+            if purpose == 'FULL_ACCESS':
+                scopes = ['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
+            elif purpose == 'CHAT':
+                scopes = ['STATUS_READ', 'CHAT']
+            else:
+                scopes = ['STATUS_READ']
+        
         # Generate 32-byte random token
         raw_token = secrets.token_urlsafe(32)
         
@@ -1220,7 +1237,8 @@ class GuestBookingToken(models.Model):
                 booking=booking,
                 hotel=booking.hotel,
                 expires_at=expires_at,
-                purpose=purpose
+                purpose=purpose,
+                scopes=scopes
             )
         
         return token_obj, raw_token
@@ -1281,6 +1299,54 @@ class GuestBookingToken(models.Model):
         if self.expires_at and timezone.now() > self.expires_at:
             return False
         return True
+    
+    def has_scope(self, scope):
+        """
+        Check if token has a specific capability.
+        
+        Args:
+            scope (str): Capability to check ('STATUS_READ', 'CHAT', 'ROOM_SERVICE')
+            
+        Returns:
+            bool: True if token has the capability
+        """
+        if not isinstance(self.scopes, list):
+            return False
+        return scope in self.scopes
+    
+    def has_any_scope(self, scopes_list):
+        """
+        Check if token has any of the specified capabilities.
+        
+        Args:
+            scopes_list (list): List of capabilities to check
+            
+        Returns:
+            bool: True if token has at least one of the capabilities
+        """
+        if not isinstance(self.scopes, list):
+            return False
+        return any(scope in self.scopes for scope in scopes_list)
+    
+    def get_capabilities_summary(self):
+        """
+        Get human-readable summary of token capabilities.
+        
+        Returns:
+            str: Summary like "Status + Chat + Room Service"
+        """
+        if not isinstance(self.scopes, list) or not self.scopes:
+            return "No capabilities"
+        
+        capability_names = {
+            'STATUS_READ': 'Status',
+            'CHAT': 'Chat',
+            'ROOM_SERVICE': 'Room Service',
+            'BREAKFAST': 'Breakfast'
+        }
+        
+        names = [capability_names.get(scope, scope) for scope in self.scopes]
+        return " + ".join(names)
     
     def revoke(self, reason=None):
         """

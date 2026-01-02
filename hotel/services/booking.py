@@ -187,29 +187,35 @@ def resolve_token_context(raw_token: str) -> Dict:
             'room_type_name': booking.assigned_room.room_type.name
         }
     
-    # Determine allowed actions based on booking state
+    # Determine allowed actions based on token scopes and booking state
     allowed_actions = []
     
-    # Chat is always available for confirmed bookings
-    if booking.status in ['CONFIRMED', 'CHECKED_IN']:
+    # Always check token scopes first
+    token_scopes = getattr(token, 'scopes', [])
+    
+    # Status read access
+    if 'STATUS_READ' in token_scopes:
+        allowed_actions.append('view_booking')
+    
+    # Chat access - requires CHAT scope + confirmed/checked-in status
+    if ('CHAT' in token_scopes and 
+        booking.status in ['CONFIRMED', 'CHECKED_IN']):
         allowed_actions.append('chat')
     
-    # Room service only available when checked in and assigned to room
-    if booking.status == 'CHECKED_IN' and booking.assigned_room:
+    # Room service - requires ROOM_SERVICE scope + checked in + assigned room
+    if ('ROOM_SERVICE' in token_scopes and 
+        booking.status == 'CHECKED_IN' and booking.assigned_room):
         allowed_actions.append('room_service')
-    
-    # Context information always available
-    allowed_actions.append('view_booking')
     
     return {
         'booking_id': booking.booking_id,
         'hotel_slug': booking.hotel.slug,
         'assigned_room': room_info,
         'guest_name': booking.primary_guest_name,
-        'check_in': booking.check_in_date,
-        'check_out': booking.check_out_date,
+        'check_in': booking.check_in,
+        'check_out': booking.check_out,
         'status': booking.status,
-        'party_size': booking.party_size,
+        'party_size': booking.adults + booking.children,
         'is_checked_in': booking.status == 'CHECKED_IN',
         'is_checked_out': booking.status == 'CHECKED_OUT',
         'allowed_actions': allowed_actions
@@ -254,7 +260,7 @@ def resolve_in_house_context(raw_token: str) -> Tuple[bool, Optional[Dict]]:
     is_in_house = (
         booking.status == 'CHECKED_IN' and
         booking.assigned_room is not None and
-        booking.check_in_date <= current_date <= booking.check_out_date
+        booking.check_in <= current_date <= booking.check_out
     )
     
     if not is_in_house:
