@@ -386,7 +386,8 @@ class HotelBookingCreateView(APIView):
         from .models import GuestBookingToken
         token_obj, raw_token = GuestBookingToken.generate_token(
             booking=booking,
-            purpose='STATUS'
+            purpose='FULL_ACCESS',
+            scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
         )
         
         # Email will be sent after payment completion (no immediate email needed)
