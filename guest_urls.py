@@ -17,7 +17,11 @@ from hotel.models import Hotel, RoomBooking, PricingQuote
 from rooms.models import RoomType, Room
 
 # Import guest portal views for token-authenticated endpoints
-from hotel.guest_portal_views import GuestContextView, GuestChatContextView, GuestRoomServiceView
+from hotel.guest_portal_views import GuestContextView, GuestRoomServiceView
+from hotel.canonical_guest_chat_views import (
+    GuestChatContextView as CanonicalGuestChatContextView,
+    GuestChatSendMessageView as CanonicalGuestChatSendMessageView
+)
 
 # Import room service views
 from room_services.views import RoomServiceItemViewSet, OrderViewSet
@@ -500,11 +504,6 @@ urlpatterns = [
         name='guest-context'
     ),
     path(
-        'chat/',
-        GuestChatContextView.as_view(),
-        name='guest-chat-context'
-    ),
-    path(
         'room-service/',
         GuestRoomServiceView.as_view(),
         name='guest-room-service-context'
@@ -558,5 +557,17 @@ urlpatterns = [
         'hotels/<str:hotel_slug>/room/<int:room_number>/menu/',
         RoomServiceItemViewSet.as_view({'get': 'menu'}),
         name='guest-room-service-menu'
+    ),
+    
+    # Canonical Guest Chat API - Token-only, No Legacy
+    path(
+        'hotel/<str:hotel_slug>/chat/context',
+        CanonicalGuestChatContextView.as_view(),
+        name='canonical-guest-chat-context'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/chat/messages',
+        CanonicalGuestChatSendMessageView.as_view(),
+        name='canonical-guest-chat-send-message'
     ),
 ]

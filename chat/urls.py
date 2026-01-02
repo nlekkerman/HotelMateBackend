@@ -15,8 +15,6 @@ from .views import (
     delete_attachment,
     save_fcm_token,
     test_deletion_broadcast,
-    guest_chat_context,  # Token-based guest chat context
-    guest_send_message,  # Token-based guest send message
 )
 
 urlpatterns = [
@@ -31,10 +29,6 @@ urlpatterns = [
 
     # Send a message in a conversation for a specific hotel
     path("<slug:hotel_slug>/conversations/<int:conversation_id>/messages/send/", send_conversation_message, name="send_conversation_message"),
-
-    # === Token-based Guest Chat Endpoints ===
-    path("<slug:hotel_slug>/guest/chat/context/", guest_chat_context, name="guest_chat_context"),
-    path("<slug:hotel_slug>/guest/chat/messages/", guest_send_message, name="guest_send_message"),
 
     # --- Unread tracking ---
     path(

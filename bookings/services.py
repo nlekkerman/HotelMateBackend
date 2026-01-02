@@ -48,9 +48,16 @@ class NoRoomAssignedError(GuestChatAccessError):
         super().__init__(message, status_code=409)
 
 
-def resolve_guest_chat_context(hotel_slug: str, token_str: str, require_in_house: bool = True):
+class MissingScopeError(GuestChatAccessError):
+    """Token lacks required scopes for the requested action."""
+    def __init__(self, message="Token lacks required permissions", required_scopes=None):
+        self.required_scopes = required_scopes or []
+        super().__init__(message, status_code=403)
+
+
+def resolve_guest_chat_context(hotel_slug: str, token_str: str, required_scopes=None, action_required: bool = True):
     """
-    Resolve guest chat context from token.
+    Resolve guest chat context from token with scope validation.
     
     This is the single source of truth for guest chat authentication.
     All guest chat endpoints must use this function to validate access.
@@ -58,14 +65,16 @@ def resolve_guest_chat_context(hotel_slug: str, token_str: str, require_in_house
     Args:
         hotel_slug: The hotel slug from the URL
         token_str: The raw token string from query params
-        require_in_house: Whether to require guest to be checked in
+        required_scopes: List of required scopes (e.g., ["CHAT"]) or None to skip scope check
+        action_required: If True, requires in-house status; if False, returns context with allowed_actions
         
     Returns:
-        tuple: (booking, room, conversation)
+        tuple: (booking, room, conversation, allowed_actions, disabled_reason)
         
     Raises:
         InvalidTokenError: Token invalid, expired, or hotel mismatch (404)
-        NotInHouseError: Guest not checked in (403)  
+        MissingScopeError: Token lacks required scopes (403)
+        NotInHouseError: Guest not checked in when action_required=True (403)
         NoRoomAssignedError: No room assigned (409)
     """
     if not token_str or not token_str.strip():
@@ -111,9 +120,29 @@ def resolve_guest_chat_context(hotel_slug: str, token_str: str, require_in_house
         logger.warning(f"Cancelled booking {booking.booking_id} attempted chat access")
         raise InvalidTokenError("Booking is not active")
     
+    # Validate token scopes if required
+    if required_scopes:
+        token_scopes = guest_token.scopes or []
+        missing_scopes = [scope for scope in required_scopes if scope not in token_scopes]
+        if missing_scopes:
+            logger.warning(
+                f"Token for booking {booking.booking_id} lacks required scopes: {missing_scopes}. "
+                f"Token has: {token_scopes}"
+            )
+            raise MissingScopeError(
+                f"Token lacks required permissions: {', '.join(missing_scopes)}",
+                required_scopes=missing_scopes
+            )
+    
+    # Initialize allowed actions and disabled reason for UX-friendly responses
+    allowed_actions = {"can_chat": False}
+    disabled_reason = None
+    
     # Check in-house requirement
-    if require_in_house:
-        # Must be checked in and not checked out
+    is_in_house = booking.checked_in_at and not booking.checked_out_at and booking.assigned_room
+    
+    if action_required and not is_in_house:
+        # For strict actions, enforce in-house requirement
         if not booking.checked_in_at:
             logger.warning(f"Booking {booking.booking_id} not checked in yet")
             raise NotInHouseError("Guest has not checked in yet")
@@ -121,33 +150,46 @@ def resolve_guest_chat_context(hotel_slug: str, token_str: str, require_in_house
         if booking.checked_out_at:
             logger.warning(f"Booking {booking.booking_id} already checked out")
             raise NotInHouseError("Guest has already checked out")
-    
-    # Must have assigned room
-    if not booking.assigned_room:
-        logger.warning(f"Booking {booking.booking_id} has no assigned room")
-        raise NoRoomAssignedError("No room assigned to booking")
+            
+        if not booking.assigned_room:
+            logger.warning(f"Booking {booking.booking_id} has no assigned room")
+            raise NoRoomAssignedError("No room assigned to booking")
+    else:
+        # For context requests, provide UX-friendly feedback
+        if not booking.checked_in_at:
+            disabled_reason = "Check-in required to access chat"
+        elif booking.checked_out_at:
+            disabled_reason = "Chat unavailable after checkout"
+        elif not booking.assigned_room:
+            disabled_reason = "Room assignment required"
+        else:
+            # Token has scopes and guest is in-house
+            allowed_actions["can_chat"] = True
     
     room = booking.assigned_room
     
-    # Get or create conversation for the room
-    conversation, created = Conversation.objects.get_or_create(
-        room=room,
-        defaults={}
-    )
-    
-    if created:
-        logger.info(f"Created new conversation for room {room.room_number}")
+    # Get or create conversation for the room (even if not in-house for context)
+    conversation = None
+    if room:
+        conversation, created = Conversation.objects.get_or_create(
+            room=room,
+            defaults={}
+        )
+        
+        if created:
+            logger.info(f"Created new conversation for room {room.room_number}")
     
     # Update token last used timestamp
     guest_token.last_used_at = timezone.now()
     guest_token.save(update_fields=['last_used_at'])
     
     logger.info(
-        f"✅ Guest chat access granted: booking={booking.booking_id}, "
-        f"room={room.room_number}, conversation={conversation.id}"
+        f"✅ Guest chat context resolved: booking={booking.booking_id}, "
+        f"room={room.room_number if room else None}, conversation={conversation.id if conversation else None}, "
+        f"can_chat={allowed_actions['can_chat']}, disabled_reason={disabled_reason}"
     )
     
-    return booking, room, conversation
+    return booking, room, conversation, allowed_actions, disabled_reason
 
 
 def validate_guest_conversation_access(hotel_slug: str, token_str: str, conversation_id: int):
@@ -160,17 +202,18 @@ def validate_guest_conversation_access(hotel_slug: str, token_str: str, conversa
         conversation_id: Conversation ID to validate access to
         
     Returns:
-        tuple: (booking, room, conversation)
+        tuple: (booking, room, conversation, allowed_actions, disabled_reason)
         
     Raises:
         Same exceptions as resolve_guest_chat_context plus:
         InvalidTokenError: If conversation doesn't match token's room
     """
-    # First resolve the guest's context
-    booking, room, conversation = resolve_guest_chat_context(
+    # First resolve the guest's context with strict validation
+    booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
         hotel_slug=hotel_slug,
         token_str=token_str,
-        require_in_house=True
+        required_scopes=["CHAT"],
+        action_required=True
     )
     
     # Ensure the requested conversation matches the token's room
@@ -181,4 +224,4 @@ def validate_guest_conversation_access(hotel_slug: str, token_str: str, conversa
         )
         raise InvalidTokenError("Access denied to this conversation")
     
-    return booking, room, conversation
+    return booking, room, conversation, allowed_actions, disabled_reason
