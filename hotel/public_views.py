@@ -1121,6 +1121,26 @@ class BookingStatusView(APIView):
     Secure URL: GET /api/public/hotels/{hotel_slug}/booking/status/{booking_id}/?token={token}
     """
     permission_classes = [AllowAny]
+    
+    def _get_or_create_guest_token(self, booking):
+        """Generate a fresh GuestBookingToken for in-house guests"""
+        from .models import GuestBookingToken
+        
+        try:
+            # Always generate a fresh token for checked-in guests
+            # This ensures frontend gets a working token for chat/room service
+            token_obj, raw_token = GuestBookingToken.generate_token(
+                booking=booking,
+                purpose='CHAT',
+                scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
+            )
+            
+            logger.info(f"Generated fresh guest token for booking {booking.booking_id} via BookingStatusView")
+            return raw_token
+            
+        except Exception as e:
+            logger.error(f"Failed to generate guest token for booking {booking.booking_id}: {e}")
+            return None
 
     def get(self, request, hotel_slug, booking_id):
         """Return booking status and details with mandatory token validation"""
@@ -1226,7 +1246,10 @@ class BookingStatusView(APIView):
                 'primary_email': booking.primary_email,
                 'created_at': booking.created_at.isoformat(),
                 'cancelled_at': booking.cancelled_at.isoformat() if booking.cancelled_at else None,
-                'cancellation_reason': booking.cancellation_reason or ''
+                'cancellation_reason': booking.cancellation_reason or '',
+                'checked_in_at': booking.checked_in_at.isoformat() if booking.checked_in_at else None,
+                'checked_out_at': booking.checked_out_at.isoformat() if booking.checked_out_at else None,
+                'assigned_room_number': booking.assigned_room.room_number if booking.assigned_room else None
             },
             'hotel': {
                 'name': booking.hotel.name,
@@ -1236,7 +1259,8 @@ class BookingStatusView(APIView):
             },
             'cancellation_policy': cancellation_policy_data,
             'can_cancel': can_cancel,
-            'cancellation_preview': cancellation_preview
+            'cancellation_preview': cancellation_preview,
+            'guest_token': self._get_or_create_guest_token(booking) if booking.checked_in_at and not booking.checked_out_at else None
         }, status=status.HTTP_200_OK)
     
     def post(self, request, hotel_slug, booking_id):

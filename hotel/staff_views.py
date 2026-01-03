@@ -2447,18 +2447,19 @@ class BookingCheckInView(APIView):
     
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     
-    def _emit_checkin_realtime_events(self, booking, room, primary_guest, party_guest_objects):
+    def _emit_checkin_realtime_events(self, booking, room, primary_guest, party_guest_objects, guest_token=None):
         """Emit realtime events for check-in - called after transaction commit"""
         try:
             # Staff events
             notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
             notification_manager.realtime_room_occupancy_updated(room)
             
-            # Guest event - notify guest their booking is checked in
+            # Guest event - notify guest their booking is checked in with fresh token
             print(f"🔄 Emitting guest check-in event for booking {booking.booking_id}, room {room.room_number}")
             guest_event_result = notification_manager.realtime_guest_booking_checked_in(
                 booking=booking,
-                room_number=room.room_number
+                room_number=room.room_number,
+                guest_token=guest_token  # Include fresh token for frontend update
             )
             print(f"✅ Guest check-in event sent: {guest_event_result}")
             
@@ -2564,6 +2565,16 @@ class BookingCheckInView(APIView):
                         guest.primary_guest = primary_guest
                         guest.save()
             
+            # Generate fresh guest token with CHAT scope for in-house access
+            from hotel.models import GuestBookingToken
+            token_obj, raw_token = GuestBookingToken.generate_token(
+                booking=booking,
+                purpose='CHAT',
+                scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
+            )
+            
+            logger.info(f"Generated fresh guest token for booking {booking.booking_id} after check-in")
+            
             # Update room occupancy - Room Turnover Workflow
             room.is_occupied = True
             room.room_status = 'OCCUPIED'
@@ -2571,13 +2582,14 @@ class BookingCheckInView(APIView):
             
             # Trigger realtime notifications - ONLY AFTER DB COMMIT
             transaction.on_commit(
-                lambda: self._emit_checkin_realtime_events(booking, room, primary_guest, party_guest_objects)
+                lambda: self._emit_checkin_realtime_events(booking, room, primary_guest, party_guest_objects, raw_token)
             )
         
-        # Return updated booking with check-in details
+        # Return updated booking with check-in details and fresh guest token
         serializer = StaffRoomBookingDetailSerializer(booking)
         return Response({
             'message': f'Successfully checked in booking {booking_id}',
+            'guest_token': raw_token,  # Fresh token for guest portal access
             **serializer.data
         })
 
