@@ -340,6 +340,7 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     checked_in_at = serializers.SerializerMethodField()
     checked_out_at = serializers.SerializerMethodField()
     assigned_room_number = serializers.SerializerMethodField()
+    guest_token = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -363,6 +364,7 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             'checked_in_at',
             'checked_out_at',
             'assigned_room_number',
+            'guest_token',
         ]
         read_only_fields = fields
 
@@ -374,6 +376,33 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
 
     def get_assigned_room_number(self, obj):
         return obj.assigned_room.room_number if getattr(obj, 'assigned_room', None) else None
+    
+    def get_guest_token(self, obj):
+        """Generate a fresh GuestBookingToken for checked-in guests"""
+        if not (obj.checked_in_at and not obj.checked_out_at):
+            return None
+            
+        try:
+            from hotel.models import GuestBookingToken
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            # Generate fresh token for checked-in guest
+            token_obj, raw_token = GuestBookingToken.generate_token(
+                booking=obj,
+                purpose='REALTIME_ACCESS',
+                scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
+            )
+            
+            logger.info(f"Generated fresh guest token for booking {obj.booking_id} via PublicRoomBookingDetailSerializer")
+            return raw_token
+            
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to generate guest token for booking {obj.booking_id}: {str(e)}")
+            return None
     
     def get_hotel_info(self, obj):
         """Hotel information"""
@@ -512,5 +541,6 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             "checked_in_at": data['checked_in_at'],
             "checked_out_at": data['checked_out_at'],
             "assigned_room_number": data['assigned_room_number'],
+            "guest_token": data['guest_token'],
         }
         return result
