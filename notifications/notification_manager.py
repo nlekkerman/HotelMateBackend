@@ -699,7 +699,7 @@ class NotificationManager:
             'timestamp': message.timestamp.isoformat(),  # Match serializer field name: 'timestamp'
             'room_number': message.room.room_number,
             'is_staff_reply': sender_role == "staff",
-            'attachments': getattr(message, 'attachments', []),
+            'has_attachments': message.attachments.exists() if hasattr(message, 'attachments') else False,
             'pin': getattr(message.room, 'pin', None)
         }
         

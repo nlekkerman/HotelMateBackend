@@ -211,7 +211,7 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
             return Response(
                 {
                     'message_id': message.id,
-                    'sent_at': message.created_at.isoformat(),
+                    'sent_at': message.timestamp.isoformat(),
                     'conversation_id': conversation.id
                 },
                 status=status.HTTP_201_CREATED
