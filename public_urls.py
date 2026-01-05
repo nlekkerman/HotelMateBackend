@@ -140,27 +140,4 @@ urlpatterns = [
     
     # Include hotel public URLs (pre-check-in endpoints)
     path("", include("hotel.public_urls")),
-    
-    # Guest Chat endpoints (public access with token auth)
-    path(
-        "chat/<str:hotel_slug>/guest/chat/context/",
-        GuestChatContextView.as_view(),
-        name="public-guest-chat-context"
-    ),
-    path(
-        "chat/<str:hotel_slug>/guest/chat/messages/",
-        GuestChatSendMessageView.as_view(),
-        name="public-guest-chat-send-message"
-    ),
-    # Alternative URL pattern for frontend compatibility
-    path(
-        "guest/hotel/<str:hotel_slug>/chat/context",
-        GuestChatContextView.as_view(),
-        name="public-guest-chat-context-alt"
-    ),
-    path(
-        "guest/hotel/<str:hotel_slug>/chat/messages",
-        GuestChatSendMessageView.as_view(),
-        name="public-guest-chat-send-message-alt"
-    ),
 ]
