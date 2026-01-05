@@ -25,6 +25,10 @@ from hotel.payment_views import (
     VerifyPaymentView,
     StripeWebhookView,
 )
+from hotel.canonical_guest_chat_views import (
+    GuestChatContextView,
+    GuestChatSendMessageView,
+)
 
 app_name = "public"
 
@@ -136,4 +140,16 @@ urlpatterns = [
     
     # Include hotel public URLs (pre-check-in endpoints)
     path("", include("hotel.public_urls")),
+    
+    # Guest Chat endpoints (public access with token auth)
+    path(
+        "chat/<str:hotel_slug>/guest/chat/context/",
+        GuestChatContextView.as_view(),
+        name="public-guest-chat-context"
+    ),
+    path(
+        "chat/<str:hotel_slug>/guest/chat/messages/",
+        GuestChatSendMessageView.as_view(),
+        name="public-guest-chat-send-message"
+    ),
 ]

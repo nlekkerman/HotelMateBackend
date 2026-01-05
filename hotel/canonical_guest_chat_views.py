@@ -8,6 +8,7 @@ complete legacy elimination. All business rules live in the service layer.
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
@@ -54,6 +55,8 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
     Returns chat context with UX-friendly pre-checkin handling.
     Always returns 200 for valid tokens with allowed_actions and disabled_reason.
     """
+    
+    permission_classes = [AllowAny]
     
     def get(self, request, hotel_slug):
         """Get chat context for guest token"""
@@ -142,6 +145,8 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
     Sends chat message with strict validation (action_required=True).
     Returns 403 for pre-checkin guests, 409 for missing room assignment.
     """
+    
+    permission_classes = [AllowAny]
     
     def post(self, request, hotel_slug):
         """Send chat message from guest"""

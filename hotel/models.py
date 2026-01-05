@@ -1216,7 +1216,10 @@ class GuestBookingToken(models.Model):
         # Calculate expiry
         if expires_days is None:
             # Default: check_out + 30 days for best UX
-            expires_at = booking.check_out + timedelta(days=30)
+            from datetime import datetime
+            expires_at = timezone.make_aware(
+                datetime.combine(booking.check_out, datetime.min.time())
+            ) + timedelta(days=30)
         else:
             expires_at = timezone.now() + timedelta(days=expires_days)
         
