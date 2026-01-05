@@ -152,4 +152,15 @@ urlpatterns = [
         GuestChatSendMessageView.as_view(),
         name="public-guest-chat-send-message"
     ),
+    # Alternative URL pattern for frontend compatibility
+    path(
+        "guest/hotel/<str:hotel_slug>/chat/context",
+        GuestChatContextView.as_view(),
+        name="public-guest-chat-context-alt"
+    ),
+    path(
+        "guest/hotel/<str:hotel_slug>/chat/messages",
+        GuestChatSendMessageView.as_view(),
+        name="public-guest-chat-send-message-alt"
+    ),
 ]

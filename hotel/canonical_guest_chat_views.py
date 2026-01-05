@@ -50,7 +50,7 @@ class TokenAuthenticationMixin:
 @method_decorator(never_cache, name='dispatch')
 class GuestChatContextView(APIView, TokenAuthenticationMixin):
     """
-    GET /api/guest/hotel/{hotel_slug}/chat/context?token=...
+    GET/POST /api/guest/hotel/{hotel_slug}/chat/context?token=...
     
     Returns chat context with UX-friendly pre-checkin handling.
     Always returns 200 for valid tokens with allowed_actions and disabled_reason.
@@ -59,6 +59,15 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
     permission_classes = [AllowAny]
     
     def get(self, request, hotel_slug):
+        """Get chat context for guest token"""
+        return self._get_context(request, hotel_slug)
+    
+    def post(self, request, hotel_slug):
+        """Post method for compatibility - same as GET"""
+        return self._get_context(request, hotel_slug)
+    
+    def _get_context(self, request, hotel_slug):
+    def _get_context(self, request, hotel_slug):
         """Get chat context for guest token"""
         try:
             # Extract token
@@ -81,8 +90,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
             current_staff_handler = None
             if conversation:
                 # Get the latest staff participant
-                latest_staff_participant = conversation.staff_participants.filter(
-                    is_active=True
+                latest_staff_participant = conversation.guest_participants.filter(
                 ).select_related('staff').order_by('-joined_at').first()
                 
                 if latest_staff_participant:
