@@ -67,7 +67,6 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
         return self._get_context(request, hotel_slug)
     
     def _get_context(self, request, hotel_slug):
-    def _get_context(self, request, hotel_slug):
         """Get chat context for guest token"""
         try:
             # Extract token
