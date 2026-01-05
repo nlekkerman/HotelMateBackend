@@ -23,7 +23,7 @@ class RoomMessageInline(admin.TabularInline):
     extra = 0
     readonly_fields = ("timestamp", "sender_type", "staff")
     fields = (
-        "staff", "sender_type", "message", "timestamp",
+        "booking", "staff", "sender_type", "message", "timestamp",
         "read_by_staff", "staff_display_name", "staff_role_name"
     )
     ordering = ("-timestamp",)
@@ -51,11 +51,11 @@ class ConversationAdmin(admin.ModelAdmin):
 @admin.register(RoomMessage)
 class RoomMessageAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "conversation", "room", "sender_type", "staff",
+        "id", "conversation", "room", "booking", "sender_type", "staff",
         "staff_display_name", "timestamp", "read_by_staff", "has_attachments"
     )
-    list_filter = ("sender_type", "read_by_staff", "timestamp", "room")
-    search_fields = ("message", "staff__name", "room__room_number")
+    list_filter = ("sender_type", "read_by_staff", "timestamp", "room", "booking")
+    search_fields = ("message", "staff__name", "room__room_number", "booking__booking_id")
     readonly_fields = ("timestamp",)
     inlines = [MessageAttachmentInline]
     

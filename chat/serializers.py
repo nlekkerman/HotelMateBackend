@@ -59,6 +59,9 @@ class RoomMessageSerializer(serializers.ModelSerializer):
     room_number = serializers.IntegerField(
         source='room.room_number', read_only=True
     )
+    booking_id = serializers.CharField(
+        source='booking.booking_id', read_only=True
+    )
     staff_name = serializers.SerializerMethodField()
     guest_name = serializers.SerializerMethodField()
     
@@ -84,7 +87,7 @@ class RoomMessageSerializer(serializers.ModelSerializer):
         model = RoomMessage
         fields = [
             'id', 'conversation', 'conversation_id', 'room', 'room_number',
-            'sender_type', 'staff', 'staff_name',
+            'booking', 'booking_id', 'sender_type', 'staff', 'staff_name',
             'guest_name', 'staff_info',
             'message', 'timestamp',
             'status', 'is_read_by_recipient', 'read_at',
