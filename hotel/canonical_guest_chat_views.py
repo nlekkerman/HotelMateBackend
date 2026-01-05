@@ -24,6 +24,11 @@ from bookings.services import (
 from chat.models import RoomMessage, Conversation
 from staff.models import Staff
 from notifications.notification_manager import NotificationManager
+from chat.utils import pusher_client
+from django.conf import settings
+import json
+import hmac
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -147,13 +152,89 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
 @method_decorator(never_cache, name='dispatch')
 class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
     """
-    POST /api/guest/hotel/{hotel_slug}/chat/messages?token=...
+    GET/POST /api/guest/hotel/{hotel_slug}/chat/messages?token=...
     
-    Sends chat message with strict validation (action_required=True).
+    GET: Retrieve chat messages for the guest's conversation
+    POST: Send chat message with strict validation (action_required=True)
+    
     Returns 403 for pre-checkin guests, 409 for missing room assignment.
     """
     
     permission_classes = [AllowAny]
+    
+    def get(self, request, hotel_slug):
+        """Retrieve chat messages for guest"""
+        try:
+            # Extract token
+            token_str = self.get_token_from_request(request)
+            if not token_str:
+                return Response(
+                    {'error': 'Token is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Resolve context (allow pre-checkin guests to view messages)
+            booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
+                hotel_slug=hotel_slug,
+                token_str=token_str,
+                required_scopes=["CHAT"],
+                action_required=False  # Allow viewing messages even if chat is disabled
+            )
+            
+            # Get pagination parameters
+            limit = int(request.GET.get('limit', 50))
+            before_id = request.GET.get('before_id')
+            
+            # Query messages
+            messages_qs = conversation.messages.filter(
+                is_deleted=False
+            ).select_related('reply_to').order_by('-timestamp')  # newest first
+            
+            if before_id:
+                messages_qs = messages_qs.filter(id__lt=before_id)
+            
+            messages = messages_qs[:limit]
+            
+            # Reverse to show oldest first (chat display order)
+            messages = list(messages)[::-1]
+            
+            # Serialize messages
+            from chat.serializers import RoomMessageSerializer
+            serializer = RoomMessageSerializer(messages, many=True)
+            
+            logger.info(
+                f"✅ Guest messages retrieved: booking={booking.booking_id}, "
+                f"conversation={conversation.id}, count={len(messages)}"
+            )
+            
+            return Response({
+                'messages': serializer.data,
+                'conversation_id': conversation.id,
+                'count': len(messages),
+                'has_more': messages_qs.count() > limit
+            })
+            
+        except InvalidTokenError as e:
+            return Response(
+                {'error': 'Invalid or expired token'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except MissingScopeError as e:
+            return Response(
+                {'error': f'Token lacks required permissions: {", ".join(e.required_scopes)}'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        except NoRoomAssignedError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_409_CONFLICT
+            )
+        except Exception as e:
+            logger.error(f"Get messages error: {str(e)}")
+            return Response(
+                {'error': 'Unable to retrieve messages'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
     
     def post(self, request, hotel_slug):
         """Send chat message from guest"""
@@ -250,3 +331,130 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
                 {'error': 'Unable to send message'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+@method_decorator(never_cache, name='dispatch')
+class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
+    """
+    POST /api/guest/hotel/{hotel_slug}/chat/pusher/auth?token=...
+    
+    Pusher private channel authentication for guest chat.
+    Validates guest token and ensures channel matches booking.
+    
+    Standard Pusher auth request body:
+    - socket_id: Pusher socket identifier 
+    - channel_name: Must match private-hotel-{hotel_slug}-guest-chat-booking-{booking_id}
+    
+    Security: Only allows channel names that exactly match the token's booking.
+    """
+    
+    permission_classes = [AllowAny]
+    
+    def post(self, request, hotel_slug):
+        """Authenticate Pusher private channel subscription for guest chat"""
+        try:
+            # Extract required Pusher auth fields
+            socket_id = request.data.get('socket_id')
+            channel_name = request.data.get('channel_name')
+            
+            if not socket_id or not channel_name:
+                return Response(
+                    {'error': 'Missing socket_id or channel_name'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Extract and validate token
+            token_str = self.get_token_from_request(request)
+            if not token_str:
+                return Response(
+                    {'error': 'Token is required'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Resolve guest context to get booking info
+            booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
+                hotel_slug=hotel_slug,
+                token_str=token_str,
+                required_scopes=["CHAT"],
+                action_required=False  # Allow auth even if chat temporarily disabled
+            )
+            
+            # CRITICAL SECURITY: Validate channel name exactly matches booking
+            expected_channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{booking.booking_id}"
+            if channel_name != expected_channel:
+                logger.warning(
+                    f"Guest chat Pusher auth rejected: channel mismatch. "
+                    f"Expected: {expected_channel}, Requested: {channel_name}, "
+                    f"Booking: {booking.booking_id}"
+                )
+                return Response(
+                    {'error': 'Channel name does not match booking'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Generate Pusher auth signature
+            channel_data = {
+                "user_id": f"guest-{booking.booking_id}",
+                "user_info": {
+                    "type": "guest",
+                    "booking_id": booking.booking_id,
+                    "hotel_slug": hotel_slug,
+                    "room_number": room.room_number if room else None,
+                    "guest_name": booking.primary_guest_name
+                }
+            }
+            
+            auth_response = self._generate_pusher_auth(socket_id, channel_name, channel_data)
+            
+            logger.info(
+                f"✅ Guest chat Pusher auth successful: booking={booking.booking_id}, "
+                f"channel={channel_name}, socket={socket_id}"
+            )
+            
+            return Response(auth_response)
+            
+        except InvalidTokenError as e:
+            return Response(
+                {'error': 'Invalid or expired token'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except MissingScopeError as e:
+            return Response(
+                {'error': f'Token lacks required permissions: {", ".join(e.required_scopes)}'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        except NoRoomAssignedError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_409_CONFLICT
+            )
+        except Exception as e:
+            logger.error(f"Guest chat Pusher auth error: {str(e)}")
+            return Response(
+                {'error': 'Unable to authenticate channel'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def _generate_pusher_auth(self, socket_id, channel_name, channel_data=None):
+        """
+        Generate Pusher authentication signature
+        """
+        if channel_data:
+            channel_data_str = json.dumps(channel_data)
+            string_to_sign = f"{socket_id}:{channel_name}:{channel_data_str}"
+        else:
+            string_to_sign = f"{socket_id}:{channel_name}"
+        
+        signature = hmac.new(
+            settings.PUSHER_SECRET.encode('utf-8'),
+            string_to_sign.encode('utf-8'),
+            hashlib.sha256
+        ).hexdigest()
+        
+        auth_string = f"{settings.PUSHER_KEY}:{signature}"
+        
+        result = {"auth": auth_string}
+        if channel_data:
+            result["channel_data"] = channel_data_str
+        
+        return result

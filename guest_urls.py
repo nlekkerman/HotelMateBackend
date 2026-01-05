@@ -20,7 +20,8 @@ from rooms.models import RoomType, Room
 from hotel.guest_portal_views import GuestContextView, GuestRoomServiceView
 from hotel.canonical_guest_chat_views import (
     GuestChatContextView as CanonicalGuestChatContextView,
-    GuestChatSendMessageView as CanonicalGuestChatSendMessageView
+    GuestChatSendMessageView as CanonicalGuestChatSendMessageView,
+    GuestChatPusherAuthView as CanonicalGuestChatPusherAuthView
 )
 
 # Import room service views
@@ -569,5 +570,10 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/chat/messages',
         CanonicalGuestChatSendMessageView.as_view(),
         name='canonical-guest-chat-send-message'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/chat/pusher/auth',
+        CanonicalGuestChatPusherAuthView.as_view(),
+        name='canonical-guest-chat-pusher-auth'
     ),
 ]
