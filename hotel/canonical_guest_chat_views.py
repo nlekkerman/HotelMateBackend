@@ -201,11 +201,7 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
             
             # Fire realtime event using existing NotificationManager
             notification_manager = NotificationManager()
-            notification_manager.send_guest_chat_message_notification(
-                booking=booking,
-                message=message,
-                room=room
-            )
+            notification_manager.realtime_guest_chat_message_created(message)
             
             logger.info(
                 f"✅ Guest message sent: booking={booking.booking_id}, "

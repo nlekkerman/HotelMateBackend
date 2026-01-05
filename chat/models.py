@@ -42,6 +42,13 @@ class RoomMessage(models.Model):
         on_delete=models.CASCADE,
         related_name='messages'
     )
+    booking = models.ForeignKey(
+        'hotel.RoomBooking',
+        on_delete=models.CASCADE,
+        null=True, blank=True,
+        related_name='chat_messages',
+        help_text="Booking associated with this message (for guest messages)"
+    )
     sender_type = models.CharField(
         max_length=10,
         choices=(("guest", "Guest"), ("staff", "Staff"), ("system", "System")),
