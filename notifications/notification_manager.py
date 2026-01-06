@@ -575,7 +575,7 @@ class NotificationManager:
         
         # Send to conversation channel with correct event name for frontend eventBus
         hotel_slug = message.sender.hotel.slug
-        conversation_channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
+        conversation_channel = f"{hotel_slug}-conversation-{message.conversation.id}-chat"
         
         # Send to conversation channel (for message display)
         
@@ -589,7 +589,7 @@ class NotificationManager:
         self.logger.info(f"🔥 PUSHER DEBUG: Found {len(participants)} participants to notify")
         
         for participant in participants:
-            notification_channel = f"{hotel_slug}.staff-{participant.id}-notifications"
+            notification_channel = f"{hotel_slug}-staff-{participant.id}-notifications"
             
             # FCM is handled by staff_chat/fcm_utils.py, not here
             
@@ -663,7 +663,7 @@ class NotificationManager:
         )
         
         hotel_slug = message.sender.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
+        channel = f"{hotel_slug}-conversation-{message.conversation.id}-chat"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_edited", event_data)
     
     # -------------------------------------------------------------------------
@@ -756,7 +756,7 @@ class NotificationManager:
             }
             send_fcm_notification(message.room.guest_fcm_token, fcm_title, fcm_body, fcm_data)
         
-        return self._safe_pusher_trigger(channel, "message_created", event_data)
+        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
     
     def realtime_guest_chat_unread_updated(self, room, unread_count=None):
         """Emit normalized guest chat unread count update event."""
@@ -847,7 +847,7 @@ class NotificationManager:
         
         # Send to staff's personal notification channel
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-{staff.id}-notifications"
+        channel = f"{hotel_slug}-staff-{staff.id}-notifications"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_unread_updated", event_data)
     
     def realtime_staff_chat_conversations_with_unread(self, staff):
@@ -880,7 +880,7 @@ class NotificationManager:
         
         # Send to staff's personal notification channel
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-{staff.id}-notifications"
+        channel = f"{hotel_slug}-staff-{staff.id}-notifications"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_conversations_with_unread", event_data)
     
     # -------------------------------------------------------------------------
@@ -1981,7 +1981,7 @@ class NotificationManager:
         )
         
         hotel_slug = hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{conversation_id}"
+        channel = f"{hotel_slug}-conversation-{conversation_id}-chat"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_deleted", event_data)
     
     def realtime_staff_chat_typing_indicator(self, staff, conversation_id, is_typing=True):
@@ -2012,7 +2012,7 @@ class NotificationManager:
         )
         
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{conversation_id}"
+        channel = f"{hotel_slug}-conversation-{conversation_id}-chat"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_typing", event_data)
     
     def realtime_staff_chat_attachment_uploaded(self, attachment, message):
@@ -2040,7 +2040,7 @@ class NotificationManager:
         )
         
         hotel_slug = message.sender.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
+        channel = f"{hotel_slug}-conversation-{message.conversation.id}-chat"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_attachment_uploaded", event_data)
     
     def realtime_staff_chat_attachment_deleted(self, attachment_id, conversation, staff):
@@ -2064,7 +2064,7 @@ class NotificationManager:
         )
         
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{conversation.id}"
+        channel = f"{hotel_slug}-conversation-{conversation.id}-chat"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_attachment_deleted", event_data)
     
     def realtime_staff_chat_staff_mentioned(self, staff, message, conversation_id):
@@ -2103,7 +2103,7 @@ class NotificationManager:
         
         # Send to staff's personal notification channel
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-{staff.id}-notifications"
+        channel = f"{hotel_slug}-staff-{staff.id}-notifications"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_staff_mentioned", event_data)
     
     def realtime_staff_chat_messages_read(self, conversation, staff, message_ids):
@@ -2141,7 +2141,7 @@ class NotificationManager:
         
         # Send to conversation channel
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{conversation.id}"
+        channel = f"{hotel_slug}-conversation-{conversation.id}-chat"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_messages_read", event_data)
     
     def realtime_staff_chat_message_delivered(self, message, staff):
@@ -2166,7 +2166,7 @@ class NotificationManager:
         
         # Send to conversation channel
         hotel_slug = staff.hotel.slug
-        channel = f"{hotel_slug}.staff-chat.{message.conversation.id}"
+        channel = f"{hotel_slug}-conversation-{message.conversation.id}-chat"
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_delivered", event_data)
 
     def get_notification_summary(self):

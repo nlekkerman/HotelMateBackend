@@ -22,12 +22,12 @@ logger = logging.getLogger(__name__)
 
 def get_conversation_channel(hotel_slug, conversation_id):
     """Get standardized conversation channel name."""
-    return f"hotel-{hotel_slug}.staff-chat.{conversation_id}"
+    return f"hotel-{hotel_slug}-conversation-{conversation_id}-chat"
 
 
 def get_staff_personal_channel(hotel_slug, staff_id):
     """Get standardized staff personal channel name."""
-    return f"hotel-{hotel_slug}.staff-{staff_id}-notifications"
+    return f"hotel-{hotel_slug}-staff-{staff_id}-notifications"
 
 
 def trigger_conversation_event(hotel_slug, conversation_id, event, data):
