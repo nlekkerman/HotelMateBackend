@@ -120,8 +120,6 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     if sender_type == "staff":
         # Check if this is a guest conversation (has room)
         if room:
-            from .models import GuestConversationParticipant
-            
             # Get or create participant record
             participant, created = GuestConversationParticipant.objects.get_or_create(
                 conversation=conversation,
@@ -789,14 +787,23 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
     
     # Only update and notify if staff handler is changing
     staff_changed = current_handler != staff
+    created = False  # Initialize for response
     
     if staff_changed:
-        updated_count = sessions.update(current_staff_handler=staff)
+        # Create or update participant record to make this staff member the current handler
+        participant, created = GuestConversationParticipant.objects.get_or_create(
+            conversation=conversation,
+            staff=staff,
+            defaults={'joined_at': timezone.now()}
+        )
+        
+        # If this creates a new participant, it automatically makes them the current handler
+        # since we order by -joined_at to get the latest participant
         
         logger.info(
             f"Staff handler changed from {current_handler} to {staff} "
             f"for conversation {conversation_id}. "
-            f"Updated {updated_count} guest session(s)"
+            f"Participant record {'created' if created else 'updated'}"
         )
         
         # Notify guest that a NEW staff member is now handling their chat
@@ -830,7 +837,6 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
             f"Staff {staff} already assigned to conversation "
             f"{conversation_id}, skipping staff-assigned event"
         )
-        updated_count = 0
     
     # IMPORTANT: Mark all unread guest messages as read when staff opens conversation
     room = conversation.room
@@ -891,7 +897,7 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
     return Response({
         "conversation_id": conversation.id,
         "assigned_staff": get_staff_info(staff),
-        "sessions_updated": updated_count,
+        "participant_created": created if staff_changed else False,
         "room_number": room.room_number,
         "messages_marked_read": len(message_ids)
     })
