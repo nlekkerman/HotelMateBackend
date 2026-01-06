@@ -56,6 +56,8 @@ urlpatterns = [
     path('api/guest/', include('guest_urls')),
     # Public zone - No auth required (landing page, hotel discovery)
     path('api/public/', include('public_urls')),
+    # Chat endpoints - Direct access (legacy compatibility)
+    path('api/chat/', include('chat.urls')),
     # Global Pusher auth endpoint alias for guest access
     path('api/notifications/', include('notifications.urls')),
 ]
