@@ -14,7 +14,7 @@ from django.utils import timezone
 DEFAULT_CHECKIN_POLICY = {
     'timezone': 'Europe/Dublin',
     'check_in_time': '15:00',
-    'early_checkin_from': '12:00', 
+    'early_checkin_from': '08:00', 
     'late_arrival_cutoff': '02:00'
 }
 
