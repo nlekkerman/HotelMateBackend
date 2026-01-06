@@ -100,7 +100,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
                 if latest_staff_participant:
                     staff = latest_staff_participant.staff
                     current_staff_handler = {
-                        "name": staff.get_full_name(),
+                        "name": f"{staff.first_name} {staff.last_name}".strip(),
                         "role": staff.role.name if staff.role else "Staff"
                     }
             
