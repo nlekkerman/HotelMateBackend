@@ -1,0 +1,65 @@
+"""
+Staff-specific chat URLs - without hotel_slug prefix since it's provided by staff_urls.py wrapper
+"""
+from django.urls import path
+from chat.views import (
+    send_conversation_message,
+    get_conversation_messages,
+    get_active_conversations,
+    get_or_create_conversation_from_room,
+    get_active_rooms,
+    get_unread_count,
+    mark_conversation_read,
+    get_unread_conversation_count,
+    assign_staff_to_conversation,
+    update_message,
+    delete_message,
+    upload_message_attachment,
+    delete_attachment,
+    save_fcm_token,
+    test_deletion_broadcast,
+)
+
+# These patterns don't include hotel_slug because it's already provided by the staff wrapper
+urlpatterns = [
+    path("active-rooms/", get_active_rooms, name="get_active_rooms"),
+    path("conversations/from-room/<int:room_number>/", get_or_create_conversation_from_room, name="get_or_create_conversation_from_room"),
+
+    # Fetch all active conversations for a hotel
+    path("conversations/", get_active_conversations, name="get_active_conversations"),
+
+    # Fetch all messages in a conversation for a specific hotel
+    path("conversations/<int:conversation_id>/messages/", get_conversation_messages, name="get_conversation_messages"),
+
+    # Send a message in a conversation for a specific hotel
+    path("conversations/<int:conversation_id>/messages/send/", send_conversation_message, name="send_conversation_message"),
+
+    # --- Unread tracking ---
+    path("conversations/unread-count/", get_unread_count, name="get_unread_count"),
+    path("conversations/<int:conversation_id>/mark-read/", mark_conversation_read, name="mark_conversation_read"),
+    
+    # --- Staff assignment (conversation handoff) ---
+    path(
+        "conversations/<int:conversation_id>/assign-staff/",
+        assign_staff_to_conversation,
+        name="assign_staff_to_conversation"
+    ),
+    
+    # --- Message CRUD operations ---
+    path("messages/<int:message_id>/update/", update_message, name="update_message"),
+    path("messages/<int:message_id>/delete/", delete_message, name="delete_message"),
+
+    # --- Attachments ---
+    path(
+        "conversations/<int:conversation_id>/upload-attachment/",
+        upload_message_attachment,
+        name="upload_message_attachment"
+    ),
+    path("attachments/<int:attachment_id>/delete/", delete_attachment, name="delete_attachment"),
+
+    # --- FCM Token ---
+    path("save-fcm-token/", save_fcm_token, name="save_fcm_token"),
+
+    # --- Testing (development only) ---
+    path("test/room/<int:room_number>/test-deletion/", test_deletion_broadcast, name="test_deletion_broadcast"),
+]

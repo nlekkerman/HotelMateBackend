@@ -250,7 +250,7 @@ urlpatterns += [
 urlpatterns += [
     path(
         f'hotel/<str:hotel_slug>/{app}/',
-        include(f'{app}.urls'),
+        include(f'{app}.staff_urls' if app == 'chat' else f'{app}.urls'),
         name=f'staff-{app}'
     )
     for app in STAFF_APPS
