@@ -571,7 +571,7 @@ def get_unread_count(request, hotel_slug):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
-def mark_conversation_read(request, conversation_id):
+def mark_conversation_read(request, hotel_slug, conversation_id):
     """Mark messages as read with detailed tracking for staff and guests"""
     staff = getattr(request.user, "staff_profile", None)
     is_staff = staff is not None
