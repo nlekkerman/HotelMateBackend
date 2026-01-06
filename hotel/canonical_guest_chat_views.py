@@ -101,7 +101,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
                     staff = latest_staff_participant.staff
                     current_staff_handler = {
                         "name": staff.get_full_name(),
-                        "role": staff.role or "Staff"
+                        "role": staff.role.name if staff.role else "Staff"
                     }
             
             # Build booking-scoped pusher channel
