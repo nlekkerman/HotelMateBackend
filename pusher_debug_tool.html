@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pusher Debug Tool</title>
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .section { margin-bottom: 20px; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; color: #155724; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; }
+        .warning { background-color: #fff3cd; border-color: #ffecb5; color: #856404; }
+        .info { background-color: #d1ecf1; border-color: #bee5eb; color: #0c5460; }
+        button { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background-color: #0056b3; }
+        input[type="text"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin: 5px 0; }
+        #log { height: 300px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #dee2e6; padding: 10px; font-family: monospace; white-space: pre-wrap; }
+        .timestamp { color: #6c757d; font-size: 0.8em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 Pusher Debug Tool</h1>
+        
+        <div class="section">
+            <h3>Configuration</h3>
+            <div>
+                <label>Pusher App Key:</label>
+                <input type="text" id="pusherKey" placeholder="Enter your Pusher app key">
+            </div>
+            <div>
+                <label>Pusher Cluster:</label>
+                <input type="text" id="pusherCluster" value="us2" placeholder="e.g., us2, eu">
+            </div>
+            <div>
+                <label>Channel Name:</label>
+                <input type="text" id="channelName" value="private-hotel-hotel-killarney-guest-chat-booking-BK-2026-0001" placeholder="Channel to test">
+            </div>
+            <button onclick="initializePusher()">Initialize Pusher</button>
+            <button onclick="subscribeToChannel()">Subscribe to Channel</button>
+        </div>
+        
+        <div class="section">
+            <h3>Connection Status</h3>
+            <div id="connectionStatus" class="info">Not connected</div>
+        </div>
+        
+        <div class="section">
+            <h3>Test Actions</h3>
+            <button onclick="testConnection()">Test Connection</button>
+            <button onclick="listChannels()">List Subscribed Channels</button>
+            <button onclick="sendTestAuth()">Test Auth (for private channels)</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+        
+        <div class="section">
+            <h3>Debug Log</h3>
+            <div id="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let pusher = null;
+        let currentChannel = null;
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logDiv = document.getElementById('log');
+            const typeColors = {
+                'info': '#0c5460',
+                'success': '#155724', 
+                'error': '#721c24',
+                'warning': '#856404'
+            };
+            
+            logDiv.innerHTML += `<div style="color: ${typeColors[type]}"><span class="timestamp">[${timestamp}]</span> ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function updateConnectionStatus(status, isConnected = false) {
+            const statusDiv = document.getElementById('connectionStatus');
+            statusDiv.textContent = status;
+            statusDiv.className = isConnected ? 'section success' : 'section warning';
+        }
+
+        function initializePusher() {
+            const key = document.getElementById('pusherKey').value;
+            const cluster = document.getElementById('pusherCluster').value;
+            
+            if (!key) {
+                log('❌ Please enter your Pusher app key', 'error');
+                return;
+            }
+
+            try {
+                // Enable logging for debugging
+                Pusher.logToConsole = true;
+                
+                pusher = new Pusher(key, {
+                    cluster: cluster,
+                    enabledTransports: ['ws', 'wss'],
+                    authEndpoint: '/api/staff/hotel/hotel-killarney/chat/pusher/auth', // Adjust this based on your setup
+                });
+
+                // Connection event handlers
+                pusher.connection.bind('connected', function() {
+                    log('✅ Connected to Pusher', 'success');
+                    log(`Socket ID: ${pusher.connection.socket_id}`, 'info');
+                    updateConnectionStatus('Connected', true);
+                });
+
+                pusher.connection.bind('disconnected', function() {
+                    log('🔴 Disconnected from Pusher', 'warning');
+                    updateConnectionStatus('Disconnected', false);
+                });
+
+                pusher.connection.bind('error', function(err) {
+                    log(`❌ Connection error: ${JSON.stringify(err)}`, 'error');
+                    updateConnectionStatus('Error', false);
+                });
+
+                pusher.connection.bind('state_change', function(states) {
+                    log(`🔄 State changed: ${states.previous} → ${states.current}`, 'info');
+                });
+
+                log('🚀 Pusher client initialized', 'success');
+                
+            } catch (error) {
+                log(`❌ Failed to initialize Pusher: ${error.message}`, 'error');
+            }
+        }
+
+        function subscribeToChannel() {
+            if (!pusher) {
+                log('❌ Initialize Pusher first', 'error');
+                return;
+            }
+
+            const channelName = document.getElementById('channelName').value;
+            if (!channelName) {
+                log('❌ Please enter a channel name', 'error');
+                return;
+            }
+
+            try {
+                log(`📡 Subscribing to channel: ${channelName}`, 'info');
+                
+                currentChannel = pusher.subscribe(channelName);
+
+                currentChannel.bind('pusher:subscription_succeeded', function() {
+                    log(`✅ Successfully subscribed to ${channelName}`, 'success');
+                });
+
+                currentChannel.bind('pusher:subscription_error', function(err) {
+                    log(`❌ Subscription failed for ${channelName}: ${JSON.stringify(err)}`, 'error');
+                });
+
+                // Listen for your specific events (based on your logs)
+                currentChannel.bind('realtime_event', function(data) {
+                    log(`📨 Received realtime_event: ${JSON.stringify(data, null, 2)}`, 'success');
+                });
+
+                // Listen for all events on this channel for debugging
+                currentChannel.bind_global(function(eventName, data) {
+                    log(`📨 Event '${eventName}' received: ${JSON.stringify(data, null, 2)}`, 'info');
+                });
+
+            } catch (error) {
+                log(`❌ Failed to subscribe to channel: ${error.message}`, 'error');
+            }
+        }
+
+        function testConnection() {
+            if (!pusher) {
+                log('❌ Initialize Pusher first', 'error');
+                return;
+            }
+
+            log(`📊 Connection state: ${pusher.connection.state}`, 'info');
+            log(`📊 Socket ID: ${pusher.connection.socket_id || 'Not connected'}`, 'info');
+            
+            if (pusher.connection.state === 'connected') {
+                log('✅ Connection is active', 'success');
+            } else {
+                log('⚠️ Connection is not active', 'warning');
+            }
+        }
+
+        function listChannels() {
+            if (!pusher) {
+                log('❌ Initialize Pusher first', 'error');
+                return;
+            }
+
+            const channels = Object.keys(pusher.channels.channels);
+            if (channels.length === 0) {
+                log('📋 No channels subscribed', 'warning');
+            } else {
+                log(`📋 Subscribed channels: ${channels.join(', ')}`, 'info');
+            }
+        }
+
+        function sendTestAuth() {
+            if (!pusher || !currentChannel) {
+                log('❌ Initialize Pusher and subscribe to a channel first', 'error');
+                return;
+            }
+
+            // This will test the auth endpoint for private channels
+            log('🔐 Testing authentication for private channel...', 'info');
+            log(`Auth endpoint would be called with socket_id: ${pusher.connection.socket_id}`, 'info');
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        // Auto-fill Pusher key if it's available in localStorage (for convenience)
+        window.addEventListener('load', function() {
+            log('🔍 Pusher Debug Tool loaded', 'success');
+            log('📝 Enter your Pusher credentials and click "Initialize Pusher"', 'info');
+            log('📝 You can find your Pusher key in your dashboard or Django settings', 'info');
+            
+            // Try to detect if we're on localhost
+            if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                log('⚠️ Running on localhost - make sure your auth endpoint is accessible', 'warning');
+            }
+        });
+    </script>
+</body>
+</html>
