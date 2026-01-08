@@ -817,6 +817,9 @@ class NotificationManager:
         # Safety check - ensure we only use booking channels
         assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
         
+        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
+        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
+        
         return self._safe_pusher_trigger(channel, "realtime_event", event_data)
     
     def realtime_guest_chat_message_deleted(self, message_id, conversation_id, room, deleted_by_staff=None, deleted_by_guest=False):
