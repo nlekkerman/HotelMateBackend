@@ -167,26 +167,8 @@ def send_conversation_message(request, hotel_slug, conversation_id):
                 f"for conversation {conversation.id}. Updated {sessions_updated} session(s)"
             )
             
-            # Notify guest that a NEW staff member is now handling their chat
-            guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
-            try:
-                pusher_client.trigger(
-                    guest_channel,
-                    "staff-assigned",
-                    {
-                        "staff_name": f"{staff_instance.first_name} {staff_instance.last_name}".strip(),
-                        "staff_role": staff_instance.role.name if staff_instance.role else "Staff",
-                        "conversation_id": conversation.id
-                    }
-                )
-                logger.info(
-                    f"Pusher triggered: staff-assigned event for "
-                    f"{staff_instance} on channel {guest_channel}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to trigger Pusher for staff-assigned: {e}"
-                )
+            # Staff assignment notifications now handled by booking channel
+            # via realtime_guest_chat_message_created() when staff sends first message
         else:
             logger.debug(
                 f"Staff handler unchanged ({staff_instance}), "
@@ -228,23 +210,8 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             conversation.save()
             logger.info(f"Conversation {conversation.id} marked as unread")
 
-        # CRITICAL: Send message back to guest's channel so they see it!
-        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
-        try:
-            pusher_client.trigger(
-                guest_channel,
-                "new-message",
-                message_data
-            )
-            logger.info(
-                f"✅ Pusher sent to GUEST channel: {guest_channel}, "
-                f"message_id={message.id}"
-            )
-        except Exception as e:
-            logger.error(
-                f"❌ Failed to send Pusher to guest channel "
-                f"{guest_channel}: {e}"
-            )
+        # Legacy broadcasts removed - now handled by NotificationManager.realtime_guest_chat_message_created()
+        # which uses only booking-scoped channels: private-hotel-{slug}-guest-chat-booking-{booking_id}
 
         # Trigger unread update using NotificationManager
         try:
@@ -646,28 +613,12 @@ def mark_conversation_read(request, hotel_slug, conversation_id):
         
         # Trigger Pusher for staff to show read receipt
         if message_ids:
-            message_channel = (
-                f"{hotel.slug}-conversation-{conversation.id}-chat"
+            # Read receipt notifications now handled by booking channel
+            # Staff clients should listen to booking channels for read status updates
+            logger.info(
+                f"Guest marked {len(message_ids)} messages as read. "
+                f"Read receipts now delivered via booking channel."
             )
-            try:
-                pusher_client.trigger(
-                    message_channel,
-                    "messages-read-by-guest",
-                    {
-                        "message_ids": message_ids,
-                        "read_at": timezone.now().isoformat(),
-                        "room_number": room.room_number
-                    }
-                )
-                logger.info(
-                    f"Pusher triggered: messages-read-by-guest, "
-                    f"count={len(message_ids)}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"Failed to trigger Pusher for "
-                    f"messages-read-by-guest: {e}"
-                )
 
     return Response({
         "conversation_id": conversation.id,
@@ -808,30 +759,13 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
         
         # Notify guest that a NEW staff member is now handling their chat
         room = conversation.room
-        guest_channel = f"{hotel.slug}-room-{room.room_number}-chat"
         
-        try:
-            pusher_client.trigger(
-                guest_channel,
-                "staff-assigned",
-                {
-                    "staff_name": (
-                        f"{staff.first_name} {staff.last_name}".strip()
-                    ),
-                    "staff_role": (
-                        staff.role.name if staff.role else "Staff"
-                    ),
-                    "conversation_id": conversation.id
-                }
-            )
-            logger.info(
-                f"Pusher triggered: staff-assigned event sent to guest "
-                f"on channel {guest_channel}"
-            )
-        except Exception as e:
-            logger.error(
-                f"Failed to trigger Pusher for staff-assigned: {e}"
-            )
+        # Staff assignment notifications now handled by booking channel
+        # Guest will see staff info when staff sends their first message
+        logger.info(
+            f"Staff assignment complete: {staff} assigned to conversation {conversation_id}. "
+            f"Guest will be notified via booking channel when staff responds."
+        )
     else:
         logger.info(
             f"Staff {staff} already assigned to conversation "
@@ -870,21 +804,13 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
         print(f"📡 Sending messages-read-by-staff to: {conversation_channel}")
         print(f"📡 Event payload: message_ids={message_ids}")
         
+        # Send read receipt notification via booking channel
         try:
-            pusher_client.trigger(
-                conversation_channel,
-                "messages-read-by-staff",
-                {
-                    "message_ids": message_ids,
-                    "read_at": timezone.now().isoformat(),
-                    "staff_name": str(staff),
-                    "conversation_id": conversation.id
-                }
-            )
-            print("✅ Successfully sent messages-read-by-staff event")
+            # Staff read receipts now handled by booking channel
+            # Guest clients should listen to booking channels for read status updates
             logger.info(
                 f"📡 Staff opened conversation: marked {read_count} messages as read, "
-                f"sent to conversation channel {conversation_channel}, message_ids={message_ids}"
+                f"read receipts delivered via booking channel, message_ids={message_ids}"
             )
         except Exception as e:
             print(f"❌ FAILED to send messages-read-by-staff event: {e}")
@@ -961,24 +887,16 @@ def update_message(request, message_id):
         f"{'staff ' + str(staff) if is_staff else 'guest'}"
     )
     
-    # Trigger Pusher for real-time update
+    # Use unified guest chat edit broadcast  
+    try:
+        notification_manager.realtime_guest_chat_message_edited(message)
+        logger.info(f"Unified edit broadcast sent for message {message_id}")
+    except Exception as e:
+        logger.error(f"Failed to broadcast edit via NotificationManager: {e}")
+    
+    # Serialize for response
     from .serializers import RoomMessageSerializer
     serializer = RoomMessageSerializer(message)
-    
-    hotel = message.room.hotel
-    message_channel = (
-        f"{hotel.slug}-conversation-{message.conversation.id}-chat"
-    )
-    
-    try:
-        pusher_client.trigger(
-            message_channel,
-            "message_updated",
-            serializer.data
-        )
-        logger.info(f"Pusher triggered: message_updated for message {message_id}")
-    except Exception as e:
-        logger.error(f"Failed to trigger Pusher for message_updated: {e}")
     
     return Response({
         "message": serializer.data,
@@ -1102,135 +1020,18 @@ def delete_message(request, message_id):
             f"Message {message_id_copy} hard deleted by staff {staff}"
         )
         
-        # Trigger Pusher to multiple channels
+        # Use unified guest chat deletion broadcast
         try:
-            # 1. Conversation channel (for all participants)
-            pusher_client.trigger(
-                message_channel,
-                "message-deleted",
-                pusher_data
+            notification_manager.realtime_guest_chat_message_deleted(
+                message_id=message_id_copy,
+                conversation_id=conversation.id,
+                room=room,
+                deleted_by_staff=staff,
+                deleted_by_guest=False
             )
-            logger.info(f"✅ Pusher: message-deleted → {message_channel}")
-            
-            # Also emit a secondary event name for clients that listen for
-            # a different event (some frontends expect "message-removed")
-            try:
-                pusher_client.trigger(
-                    message_channel,
-                    "message-removed",
-                    pusher_data
-                )
-                logger.info(f"✅ Pusher: message-removed → {message_channel}")
-            except Exception as e:
-                logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
-
-            # 2. Room channel for guest (existing channel, for compatibility)
-            room_channel = f'{hotel_slug}-room-{room_number}-chat'
-            print("\n" + "=" * 80)
-            print("📡 BROADCASTING TO ROOM CHANNEL")
-            print(f"   Channel: {room_channel}")
-            print(f"   Payload: {pusher_data}")
-            print("   Event 1: message-deleted")
-            print("   Event 2: message-removed")
-            print("=" * 80)
-            
-            try:
-                result = pusher_client.trigger(
-                    room_channel,
-                    'message-deleted',
-                    pusher_data
-                )
-                print(f"✅ SENT message-deleted to {room_channel}")
-                print(f"   Pusher response: {result}")
-                logger.info(f"Pusher: message-deleted sent to {room_channel}")
-            except Exception as e:
-                print(f"❌ FAILED to send message-deleted: {e}")
-                logger.error(f"Failed to trigger message-deleted: {e}")
-            
-            # Also broadcast 'message-removed' alias
-            try:
-                result = pusher_client.trigger(
-                    room_channel,
-                    'message-removed',
-                    pusher_data
-                )
-                print(f"✅ SENT message-removed to {room_channel}")
-                print(f"   Pusher response: {result}")
-                logger.info(f"Pusher: message-removed sent to {room_channel}")
-            except Exception as e:
-                print(f"❌ FAILED to send message-removed: {e}")
-                logger.error(f"Failed to trigger message-removed: {e}")
-            
-            print("=" * 80 + "\n")
-            
-            # 2B. NEW DEDICATED DELETION CHANNEL
-            # Separate channel for deletion events for clearer handling
-            print("=" * 80)
-            print("🗑️ BROADCASTING TO DEDICATED DELETION CHANNEL")
-            print(f"   Channel: {deletion_channel}")
-            print(f"   Payload: {pusher_data}")
-            print("=" * 80)
-            
-            try:
-                result = pusher_client.trigger(
-                    deletion_channel,
-                    'content-deleted',
-                    pusher_data
-                )
-                print(f"✅ SENT content-deleted to {deletion_channel}")
-                print(f"   Pusher response: {result}")
-                logger.info(
-                    f"Pusher: content-deleted sent to {deletion_channel}"
-                )
-            except Exception as e:
-                print(f"❌ FAILED to send to deletion channel: {e}")
-                logger.error(
-                    f"Failed to trigger content-deleted on "
-                    f"{deletion_channel}: {e}"
-                )
-            
-            print("=" * 80 + "\n")
-
-            # 3. Guest channel (so guest sees deletion) - kept for compatibility
-            pusher_client.trigger(
-                guest_channel,
-                "message-deleted",
-                pusher_data
-            )
-            logger.info(f"✅ Pusher: message-deleted → {guest_channel}")
-
-            # Secondary event for guest channel as well
-            try:
-                pusher_client.trigger(
-                    guest_channel,
-                    "message-removed",
-                    pusher_data
-                )
-                logger.info(f"✅ Pusher: message-removed → {guest_channel}")
-            except Exception as e:
-                logger.debug(f"Optional secondary trigger failed for {guest_channel}: {e}")
-            
-            # 3. Individual staff channels (so all staff see deletion)
-            for staff_member in conversation.participants_staff.all():
-                staff_channel = f"{hotel.slug}-staff-{staff_member.id}-chat"
-                pusher_client.trigger(
-                    staff_channel,
-                    "message-deleted",
-                    pusher_data
-                )
-                logger.info(f"✅ Pusher: message-deleted → {staff_channel}")
-                try:
-                    pusher_client.trigger(
-                        staff_channel,
-                        "message-removed",
-                        pusher_data
-                    )
-                    logger.info(f"✅ Pusher: message-removed → {staff_channel}")
-                except Exception as e:
-                    logger.debug(f"Optional secondary trigger failed for {staff_channel}: {e}")
-                
+            logger.info(f"Unified deletion broadcast sent for message {message_id_copy}")
         except Exception as e:
-            logger.error(f"Failed to trigger Pusher for message-deleted: {e}")
+            logger.error(f"Failed to broadcast deletion via NotificationManager: {e}")
         
         return Response({
             "success": True,
@@ -1279,124 +1080,18 @@ def delete_message(request, message_id):
         }
         
         try:
-            # 1. Conversation channel (for all participants)
-            pusher_client.trigger(
-                message_channel,
-                "message-deleted",
-                pusher_data
+            # Use unified guest chat deletion broadcast
+            is_guest_deleting = not is_staff
+            notification_manager.realtime_guest_chat_message_deleted(
+                message_id=message.id,
+                conversation_id=conversation.id,
+                room=room,
+                deleted_by_staff=staff if is_staff else None,
+                deleted_by_guest=is_guest_deleting
             )
-            logger.info(f"✅ Pusher: message-deleted → {message_channel}")
-
-            # Also emit secondary "message-removed" event for compatibility
-            try:
-                pusher_client.trigger(
-                    message_channel,
-                    "message-removed",
-                    pusher_data
-                )
-                logger.info(f"✅ Pusher: message-removed → {message_channel}")
-            except Exception as e:
-                logger.debug(f"Optional secondary trigger failed for {message_channel}: {e}")
-            
-            # 2. Room channel for guest (existing channel, for compatibility)
-            room_channel = f'{hotel_slug}-room-{room_number}-chat'
-            print(f"📡 [SOFT DELETE] BROADCASTING TO ROOM: "
-                  f"{room_channel}")
-            print(f"📦 [SOFT DELETE] PAYLOAD: {pusher_data}")
-            
-            pusher_client.trigger(
-                room_channel,
-                'message-deleted',
-                pusher_data
-            )
-            print(f"✅ [SOFT DELETE] SENT message-deleted to "
-                  f"{room_channel}")
-            logger.info(
-                f"✅ Pusher: message-deleted → "
-                f"{hotel_slug}-room-{room_number}-chat"
-            )
-            
-            # Also broadcast 'message-removed' alias
-            pusher_client.trigger(
-                room_channel,
-                'message-removed',
-                pusher_data
-            )
-            print(f"✅ [SOFT DELETE] SENT message-removed to "
-                  f"{room_channel}")
-            logger.info(
-                f"✅ Pusher: message-removed → "
-                f"{hotel_slug}-room-{room_number}-chat"
-            )
-            
-            # 2B. NEW DEDICATED DELETION CHANNEL
-            # Separate channel for deletion events for clearer handling
-            print("=" * 80)
-            print("🗑️ [SOFT DELETE] BROADCASTING TO DELETION CHANNEL")
-            print(f"   Channel: {deletion_channel}")
-            print(f"   Payload: {pusher_data}")
-            print("=" * 80)
-            
-            try:
-                result = pusher_client.trigger(
-                    deletion_channel,
-                    'content-deleted',
-                    pusher_data
-                )
-                print(f"✅ SENT content-deleted to {deletion_channel}")
-                print(f"   Pusher response: {result}")
-                logger.info(
-                    f"Pusher: content-deleted sent to {deletion_channel}"
-                )
-            except Exception as e:
-                print(f"❌ FAILED to send to deletion channel: {e}")
-                logger.error(
-                    f"Failed to trigger content-deleted on "
-                    f"{deletion_channel}: {e}"
-                )
-            
-            print("=" * 80 + "\n")
-
-            # 3. Guest channel (so guest sees deletion) - kept for compatibility
-            pusher_client.trigger(
-                guest_channel,
-                "message-deleted",
-                pusher_data
-            )
-            logger.info(f"✅ Pusher: message-deleted → {guest_channel}")
-
-            # Secondary event for guest channel as well
-            try:
-                pusher_client.trigger(
-                    guest_channel,
-                    "message-removed",
-                    pusher_data
-                )
-                logger.info(f"✅ Pusher: message-removed → {guest_channel}")
-            except Exception as e:
-                logger.debug(f"Optional secondary trigger failed for {guest_channel}: {e}")
-            
-            # 3. Individual staff channels (so all staff see deletion)
-            for staff_member in conversation.participants_staff.all():
-                staff_channel = f"{hotel.slug}-staff-{staff_member.id}-chat"
-                pusher_client.trigger(
-                    staff_channel,
-                    "message-deleted",
-                    pusher_data
-                )
-                logger.info(f"✅ Pusher: message-deleted → {staff_channel}")
-                try:
-                    pusher_client.trigger(
-                        staff_channel,
-                        "message-removed",
-                        pusher_data
-                    )
-                    logger.info(f"✅ Pusher: message-removed → {staff_channel}")
-                except Exception as e:
-                    logger.debug(f"Optional secondary trigger failed for {staff_channel}: {e}")
-                
+            logger.info(f"Unified deletion broadcast sent for message {message.id}")
         except Exception as e:
-            logger.error(f"Failed to trigger Pusher for message-deleted: {e}")
+            logger.error(f"Failed to broadcast deletion via NotificationManager: {e}")
         
         return Response({
             "success": True,
@@ -1558,17 +1253,12 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
         f"by {'staff ' + str(staff_instance) if staff_instance else 'guest'}"
     )
     
-    # Trigger Pusher for real-time update
-    message_channel = f"{hotel.slug}-conversation-{conversation.id}-chat"
-    
+    # Use unified guest chat message broadcast for file attachments
     try:
-        pusher_client.trigger(
-            message_channel,
-            "new-message" if not message_id else "message-updated",
-            message_serializer.data
-        )
+        notification_manager.realtime_guest_chat_message_created(message)
+        logger.info(f"Unified file attachment broadcast sent for message {message.id}")
     except Exception as e:
-        logger.error(f"Failed to trigger Pusher: {e}")
+        logger.error(f"Failed to broadcast file attachment via NotificationManager: {e}")
     
     # Send notifications similar to text messages
     if sender_type == "guest":

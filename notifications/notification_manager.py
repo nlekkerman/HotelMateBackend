@@ -667,8 +667,15 @@ class NotificationManager:
         return self._safe_pusher_trigger(channel, "realtime_staff_chat_message_edited", event_data)
     
     # -------------------------------------------------------------------------
-    # GUEST CHAT REALTIME METHODS  
+    # GUEST CHAT REALTIME METHODS (BOOKING-SCOPED CHANNELS ONLY) 
     # -------------------------------------------------------------------------
+    
+    # REFACTORED ✅: Guest chat now uses ONLY booking-scoped channels for consistency:
+    # - Channel: private-hotel-{hotel_slug}-guest-chat-booking-{booking_id}  
+    # - Event: realtime_event
+    # - No room channels, no conversation channels, no staff-per-user channels
+    # - FCM push notifications are separate from realtime channels
+    # - CRUD complete: message_created, message_deleted, message_edited
     
     def realtime_guest_chat_message_created(self, message):
         """
@@ -688,9 +695,26 @@ class NotificationManager:
             sender_id = message.staff.id
             sender_name = message.staff_display_name or f"{message.staff.first_name} {message.staff.last_name}"
         
-        # Build complete payload
+        # Get current booking for this room FIRST (needed for conversation_id)
+        from hotel.models import RoomBooking
+        current_booking = RoomBooking.objects.filter(
+            assigned_room=message.room,
+            checked_in_at__isnull=False,
+            checked_out_at__isnull=True,
+            status__in=['CONFIRMED', 'COMPLETED']
+        ).first()
+        
+        if not current_booking:
+            self.logger.warning(
+                f"Guest chat message {message.id} dropped: no active booking for room {message.room.room_number}"
+            )
+            return False
+        
+        # Build complete payload with booking-scoped conversation_id
         payload = {
-            'conversation_id': message.conversation.id if message.conversation else f"room-{message.room.room_number}",
+            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
+            'booking_id': current_booking.booking_id,  # Explicit booking reference
+            'room_conversation_id': message.conversation.id if message.conversation else None,  # Legacy reference
             'id': message.id,  # Match serializer field name: 'id'
             'sender_role': sender_role,
             'sender_id': sender_id,
@@ -719,20 +743,14 @@ class NotificationManager:
         # Send to guest chat channel (booking-scoped, survives room moves)
         hotel_slug = message.room.hotel.slug
         
-        # Get current booking for this room to determine channel
-        from hotel.models import RoomBooking
-        current_booking = RoomBooking.objects.filter(
-            assigned_room=message.room,
-            checked_in_at__isnull=False,
-            checked_out_at__isnull=True,
-            status__in=['CONFIRMED', 'COMPLETED']
-        ).first()
+        # Use booking from earlier lookup
+        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
         
-        if current_booking:
-            channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
-        else:
-            # Fallback to room-based for legacy compatibility
-            channel = f"{hotel_slug}.guest-chat.room-{message.room.room_number}"
+        # Safety check - ensure we only use booking channels
+        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
+        
+        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
+        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
         
         # Also send FCM if appropriate
         if sender_role == "guest" and hasattr(message, 'assigned_staff') and message.assigned_staff and message.assigned_staff.fcm_token:
@@ -762,9 +780,25 @@ class NotificationManager:
         """Emit normalized guest chat unread count update event."""
         self.logger.info(f"🔢 Realtime guest chat: unread updated for room {room.room_number}")
         
+        # Get current booking FIRST for booking-scoped conversation_id
+        from hotel.models import RoomBooking
+        current_booking = RoomBooking.objects.filter(
+            assigned_room=room,
+            checked_in_at__isnull=False,
+            checked_out_at__isnull=True,
+            status__in=['CONFIRMED', 'COMPLETED']
+        ).first()
+        
+        if not current_booking:
+            self.logger.warning(
+                f"Guest chat unread update dropped: no active booking for room {room.room_number}"
+            )
+            return False
+        
         payload = {
             'room_number': room.room_number,
-            'conversation_id': f"room-{room.room_number}",
+            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
+            'booking_id': current_booking.booking_id,  # Explicit booking reference
             'unread_count': unread_count or 0,
             'updated_at': timezone.now().isoformat()
         }
@@ -774,10 +808,67 @@ class NotificationManager:
             event_type="unread_updated",
             payload=payload,
             hotel=room.hotel,
-            scope={'room_number': room.room_number}
+            scope={'room_number': room.room_number, 'booking_id': current_booking.booking_id}
         )
         
         hotel_slug = room.hotel.slug
+        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        
+        # Safety check - ensure we only use booking channels
+        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
+        
+        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
+    
+    def realtime_guest_chat_message_deleted(self, message_id, conversation_id, room, deleted_by_staff=None, deleted_by_guest=False):
+        """
+        Emit normalized guest chat message deleted event.
+        
+        Args:
+            message_id: ID of deleted message
+            conversation_id: ID of conversation  
+            room: Room instance
+            deleted_by_staff: Staff instance who deleted (if staff deletion)
+            deleted_by_guest: Boolean if guest deleted their own message
+        """
+        self.logger.info(f"🗑️ Realtime guest chat: message {message_id} deleted from room {room.room_number}")
+        
+        # Determine deleter info
+        if deleted_by_staff:
+            deleter_type = "staff"
+            deleter_name = f"{deleted_by_staff.first_name} {deleted_by_staff.last_name}".strip()
+            deleter_id = deleted_by_staff.id
+        elif deleted_by_guest:
+            deleter_type = "guest" 
+            deleter_name = "Guest"
+            deleter_id = None
+        else:
+            deleter_type = "system"
+            deleter_name = "System"
+            deleter_id = None
+        
+        payload = {
+            'message_id': message_id,
+            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
+            'booking_id': current_booking.booking_id,  # Explicit booking reference
+            'room_conversation_id': conversation_id,  # Legacy reference
+            'room_number': room.room_number,
+            'deleted_by': deleter_type,
+            'deleter_name': deleter_name,
+            'deleter_id': deleter_id,
+            'deleted_at': timezone.now().isoformat()
+        }
+        
+        event_data = self._create_normalized_event(
+            category="guest_chat",
+            event_type="message_deleted", 
+            payload=payload,
+            hotel=room.hotel,
+            scope={
+                'room_number': room.room_number,
+                'conversation_id': conversation_id,
+                'message_id': message_id
+            }
+        )
         
         # Get current booking for this room to determine channel
         from hotel.models import RoomBooking
@@ -788,13 +879,93 @@ class NotificationManager:
             status__in=['CONFIRMED', 'COMPLETED']
         ).first()
         
-        if current_booking:
-            channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
-        else:
-            # Fallback to room-based for legacy compatibility
-            channel = f"{hotel_slug}.guest-chat.room-{room.room_number}"
+        if not current_booking:
+            self.logger.warning(
+                f"Guest chat message deletion dropped: no active booking for room {room.room_number}"
+            )
+            return False
         
-        return self._safe_pusher_trigger(channel, "unread_updated", event_data)
+        hotel_slug = room.hotel.slug
+        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        
+        # Safety check - ensure we only use booking channels
+        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
+        
+        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
+        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
+        
+        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
+    
+    def realtime_guest_chat_message_edited(self, message):
+        """
+        Emit normalized guest chat message edited event.
+        
+        Args:
+            message: Edited guest chat message instance
+        """
+        self.logger.info(f"✏️ Realtime guest chat: message {message.id} edited in room {message.room.room_number}")
+        
+        # Get current booking FIRST for booking-scoped conversation_id
+        from hotel.models import RoomBooking
+        current_booking = RoomBooking.objects.filter(
+            assigned_room=message.room,
+            checked_in_at__isnull=False,
+            checked_out_at__isnull=True,
+            status__in=['CONFIRMED', 'COMPLETED']
+        ).first()
+        
+        if not current_booking:
+            self.logger.warning(
+                f"Guest chat message edit dropped: no active booking for room {message.room.room_number}"
+            )
+            return False
+        
+        # Determine editor info
+        if message.sender_type == "staff" and message.staff:
+            editor_type = "staff"
+            editor_name = f"{message.staff.first_name} {message.staff.last_name}".strip()
+            editor_id = message.staff.id
+        else:
+            editor_type = "guest"
+            editor_name = "Guest"
+            editor_id = None
+        
+        payload = {
+            'message_id': message.id,
+            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
+            'booking_id': current_booking.booking_id,  # Explicit booking reference
+            'room_conversation_id': message.conversation.id,  # Legacy reference
+            'room_number': message.room.room_number,
+            'message_text': message.message,
+            'edited_by': editor_type,
+            'editor_name': editor_name,
+            'editor_id': editor_id,
+            'edited_at': message.edited_at.isoformat() if message.edited_at else timezone.now().isoformat(),
+            'is_edited': message.is_edited
+        }
+        
+        event_data = self._create_normalized_event(
+            category="guest_chat",
+            event_type="message_edited", 
+            payload=payload,
+            hotel=message.room.hotel,
+            scope={
+                'room_number': message.room.room_number,
+                'conversation_id': current_booking.booking_id,
+                'message_id': message.id
+            }
+        )
+        
+        hotel_slug = message.room.hotel.slug
+        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        
+        # Safety check - ensure we only use booking channels
+        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
+        
+        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
+        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
+        
+        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
     
     def realtime_staff_chat_unread_updated(self, staff, conversation=None, unread_count=None):
         """Emit normalized staff chat unread count update event."""
@@ -1785,93 +1956,30 @@ class NotificationManager:
     
     def notify_staff_new_guest_message(self, message, assigned_staff_list):
         """
-        Notify assigned staff about new guest message.
-        Used when guest sends message to hotel staff.
+        LEGACY/DEPRECATED: This method is no longer used.
+        Guest chat now uses only booking-scoped channels via realtime_guest_chat_message_created().
+        
+        This method creates duplicate notifications and bypasses normalized events.
+        Staff should listen to booking channels instead of individual staff channels.
         
         Args:
             message: ChatMessage instance
             assigned_staff_list: List of Staff instances assigned to the room
         """
-        self.logger.info(f"💬 Notifying staff of guest message #{message.id}")
-        
-        results = {'fcm_sent': 0, 'fcm_failed': 0, 'pusher_sent': 0}
-        
-        message_data = {
-            'id': message.id,
-            'room_number': message.room.room_number,
-            'sender': 'guest',
-            'content': message.content[:100],  # Preview
-            'timestamp': message.timestamp.isoformat(),
-            'conversation_id': message.conversation_id
-        }
-        
-        for staff in assigned_staff_list:
-            # FCM notification
-            if staff.fcm_token:
-                title = f"💬 New Message - Room {message.room.room_number}"
-                body = message.content[:100]
-                data = {
-                    'type': 'guest_message',
-                    'message_id': str(message.id),
-                    'room_number': str(message.room.room_number),
-                    'conversation_id': str(message.conversation_id),
-                    'click_action': 'FLUTTER_NOTIFICATION_CLICK',
-                    'route': '/chat/room'
-                }
-                
-                fcm_success = send_fcm_notification(staff.fcm_token, title, body, data)
-                if fcm_success:
-                    results['fcm_sent'] += 1
-                else:
-                    results['fcm_failed'] += 1
-            
-            # Pusher notification
-            staff_channel = f"{message.room.hotel.slug}-staff-{staff.id}"
-            try:
-                pusher_client.trigger(staff_channel, "new_guest_message", message_data)
-                results['pusher_sent'] += 1
-                self.logger.info(f"✅ Pusher sent to staff {staff.id}")
-            except Exception as e:
-                self.logger.error(f"❌ Pusher failed for staff {staff.id}: {e}")
-        
-        return results
+        self.logger.warning(f"🚨 DEPRECATED: notify_staff_new_guest_message called for message #{message.id} - use realtime_guest_chat_message_created instead")
+        return {'fcm_sent': 0, 'fcm_failed': 0, 'pusher_sent': 0}  # Return empty results without doing anything
+
     
     def notify_guest_staff_reply(self, message):
-        """Notify guest about staff reply to their message."""
-        self.logger.info(f"💬 Notifying guest of staff reply #{message.id}")
+        """
+        LEGACY/DEPRECATED: This method is no longer used.
+        Staff replies now go through realtime_guest_chat_message_created() using booking channels.
         
-        results = {'fcm_sent': False, 'pusher_sent': False}
-        
-        # FCM to guest (if they have token)
-        if message.room.guest_fcm_token:
-            title = f"💬 Staff Reply - Room {message.room.room_number}"
-            body = message.content[:100]
-            data = {
-                'type': 'staff_reply',
-                'message_id': str(message.id),
-                'room_number': str(message.room.room_number),
-                'staff_name': f"{message.sender_staff.first_name} {message.sender_staff.last_name}",
-                'click_action': 'FLUTTER_NOTIFICATION_CLICK'
-            }
-            results['fcm_sent'] = send_fcm_notification(message.room.guest_fcm_token, title, body, data)
-        
-        # Pusher to guest room channel
-        guest_channel = f"{message.room.hotel.slug}-room-{message.room.room_number}"
-        message_data = {
-            'id': message.id,
-            'content': message.content,
-            'sender_staff_name': f"{message.sender_staff.first_name} {message.sender_staff.last_name}",
-            'timestamp': message.timestamp.isoformat()
-        }
-        
-        try:
-            pusher_client.trigger(guest_channel, "staff_reply", message_data)
-            results['pusher_sent'] = True
-            self.logger.info(f"✅ Guest notification sent to room {message.room.room_number}")
-        except Exception as e:
-            self.logger.error(f"❌ Guest notification failed: {e}")
-        
-        return results
+        This method creates duplicate messages and breaks room-change safety.
+        """
+        self.logger.warning(f"🚨 DEPRECATED: notify_guest_staff_reply called for message #{message.id} - use realtime_guest_chat_message_created instead")
+        return {'fcm_sent': False, 'pusher_sent': False}  # Return empty results without doing anything
+
     
     # =============================================================================
     # ATTENDANCE NOTIFICATIONS
@@ -2204,12 +2312,18 @@ def notify_porters_of_breakfast_order(order):
     return _notification_manager.notify_porters_breakfast_order(order)
 
 def notify_staff_new_message(message, staff_list):
-    """Backward compatibility function."""
-    return _notification_manager.notify_staff_new_guest_message(message, staff_list)
+    """DEPRECATED: Backward compatibility function - use realtime_guest_chat_message_created instead."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("🚨 DEPRECATED: notify_staff_new_message called - use realtime_guest_chat_message_created instead")
+    return {'fcm_sent': 0, 'fcm_failed': 0, 'pusher_sent': 0}
 
 def notify_guest_reply(message):
-    """Backward compatibility function."""
-    return _notification_manager.notify_guest_staff_reply(message)
+    """DEPRECATED: Backward compatibility function - use realtime_guest_chat_message_created instead."""
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.warning("🚨 DEPRECATED: notify_guest_reply called - use realtime_guest_chat_message_created instead")
+    return {'fcm_sent': False, 'pusher_sent': False}
 
 def notify_attendance_change(staff, action):
     """Backward compatibility function."""
