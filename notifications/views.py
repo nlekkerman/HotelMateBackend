@@ -75,6 +75,7 @@ class PusherAuthView(APIView):
             f"{hotel_slug}.rooms", 
             f"{hotel_slug}-staff-",  # Staff-specific channels
             f"attendance-{hotel_slug}-",  # Attendance channels
+            f"private-hotel-{hotel_slug}-guest-chat-booking-",  # Guest booking channels (for chat support)
         ]
         
         if not any(channel_name.startswith(pattern) for pattern in allowed_patterns):
