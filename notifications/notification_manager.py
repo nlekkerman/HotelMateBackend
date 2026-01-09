@@ -752,17 +752,14 @@ class NotificationManager:
         # Guardrail: prevent conversation_id regressions (must be booking-scoped)
         assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
         
-        # Also send FCM if appropriate
-        if sender_role == "guest" and hasattr(message, 'assigned_staff') and message.assigned_staff and message.assigned_staff.fcm_token:
-            # Notify staff of guest message
-            fcm_title = f"💬 New Message - Room {message.room.room_number}"
-            fcm_body = message.message[:100]
-            fcm_data = {
-                "type": "guest_message",
-                "room_number": message.room.room_number,
-                "conversation_id": payload['conversation_id']
-            }
-            send_fcm_notification(message.assigned_staff.fcm_token, fcm_title, fcm_body, fcm_data)
+        # Send staff notifications when guest sends a message
+        if sender_role == "guest":
+            # Send Pusher notifications to front office staff
+            # All staff get notified, assignment happens when staff clicks in frontend
+            self.logger.info(f"🔔 ATTEMPTING to notify staff of guest message {message.id}")
+            staff_assigned = self._notify_front_office_staff_of_guest_message(message, payload, hotel_slug)
+            self.logger.info(f"🔔 Staff notification result: {staff_assigned} staff notified")
+            
         elif sender_role == "staff" and message.room.guest_fcm_token:
             # Notify guest of staff reply
             fcm_title = f"Reply from {sender_name}"
@@ -1404,6 +1401,72 @@ class NotificationManager:
     def _room_booking_channel(self, hotel_slug):
         """Helper method to generate room booking channel name."""
         return f"{hotel_slug}.room-bookings"
+
+    def _notify_front_office_staff_of_guest_message(self, message, payload, hotel_slug):
+        """
+        Send Pusher notifications to front office staff when a guest sends a message.
+        
+        Uses the existing staff channel pattern that's already working in the system.
+        
+        Args:
+            message: RoomMessage instance from guest
+            payload: Message payload data
+            hotel_slug: Hotel slug for channel routing
+            
+        Returns:
+            int: Number of staff notified
+        """
+        from staff.models import Staff
+        
+        # Target staff: Reception first, then front office department as fallback
+        reception_staff = Staff.objects.filter(
+            hotel=message.room.hotel,
+            role__slug="receptionist",
+            is_active=True,
+            is_on_duty=True
+        )
+        
+        if reception_staff.exists():
+            target_staff = reception_staff
+            self.logger.info(f"👥 Targeting reception staff for guest message: {reception_staff.count()} staff")
+        else:
+            # Fallback to front office department
+            target_staff = Staff.objects.filter(
+                hotel=message.room.hotel,
+                department__slug="front-office",
+                is_active=True,
+                is_on_duty=True
+            )
+            self.logger.info(f"👥 Targeting front-office staff for guest message: {target_staff.count()} staff")
+        
+        # Create staff notification payload
+        staff_notification_data = {
+            "type": "guest_message",
+            "message_id": payload['id'],
+            "conversation_id": payload['conversation_id'],
+            "booking_id": payload['booking_id'],
+            "room_number": payload['room_number'],
+            "guest_message": payload['message'][:100],  # Truncated for notification
+            "sender_name": "Guest",
+            "timestamp": payload['timestamp']
+        }
+        
+        # Send Pusher notifications to each staff member using existing channel pattern
+        notified_count = 0
+        for staff in target_staff:
+            # Use the existing staff notification channel pattern from the system
+            staff_channel = f"{hotel_slug}-staff-{staff.id}-guest-chat"
+            
+            try:
+                pusher_client.trigger(staff_channel, "new-guest-message", staff_notification_data)
+                self.logger.info(f"✅ Staff {staff.id} notified of guest message via Pusher: {staff_channel}")
+                notified_count += 1
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Failed to notify staff {staff.id} of guest message: {e}")
+        
+        self.logger.info(f"📢 Guest message broadcast complete: {notified_count}/{target_staff.count()} staff notified")
+        return notified_count
 
     # -------------------------------------------------------------------------
     # PHASE 2: NEW BOOKING REALTIME METHODS

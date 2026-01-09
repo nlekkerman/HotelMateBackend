@@ -247,11 +247,8 @@ def send_conversation_message(request, hotel_slug, conversation_id):
         print(f"📬 Using NotificationManager for guest message to {target_staff.count()} staff members")
         
         # Use NotificationManager for unified guest chat event
+        # No staff assignment here - assignment happens when staff clicks on conversation
         try:
-            # Set assigned_staff for FCM notification targeting
-            if target_staff.exists():
-                message.assigned_staff = target_staff.first()  # Use first staff for FCM
-            
             notification_manager.realtime_guest_chat_message_created(message)
             print(f"✅ NotificationManager sent guest chat event for message {message.id}")
             logger.info(f"NotificationManager triggered realtime_guest_chat_message_created: message_id={message.id}")
@@ -766,6 +763,27 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
             f"Staff assignment complete: {staff} assigned to conversation {conversation_id}. "
             f"Guest will be notified via booking channel when staff responds."
         )
+        
+        # Send FCM notification to the assigned staff about their new assignment
+        if staff.fcm_token and message_ids:  # Only if staff has FCM and there are unread messages
+            from notifications.fcm_service import send_fcm_notification
+            
+            unread_count = len(message_ids)
+            fcm_title = f"💬 Assigned to Guest Chat - Room {room.room_number}"
+            fcm_body = f"You have {unread_count} unread message{'s' if unread_count != 1 else ''} to handle"
+            fcm_data = {
+                "type": "staff_assignment",
+                "room_number": room.room_number,
+                "conversation_id": conversation_id,
+                "unread_count": unread_count
+            }
+            
+            fcm_success = send_fcm_notification(staff.fcm_token, fcm_title, fcm_body, fcm_data)
+            if fcm_success:
+                logger.info(f"📱 Assignment FCM sent to staff {staff.id}")
+            else:
+                logger.warning(f"📱 Assignment FCM failed for staff {staff.id}")
+                
     else:
         logger.info(
             f"Staff {staff} already assigned to conversation "
