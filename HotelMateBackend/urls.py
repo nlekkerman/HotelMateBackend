@@ -58,6 +58,8 @@ urlpatterns = [
     path('api/public/', include('public_urls')),
     # Chat endpoints - Direct access (legacy compatibility)
     path('api/chat/', include('chat.urls')),
+    # Room services endpoints - Direct access
+    path('api/room_services/', include('room_services.urls')),
     # Global Pusher auth endpoint alias for guest access
     path('api/notifications/', include('notifications.urls')),
 ]
