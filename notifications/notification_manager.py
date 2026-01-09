@@ -760,6 +760,15 @@ class NotificationManager:
             staff_assigned = self._notify_front_office_staff_of_guest_message(message, payload, hotel_slug)
             self.logger.info(f"🔔 Staff notification result: {staff_assigned} staff notified")
             
+            # CRITICAL: Also send message to staff conversation channel so staff see it in their chat
+            conversation_channel = f"{hotel_slug}-conversation-{message.conversation.id}-chat"
+            try:
+                # Send the same event data to the conversation channel for staff chat interface
+                pusher_client.trigger(conversation_channel, "realtime_event", event_data)
+                self.logger.info(f"✅ Guest message sent to staff conversation channel: {conversation_channel}")
+            except Exception as e:
+                self.logger.error(f"❌ Failed to send guest message to staff conversation channel: {e}")
+            
         elif sender_role == "staff" and message.room.guest_fcm_token:
             # Notify guest of staff reply
             fcm_title = f"Reply from {sender_name}"
@@ -1418,12 +1427,11 @@ class NotificationManager:
         """
         from staff.models import Staff
         
-        # Target staff: Reception first, then front office department as fallback
+        # Target staff: Reception first, then front office department, then any active staff
         reception_staff = Staff.objects.filter(
             hotel=message.room.hotel,
             role__slug="receptionist",
-            is_active=True,
-            is_on_duty=True
+            is_active=True
         )
         
         if reception_staff.exists():
@@ -1431,13 +1439,23 @@ class NotificationManager:
             self.logger.info(f"👥 Targeting reception staff for guest message: {reception_staff.count()} staff")
         else:
             # Fallback to front office department
-            target_staff = Staff.objects.filter(
+            front_office_staff = Staff.objects.filter(
                 hotel=message.room.hotel,
                 department__slug="front-office",
-                is_active=True,
-                is_on_duty=True
+                is_active=True
             )
-            self.logger.info(f"👥 Targeting front-office staff for guest message: {target_staff.count()} staff")
+            
+            if front_office_staff.exists():
+                target_staff = front_office_staff
+                self.logger.info(f"👥 Targeting front-office staff for guest message: {front_office_staff.count()} staff")
+            else:
+                # Final fallback: any active staff
+                any_staff = Staff.objects.filter(
+                    hotel=message.room.hotel,
+                    is_active=True
+                )
+                target_staff = any_staff
+                self.logger.info(f"👥 No specific role/department staff found. Targeting any active staff: {any_staff.count()} staff")
         
         # Create staff notification payload
         staff_notification_data = {
@@ -1454,8 +1472,8 @@ class NotificationManager:
         # Send Pusher notifications to each staff member using existing channel pattern
         notified_count = 0
         for staff in target_staff:
-            # Use the existing staff notification channel pattern from the system
-            staff_channel = f"{hotel_slug}-staff-{staff.id}-guest-chat"
+            # Use the existing staff notifications channel pattern (same as unread counts)
+            staff_channel = f"{hotel_slug}.staff-{staff.id}-notifications"
             
             try:
                 pusher_client.trigger(staff_channel, "new-guest-message", staff_notification_data)
