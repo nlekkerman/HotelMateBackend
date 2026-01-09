@@ -1461,8 +1461,8 @@ class NotificationManager:
         staff_notification_data = {
             "type": "guest_message",
             "message_id": payload['id'],
-            "conversation_id": payload['conversation_id'],
-            "booking_id": payload['booking_id'],
+            "conversation_id": message.conversation.id,  # Use actual numeric conversation ID
+            "booking_id": payload['booking_id'],  # Keep booking ID for reference
             "room_number": payload['room_number'],
             "guest_message": payload['message'][:100],  # Truncated for notification
             "sender_name": "Guest",
