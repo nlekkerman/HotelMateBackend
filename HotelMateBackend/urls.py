@@ -56,6 +56,8 @@ urlpatterns = [
     path('api/guest/', include('guest_urls')),
     # Public zone - No auth required (landing page, hotel discovery)
     path('api/public/', include('public_urls')),
+    # Admin hotel management endpoints (superuser only)
+    path('api/hotel/', include('hotel.urls')),
     # Chat endpoints - Direct access (legacy compatibility)
     path('api/chat/', include('chat.urls')),
     # Room services endpoints - Direct access

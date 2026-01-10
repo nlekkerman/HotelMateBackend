@@ -37,10 +37,20 @@ class HotelSerializer(serializers.ModelSerializer):
     """Standard Hotel serializer for admin/internal use"""
     class Meta:
         model = Hotel
-        fields = ['id', 'name', 'slug', 'subdomain', 'logo']
+        fields = [
+            'id', 'name', 'slug', 'subdomain', 'logo',
+            'is_active', 'sort_order', 'city', 'country',
+            'short_description', 'tagline', 'hero_image', 
+            'landing_page_image', 'long_description',
+            'address_line_1', 'address_line_2', 'postal_code',
+            'phone', 'email', 'website', 'latitude', 'longitude',
+            'created_at', 'updated_at'
+        ]
         extra_kwargs = {
-            'slug': {'required': True}
+            'slug': {'required': True},
+            'subdomain': {'required': True}
         }
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class HotelPublicPageSerializer(serializers.ModelSerializer):
