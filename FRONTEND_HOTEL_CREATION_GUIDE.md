@@ -42,7 +42,7 @@ Authorization: Bearer {token}
   "postal_code": "D01 F5P2",
   "phone": "+353 1 234 5678",
   "email": "info@grandhoteldublin.com",
-  "website": "https://grandhoteldublin.com",
+  "website_url": "https://grandhoteldublin.com",
   "is_active": true,
   "sort_order": 0
 }
@@ -117,7 +117,7 @@ const HotelCreationForm = () => {
     postal_code: '',
     phone: '',
     email: '',
-    website: '',
+    website_url: '',
     is_active: true,
     sort_order: 0
   });
@@ -290,8 +290,8 @@ const HotelCreationForm = () => {
             <label>Website</label>
             <input
               type="url"
-              value={formData.website}
-              onChange={(e) => setFormData(prev => ({...prev, website: e.target.value}))}
+              value={formData.website_url}
+              onChange={(e) => setFormData(prev => ({...prev, website_url: e.target.value}))}
               placeholder="https://example.com"
             />
           </div>
@@ -541,8 +541,8 @@ const validateHotelData = (data) => {
     errors.email = 'Please enter a valid email address';
   }
 
-  if (data.website && !/^https?:\/\/.+/.test(data.website)) {
-    errors.website = 'Website must be a valid URL starting with http:// or https://';
+  if (data.website_url && !/^https?:\/\/.+/.test(data.website_url)) {
+    errors.website_url = 'Website must be a valid URL starting with http:// or https://';
   }
 
   if (data.phone && !/^[\+]?[0-9\s\-\(\)]+$/.test(data.phone)) {

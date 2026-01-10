@@ -43,14 +43,14 @@ class HotelSerializer(serializers.ModelSerializer):
             'short_description', 'tagline', 'hero_image', 
             'landing_page_image', 'long_description',
             'address_line_1', 'address_line_2', 'postal_code',
-            'phone', 'email', 'website', 'latitude', 'longitude',
-            'created_at', 'updated_at'
+            'phone', 'email', 'website_url', 'booking_url',
+            'latitude', 'longitude', 'tags', 'hotel_type',
+            'default_cancellation_policy'
         ]
         extra_kwargs = {
             'slug': {'required': True},
             'subdomain': {'required': True}
         }
-        read_only_fields = ['id', 'created_at', 'updated_at']
 
 
 class HotelPublicPageSerializer(serializers.ModelSerializer):

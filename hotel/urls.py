@@ -2,7 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
 # Base/Admin views
-from .views import (
+from .base_views import (
     HotelViewSet,
     HotelBySlugView,
 )
