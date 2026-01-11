@@ -90,50 +90,50 @@ urlpatterns = [
         name='staff-restaurant-list-create'
     ),
     path(
-        'restaurants/<str:restaurant_slug>/',
+        'restaurants/<str:slug>/',
         restaurant_detail,
         name='staff-restaurant-detail'
     ),
     
     # Blueprint management
     path(
-        'blueprint/<str:restaurant_slug>/',
+        'blueprint/<str:slug>/',
         blueprint_list,
         name='staff-blueprint-list'
     ),
     path(
-        'blueprint/<str:restaurant_slug>/<int:pk>/',
+        'blueprint/<str:slug>/<int:pk>/',
         blueprint_detail,
         name='staff-blueprint-detail'
     ),
 
     # Dining table management
     path(
-        'tables/<str:restaurant_slug>/',
+        'tables/<str:slug>/',
         dining_table_list,
         name='staff-dining-table-list'
     ),
     path(
-        'tables/<str:restaurant_slug>/<int:id>/',
+        'tables/<str:slug>/<int:id>/',
         dining_table_detail,
         name='staff-dining-table-detail'
     ),
     
     # Blueprint objects management
     path(
-        'blueprint/<str:restaurant_slug>/<int:blueprint_id>/objects/',
+        'blueprint/<str:slug>/<int:blueprint_id>/objects/',
         blueprint_objects,
         name='staff-blueprint-objects-list'
     ),
     path(
-        'blueprint/<str:restaurant_slug>/<int:blueprint_id>/objects/<int:pk>/',
+        'blueprint/<str:slug>/<int:blueprint_id>/objects/<int:pk>/',
         blueprint_object_detail,
         name='staff-blueprint-object-detail'
     ),
     
     # Staff action endpoints
     path(
-        'available-tables/<str:restaurant_slug>/',
+        'available-tables/<str:slug>/',
         AvailableTablesView.as_view(),
         name='staff-available-tables'
     ),
@@ -143,17 +143,17 @@ urlpatterns = [
         name='staff-mark-bookings-seen'
     ),
     path(
-        'assign/<str:restaurant_slug>/',
+        'assign/<str:slug>/',
         AssignGuestToTableAPIView.as_view(),
         name='staff-assign-guest-to-table'
     ),
     path(
-        'unseat/<str:restaurant_slug>/',
+        'unseat/<str:slug>/',
         UnseatBookingAPIView.as_view(),
         name='staff-unseat-guest-from-table'
     ),
     path(
-        'delete/<str:restaurant_slug>/<int:booking_id>/',
+        'delete/<str:slug>/<int:booking_id>/',
         DeleteBookingAPIView.as_view(),
         name='staff-delete-booking'
     ),
