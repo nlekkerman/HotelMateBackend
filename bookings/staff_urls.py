@@ -28,6 +28,8 @@ router.register(
     BlueprintObjectTypeViewSet,
     basename='blueprint-object-type'
 )
+# Register restaurant viewset properly
+router.register(r'restaurants', RestaurantViewSet, basename='restaurant')
 
 # Staff management views with hotel_slug parameter
 restaurant_list_create = RestaurantViewSet.as_view({
