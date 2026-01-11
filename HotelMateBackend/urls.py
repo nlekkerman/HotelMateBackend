@@ -62,6 +62,8 @@ urlpatterns = [
     path('api/chat/', include('chat.urls')),
     # Room services endpoints - Direct access
     path('api/room_services/', include('room_services.urls')),
+    # Booking management endpoints - Restaurant bookings
+    path('api/bookings/', include('bookings.urls')),
     # Global Pusher auth endpoint alias for guest access
     path('api/notifications/', include('notifications.urls')),
 ]
