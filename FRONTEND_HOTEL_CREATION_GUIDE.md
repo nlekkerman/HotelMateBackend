@@ -510,6 +510,26 @@ const createDefaultRoomTypes = async (hotelSlug, token) => {
 ```javascript
 // Navigation items are automatically created via Django signals
 // See: hotel/models.py @receiver(post_save, sender=Hotel)
+// 
+// The following navigation items are created automatically:
+// ✅ ACTIVE BY DEFAULT:
+// - Home (Dashboard)
+// - Rooms (Room management)
+// - Bookings (Booking management)
+// - Chat (Staff messaging)
+// - Stock Tracker (Inventory)
+// - Housekeeping (Room cleaning)
+// - Attendance (Staff scheduling)
+// - Staff Management (Staff profiles)
+// - Admin Settings (Configuration)
+//
+// 🔒 INACTIVE BY DEFAULT (can be enabled as needed):
+// - Room Services (In-room requests)
+// - Maintenance (Repairs)
+// - Entertainment (Activities)
+// - Hotel Info (Guest information)
+//
+// Super Staff Admins can enable/disable navigation items per hotel
 ```
 
 ## ✅ Validation Rules
