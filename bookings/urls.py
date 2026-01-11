@@ -15,7 +15,6 @@ from .views import (
     UnseatBookingAPIView,
     mark_bookings_seen
 )
-from .booking_views import BookingDetailView
 
 # Register viewsets to the router
 router = DefaultRouter()
