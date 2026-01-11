@@ -85,17 +85,17 @@ urlpatterns = [
     # Include router-generated URLs for staff operations
     path('', include(router.urls)),
     
-    # Restaurant management
-    path(
-        'restaurants/',
-        restaurant_list_create,
-        name='staff-restaurant-list-create'
-    ),
-    path(
-        'restaurants/<str:slug>/',
-        restaurant_detail,
-        name='staff-restaurant-detail'
-    ),
+    # Restaurant management - handled by router now
+    # path(
+    #     'restaurants/',
+    #     restaurant_list_create,
+    #     name='staff-restaurant-list-create'
+    # ),
+    # path(
+    #     'restaurants/<str:slug>/',
+    #     restaurant_detail,
+    #     name='staff-restaurant-detail'
+    # ),
     
     # Blueprint management
     path(
