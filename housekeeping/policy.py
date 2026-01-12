@@ -16,7 +16,15 @@ def is_manager(staff):
     Returns:
         bool: True if staff has manager privileges
     """
-    if not staff or not staff.access_level:
+    if not staff:
+        return False
+    
+    # Check Django superuser status
+    if hasattr(staff, 'user') and staff.user and staff.user.is_superuser:
+        return True
+    
+    # Check staff access level
+    if not staff.access_level:
         return False
     
     return staff.access_level in ['staff_admin', 'super_staff_admin']

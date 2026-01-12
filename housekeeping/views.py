@@ -314,6 +314,85 @@ class RoomStatusViewSet(viewsets.ViewSet):
         
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+    @action(detail=True, methods=['post'])
+    def manager_override(self, request, hotel_slug=None, room_id=None):
+        """
+        POST /api/staff/hotel/{hotel_slug}/housekeeping/rooms/{room_id}/manager_override/
+        
+        Manager override to change room status bypassing normal restrictions.
+        """
+        staff = request.user.staff_profile
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        
+        # Validate staff belongs to hotel
+        if staff.hotel_id != hotel.id:
+            return Response(
+                {'error': 'Access denied to this hotel'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if user is manager or superuser
+        from .policy import is_manager
+        if not (is_manager(staff) or request.user.is_superuser):
+            return Response(
+                {'error': 'Manager privileges or superuser status required for override'}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Get room
+        room = get_object_or_404(Room, id=room_id, hotel=hotel)
+        
+        # Get parameters
+        to_status = request.data.get('to_status')
+        note = request.data.get('note', 'Manager override')
+        
+        if not to_status:
+            return Response(
+                {'error': 'to_status is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Validate status exists
+        from rooms.models import Room
+        valid_statuses = dict(Room.ROOM_STATUS_CHOICES)
+        if to_status not in valid_statuses:
+            return Response(
+                {'error': f'Invalid status: {to_status}'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Use manager override to bypass normal restrictions
+            updated_room = set_room_status(
+                room=room,
+                to_status=to_status,
+                staff=staff,
+                source="MANAGER_OVERRIDE",
+                note=note
+            )
+            
+            # Get latest status event for response
+            latest_event = RoomStatusEvent.objects.filter(room=room).first()
+            
+            return Response({
+                'message': f'Manager override: Room {room.room_number} status changed to {updated_room.room_status}',
+                'room': {
+                    'id': updated_room.id,
+                    'room_number': updated_room.room_number,
+                    'room_status': updated_room.room_status,
+                    'last_cleaned_at': updated_room.last_cleaned_at,
+                    'last_inspected_at': updated_room.last_inspected_at,
+                    'maintenance_required': updated_room.maintenance_required,
+                },
+                'status_event': RoomStatusEventSerializer(latest_event).data if latest_event else None
+            })
+        
+        except DjangoValidationError as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
     def status_history(self, request, hotel_slug=None, room_id=None):
         """
         GET /api/staff/hotel/{hotel_slug}/rooms/{room_id}/status-history/

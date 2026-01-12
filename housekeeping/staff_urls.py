@@ -33,6 +33,10 @@ urlpatterns = [
          RoomStatusViewSet.as_view({'post': 'update_status'}), 
          name='room-status-update'),
     
+    path('rooms/<int:room_id>/manager_override/', 
+         RoomStatusViewSet.as_view({'post': 'manager_override'}), 
+         name='room-status-manager-override'),
+    
     path('rooms/<int:room_id>/status-history/', 
          RoomStatusViewSet.as_view({'get': 'status_history'}), 
          name='room-status-history'),
@@ -46,4 +50,5 @@ urlpatterns = [
 # /api/staff/hotel/{hotel_slug}/housekeeping/tasks/{id}/start/
 # /api/staff/hotel/{hotel_slug}/housekeeping/tasks/{id}/complete/
 # /api/staff/hotel/{hotel_slug}/housekeeping/rooms/{room_id}/status/
+# /api/staff/hotel/{hotel_slug}/housekeeping/rooms/{room_id}/manager_override/
 # /api/staff/hotel/{hotel_slug}/housekeeping/rooms/{room_id}/status-history/
