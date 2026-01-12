@@ -130,7 +130,7 @@ class Room(models.Model):
             'CLEANING_IN_PROGRESS': ['CLEANED_UNINSPECTED', 'CHECKOUT_DIRTY', 'MAINTENANCE_REQUIRED'],
             'CLEANED_UNINSPECTED': ['READY_FOR_GUEST', 'CHECKOUT_DIRTY', 'MAINTENANCE_REQUIRED'],
             'MAINTENANCE_REQUIRED': ['CHECKOUT_DIRTY', 'OUT_OF_ORDER'],
-            'OUT_OF_ORDER': ['CHECKOUT_DIRTY'],
+            'OUT_OF_ORDER': ['CHECKOUT_DIRTY', 'READY_FOR_GUEST'],  # Allow direct transition to READY_FOR_GUEST
             'READY_FOR_GUEST': ['OCCUPIED', 'MAINTENANCE_REQUIRED', 'OUT_OF_ORDER'],
         }
         return new_status in valid_transitions.get(self.room_status, [])
