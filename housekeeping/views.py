@@ -353,7 +353,6 @@ class RoomStatusViewSet(viewsets.ViewSet):
             )
         
         # Validate status exists
-        from rooms.models import Room
         valid_statuses = dict(Room.ROOM_STATUS_CHOICES)
         if to_status not in valid_statuses:
             return Response(
