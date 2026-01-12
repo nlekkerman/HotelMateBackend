@@ -111,11 +111,41 @@ def set_room_status(*, room, to_status, staff=None, source="HOUSEKEEPING", note=
         fields_to_update.extend(['last_cleaned_at', 'cleaned_by_staff'])
     
     elif to_status == 'READY_FOR_GUEST':
-        # Mark as inspected (treating READY_FOR_GUEST as inspected)
+        # Mark as inspected and ready for guest
         room.last_inspected_at = now
         if staff:
             room.inspected_by_staff = staff
-        fields_to_update.extend(['last_inspected_at', 'inspected_by_staff'])
+        
+        # Clear all maintenance flags - ready rooms cannot have maintenance issues
+        room.maintenance_required = False
+        room.maintenance_priority = None
+        room.maintenance_notes = ''
+        
+        # Ensure room is active and not out of order
+        room.is_active = True
+        room.is_out_of_order = False
+        
+        # Clear occupancy if no active bookings
+        if hasattr(room, 'is_occupied'):
+            # Check for active bookings with check-in
+            active_bookings = room.room_bookings.filter(
+                checked_in_at__isnull=False,
+                checked_out_at__isnull=True
+            ).exists()
+            
+            if not active_bookings:
+                room.is_occupied = False
+        
+        fields_to_update.extend([
+            'last_inspected_at', 
+            'inspected_by_staff',
+            'maintenance_required',
+            'maintenance_priority', 
+            'maintenance_notes',
+            'is_active',
+            'is_out_of_order',
+            'is_occupied'
+        ])
     
     elif to_status == 'MAINTENANCE_REQUIRED':
         # Flag for maintenance
@@ -137,20 +167,6 @@ def set_room_status(*, room, to_status, staff=None, source="HOUSEKEEPING", note=
             else:
                 room.maintenance_notes = new_note
             fields_to_update.append('maintenance_notes')
-    
-    elif to_status in ['READY_FOR_GUEST']:
-        # These statuses indicate room is not occupied
-        # Only set is_occupied=False if there's no active booking checked in
-        if hasattr(room, 'is_occupied'):
-            # Check for active bookings with check-in
-            active_bookings = room.room_bookings.filter(
-                checked_in_at__isnull=False,
-                checked_out_at__isnull=True
-            ).exists()
-            
-            if not active_bookings:
-                room.is_occupied = False
-                fields_to_update.append('is_occupied')
     
     # Save only the fields we've modified
     room.save(update_fields=fields_to_update)
