@@ -184,7 +184,8 @@ class RoomMoveService:
         from_room.guest_fcm_token = None
         from_room.save(update_fields=['is_occupied', 'guest_fcm_token'])
         
-        try:\n            set_room_status(
+        try:
+            set_room_status(
                 room=from_room,
                 to_status='CHECKOUT_DIRTY',
                 staff=staff_user,
@@ -193,7 +194,7 @@ class RoomMoveService:
             )
         except Exception as e:
             # Critical error - room move should not continue
-            logger.error(f\"Failed to update from_room {from_room.room_number} status during move: {e}\")
+            logger.error(f"Failed to update from_room {from_room.room_number} status during move: {e}")
             raise
         
         # Update to_room using canonical service
@@ -211,7 +212,7 @@ class RoomMoveService:
             )
         except Exception as e:
             # Critical error - room move should not continue
-            logger.error(f\"Failed to update to_room {to_room.room_number} status during move: {e}\")
+            logger.error(f"Failed to update to_room {to_room.room_number} status during move: {e}")
             raise
         
         # Clean up room data from from_room (reuse existing cleanup)
