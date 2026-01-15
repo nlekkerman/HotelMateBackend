@@ -9,6 +9,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
+from django.core.exceptions import ValidationError
 from hotel.models import Hotel
 from guests.models import Guest
 from datetime import timedelta
@@ -204,11 +205,28 @@ def checkout_rooms(request, hotel_slug):
                     room_number=room.room_number
                 ).delete()
                 
-                # Mark room unoccupied
+                # Use canonical housekeeping service for room status
+                from housekeeping.services import set_room_status
+                staff = getattr(request.user, 'staff_profile', None)
+                
+                # Clear occupancy and FCM token manually (not handled by housekeeping service)
                 room.is_occupied = False
-                room.room_status = 'CHECKOUT_DIRTY'
                 room.guest_fcm_token = None
-                room.save()
+                room.save(update_fields=['is_occupied', 'guest_fcm_token'])
+                
+                # Set status through canonical service
+                try:
+                    set_room_status(
+                        room=room,
+                        to_status='CHECKOUT_DIRTY',
+                        staff=staff,
+                        source='SYSTEM',
+                        note='Destructive bulk checkout'
+                    )
+                except ValidationError:
+                    # Continue with bulk operation even if status change fails
+                    room.room_status = 'CHECKOUT_DIRTY'
+                    room.save(update_fields=['room_status'])
                 
                 results["rooms_cleared"].append(room.room_number)
                 
@@ -240,31 +258,31 @@ def checkout_rooms(request, hotel_slug):
                 
                 # If room has no bookings but is marked occupied, clear it
                 if room.is_occupied and not active_bookings.exists():
-                    room.is_occupied = False
-                    room.room_status = 'CHECKOUT_DIRTY'
-                    room.guest_fcm_token = None
+                    # Use canonical housekeeping service
+                    from housekeeping.services import set_room_status
                     
-                    # Add note for rooms cleared without bookings
+                    # Clear occupancy and FCM token manually
+                    room.is_occupied = False
+                    room.guest_fcm_token = None
+                    room.save(update_fields=['is_occupied', 'guest_fcm_token'])
+                    
+                    # Set status through canonical service
                     staff_name = f"{staff_user.first_name} {staff_user.last_name}".strip() or staff_user.email
-                    room.add_turnover_note(
-                        f"Room cleared (no active bookings) at {now().strftime('%Y-%m-%d %H:%M')} by {staff_name}",
-                        staff_user
-                    )
-                    room.save()
+                    try:
+                        set_room_status(
+                            room=room,
+                            to_status='CHECKOUT_DIRTY',
+                            staff=staff_user if hasattr(staff_user, 'staff_profile') else None,
+                            source='SYSTEM',
+                            note=f"Room cleared (no active bookings) at {now().strftime('%Y-%m-%d %H:%M')} by {staff_name}"
+                        )
+                    except ValidationError:
+                        # Continue with bulk operation even if status change fails
+                        room.room_status = 'CHECKOUT_DIRTY'
+                        room.save(update_fields=['room_status'])
                     results["rooms_cleared"].append(room.room_number)
             
-            # Real-time notification for room status change
-            
-            pusher_client.trigger(
-                f'hotel-{hotel_slug}',
-                'room-status-changed',
-                {
-                    'room_number': room.room_number,
-                    'old_status': 'OCCUPIED',
-                    'new_status': 'CHECKOUT_DIRTY',
-                    'timestamp': now().isoformat()
-                }
-            )
+            # Real-time notification handled by canonical service
     
     return Response({
         "detail": f"Processed {rooms.count()} room(s) in hotel '{hotel_slug}'",
@@ -307,17 +325,30 @@ def start_cleaning(request, hotel_slug, room_number):
         )
     
     old_status = room.room_status
-    room.room_status = 'CLEANING_IN_PROGRESS'
-    room.add_turnover_note("Cleaning started", request.user.staff_profile)
-    room.save()
     
-    # Real-time notification
-    pusher_client.trigger(
-        f'hotel-{hotel_slug}',
-        'room-status-changed',
-        {
-            'room_number': room.room_number,
-            'old_status': old_status,
+    # Use canonical housekeeping service
+    from housekeeping.services import set_room_status
+    staff = getattr(request.user, 'staff_profile', None)
+    
+    try:
+        set_room_status(
+            room=room,
+            to_status='CLEANING_IN_PROGRESS',
+            staff=staff,
+            source='HOUSEKEEPING',
+            note='Cleaning started'
+        )
+    except ValidationError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Real-time notification handled by canonical service
+    # pusher_client.trigger removed - service handles via transaction.on_commit
+    return Response({
+        'message': 'Cleaning started',
+        'old_status': old_status,
             'new_status': 'CLEANING_IN_PROGRESS',
             'timestamp': timezone.now().isoformat()
         }
@@ -345,29 +376,34 @@ def mark_cleaned(request, hotel_slug, room_number):
     notes = request.data.get('notes', '')
     old_status = room.room_status
     
-    room.room_status = 'CLEANED_UNINSPECTED'
-    room.last_cleaned_at = timezone.now()
-    room.cleaned_by_staff = request.user.staff_profile
+    # Use canonical housekeeping service
+    from housekeeping.services import set_room_status
+    staff = getattr(request.user, 'staff_profile', None)
     
     note_text = "Room cleaned"
     if notes:
         note_text += f" - {notes}"
-    room.add_turnover_note(note_text, request.user.staff_profile)
-    room.save()
     
-    # Real-time notification
-    pusher_client.trigger(
-        f'hotel-{hotel_slug}',
-        'room-status-changed',
-        {
-            'room_number': room.room_number,
-            'old_status': old_status,
-            'new_status': 'CLEANED_UNINSPECTED',
-            'timestamp': timezone.now().isoformat()
-        }
-    )
+    try:
+        set_room_status(
+            room=room,
+            to_status='CLEANED_UNINSPECTED',
+            staff=staff,
+            source='HOUSEKEEPING',
+            note=note_text
+        )
+    except ValidationError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     
-    return Response({'message': 'Room marked as cleaned'})
+    # Real-time notification handled by canonical service
+    return Response({
+        'message': 'Room marked as cleaned',
+        'old_status': old_status,
+        'new_status': 'CLEANED_UNINSPECTED'
+    })
 
 
 @api_view(['POST'])
@@ -390,19 +426,33 @@ def inspect_room(request, hotel_slug, room_number):
     notes = request.data.get('notes', '')
     old_status = room.room_status
     
-    room.last_inspected_at = timezone.now()
-    room.inspected_by_staff = request.user.staff_profile
+    # Use canonical housekeeping service
+    from housekeeping.services import set_room_status
+    staff = getattr(request.user, 'staff_profile', None)
     
     if passed:
-        room.room_status = 'READY_FOR_GUEST'
+        to_status = 'READY_FOR_GUEST'
         note_text = "Inspection passed - ready for guest"
     else:
-        room.room_status = 'CHECKOUT_DIRTY'
+        to_status = 'CHECKOUT_DIRTY'
         note_text = "Inspection failed - needs re-cleaning"
     
     if notes:
         note_text += f" - {notes}"
-    room.add_turnover_note(note_text, request.user.staff_profile)
+        
+    try:
+        set_room_status(
+            room=room,
+            to_status=to_status,
+            staff=staff,
+            source='HOUSEKEEPING',
+            note=note_text
+        )
+    except ValidationError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     room.save()
     
     # Real-time notification
@@ -450,20 +500,33 @@ def mark_maintenance(request, hotel_slug, room_number):
         )
     
     old_status = room.room_status
-    room.room_status = 'MAINTENANCE_REQUIRED'
-    room.maintenance_required = True
-    room.maintenance_priority = priority
-    room.maintenance_notes = notes
-    room.add_turnover_note(f"Maintenance required ({priority} priority): {notes}", request.user.staff_profile)
-    room.save()
     
-    # Real-time notification
-    pusher_client.trigger(
-        f'hotel-{hotel_slug}',
-        'room-status-changed',
-        {
-            'room_number': room.room_number,
-            'old_status': old_status,
+    # Use canonical housekeeping service
+    from housekeeping.services import set_room_status
+    staff = getattr(request.user, 'staff_profile', None)
+    
+    # Set priority and notes first (service will update these too but this ensures consistency)
+    room.maintenance_priority = priority
+    room.save(update_fields=['maintenance_priority'])
+    
+    try:
+        set_room_status(
+            room=room,
+            to_status='MAINTENANCE_REQUIRED',
+            staff=staff,
+            source='HOUSEKEEPING',
+            note=f"Maintenance required ({priority} priority): {notes}"
+        )
+    except ValidationError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Real-time notification handled by canonical service
+    return Response({
+        'message': 'Maintenance marked',
+        'old_status': old_status,
             'new_status': 'MAINTENANCE_REQUIRED',
             'priority': priority,
             'timestamp': timezone.now().isoformat()
@@ -490,28 +553,39 @@ def complete_maintenance(request, hotel_slug, room_number):
         )
     
     old_status = room.room_status
-    room.maintenance_required = False
-    room.maintenance_priority = None
-    room.maintenance_notes = ''
+    
+    # Use canonical housekeeping service
+    from housekeeping.services import set_room_status
+    staff = getattr(request.user, 'staff_profile', None)
     
     # If room was cleaned and inspected, go to ready, otherwise back to dirty
     if room.last_cleaned_at and room.last_inspected_at:
         # Check if cleaning/inspection happened after last checkout
         # For now, default to ready if both exist
-        room.room_status = 'READY_FOR_GUEST'
+        to_status = 'READY_FOR_GUEST'
+        note_text = "Maintenance completed"
     else:
-        room.room_status = 'CHECKOUT_DIRTY'
+        to_status = 'CHECKOUT_DIRTY'
+        note_text = "Maintenance completed - needs cleaning"
     
-    room.add_turnover_note("Maintenance completed", request.user.staff_profile)
-    room.save()
+    try:
+        set_room_status(
+            room=room,
+            to_status=to_status,
+            staff=staff,
+            source='HOUSEKEEPING',
+            note=note_text
+        )
+    except ValidationError as e:
+        return Response(
+            {'error': str(e)},
+            status=status.HTTP_400_BAD_REQUEST
+        )
     
-    # Real-time notification  
-    pusher_client.trigger(
-        f'hotel-{hotel_slug}',
-        'room-status-changed',
-        {
-            'room_number': room.room_number,
-            'old_status': old_status,
+    # Real-time notification handled by canonical service
+    return Response({
+        'message': 'Maintenance completed',
+        'old_status': old_status,
             'new_status': room.room_status,
             'timestamp': timezone.now().isoformat()
         }

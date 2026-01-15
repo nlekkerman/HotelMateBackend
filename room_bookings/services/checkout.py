@@ -133,11 +133,29 @@ def checkout_booking(
         # 2b️⃣ Revoke guest booking tokens after checkout
         _revoke_guest_tokens(booking, "Booking checked out")
 
-        # 3️⃣ Update room for turnover workflow
+        # 3️⃣ Update room for turnover workflow using canonical service
         room.is_occupied = False
-        room.room_status = "CHECKOUT_DIRTY"
         room.guest_fcm_token = None  # Clear guest FCM token
-        room.save(update_fields=["is_occupied", "room_status", "guest_fcm_token"])
+        room.save(update_fields=["is_occupied", "guest_fcm_token"])
+        
+        # Use canonical housekeeping service for room status
+        from housekeeping.services import set_room_status
+        from django.core.exceptions import ValidationError
+        
+        staff = performed_by if hasattr(performed_by, 'staff_profile') else None
+        
+        try:
+            set_room_status(
+                room=room,
+                to_status="CHECKOUT_DIRTY",
+                staff=staff,
+                source="SYSTEM",
+                note=f"Booking checkout by {getattr(performed_by, 'email', 'System')}"
+            )
+        except ValidationError:
+            # Fallback to direct write if service fails (shouldn't happen)
+            room.room_status = "CHECKOUT_DIRTY" 
+            room.save(update_fields=["room_status"])
 
         # 4️⃣ Add turnover note if room supports it
         if hasattr(room, "add_turnover_note"):
@@ -212,20 +230,10 @@ def _emit_checkout_events(*, booking, room, hotel, source):
     except Exception as e:
         logger.error(f"Failed to emit booking checkout notifications: {e}")
 
+    # Room status change events handled by canonical housekeeping service
+    # No direct pusher call needed - set_room_status() emits via transaction.on_commit
+    
     try:
-        # Room status change event
-        pusher_client.trigger(
-            f"hotel-{hotel.slug}",
-            "room-status-changed",
-            {
-                "room_number": room.room_number,
-                "old_status": "OCCUPIED",
-                "new_status": "CHECKOUT_DIRTY",
-                "source": source,
-                "timestamp": timezone.now().isoformat(),
-            },
-        )
-        
         logger.info(f"Emitted realtime events for checkout: booking {booking.booking_id}, room {room.room_number}")
         
     except Exception as e:

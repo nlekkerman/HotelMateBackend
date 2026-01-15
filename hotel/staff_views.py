@@ -1995,8 +1995,24 @@ class BookingAssignmentView(APIView):
                 
                 # Update room occupancy - Room Turnover Workflow
                 room.is_occupied = True
-                room.room_status = 'OCCUPIED'  # NEW - maintain status consistency
-                room.save()
+                room.save(update_fields=['is_occupied'])
+                
+                # Use canonical housekeeping service for room status
+                from housekeeping.services import set_room_status
+                staff = getattr(request.user, 'staff_profile', None)
+                
+                try:
+                    set_room_status(
+                        room=room,
+                        to_status='OCCUPIED',
+                        staff=staff,
+                        source='FRONT_DESK',
+                        note='Guest checked in'
+                    )
+                except ValidationError:
+                    # Fallback to direct write if service fails
+                    room.room_status = 'OCCUPIED'
+                    room.save(update_fields=['room_status'])
                 
                 # Trigger realtime notifications - ONLY AFTER DB COMMIT
                 transaction.on_commit(
@@ -2577,8 +2593,24 @@ class BookingCheckInView(APIView):
             
             # Update room occupancy - Room Turnover Workflow
             room.is_occupied = True
-            room.room_status = 'OCCUPIED'
-            room.save()
+            room.save(update_fields=['is_occupied'])
+            
+            # Use canonical housekeeping service for room status
+            from housekeeping.services import set_room_status
+            staff = getattr(request.user, 'staff_profile', None)
+            
+            try:
+                set_room_status(
+                    room=room,
+                    to_status='OCCUPIED',
+                    staff=staff,
+                    source='FRONT_DESK',
+                    note='Guest checked in'
+                )
+            except ValidationError:
+                # Fallback to direct write if service fails
+                room.room_status = 'OCCUPIED'
+                room.save(update_fields=['room_status'])
             
             # Trigger realtime notifications - ONLY AFTER DB COMMIT
             transaction.on_commit(
