@@ -1834,17 +1834,7 @@ class BookingAssignmentView(APIView):
             notification_manager.realtime_booking_checked_out(booking, room.room_number)
             notification_manager.realtime_room_occupancy_updated(room)
             
-            # Room status notification
-            pusher_client.trigger(
-                f'hotel-{hotel.slug}',
-                'room-status-changed',
-                {
-                    'room_number': room.room_number,
-                    'old_status': 'OCCUPIED',
-                    'new_status': 'CHECKOUT_DIRTY',
-                    'timestamp': timezone.now().isoformat()
-                }
-            )
+            # Room status notification handled by canonical service
         except Exception as e:
             logger.error(f"Failed to emit checkout realtime events for booking {booking.booking_id}: {e}")
 
@@ -2641,17 +2631,7 @@ class BookingCheckOutView(APIView):
                 room_number=room.room_number
             )
             
-            # Room status notification
-            pusher_client.trigger(
-                f'hotel-{hotel.slug}',
-                'room-status-changed',
-                {
-                    'room_number': room.room_number,
-                    'old_status': 'OCCUPIED',
-                    'new_status': 'CHECKOUT_DIRTY',
-                    'timestamp': timezone.now().isoformat()
-                }
-            )
+            # Room status notification handled by canonical service
         except Exception as e:
             logger.error(f"Failed to emit check-out realtime events for booking {booking.booking_id}: {e}")
     
