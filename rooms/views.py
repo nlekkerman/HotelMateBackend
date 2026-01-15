@@ -453,20 +453,8 @@ def inspect_room(request, hotel_slug, room_number):
             {'error': str(e)},
             status=status.HTTP_400_BAD_REQUEST
         )
-    room.save()
     
-    # Real-time notification
-    pusher_client.trigger(
-        f'hotel-{hotel_slug}',
-        'room-status-changed',
-        {
-            'room_number': room.room_number,
-            'old_status': old_status,
-            'new_status': room.room_status,
-            'timestamp': timezone.now().isoformat()
-        }
-    )
-    
+    # Real-time notification handled by canonical service
     return Response({
         'message': 'Room inspection completed',
         'passed': passed,
