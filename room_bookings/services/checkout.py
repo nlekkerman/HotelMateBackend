@@ -152,10 +152,9 @@ def checkout_booking(
                 source="SYSTEM",
                 note=f"Booking checkout by {getattr(performed_by, 'email', 'System')}"
             )
-        except ValidationError:
-            # Fallback to direct write if service fails (shouldn't happen)
-            room.room_status = "CHECKOUT_DIRTY" 
-            room.save(update_fields=["room_status"])
+        except ValidationError as e:
+            logger.error(f"CRITICAL: Failed to set room status during checkout for room {room.room_number}: {e}")
+            raise ValueError(f"Checkout failed - could not update room status: {e}")
 
         # 4️⃣ Add turnover note if room supports it
         if hasattr(room, "add_turnover_note"):

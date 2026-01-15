@@ -9,6 +9,9 @@ from django.db import transaction, models
 from django.utils import timezone
 from room_bookings.services.room_assignment import RoomAssignmentService
 from room_bookings.exceptions import RoomAssignmentError
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class RoomMoveError(Exception):
@@ -173,16 +176,43 @@ class RoomMoveService:
         
         booking.save()
         
-        # Update from_room (similar to checkout)
-        from_room.is_occupied = False
-        from_room.room_status = 'CHECKOUT_DIRTY'  # Reuse existing status
-        from_room.guest_fcm_token = None
-        from_room.save()
+        # Update from_room using canonical service
+        from housekeeping.services import set_room_status
         
-        # Update to_room
+        # Clear occupancy and FCM token first
+        from_room.is_occupied = False
+        from_room.guest_fcm_token = None
+        from_room.save(update_fields=['is_occupied', 'guest_fcm_token'])
+        
+        try:\n            set_room_status(
+                room=from_room,
+                to_status='CHECKOUT_DIRTY',
+                staff=staff_user,
+                source='SYSTEM',
+                note='Room move - departed from room'
+            )
+        except Exception as e:
+            # Critical error - room move should not continue
+            logger.error(f\"Failed to update from_room {from_room.room_number} status during move: {e}\")
+            raise
+        
+        # Update to_room using canonical service
+        # Set occupancy first
         to_room.is_occupied = True
-        to_room.room_status = 'OCCUPIED'
-        to_room.save()
+        to_room.save(update_fields=['is_occupied'])
+        
+        try:
+            set_room_status(
+                room=to_room,
+                to_status='OCCUPIED',
+                staff=staff_user,
+                source='SYSTEM',
+                note='Room move - guest moved to room'
+            )
+        except Exception as e:
+            # Critical error - room move should not continue
+            logger.error(f\"Failed to update to_room {to_room.room_number} status during move: {e}\")
+            raise
         
         # Clean up room data from from_room (reuse existing cleanup)
         cls._cleanup_from_room(from_room, booking.hotel)

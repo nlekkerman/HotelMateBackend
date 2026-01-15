@@ -2009,10 +2009,9 @@ class BookingAssignmentView(APIView):
                         source='FRONT_DESK',
                         note='Guest checked in'
                     )
-                except ValidationError:
-                    # Fallback to direct write if service fails
-                    room.room_status = 'OCCUPIED'
-                    room.save(update_fields=['room_status'])
+                except ValidationError as e:
+                    logger.error(f"CRITICAL: Failed to set room status during check-in for room {room.room_number}: {e}")
+                    raise ValueError(f"Check-in failed - could not update room status: {e}")
                 
                 # Trigger realtime notifications - ONLY AFTER DB COMMIT
                 transaction.on_commit(
@@ -2607,10 +2606,8 @@ class BookingCheckInView(APIView):
                     source='FRONT_DESK',
                     note='Guest checked in'
                 )
-            except ValidationError:
-                # Fallback to direct write if service fails
-                room.room_status = 'OCCUPIED'
-                room.save(update_fields=['room_status'])
+            except ValidationError as e:
+                logger.error(f\"CRITICAL: Failed to set room status during check-in for room {room.room_number}: {e}\")\n                raise ValueError(f\"Check-in failed - could not update room status: {e}\")
             
             # Trigger realtime notifications - ONLY AFTER DB COMMIT
             transaction.on_commit(

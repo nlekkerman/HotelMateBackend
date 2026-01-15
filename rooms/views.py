@@ -223,10 +223,10 @@ def checkout_rooms(request, hotel_slug):
                         source='SYSTEM',
                         note='Destructive bulk checkout'
                     )
-                except ValidationError:
-                    # Continue with bulk operation even if status change fails
-                    room.room_status = 'CHECKOUT_DIRTY'
-                    room.save(update_fields=['room_status'])
+                except ValidationError as e:
+                    logger.error(f"Failed to set room status for room {room.room_number} during destructive checkout: {e}")
+                    # Continue with bulk operation but log the failure
+                    continue
                 
                 results["rooms_cleared"].append(room.room_number)
                 
@@ -276,10 +276,10 @@ def checkout_rooms(request, hotel_slug):
                             source='SYSTEM',
                             note=f"Room cleared (no active bookings) at {now().strftime('%Y-%m-%d %H:%M')} by {staff_name}"
                         )
-                    except ValidationError:
-                        # Continue with bulk operation even if status change fails
-                        room.room_status = 'CHECKOUT_DIRTY'
-                        room.save(update_fields=['room_status'])
+                    except ValidationError as e:
+                        logger.error(f"Failed to set room status for room {room.room_number} during bulk checkout: {e}")
+                        # Continue with bulk operation but log the failure
+                        continue
                     results["rooms_cleared"].append(room.room_number)
             
             # Real-time notification handled by canonical service
