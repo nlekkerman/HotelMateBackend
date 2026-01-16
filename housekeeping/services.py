@@ -215,8 +215,11 @@ def get_room_dashboard_data(hotel):
     from rooms.models import Room
     from collections import defaultdict
     
-    # Get all rooms for this hotel
-    rooms = Room.objects.filter(hotel=hotel, is_active=True)
+    # Get all rooms for this hotel with staff relationships for performance
+    rooms = Room.objects.filter(
+        hotel=hotel, 
+        is_active=True
+    ).select_related('room_type', 'cleaned_by_staff', 'inspected_by_staff')
     
     # Count rooms by status
     status_counts = defaultdict(int)
@@ -226,7 +229,14 @@ def get_room_dashboard_data(hotel):
         status = room.room_status
         status_counts[status] += 1
         
-        # Add room data for grouping
+        # Helper function to get staff name
+        def get_staff_name(staff):
+            if not staff:
+                return None
+            full_name = f"{staff.first_name} {staff.last_name}".strip()
+            return full_name or staff.email or "Staff"
+        
+        # Add room data for grouping with staff information
         rooms_by_status[status].append({
             'id': room.id,
             'room_number': room.room_number,
@@ -235,6 +245,8 @@ def get_room_dashboard_data(hotel):
             'last_cleaned_at': room.last_cleaned_at,
             'last_inspected_at': room.last_inspected_at,
             'is_out_of_order': room.is_out_of_order,
+            'cleaned_by_staff_name': get_staff_name(room.cleaned_by_staff),
+            'inspected_by_staff_name': get_staff_name(room.inspected_by_staff),
         })
     
     return {

@@ -262,12 +262,14 @@ class RoomSummarySerializer(serializers.Serializer):
     last_cleaned_at = serializers.DateTimeField(allow_null=True)
     last_inspected_at = serializers.DateTimeField(allow_null=True)
     is_out_of_order = serializers.BooleanField()
+    cleaned_by_staff_name = serializers.CharField(allow_null=True)
+    inspected_by_staff_name = serializers.CharField(allow_null=True)
     
     class Meta:
         fields = [
             'id', 'room_number', 'room_type', 'room_status',
             'maintenance_required', 'last_cleaned_at', 'last_inspected_at',
-            'is_out_of_order'
+            'is_out_of_order', 'cleaned_by_staff_name', 'inspected_by_staff_name'
         ]
 
 
