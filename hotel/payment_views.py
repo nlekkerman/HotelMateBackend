@@ -567,9 +567,13 @@ class StripeWebhookView(APIView):
                     booking.paid_at = timezone.now()  # Payment captured immediately
                     booking.status = 'PENDING_APPROVAL'  # NOT CONFIRMED! Staff must approve
                     
+                    # NEW: Set approval deadline for time control
+                    from apps.booking.services.booking_deadlines import compute_approval_deadline
+                    booking.approval_deadline_at = compute_approval_deadline(booking)
+                    
                     booking.save(update_fields=[
                         'payment_provider', 'payment_intent_id', 'payment_reference',
-                        'paid_at', 'status'
+                        'paid_at', 'status', 'approval_deadline_at'
                     ])
                     
                     print(f"✅ Booking {booking_id} payment captured (pending staff approval)")

@@ -219,6 +219,28 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'survey_rating',
             'survey_sent_at',
             'survey_response',
+            
+            # NEW: Time control warning fields
+            'approval_deadline_at',
+            'is_approval_due_soon',
+            'is_approval_overdue', 
+            'approval_overdue_minutes',
+            'approval_risk_level',
+            'checkout_deadline_at',
+            'is_overstay',
+            'overstay_minutes',
+            'overstay_risk_level',
+            
+            # NEW: Time control warning fields
+            'approval_deadline_at',
+            'is_approval_due_soon',
+            'is_approval_overdue', 
+            'approval_overdue_minutes',
+            'approval_risk_level',
+            'checkout_deadline_at',
+            'is_overstay',
+            'overstay_minutes',
+            'overstay_risk_level',
 
             # timestamps
             'created_at',
@@ -274,6 +296,50 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'overall_rating': obj.survey_response.overall_rating,
             # Note: payload not included in list view for performance
         }
+    
+    # NEW: Time control warning methods
+    def get_is_approval_due_soon(self, obj):
+        """Check if approval deadline is approaching."""
+        from apps.booking.services.booking_deadlines import get_approval_risk_level
+        return get_approval_risk_level(obj) == 'DUE_SOON'
+    
+    def get_is_approval_overdue(self, obj):
+        """Check if approval deadline has passed."""
+        from apps.booking.services.booking_deadlines import is_approval_overdue
+        return is_approval_overdue(obj)
+    
+    def get_approval_overdue_minutes(self, obj):
+        """Get minutes approval is overdue."""
+        from apps.booking.services.booking_deadlines import get_approval_overdue_minutes
+        return get_approval_overdue_minutes(obj)
+    
+    def get_approval_risk_level(self, obj):
+        """Get approval risk level for staff warnings."""
+        from apps.booking.services.booking_deadlines import get_approval_risk_level
+        return get_approval_risk_level(obj)
+    
+    def get_checkout_deadline_at(self, obj):
+        """Get checkout deadline with grace period."""
+        from apps.booking.services.stay_time_rules import compute_checkout_deadline
+        try:
+            return compute_checkout_deadline(obj)
+        except Exception:
+            return None
+    
+    def get_is_overstay(self, obj):
+        """Check if booking is in overstay."""
+        from apps.booking.services.stay_time_rules import is_overstay
+        return is_overstay(obj)
+    
+    def get_overstay_minutes(self, obj):
+        """Get minutes in overstay."""
+        from apps.booking.services.stay_time_rules import get_overstay_minutes
+        return get_overstay_minutes(obj)
+    
+    def get_overstay_risk_level(self, obj):
+        """Get overstay risk level for staff warnings."""
+        from apps.booking.services.stay_time_rules import get_overstay_risk_level
+        return get_overstay_risk_level(obj)
 
 
 class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
@@ -338,6 +404,17 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'survey_rating',
             'survey_sent_at',
             'survey_response',
+            
+            # NEW: Time control warning fields
+            'approval_deadline_at',
+            'is_approval_due_soon',
+            'is_approval_overdue', 
+            'approval_overdue_minutes',
+            'approval_risk_level',
+            'checkout_deadline_at',
+            'is_overstay',
+            'overstay_minutes',
+            'overstay_risk_level',
             
             'booker',
             'party',
@@ -431,3 +508,47 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'overall_rating': obj.survey_response.overall_rating,
             'payload': obj.survey_response.payload,  # Full survey data (comments, individual ratings, etc.)
         }
+    
+    # NEW: Time control warning methods
+    def get_is_approval_due_soon(self, obj):
+        """Check if approval deadline is approaching."""
+        from apps.booking.services.booking_deadlines import get_approval_risk_level
+        return get_approval_risk_level(obj) == 'DUE_SOON'
+    
+    def get_is_approval_overdue(self, obj):
+        """Check if approval deadline has passed."""
+        from apps.booking.services.booking_deadlines import is_approval_overdue
+        return is_approval_overdue(obj)
+    
+    def get_approval_overdue_minutes(self, obj):
+        """Get minutes approval is overdue."""
+        from apps.booking.services.booking_deadlines import get_approval_overdue_minutes
+        return get_approval_overdue_minutes(obj)
+    
+    def get_approval_risk_level(self, obj):
+        """Get approval risk level for staff warnings."""
+        from apps.booking.services.booking_deadlines import get_approval_risk_level
+        return get_approval_risk_level(obj)
+    
+    def get_checkout_deadline_at(self, obj):
+        """Get checkout deadline with grace period."""
+        from apps.booking.services.stay_time_rules import compute_checkout_deadline
+        try:
+            return compute_checkout_deadline(obj)
+        except Exception:
+            return None
+    
+    def get_is_overstay(self, obj):
+        """Check if booking is in overstay."""
+        from apps.booking.services.stay_time_rules import is_overstay
+        return is_overstay(obj)
+    
+    def get_overstay_minutes(self, obj):
+        """Get minutes in overstay."""
+        from apps.booking.services.stay_time_rules import get_overstay_minutes
+        return get_overstay_minutes(obj)
+    
+    def get_overstay_risk_level(self, obj):
+        """Get overstay risk level for staff warnings."""
+        from apps.booking.services.stay_time_rules import get_overstay_risk_level
+        return get_overstay_risk_level(obj)

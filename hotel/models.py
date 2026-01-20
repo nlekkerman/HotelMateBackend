@@ -343,6 +343,20 @@ class HotelAccessConfig(models.Model):
         default=5,
         help_text="Hard limit of concurrent guest sessions per room."
     )
+    
+    # NEW: Booking time control settings
+    standard_checkout_time = models.TimeField(
+        default="11:00",
+        help_text="Standard checkout time (e.g., 11:00 AM)"
+    )
+    late_checkout_grace_minutes = models.PositiveIntegerField(
+        default=30,
+        help_text="Grace period after checkout time before overstay flagging"
+    )
+    approval_sla_minutes = models.PositiveIntegerField(
+        default=30,
+        help_text="SLA minutes for staff to approve paid bookings (PENDING_APPROVAL)"
+    )
 
     def __str__(self):
         return f"Access config for {self.hotel.name}"
@@ -592,6 +606,7 @@ class RoomBooking(models.Model):
         ('DECLINED', 'Declined'),  # NEW: Authorization cancelled
         ('CANCELLED', 'Cancelled'),
         ('CANCELLED_DRAFT', 'Cancelled Draft'),  # NEW: Expired unpaid bookings
+        ('EXPIRED', 'Expired'),  # NEW: Auto-expired due to timeout
         ('COMPLETED', 'Completed'),
         ('NO_SHOW', 'No Show'),
     ]
@@ -726,6 +741,20 @@ class RoomBooking(models.Model):
         help_text="When payment was authorized (hold created)"
     )
     
+    # NEW: Approval deadline and expiry tracking
+    approval_deadline_at = models.DateTimeField(
+        null=True, blank=True, db_index=True,
+        help_text="Deadline for staff to approve this booking (for PENDING_APPROVAL)"
+    )
+    expired_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When this booking was automatically expired due to timeout"
+    )
+    auto_expire_reason_code = models.CharField(
+        max_length=50, blank=True, default="",
+        help_text="Reason code for automatic expiry (e.g., APPROVAL_TIMEOUT)"
+    )
+    
     # NEW: Staff decision tracking
     decision_by = models.ForeignKey(
         'staff.Staff', null=True, blank=True, 
@@ -820,6 +849,26 @@ class RoomBooking(models.Model):
         help_text="Assignment version for debugging concurrency issues"
     )
     
+    # NEW: Overstay tracking fields
+    overstay_flagged_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When this booking was flagged for overstay (past checkout deadline)"
+    )
+    overstay_acknowledged_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When staff acknowledged the overstay situation"
+    )
+    
+    # NEW: Refund tracking fields
+    refund_reference = models.CharField(
+        max_length=200, blank=True, default="",
+        help_text="Payment processor refund reference ID"
+    )
+    refunded_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When refund was processed"
+    )
+    
     # Room Move Audit Fields (NEW - additive only)
     room_moved_at = models.DateTimeField(
         null=True, blank=True,
@@ -863,6 +912,8 @@ class RoomBooking(models.Model):
             models.Index(fields=['status']),
             models.Index(fields=['assigned_room']),
             models.Index(fields=['expires_at']),  # For efficient unpaid booking cleanup
+            models.Index(fields=['hotel', 'status', 'approval_deadline_at']),  # For auto-expire job
+            models.Index(fields=['hotel', 'status', 'check_out']),  # For overstay detection
         ]
 
     def save(self, *args, **kwargs):
