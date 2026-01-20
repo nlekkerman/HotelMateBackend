@@ -12,6 +12,7 @@ from django.urls import path
 from hotel.staff_views import (
     StaffBookingsListView,
     StaffBookingDetailView, 
+    StaffBookingMarkSeenView,
     StaffBookingConfirmView,
     StaffBookingCancelView,
     BookingPartyManagementView,
@@ -46,6 +47,13 @@ urlpatterns = [
         '<str:booking_id>/',
         StaffBookingDetailView.as_view(),
         name='room-bookings-staff-detail'
+    ),
+    
+    # Mark a booking as seen by staff (global "seen" status)
+    path(
+        '<str:booking_id>/mark-seen/',
+        StaffBookingMarkSeenView.as_view(),
+        name='room-bookings-staff-mark-seen'
     ),
     
     # Confirm a booking (change status to CONFIRMED)

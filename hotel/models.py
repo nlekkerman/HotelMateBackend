@@ -780,6 +780,20 @@ class RoomBooking(models.Model):
         help_text="Internal staff notes (not visible to guest)"
     )
 
+    # Staff "seen" tracking for new booking visibility
+    staff_seen_at = models.DateTimeField(
+        null=True, blank=True,
+        db_index=True,
+        help_text="Timestamp when any staff member first viewed this booking"
+    )
+    staff_seen_by = models.ForeignKey(
+        'staff.Staff',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='seen_room_bookings',
+        help_text="Staff member who first viewed this booking"
+    )
+
     # Phase 2: Assignment / check-in state
     assigned_room = models.ForeignKey(
         'rooms.Room',

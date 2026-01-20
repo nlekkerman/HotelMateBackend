@@ -184,6 +184,10 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     is_overstay = serializers.SerializerMethodField()
     overstay_minutes = serializers.SerializerMethodField()
     overstay_risk_level = serializers.SerializerMethodField()
+    
+    # Staff seen tracking fields
+    staff_seen_by_display = serializers.SerializerMethodField()
+    is_new_for_staff = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -241,6 +245,12 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'is_overstay',
             'overstay_minutes',
             'overstay_risk_level',
+            
+            # Staff seen tracking
+            'staff_seen_at',
+            'staff_seen_by',
+            'staff_seen_by_display',
+            'is_new_for_staff',
 
             # timestamps
             'created_at',
@@ -341,6 +351,19 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
         from apps.booking.services.stay_time_rules import get_overstay_risk_level
         return get_overstay_risk_level(obj)
 
+    def get_staff_seen_by_display(self, obj):
+        """Get display name for staff member who first saw this booking."""
+        if obj.staff_seen_by:
+            return {
+                'id': obj.staff_seen_by.id,
+                'name': f"{obj.staff_seen_by.first_name} {obj.staff_seen_by.last_name}".strip() or obj.staff_seen_by.user.username
+            }
+        return None
+
+    def get_is_new_for_staff(self, obj):
+        """Check if booking is new (not yet seen by any staff member)."""
+        return obj.staff_seen_at is None
+
 
 class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     """
@@ -380,6 +403,10 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     is_overstay = serializers.SerializerMethodField()
     overstay_minutes = serializers.SerializerMethodField()
     overstay_risk_level = serializers.SerializerMethodField()
+    
+    # Staff seen tracking fields
+    staff_seen_by_display = serializers.SerializerMethodField()
+    is_new_for_staff = serializers.SerializerMethodField()
     
     class Meta:
         model = RoomBooking
@@ -426,6 +453,12 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'is_overstay',
             'overstay_minutes',
             'overstay_risk_level',
+            
+            # Staff seen tracking
+            'staff_seen_at',
+            'staff_seen_by',
+            'staff_seen_by_display',
+            'is_new_for_staff',
             
             'booker',
             'party',
@@ -562,4 +595,40 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     def get_overstay_risk_level(self, obj):
         """Get overstay risk level for staff warnings."""
         from apps.booking.services.stay_time_rules import get_overstay_risk_level
-        return get_overstay_risk_level(obj)
+        return get_overstay_risk_level(obj)    def get_staff_seen_by_display(self, obj):
+        """Get display name for staff member who first saw this booking."""
+        if obj.staff_seen_by:
+            return {
+                'id': obj.staff_seen_by.id,
+                'name': f"{obj.staff_seen_by.first_name} {obj.staff_seen_by.last_name}".strip() or obj.staff_seen_by.user.username
+            }
+        return None
+
+    def get_is_new_for_staff(self, obj):
+        """Check if booking is new (not yet seen by any staff member)."""
+        return obj.staff_seen_at is None
+        d e f   g e t _ s t a f f _ s e e n _ b y _ d i s p l a y ( s e l f ,   o b j ) : 
+ 
+                 " " " G e t   d i s p l a y   n a m e   f o r   s t a f f   m e m b e r   w h o   f i r s t   s a w   t h i s   b o o k i n g . " " " 
+ 
+                 i f   o b j . s t a f f _ s e e n _ b y : 
+ 
+                         r e t u r n   { 
+ 
+                                 ' i d ' :   o b j . s t a f f _ s e e n _ b y . i d , 
+ 
+                                 ' n a m e ' :   f " { o b j . s t a f f _ s e e n _ b y . f i r s t _ n a m e }   { o b j . s t a f f _ s e e n _ b y . l a s t _ n a m e } " . s t r i p ( )   o r   o b j . s t a f f _ s e e n _ b y . u s e r . u s e r n a m e 
+ 
+                         } 
+ 
+                 r e t u r n   N o n e 
+ 
+ 
+ 
+         d e f   g e t _ i s _ n e w _ f o r _ s t a f f ( s e l f ,   o b j ) : 
+ 
+                 " " " C h e c k   i f   b o o k i n g   i s   n e w   ( n o t   y e t   s e e n   b y   a n y   s t a f f   m e m b e r ) . " " " 
+ 
+                 r e t u r n   o b j . s t a f f _ s e e n _ a t   i s   N o n e 
+ 
+ 

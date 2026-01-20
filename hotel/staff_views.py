@@ -1082,7 +1082,7 @@ class StaffBookingsListView(APIView):
         ).exclude(
             status__in=['DRAFT', 'PENDING_PAYMENT', 'CANCELLED_DRAFT']
         ).select_related(
-            'hotel', 'room_type', 'assigned_room'
+            'hotel', 'room_type', 'assigned_room', 'staff_seen_by'
         )
 
         # Get query parameters
@@ -1549,7 +1549,7 @@ class StaffBookingDetailView(APIView):
 
         try:
             booking = RoomBooking.objects.select_related(
-                'hotel', 'room_type', 'assigned_room__room_type'
+                'hotel', 'room_type', 'assigned_room__room_type', 'staff_seen_by'
             ).prefetch_related(
                 'party', 'guests__room'
             ).get(
@@ -1568,6 +1568,87 @@ class StaffBookingDetailView(APIView):
 
         serializer = StaffRoomBookingDetailSerializer(booking, context={'request': request})
         return Response(serializer.data)
+
+
+class StaffBookingMarkSeenView(APIView):
+    """Staff endpoint to mark a booking as seen."""
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def post(self, request, hotel_slug, booking_id):
+        try:
+            staff = request.user.staff_profile
+        except AttributeError:
+            return Response({'error': 'Staff profile not found'}, status=status.HTTP_403_FORBIDDEN)
+
+        if staff.hotel.slug != hotel_slug:
+            return Response({'error': 'You can only mark bookings as seen for your hotel'}, status=status.HTTP_403_FORBIDDEN)
+
+        with transaction.atomic():
+            try:
+                booking = RoomBooking.objects.select_for_update().get(
+                    booking_id=booking_id,
+                    hotel=staff.hotel
+                )
+            except RoomBooking.DoesNotExist:
+                return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
+
+            # Idempotent: only set if not already seen
+            booking_changed = False
+            if booking.staff_seen_at is None:
+                booking.staff_seen_at = timezone.now()
+                booking.staff_seen_by = staff
+                booking.save(update_fields=['staff_seen_at', 'staff_seen_by'])
+                booking_changed = True
+
+            # Broadcast realtime update if booking was changed
+            if booking_changed:
+                self._broadcast_booking_seen_update(booking, hotel_slug)
+
+            # Return response with seen info
+            staff_seen_by_info = None
+            if booking.staff_seen_by:
+                staff_seen_by_info = {
+                    'id': booking.staff_seen_by.id,
+                    'name': f"{booking.staff_seen_by.first_name} {booking.staff_seen_by.last_name}".strip() or booking.staff_seen_by.user.username
+                }
+
+            return Response({
+                'booking_id': booking.booking_id,
+                'staff_seen_at': booking.staff_seen_at,
+                'staff_seen_by': staff_seen_by_info,
+                'is_new_for_staff': False
+            }, status=status.HTTP_200_OK)
+
+    def _broadcast_booking_seen_update(self, booking, hotel_slug):
+        """Broadcast booking update to all staff clients for realtime UI updates."""
+        try:
+            from notifications.notification_manager import notification_manager
+            
+            # Use existing booking update channel pattern
+            channel = f"hotel-{hotel_slug}-staff-bookings"
+            event = "booking_updated"
+            
+            # Send minimal update with seen status
+            payload = {
+                'booking_id': booking.booking_id,
+                'staff_seen_at': booking.staff_seen_at.isoformat() if booking.staff_seen_at else None,
+                'staff_seen_by': {
+                    'id': booking.staff_seen_by.id,
+                    'name': f"{booking.staff_seen_by.first_name} {booking.staff_seen_by.last_name}".strip() or booking.staff_seen_by.user.username
+                } if booking.staff_seen_by else None,
+                'is_new_for_staff': False,
+                # Include other key fields for store upsert
+                'status': booking.status,
+                'updated_at': booking.updated_at.isoformat() if booking.updated_at else None
+            }
+            
+            notification_manager.trigger(channel, event, payload)
+            
+        except Exception as e:
+            # Don't fail the request if realtime fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Failed to broadcast booking seen update: {e}")
 
 
 class PublicPageBuilderView(APIView):
