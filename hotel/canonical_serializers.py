@@ -405,16 +405,8 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'survey_sent_at',
             'survey_response',
             
-            # NEW: Time control warning fields
+            # Time control model fields (computed fields are SerializerMethodFields)
             'approval_deadline_at',
-            'is_approval_due_soon',
-            'is_approval_overdue', 
-            'approval_overdue_minutes',
-            'approval_risk_level',
-            'checkout_deadline_at',
-            'is_overstay',
-            'overstay_minutes',
-            'overstay_risk_level',
             
             'booker',
             'party',
