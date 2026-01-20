@@ -3229,7 +3229,7 @@ class StaffBookingAcceptView(APIView):
             
             # Set booking status to CONFIRMED (payment already captured)
             booking.status = 'CONFIRMED'
-            booking.decision_by = staff.user
+            booking.decision_by = staff
             booking.decision_at = timezone.now()
             
             # For non-Stripe bookings, set paid_at if not already set
@@ -3417,7 +3417,7 @@ class StaffBookingDeclineView(APIView):
             
             # Update booking to DECLINED state
             booking.status = 'DECLINED'
-            booking.decision_by = staff.user  # Store User, not Staff
+            booking.decision_by = staff  # Store Staff, not User
             booking.decision_at = timezone.now()
             booking.decline_reason_code = reason_code
             booking.decline_reason_note = reason_note
