@@ -173,6 +173,17 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     survey_completed = serializers.ReadOnlyField()
     survey_rating = serializers.ReadOnlyField()
     survey_response = serializers.SerializerMethodField()
+    
+    # NEW: Time control warning fields
+    is_approval_due_soon = serializers.SerializerMethodField()
+    is_approval_overdue = serializers.SerializerMethodField()
+    approval_overdue_minutes = serializers.SerializerMethodField()
+    approval_risk_level = serializers.SerializerMethodField()
+    
+    checkout_deadline_at = serializers.SerializerMethodField()
+    is_overstay = serializers.SerializerMethodField()
+    overstay_minutes = serializers.SerializerMethodField()
+    overstay_risk_level = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -220,21 +231,10 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
             'survey_sent_at',
             'survey_response',
             
-            # NEW: Time control warning fields
+            # Time control fields (model + computed)
             'approval_deadline_at',
             'is_approval_due_soon',
-            'is_approval_overdue', 
-            'approval_overdue_minutes',
-            'approval_risk_level',
-            'checkout_deadline_at',
-            'is_overstay',
-            'overstay_minutes',
-            'overstay_risk_level',
-            
-            # NEW: Time control warning fields
-            'approval_deadline_at',
-            'is_approval_due_soon',
-            'is_approval_overdue', 
+            'is_approval_overdue',
             'approval_overdue_minutes',
             'approval_risk_level',
             'checkout_deadline_at',
@@ -370,6 +370,17 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     survey_rating = serializers.ReadOnlyField()
     survey_response = serializers.SerializerMethodField()
     
+    # NEW: Time control warning fields
+    is_approval_due_soon = serializers.SerializerMethodField()
+    is_approval_overdue = serializers.SerializerMethodField()
+    approval_overdue_minutes = serializers.SerializerMethodField()
+    approval_risk_level = serializers.SerializerMethodField()
+    
+    checkout_deadline_at = serializers.SerializerMethodField()
+    is_overstay = serializers.SerializerMethodField()
+    overstay_minutes = serializers.SerializerMethodField()
+    overstay_risk_level = serializers.SerializerMethodField()
+    
     class Meta:
         model = RoomBooking
         fields = [
@@ -405,8 +416,16 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'survey_sent_at',
             'survey_response',
             
-            # Time control model fields (computed fields are SerializerMethodFields)
+            # Time control fields (model + computed)
             'approval_deadline_at',
+            'is_approval_due_soon',
+            'is_approval_overdue',
+            'approval_overdue_minutes',
+            'approval_risk_level',
+            'checkout_deadline_at',
+            'is_overstay',
+            'overstay_minutes',
+            'overstay_risk_level',
             
             'booker',
             'party',
