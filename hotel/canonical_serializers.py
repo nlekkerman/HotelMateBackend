@@ -8,6 +8,19 @@ from .models import RoomBooking, BookingGuest
 from guests.models import Guest
 from rooms.models import Room, RoomType
 
+# Service imports for time control functionality
+from apps.booking.services.booking_deadlines import (
+    get_approval_risk_level,
+    is_approval_overdue,
+    get_approval_overdue_minutes
+)
+from apps.booking.services.stay_time_rules import (
+    compute_checkout_deadline,
+    is_overstay,
+    get_overstay_minutes,
+    get_overstay_risk_level
+)
+
 
 class BookingPartyGuestSerializer(serializers.ModelSerializer):
     """Single booking party member serializer with precheckin data."""
@@ -310,27 +323,22 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     # NEW: Time control warning methods
     def get_is_approval_due_soon(self, obj):
         """Check if approval deadline is approaching."""
-        from apps.booking.services.booking_deadlines import get_approval_risk_level
         return get_approval_risk_level(obj) == 'DUE_SOON'
     
     def get_is_approval_overdue(self, obj):
         """Check if approval deadline has passed."""
-        from apps.booking.services.booking_deadlines import is_approval_overdue
         return is_approval_overdue(obj)
     
     def get_approval_overdue_minutes(self, obj):
         """Get minutes approval is overdue."""
-        from apps.booking.services.booking_deadlines import get_approval_overdue_minutes
         return get_approval_overdue_minutes(obj)
     
     def get_approval_risk_level(self, obj):
         """Get approval risk level for staff warnings."""
-        from apps.booking.services.booking_deadlines import get_approval_risk_level
         return get_approval_risk_level(obj)
     
     def get_checkout_deadline_at(self, obj):
         """Get checkout deadline with grace period."""
-        from apps.booking.services.stay_time_rules import compute_checkout_deadline
         try:
             return compute_checkout_deadline(obj)
         except Exception:
@@ -338,17 +346,14 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
     
     def get_is_overstay(self, obj):
         """Check if booking is in overstay."""
-        from apps.booking.services.stay_time_rules import is_overstay
         return is_overstay(obj)
     
     def get_overstay_minutes(self, obj):
         """Get minutes in overstay."""
-        from apps.booking.services.stay_time_rules import get_overstay_minutes
         return get_overstay_minutes(obj)
     
     def get_overstay_risk_level(self, obj):
         """Get overstay risk level for staff warnings."""
-        from apps.booking.services.stay_time_rules import get_overstay_risk_level
         return get_overstay_risk_level(obj)
 
     def get_staff_seen_by_display(self, obj):
@@ -556,27 +561,22 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     # NEW: Time control warning methods
     def get_is_approval_due_soon(self, obj):
         """Check if approval deadline is approaching."""
-        from apps.booking.services.booking_deadlines import get_approval_risk_level
         return get_approval_risk_level(obj) == 'DUE_SOON'
     
     def get_is_approval_overdue(self, obj):
         """Check if approval deadline has passed."""
-        from apps.booking.services.booking_deadlines import is_approval_overdue
         return is_approval_overdue(obj)
     
     def get_approval_overdue_minutes(self, obj):
         """Get minutes approval is overdue."""
-        from apps.booking.services.booking_deadlines import get_approval_overdue_minutes
         return get_approval_overdue_minutes(obj)
     
     def get_approval_risk_level(self, obj):
         """Get approval risk level for staff warnings."""
-        from apps.booking.services.booking_deadlines import get_approval_risk_level
         return get_approval_risk_level(obj)
     
     def get_checkout_deadline_at(self, obj):
         """Get checkout deadline with grace period."""
-        from apps.booking.services.stay_time_rules import compute_checkout_deadline
         try:
             return compute_checkout_deadline(obj)
         except Exception:
@@ -584,17 +584,14 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     
     def get_is_overstay(self, obj):
         """Check if booking is in overstay."""
-        from apps.booking.services.stay_time_rules import is_overstay
         return is_overstay(obj)
     
     def get_overstay_minutes(self, obj):
         """Get minutes in overstay."""
-        from apps.booking.services.stay_time_rules import get_overstay_minutes
         return get_overstay_minutes(obj)
     
     def get_overstay_risk_level(self, obj):
         """Get overstay risk level for staff warnings."""
-        from apps.booking.services.stay_time_rules import get_overstay_risk_level
         return get_overstay_risk_level(obj)
         
     def get_staff_seen_by_display(self, obj):
