@@ -7,7 +7,6 @@ from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.core.mail import send_mail
 from decimal import Decimal, ROUND_HALF_UP
 from django.db import transaction
 from django.utils import timezone
@@ -16,17 +15,152 @@ import stripe
 from .payment_cache import (
     generate_idempotency_key,
     store_payment_session,
-    get_payment_session,
-    store_booking_metadata,
-    get_booking_metadata,
     get_idempotency_session,
     store_idempotency_session,
-    is_webhook_processed,
-    mark_webhook_processed,
 )
 
 # Configure Stripe
 stripe.api_key = settings.STRIPE_SECRET_KEY
+
+
+def send_payment_received_email(booking, status_url, customer_email):
+    """Send payment received confirmation email with guest status link."""
+    try:
+        from django.core.mail import send_mail
+        from django.utils.html import strip_tags
+        
+        subject = (f"💳 Payment Received - Under Review - "
+                  f"{booking.confirmation_number}")
+        
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; 
+                     color: #333;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h2 style="color: #2196F3;">Payment Received Successfully! 
+                💳</h2>
+                
+                <div style="background: #e8f5e8; padding: 15px; 
+                            border-radius: 5px; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #4CAF50;">
+                    ✅ Payment Confirmed</h3>
+                    <p>Your payment has been successfully processed. 
+                    Your booking is now under review by our team.</p>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 20px; 
+                            border-radius: 5px; margin: 20px 0;">
+                    <h3 style="margin-top: 0;">Booking Details</h3>
+                    <p><strong>Booking ID:</strong> 
+                    {booking.confirmation_number}</p>
+                    <p><strong>Hotel:</strong> {booking.hotel.name}</p>
+                    <p><strong>Check-in:</strong> 
+                    {booking.check_in.strftime('%B %d, %Y')}</p>
+                    <p><strong>Check-out:</strong> 
+                    {booking.check_out.strftime('%B %d, %Y')}</p>
+                    <p><strong>Room:</strong> 
+                    {booking.room_type.name if booking.room_type else 'Room Booking'}</p>
+                    <p><strong>Amount Paid:</strong> {booking.currency} 
+                    {booking.total_amount:.2f}</p>
+                </div>
+                
+                <div style="background: #fff3cd; padding: 20px; 
+                            border-radius: 5px; margin: 20px 0;">
+                    <h3 style="margin-top: 0; color: #856404;">
+                    ⏳ What's Next?</h3>
+                    <p>Our team is reviewing your booking request. 
+                    You'll receive a confirmation email once approved 
+                    (usually within 2-4 hours).</p>
+                </div>
+                
+                <div style="background: #d1ecf1; padding: 20px; 
+                            border-radius: 5px; margin: 20px 0; 
+                            text-align: center;">
+                    <h3 style="margin-top: 0; color: #0c5460;">
+                    📋 Check Your Booking Status</h3>
+                    <p>Track your booking status anytime:</p>
+                    <a href="{status_url}"
+                       style="display: inline-block; background: #17a2b8; 
+                              color: white; padding: 12px 24px; 
+                              text-decoration: none; border-radius: 4px; 
+                              margin: 10px 0;">
+                        View Booking Status
+                    </a>
+                    <p style="font-size: 14px; color: #6c757d;">
+                    Bookmark this link to check your status anytime</p>
+                </div>
+                
+                <div style="text-align: center; margin-top: 30px; 
+                            padding-top: 20px; border-top: 1px solid #eee;">
+                    <p style="font-size: 14px; color: #6c757d;">
+                        Questions? Contact {booking.hotel.name}<br>
+                        This is an automated message regarding booking 
+                        {booking.confirmation_number}
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        
+        plain_message = strip_tags(html_content)
+        
+        return send_mail(
+            subject=subject,
+            message=plain_message,
+            html_message=html_content,
+            from_email=f"{booking.hotel.name} <{settings.EMAIL_HOST_USER}>",
+            recipient_list=[customer_email],
+            fail_silently=False,
+        )
+        
+    except Exception as e:
+        print(f"Error sending payment received email: {e}")
+        return False
+
+
+def process_booking_refund(booking, reason="Staff declined booking"):
+    """Process refund for a paid booking with idempotency protection."""
+    try:
+        # Idempotency check
+        if booking.refund_processed_at:
+            print(f"Refund already processed for booking {booking.booking_id}")
+            return True, booking.refund_reference
+        
+        if not booking.paid_at or not booking.payment_intent_id:
+            print(f"No payment to refund for booking {booking.booking_id}")
+            return False, None
+        
+        # Process Stripe refund
+        refund = stripe.Refund.create(
+            payment_intent=booking.payment_intent_id,
+            reason='requested_by_customer',
+            metadata={
+                'booking_id': booking.booking_id,
+                'reason': reason
+            }
+        )
+        
+        # Update booking with refund details
+        booking.refund_reference = refund.id
+        booking.refund_amount = Decimal(refund.amount) / 100
+        booking.refund_processed_at = timezone.now()
+        booking.save(update_fields=[
+            'refund_reference', 'refund_amount', 'refund_processed_at'
+        ])
+        
+        print(f"✅ Refund processed: {refund.id} for "
+              f"booking {booking.booking_id}")
+        return True, refund.id
+        
+    except stripe.error.StripeError as e:
+        print(f"❌ Stripe refund failed for booking {booking.booking_id}: {e}")
+        return False, None
+    except Exception as e:
+        print(f"❌ Unexpected error processing refund for "
+              f"booking {booking.booking_id}: {e}")
+        return False, None
 
 
 class CreatePaymentSessionView(APIView):
@@ -204,9 +338,8 @@ class CreatePaymentSessionView(APIView):
                     'check_in': dates_data['check_in'],
                     'check_out': dates_data['check_out'],
                 },
-                # 🔑 KEY CHANGE: Manual capture for authorize-then-capture flow
+                # 🔑 UPDATED: Automatic capture for pay-now-approve-later flow
                 payment_intent_data={
-                    'capture_method': 'manual',
                     'description': f"Hotel booking {booking_id} - {hotel_data['name']}",
                 },
             )
@@ -421,27 +554,25 @@ class StripeWebhookView(APIView):
                 else:
                     raise Exception(f"No booking found for session {session_id} / PI {payment_intent_id}")
             
-            # Idempotency check: skip if already authorized/decided or paid
-            if booking.status in ('PENDING_APPROVAL', 'CONFIRMED', 'DECLINED') or booking.payment_authorized_at:
+            # Idempotency check: skip if already paid or decided
+            if booking.status in ('PENDING_APPROVAL', 'CONFIRMED', 'DECLINED') or booking.paid_at:
                 print(f"Booking {booking_id} already processed ({booking.status}), skipping")
                 booking_updated = False
             else:
                 try:
-                    # 🚨 CRITICAL: Set authorization state, NOT confirmed
+                    # 🚨 CRITICAL: Set paid state, awaiting approval
                     booking.payment_provider = 'stripe'
                     booking.payment_intent_id = payment_intent_id  
                     booking.payment_reference = payment_intent_id or session_id
-                    booking.payment_authorized_at = timezone.now()
-                    booking.status = 'PENDING_APPROVAL'  # NOT CONFIRMED!
-                    
-                    # DO NOT SET paid_at (only set during capture)
+                    booking.paid_at = timezone.now()  # Payment captured immediately
+                    booking.status = 'PENDING_APPROVAL'  # NOT CONFIRMED! Staff must approve
                     
                     booking.save(update_fields=[
                         'payment_provider', 'payment_intent_id', 'payment_reference',
-                        'payment_authorized_at', 'status'
+                        'paid_at', 'status'
                     ])
                     
-                    print(f"✅ Booking {booking_id} payment authorized (pending staff approval)")
+                    print(f"✅ Booking {booking_id} payment captured (pending staff approval)")
                     
                     # Refresh and log final persisted values
                     booking.refresh_from_db()
@@ -480,17 +611,29 @@ class StripeWebhookView(APIView):
         currency = session['metadata'].get('currency', 'EUR').upper()
         amount_total = float(session['metadata'].get('total_amount', 0))
         
-        # Send booking management email after payment authorization
+        # Send post-payment confirmation email with guest status token
         if booking_updated and customer_email:
             try:
-                from hotel.services.booking_management import create_and_send_booking_management_token
-                success = create_and_send_booking_management_token(booking, customer_email)
+                # Generate guest status token
+                from .models import GuestBookingToken
+                token_obj, raw_guest_token = GuestBookingToken.generate_token(
+                    booking=booking,
+                    purpose='STATUS',
+                    scopes=['VIEW_STATUS']
+                )
+                
+                # Build guest status URL
+                base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
+                status_url = f"{base_url}/guest/booking/{booking.booking_id}?token={raw_guest_token}"
+                
+                # Send payment confirmation email
+                success = send_payment_received_email(booking, status_url, customer_email)
                 if success:
-                    print(f"📧 Booking management email sent for {booking_id} after payment")
+                    print(f"📧 Payment confirmation email sent for {booking_id} with status link")
                 else:
-                    print(f"⚠️ Failed to send booking management email for {booking_id}")
+                    print(f"⚠️ Failed to send payment confirmation email for {booking_id}")
             except Exception as e:
-                print(f"❌ Error sending booking management email for {booking_id}: {e}")
+                print(f"❌ Error sending payment confirmation email for {booking_id}: {e}")
         
         print(f"Webhook processing complete for booking {booking_id}")
 
