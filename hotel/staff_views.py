@@ -3229,15 +3229,15 @@ class StaffBookingAcceptView(APIView):
             
             # Set booking status to CONFIRMED (payment already captured)
             booking.status = 'CONFIRMED'
-            booking.decision_made_by = staff.user
-            booking.decision_made_at = timezone.now()
+            booking.decision_by = staff.user
+            booking.decision_at = timezone.now()
             
             # For non-Stripe bookings, set paid_at if not already set
             if not booking.paid_at:
                 booking.paid_at = timezone.now()
             
             booking.save(update_fields=[
-                'status', 'decision_made_by', 'decision_made_at', 'paid_at'
+                'status', 'decision_by', 'decision_at', 'paid_at'
             ])
             
             print(f"✅ Booking {booking_id} approved successfully")
@@ -3363,7 +3363,7 @@ class StaffBookingDeclineView(APIView):
                     'booking': {
                         'booking_id': booking.booking_id,
                         'status': booking.status,
-                        'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None,
+                        'decision_at': booking.decision_at.isoformat() if booking.decision_at else None,
                         'decline_reason_code': booking.decline_reason_code,
                         'decline_reason_note': booking.decline_reason_note
                     }
@@ -3417,13 +3417,13 @@ class StaffBookingDeclineView(APIView):
             
             # Update booking to DECLINED state
             booking.status = 'DECLINED'
-            booking.decision_made_by = staff.user  # Store User, not Staff
-            booking.decision_made_at = timezone.now()
+            booking.decision_by = staff.user  # Store User, not Staff
+            booking.decision_at = timezone.now()
             booking.decline_reason_code = reason_code
             booking.decline_reason_note = reason_note
             
             booking.save(update_fields=[
-                'status', 'decision_made_by', 'decision_made_at', 
+                'status', 'decision_by', 'decision_at', 
                 'decline_reason_code', 'decline_reason_note'
             ])
             
@@ -3454,7 +3454,7 @@ class StaffBookingDeclineView(APIView):
             'booking': {
                 'booking_id': booking.booking_id,
                 'status': booking.status,
-                'decision_made_at': booking.decision_made_at.isoformat() if booking.decision_made_at else None,
+                'decision_at': booking.decision_at.isoformat() if booking.decision_at else None,
                 'decline_reason_code': booking.decline_reason_code,
                 'decline_reason_note': booking.decline_reason_note
             }
