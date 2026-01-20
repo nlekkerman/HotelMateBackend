@@ -624,7 +624,7 @@ class StripeWebhookView(APIView):
                 
                 # Build guest status URL
                 base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
-                status_url = f"{base_url}/guest/booking/{booking.booking_id}?token={raw_guest_token}"
+                status_url = f"{base_url}/booking/status/{booking.hotel.slug}/{booking.booking_id}?token={raw_guest_token}"
                 
                 # Send payment confirmation email
                 success = send_payment_received_email(booking, status_url, customer_email)
