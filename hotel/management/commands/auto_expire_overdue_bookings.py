@@ -27,7 +27,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-bookings',
             type=int,
-            default=50,
+            default=500,
             help='Maximum number of bookings to process in one run',
         )
 
@@ -46,7 +46,7 @@ class Command(BaseCommand):
             approval_deadline_at__isnull=False,
             approval_deadline_at__lt=now,
             expired_at__isnull=True  # Not already expired
-        ).order_by('approval_deadline_at')[:max_bookings]
+        ).select_for_update(skip_locked=True).order_by('approval_deadline_at')[:max_bookings]
         
         if not overdue_bookings:
             self.stdout.write(self.style.SUCCESS("✅ No overdue bookings found"))
@@ -68,10 +68,12 @@ class Command(BaseCommand):
                     if booking.expired_at is not None or booking.status != 'PENDING_APPROVAL':
                         continue
                     
+                    # Recompute now inside transaction for precision
+                    now = timezone.now()
                     overdue_minutes = int((now - booking.approval_deadline_at).total_seconds() / 60)
                     
                     self.stdout.write(f"⏰ Expiring booking {booking.booking_id} "
-                                    f"(overdue by {overdue_minutes} minutes)")
+                                    f"[{booking.hotel.slug}] (overdue by {overdue_minutes} minutes)")
                     
                     if not dry_run:
                         # Process refund if payment was made
@@ -85,10 +87,12 @@ class Command(BaseCommand):
                                 # Configure Stripe
                                 stripe.api_key = settings.STRIPE_SECRET_KEY
                                 
-                                # Create refund in Stripe
+                                # Create idempotent refund in Stripe
+                                idempotency_key = f"autoexpire:{booking.booking_id}:{booking.payment_intent_id}"
                                 refund = stripe.Refund.create(
                                     payment_intent=booking.payment_intent_id,
                                     reason='expired',
+                                    idempotency_key=idempotency_key,
                                     metadata={
                                         'booking_id': booking.booking_id,
                                         'hotel_slug': booking.hotel.slug,

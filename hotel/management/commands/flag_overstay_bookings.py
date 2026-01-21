@@ -26,7 +26,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-bookings',
             type=int,
-            default=100,
+            default=1000,
             help='Maximum number of bookings to process in one run',
         )
 
@@ -47,7 +47,7 @@ class Command(BaseCommand):
             checked_out_at__isnull=True,  # Still checked in
             check_out__lte=now.date(),    # Checkout date today or past
             overstay_flagged_at__isnull=True  # Not already flagged
-        ).order_by('check_out')[:max_bookings]
+        ).select_for_update(skip_locked=True).order_by('check_out')[:max_bookings]
         
         if not candidate_bookings:
             self.stdout.write(self.style.SUCCESS("✅ No potential overstay bookings found"))
@@ -64,6 +64,13 @@ class Command(BaseCommand):
                     # Lock the booking for update
                     booking = RoomBooking.objects.select_for_update().get(id=booking.id)
                     
+                    # Race protection: re-check if already flagged after lock
+                    if booking.overstay_flagged_at is not None:
+                        continue
+                    
+                    # Recompute now inside transaction for precision
+                    now = timezone.now()
+                    
                     # Check if this booking should be flagged for overstay
                     if not should_flag_overstay(booking):
                         continue
@@ -74,7 +81,7 @@ class Command(BaseCommand):
                     
                     self.stdout.write(
                         f"🚨 Flagging overstay: {booking.booking_id} "
-                        f"(overdue by {overstay_minutes} minutes)"
+                        f"[{booking.hotel.slug}] (overdue by {overstay_minutes} minutes)"
                     )
                     
                     if not dry_run:
@@ -128,9 +135,8 @@ class Command(BaseCommand):
         
         # Summary
         if dry_run:
-            overstay_count = sum(1 for b in candidate_bookings if should_flag_overstay(b))
             self.stdout.write(
-                self.style.SUCCESS(f"🔥 DRY RUN: Would flag {overstay_count} overstay situation(s)")
+                self.style.SUCCESS(f"🔥 DRY RUN: Found {len(candidate_bookings)} candidate bookings to check")
             )
         else:
             self.stdout.write(
