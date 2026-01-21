@@ -26,7 +26,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-bookings',
             type=int,
-            default=1000,
+            default=200,
             help='Maximum number of bookings to process in one run',
         )
 

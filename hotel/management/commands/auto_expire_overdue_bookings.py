@@ -27,7 +27,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--max-bookings',
             type=int,
-            default=500,
+            default=200,
             help='Maximum number of bookings to process in one run',
         )
 
@@ -41,16 +41,19 @@ class Command(BaseCommand):
         
         # Find overdue bookings
         now = timezone.now()
-        overdue_bookings = RoomBooking.objects.filter(
+        overdue_qs = RoomBooking.objects.filter(
             status='PENDING_APPROVAL',
             approval_deadline_at__isnull=False,
             approval_deadline_at__lt=now,
             expired_at__isnull=True  # Not already expired
-        ).select_for_update(skip_locked=True).order_by('approval_deadline_at')[:max_bookings]
+        ).order_by('approval_deadline_at')[:max_bookings]
         
-        if not overdue_bookings:
+        if not overdue_qs.exists():
             self.stdout.write(self.style.SUCCESS("✅ No overdue bookings found"))
             return
+        
+        # Convert to list for iteration
+        overdue_bookings = list(overdue_qs)
         
         self.stdout.write(f"📋 Found {len(overdue_bookings)} overdue booking(s)")
         
@@ -61,8 +64,17 @@ class Command(BaseCommand):
         for booking in overdue_bookings:
             try:
                 with transaction.atomic():
-                    # Lock the booking for update
-                    booking = RoomBooking.objects.select_for_update().get(id=booking.id)
+                    # Lock the booking for update with skip_locked for concurrent job safety
+                    booking = (
+                        RoomBooking.objects
+                        .select_for_update(skip_locked=True)
+                        .filter(id=booking.id)
+                        .first()
+                    )
+                    
+                    # Skip if locked by another job instance
+                    if not booking:
+                        continue
                     
                     # Double-check it still needs expiring (race condition protection)
                     if booking.expired_at is not None or booking.status != 'PENDING_APPROVAL':
