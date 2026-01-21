@@ -1602,7 +1602,14 @@ class StaffBookingMarkSeenView(APIView):
 
             # Broadcast realtime update if booking was changed
             if booking_changed:
-                self._broadcast_booking_seen_update(booking, hotel_slug)
+                try:
+                    from notifications.notification_manager import notification_manager
+                    notification_manager.realtime_booking_updated(booking)
+                except Exception as e:
+                    # Don't fail the request if realtime fails
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to send realtime update for booking {booking_id}: {e}")
 
             # Return response with seen info
             staff_seen_by_info = None
@@ -1618,37 +1625,6 @@ class StaffBookingMarkSeenView(APIView):
                 'staff_seen_by': staff_seen_by_info,
                 'is_new_for_staff': False
             }, status=status.HTTP_200_OK)
-
-    def _broadcast_booking_seen_update(self, booking, hotel_slug):
-        """Broadcast booking update to all staff clients for realtime UI updates."""
-        try:
-            from notifications.notification_manager import notification_manager
-            
-            # Use existing booking update channel pattern
-            channel = f"hotel-{hotel_slug}-staff-bookings"
-            event = "booking_updated"
-            
-            # Send minimal update with seen status
-            payload = {
-                'booking_id': booking.booking_id,
-                'staff_seen_at': booking.staff_seen_at.isoformat() if booking.staff_seen_at else None,
-                'staff_seen_by': {
-                    'id': booking.staff_seen_by.id,
-                    'name': f"{booking.staff_seen_by.first_name} {booking.staff_seen_by.last_name}".strip() or booking.staff_seen_by.user.username
-                } if booking.staff_seen_by else None,
-                'is_new_for_staff': False,
-                # Include other key fields for store upsert
-                'status': booking.status,
-                'updated_at': booking.updated_at.isoformat() if booking.updated_at else None
-            }
-            
-            notification_manager.trigger(channel, event, payload)
-            
-        except Exception as e:
-            # Don't fail the request if realtime fails
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to broadcast booking seen update: {e}")
 
 
 class PublicPageBuilderView(APIView):
@@ -3279,6 +3255,15 @@ class StaffBookingAcceptView(APIView):
                     {'error': 'Booking not found'}, 
                     status=status.HTTP_404_NOT_FOUND
                 )
+            
+            # HARD BLOCK: Cannot approve expired bookings (MANDATORY)
+            if booking.status == 'EXPIRED' or booking.expired_at is not None:
+                return Response({
+                    'error': 'Booking expired due to approval timeout and cannot be approved.',
+                    'booking_id': booking_id,
+                    'expired_at': booking.expired_at.isoformat() if booking.expired_at else None,
+                    'auto_expire_reason_code': booking.auto_expire_reason_code
+                }, status=status.HTTP_409_CONFLICT)
             
             # Idempotency check: if already CONFIRMED, return success
             if booking.status == 'CONFIRMED':
