@@ -42,16 +42,19 @@ class Command(BaseCommand):
         
         # Find potentially overstaying bookings
         # Start with checked-in bookings on or past checkout date (cheap pre-filter)
-        candidate_bookings = RoomBooking.objects.filter(
+        candidate_qs = RoomBooking.objects.filter(
             checked_in_at__isnull=False,  # Must be checked in
             checked_out_at__isnull=True,  # Still checked in
             check_out__lte=now.date(),    # Checkout date today or past
             overstay_flagged_at__isnull=True  # Not already flagged
-        ).select_for_update(skip_locked=True).order_by('check_out')[:max_bookings]
+        ).order_by('check_out')[:max_bookings]
         
-        if not candidate_bookings:
+        if not candidate_qs.exists():
             self.stdout.write(self.style.SUCCESS("✅ No potential overstay bookings found"))
             return
+        
+        # Convert to list for iteration
+        candidate_bookings = list(candidate_qs)
         
         self.stdout.write(f"📋 Found {len(candidate_bookings)} candidate booking(s) to check")
         
@@ -61,15 +64,24 @@ class Command(BaseCommand):
         for booking in candidate_bookings:
             try:
                 with transaction.atomic():
-                    # Lock the booking for update
-                    booking = RoomBooking.objects.select_for_update().get(id=booking.id)
+                    # Recompute now inside transaction for precision
+                    now = timezone.now()
+                    
+                    # Lock the booking for update with skip_locked for concurrent job safety
+                    booking = (
+                        RoomBooking.objects
+                        .select_for_update(skip_locked=True)
+                        .filter(id=booking.id)
+                        .first()
+                    )
+                    
+                    # Skip if locked by another job instance
+                    if not booking:
+                        continue
                     
                     # Race protection: re-check if already flagged after lock
                     if booking.overstay_flagged_at is not None:
                         continue
-                    
-                    # Recompute now inside transaction for precision
-                    now = timezone.now()
                     
                     # Check if this booking should be flagged for overstay
                     if not should_flag_overstay(booking):
