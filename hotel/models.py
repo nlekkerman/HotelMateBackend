@@ -932,22 +932,10 @@ class RoomBooking(models.Model):
 
     def save(self, *args, **kwargs):
         if not self.booking_id:
-            from datetime import datetime
-            year = datetime.now().year
-            count = RoomBooking.objects.filter(
-                booking_id__startswith=f'BK-{year}-'
-            ).count()
-            self.booking_id = f'BK-{year}-{count + 1:04d}'
+            self.booking_id = self._generate_unique_booking_id()
 
         if not self.confirmation_number:
-            hotel_code = self.hotel.slug.upper()[:3]
-            from datetime import datetime
-            year = datetime.now().year
-            count = RoomBooking.objects.filter(
-                hotel=self.hotel,
-                confirmation_number__startswith=f'{hotel_code}-{year}-'
-            ).count()
-            self.confirmation_number = f'{hotel_code}-{year}-{count + 1:04d}'
+            self.confirmation_number = self._generate_unique_confirmation_number()
 
         super().save(*args, **kwargs)
         
@@ -1029,6 +1017,71 @@ class RoomBooking(models.Model):
         if self.booker_type == 'COMPANY' and not self.booker_company:
             # This is a soft warning, not a hard error
             pass
+
+    def _generate_unique_booking_id(self):
+        """
+        Generate a unique booking ID by incrementing sequence until we find a free one.
+        Much simpler approach - just keep trying until we find an available ID.
+        """
+        from datetime import datetime
+        
+        year = datetime.now().year
+        
+        # Start from count + 1 and keep incrementing until we find a free ID
+        count = RoomBooking.objects.filter(
+            booking_id__startswith=f'BK-{year}-'
+        ).count()
+        
+        sequence = count + 1
+        while True:
+            candidate_id = f'BK-{year}-{sequence:04d}'
+            
+            # Check if this ID is available
+            if not RoomBooking.objects.filter(booking_id=candidate_id).exists():
+                return candidate_id
+            
+            # If taken, try next sequence
+            sequence += 1
+            
+            # Safety check to prevent infinite loop (very unlikely to reach)
+            if sequence > 99999:
+                # Fallback to timestamp-based ID
+                import time
+                timestamp = int(time.time() * 1000) % 1000000
+                return f'BK-{year}-T{timestamp:06d}'
+    
+    def _generate_unique_confirmation_number(self):
+        """
+        Generate a unique confirmation number by incrementing sequence until we find a free one.
+        """
+        from datetime import datetime
+        
+        hotel_code = self.hotel.slug.upper()[:3]
+        year = datetime.now().year
+        
+        # Start from count + 1 and keep incrementing until we find a free number
+        count = RoomBooking.objects.filter(
+            hotel=self.hotel,
+            confirmation_number__startswith=f'{hotel_code}-{year}-'
+        ).count()
+        
+        sequence = count + 1
+        while True:
+            candidate_number = f'{hotel_code}-{year}-{sequence:04d}'
+            
+            # Check if this number is available
+            if not RoomBooking.objects.filter(confirmation_number=candidate_number).exists():
+                return candidate_number
+            
+            # If taken, try next sequence
+            sequence += 1
+            
+            # Safety check to prevent infinite loop
+            if sequence > 99999:
+                # Fallback to timestamp-based number
+                import time
+                timestamp = int(time.time() * 1000) % 1000000
+                return f'{hotel_code}-{year}-T{timestamp:06d}'
 
     @property
     def party_complete(self):

@@ -304,32 +304,32 @@ class HotelBookingCreateView(APIView):
             )
         
         # Create booking using NEW field structure (NO LEGACY!)
-        booking = create_room_booking_from_request(
-            hotel=hotel,
-            room_type=room_type,
-            check_in=check_in,
-            check_out=check_out,
-            adults=adults,
-            children=children,
-            primary_first_name=primary_first_name,
-            primary_last_name=primary_last_name,
-            primary_email=primary_email,
-            primary_phone=primary_phone,
-            booker_type=booker_type,
-            booker_first_name=booker_first_name,
-            booker_last_name=booker_last_name,
-            booker_email=booker_email,
-            booker_phone=booker_phone,
-            booker_company=booker_company,
-            special_requests=special_requests,
-            promo_code=promo_code
-        )
+        from django.db import transaction
         
-        # Handle companions-only party creation
         try:
-            from django.db import transaction
-            
             with transaction.atomic():
+                booking = create_room_booking_from_request(
+                    hotel=hotel,
+                    room_type=room_type,
+                    check_in=check_in,
+                    check_out=check_out,
+                    adults=adults,
+                    children=children,
+                    primary_first_name=primary_first_name,
+                    primary_last_name=primary_last_name,
+                    primary_email=primary_email,
+                    primary_phone=primary_phone,
+                    booker_type=booker_type,
+                    booker_first_name=booker_first_name,
+                    booker_last_name=booker_last_name,
+                    booker_email=booker_email,
+                    booker_phone=booker_phone,
+                    booker_company=booker_company,
+                    special_requests=special_requests,
+                    promo_code=promo_code
+                )
+                
+                # Handle companions-only party creation
                 if party_data:
                     # ✅ NEW CANONICAL RULE: Reject PRIMARY in party payload
                     primary_count = sum(
@@ -375,7 +375,7 @@ class HotelBookingCreateView(APIView):
                         
         except Exception as e:
             return Response(
-                {"detail": f"Failed to create party: {str(e)}"},
+                {"detail": f"Failed to create booking: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
         
