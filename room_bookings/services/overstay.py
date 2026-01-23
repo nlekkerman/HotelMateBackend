@@ -112,7 +112,7 @@ def detect_overstays(hotel: Hotel, now_utc: datetime) -> int:
                             hotel=hotel,
                             booking=locked_booking,
                             expected_checkout_date=locked_booking.check_out,
-                            detected_at=now_utc,
+                            detected_at=checkout_noon_utc,  # FIXED: Use checkout noon, not current time
                             status='OPEN',
                             severity='MEDIUM',
                             meta={

@@ -94,12 +94,16 @@ def test_with_booking():
         # Create an overstaying booking (checked out date is yesterday)
         yesterday = date.today().replace(day=14)  # Mock yesterday
         
+        # Clean up any existing test data
+        RoomBooking.objects.filter(booking_id__startswith="TEST-").delete()
+        OverstayIncident.objects.filter(meta__contains={'room_number': '101'}).delete()
+        
         booking = RoomBooking.objects.create(
             # Required fields from model inspection
             hotel=hotel,
             room_type=room_type,
-            booking_id="TEST-001",
-            confirmation_number="CONF-001", 
+            booking_id=f"TEST-{date.today().strftime('%Y%m%d-%H%M%S')}",  # Unique ID
+            confirmation_number=f"CONF-{date.today().strftime('%Y%m%d-%H%M%S')}", 
             check_in=yesterday,
             check_out=yesterday,  # Should have checked out yesterday
             primary_first_name="John",  # Required
