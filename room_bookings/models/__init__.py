@@ -1,0 +1,1 @@
+# Models are now in hotel.models where RoomBooking is located

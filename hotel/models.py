@@ -4,8 +4,10 @@ from django.dispatch import receiver
 from cloudinary.models import CloudinaryField
 import secrets
 import hashlib
+import uuid
 from datetime import timedelta
 from django.utils import timezone
+from django.conf import settings
 
 
 # ============================================================================
@@ -242,6 +244,13 @@ class Hotel(models.Model):
         blank=True,
         related_name='hotels_using_as_default',
         help_text='Default cancellation policy for new bookings when rate plans don\'t have policies'
+    )
+    
+    # Timezone for overstay management
+    timezone = models.CharField(
+        max_length=50,
+        default='Europe/Dublin',
+        help_text='IANA timezone string (e.g., Europe/Dublin, America/New_York)'
     )
 
     def __str__(self):
@@ -2889,5 +2898,126 @@ class StripeWebhookEvent(models.Model):
 
     def __str__(self):
         return f"{self.event_type} - {self.event_id} ({self.status})"
+
+
+# ============================================================================
+# OVERSTAY MANAGEMENT MODELS
+# ============================================================================
+
+class OverstayIncident(models.Model):
+    """Audit trail and workflow state for overstay detection/acknowledgment/resolution."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    hotel = models.ForeignKey('Hotel', on_delete=models.CASCADE)
+    booking = models.ForeignKey('RoomBooking', on_delete=models.CASCADE)
+    
+    # Detection
+    expected_checkout_date = models.DateField()
+    detected_at = models.DateTimeField()
+    
+    # Status
+    STATUS_CHOICES = [
+        ('OPEN', 'Open'),
+        ('ACKED', 'Acknowledged'),
+        ('RESOLVED', 'Resolved'),
+        ('DISMISSED', 'Dismissed'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='OPEN')
+    
+    SEVERITY_CHOICES = [
+        ('LOW', 'Low'),
+        ('MEDIUM', 'Medium'),
+        ('HIGH', 'High'),
+    ]
+    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='MEDIUM')
+    
+    # Acknowledgment
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, 
+                                       related_name='acknowledged_overstays', on_delete=models.SET_NULL)
+    acknowledged_note = models.TextField(blank=True)
+    
+    # Resolution
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                   related_name='resolved_overstays', on_delete=models.SET_NULL)
+    resolution_note = models.TextField(blank=True)
+    
+    # Dismissal
+    dismissed_at = models.DateTimeField(null=True, blank=True)
+    dismissed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                    related_name='dismissed_overstays', on_delete=models.SET_NULL)
+    dismissed_reason = models.TextField(blank=True)
+    
+    # Metadata
+    meta = models.JSONField(default=dict, blank=True)  # room_id, guest_name, etc.
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['booking'],
+                condition=models.Q(status__in=['OPEN', 'ACKED']),
+                name='unique_active_overstay_per_booking'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['hotel', 'status']),
+            models.Index(fields=['detected_at']),
+        ]
+    
+    def __str__(self):
+        return f"Overstay {self.status} - {self.booking.booking_id}"
+
+
+class BookingExtension(models.Model):
+    """Audit trail for booking extensions with pricing and payment tracking."""
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    hotel = models.ForeignKey('Hotel', on_delete=models.CASCADE)
+    booking = models.ForeignKey('RoomBooking', on_delete=models.CASCADE)
+    
+    # Staff tracking
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    # Date changes
+    old_checkout_date = models.DateField()
+    new_checkout_date = models.DateField()
+    added_nights = models.PositiveSmallIntegerField()
+    
+    # Pricing
+    pricing_snapshot = models.JSONField()  # nightly breakdown
+    amount_delta = models.DecimalField(max_digits=10, decimal_places=2)
+    currency = models.CharField(max_length=3)
+    
+    # Payment & Idempotency
+    payment_intent_id = models.CharField(max_length=200, blank=True)
+    idempotency_key = models.CharField(max_length=80, null=True, blank=True)
+    
+    STATUS_CHOICES = [
+        ('PENDING_PAYMENT', 'Pending Payment'),
+        ('CONFIRMED', 'Confirmed'),
+        ('FAILED', 'Failed'),
+    ]
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING_PAYMENT')
+    
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['booking', 'idempotency_key'],
+                condition=models.Q(idempotency_key__isnull=False) & ~models.Q(idempotency_key=''),
+                name='unique_idempotency_per_booking'
+            )
+        ]
+        indexes = [
+            models.Index(fields=['hotel', 'created_at']),
+            models.Index(fields=['booking']),
+        ]
+    
+    def __str__(self):
+        return f"Extension {self.booking.booking_id} - {self.added_nights} nights"
 
 

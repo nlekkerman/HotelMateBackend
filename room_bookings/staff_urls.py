@@ -34,6 +34,13 @@ from hotel.staff_views import (
     StaffBookingDeclineView,
 )
 
+# Import overstay views
+from room_bookings.api.staff.overstay_views import (
+    OverstayAcknowledgeView,
+    OverstayExtendView,
+    OverstayStatusView,
+)
+
 urlpatterns = [
     # List all room bookings for the hotel
     path(
@@ -166,5 +173,28 @@ urlpatterns = [
         '<str:booking_id>/decline/',
         StaffBookingDeclineView.as_view(),
         name='room-bookings-staff-decline'
+    ),
+    
+    # ===== OVERSTAY MANAGEMENT ENDPOINTS =====
+    
+    # Acknowledge overstay
+    path(
+        '<str:booking_id>/overstay/acknowledge/',
+        OverstayAcknowledgeView.as_view(),
+        name='overstay-acknowledge'
+    ),
+    
+    # Extend overstay (add nights)
+    path(
+        '<str:booking_id>/overstay/extend/',
+        OverstayExtendView.as_view(),
+        name='overstay-extend'
+    ),
+    
+    # Get overstay status
+    path(
+        '<str:booking_id>/overstay/status/',
+        OverstayStatusView.as_view(),
+        name='overstay-status'
     ),
 ]
