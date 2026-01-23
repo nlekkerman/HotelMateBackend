@@ -292,6 +292,7 @@ CORS_ALLOW_METHODS = [
     "PUT",
 ]
 CORS_ALLOW_HEADERS = list(default_headers) + [
+    "idempotency-key",
     'x-hotel-id',
     'x-hotel-slug',
     'x-hotel-identifier',
