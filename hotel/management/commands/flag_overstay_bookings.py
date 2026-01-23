@@ -1,174 +1,134 @@
 """
-Flag overstay bookings management command.
+Detect overstay incidents using noon-based rule management command.
 
-This command finds bookings in IN_HOUSE status that have passed their checkout 
-deadline and flags them for staff attention with real-time alerts.
+This command finds IN_HOUSE bookings that have passed noon on their checkout date 
+and creates OverstayIncident records for staff attention.
 
 Run as a scheduled job (e.g., every 15-30 minutes) to monitor overstay situations.
 """
 from django.core.management.base import BaseCommand
-from django.db import transaction
 from django.utils import timezone
 
-from hotel.models import RoomBooking
-from apps.booking.services.stay_time_rules import should_flag_overstay, compute_checkout_deadline
+from hotel.models import Hotel
+from room_bookings.services.overstay import detect_overstays
 
 
 class Command(BaseCommand):
-    help = 'Flag bookings that are in overstay (past checkout deadline)'
+    help = 'Detect overstay incidents using noon-based rule'
 
     def add_arguments(self, parser):
         parser.add_argument(
             '--dry-run',
             action='store_true',
-            help='Show what would be flagged without making changes',
-        )
-        parser.add_argument(
-            '--max-bookings',
-            type=int,
-            default=200,
-            help='Maximum number of bookings to process in one run',
+            help='Show what would be detected without making changes',
         )
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
-        max_bookings = options['max_bookings']
         
-        self.stdout.write(f"🔍 Checking for overstay situations...")
+        self.stdout.write("🔍 Detecting overstay incidents using noon rule...")
         if dry_run:
             self.stdout.write("🔥 DRY RUN MODE - No changes will be made")
         
-        now = timezone.now()
+        now_utc = timezone.now()
         
-        # Find potentially overstaying bookings
-        # Start with checked-in bookings on or past checkout date (cheap pre-filter)
-        candidate_qs = RoomBooking.objects.filter(
-            checked_in_at__isnull=False,  # Must be checked in
-            checked_out_at__isnull=True,  # Still checked in
-            check_out__lte=now.date(),    # Checkout date today or past
-            overstay_flagged_at__isnull=True  # Not already flagged
-        ).order_by('check_out')[:max_bookings]
+        # Get all hotels
+        hotels = Hotel.objects.all()
         
-        if not candidate_qs.exists():
-            self.stdout.write(self.style.SUCCESS("✅ No potential overstay bookings found"))
+        if not hotels.exists():
+            self.stdout.write(self.style.ERROR("❌ No hotels found"))
             return
         
-        # Convert to list for iteration
-        candidate_bookings = list(candidate_qs)
-        
-        self.stdout.write(f"📋 Found {len(candidate_bookings)} candidate booking(s) to check")
-        
-        flagged_count = 0
+        hotels_processed = 0
+        incidents_created_total = 0
+        hotels_with_incidents = []
         error_count = 0
         
-        for booking in candidate_bookings:
+        for hotel in hotels:
             try:
-                with transaction.atomic():
-                    # Recompute now inside transaction for precision
-                    now = timezone.now()
-                    
-                    # Lock the booking for update with skip_locked for concurrent job safety
-                    booking = (
-                        RoomBooking.objects
-                        .select_for_update(skip_locked=True)
-                        .filter(id=booking.id)
-                        .first()
-                    )
-                    
-                    # Skip if locked by another job instance
-                    if not booking:
-                        continue
-                    
-                    # Race protection: re-check if already flagged after lock
-                    if booking.overstay_flagged_at is not None:
-                        continue
-                    
-                    # Check if this booking should be flagged for overstay
-                    if not should_flag_overstay(booking):
-                        continue
-                    
-                    # Calculate how much they're overstaying
-                    checkout_deadline = compute_checkout_deadline(booking)
-                    overstay_minutes = int((now - checkout_deadline).total_seconds() / 60)
-                    
-                    self.stdout.write(
-                        f"🚨 Flagging overstay: {booking.booking_id} "
-                        f"[{booking.hotel.slug}] (overdue by {overstay_minutes} minutes)"
-                    )
-                    
-                    if not dry_run:
-                        # Flag the overstay
-                        booking.overstay_flagged_at = now
-                        booking.save(update_fields=['overstay_flagged_at'])
-                        
-                        # Send real-time alert to staff
-                        try:
-                            from notifications.notification_manager import notification_manager
-                            
-                            # Send booking update
-                            notification_manager.realtime_booking_updated(booking)
-                            
-                            # Send specific overstay alert to relevant staff
-                            alert_data = {
-                                'type': 'overstay_alert',
-                                'booking_id': booking.booking_id,
-                                'room_number': booking.assigned_room.room_number if booking.assigned_room else None,
-                                'guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
-                                'overstay_minutes': overstay_minutes,
-                                'checkout_deadline': checkout_deadline.isoformat(),
-                                'hotel_slug': booking.hotel.slug,
-                                'check_out_date': booking.check_out.isoformat(),
-                            }
-                            
-                            # Send to hotel staff channel (receptionists, managers)
-                            notification_manager.send_staff_notification(
-                                hotel=booking.hotel,
-                                title="Overstay Alert",
-                                message=f"Room {booking.assigned_room.room_number if booking.assigned_room else '?'}: Guest {alert_data['guest_name']} is {overstay_minutes} minutes past checkout",
-                                data=alert_data,
-                                roles=['reception', 'manager']  # Target specific roles
-                            )
-                            
-                            self.stdout.write(f"📡 Overstay alert sent for {booking.booking_id}")
-                            
-                        except Exception as e:
-                            self.stdout.write(
-                                self.style.WARNING(f"⚠️ Alert notification failed: {e}")
-                            )
-                        
-                        flagged_count += 1
-                        self.stdout.write(f"✅ Flagged overstay for {booking.booking_id}")
+                self.stdout.write(f"🏨 Processing hotel: {hotel.slug}")
+                
+                if not dry_run:
+                    incidents_created = detect_overstays(hotel, now_utc)
+                else:
+                    # For dry run, we'll simulate by checking what would be detected
+                    # without actually creating incidents
+                    incidents_created = self._count_potential_overstays(hotel, now_utc)
+                
+                hotels_processed += 1
+                incidents_created_total += incidents_created
+                
+                if incidents_created > 0:
+                    hotels_with_incidents.append({
+                        'slug': hotel.slug,
+                        'count': incidents_created
+                    })
+                    self.stdout.write(f"  ✅ Created {incidents_created} overstay incident(s)")
+                else:
+                    self.stdout.write(f"  ℹ️ No new overstay incidents")
                     
             except Exception as e:
                 error_count += 1
                 self.stdout.write(
-                    self.style.ERROR(f"❌ Error processing {booking.booking_id}: {e}")
+                    self.style.ERROR(f"  ❌ Error processing hotel {hotel.slug}: {e}")
                 )
         
         # Summary
+        self.stdout.write("\n" + "="*50)
         if dry_run:
             self.stdout.write(
-                self.style.SUCCESS(f"🔥 DRY RUN: Found {len(candidate_bookings)} candidate bookings to check")
+                self.style.SUCCESS(
+                    f"🔥 DRY RUN SUMMARY:\n"
+                    f"   Hotels processed: {hotels_processed}\n"
+                    f"   Potential incidents: {incidents_created_total}\n"
+                    f"   Errors: {error_count}"
+                )
             )
         else:
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"✅ Processed {flagged_count} overstay flags, {error_count} errors"
+                    f"✅ PROCESSING COMPLETE:\n"
+                    f"   Hotels processed: {hotels_processed}\n"
+                    f"   Incidents created: {incidents_created_total}\n"
+                    f"   Errors: {error_count}"
                 )
             )
+        
+        if hotels_with_incidents:
+            self.stdout.write("\n📊 INCIDENTS BY HOTEL:")
+            for hotel_info in hotels_with_incidents:
+                self.stdout.write(f"   {hotel_info['slug']}: {hotel_info['count']} incidents")
+                
+    def _count_potential_overstays(self, hotel, now_utc):
+        """Count bookings that would trigger overstay incidents (for dry run)."""
+        from room_bookings.services.overstay import get_hotel_noon_utc
+        from hotel.models import RoomBooking, OverstayIncident
+        
+        count = 0
+        current_date_utc = now_utc.date()
+        
+        # Find IN_HOUSE bookings that should have checked out
+        # IN_HOUSE = checked_in_at is not null AND checked_out_at is null
+        in_house_bookings = RoomBooking.objects.filter(
+            hotel=hotel,
+            checked_in_at__isnull=False,  # Must be checked in
+            checked_out_at__isnull=True,  # Still checked in (not checked out)
+            assigned_room__isnull=False,  # Must have assigned room
+            check_out__lte=current_date_utc  # Checkout date has passed (today or earlier)
+        ).select_related('assigned_room', 'hotel')
+        
+        for booking in in_house_bookings:
+            # Check if noon has passed in hotel timezone for checkout date
+            checkout_noon_utc = get_hotel_noon_utc(hotel, booking.check_out)
             
-        # Additional info: show bookings approaching overstay
-        if not dry_run:
-            approaching_bookings = RoomBooking.objects.filter(
-                checked_in_at__isnull=False,  # Must be checked in
-                checked_out_at__isnull=True,  # Still checked in
-                check_out=now.date(),  # Checkout today
-                overstay_flagged_at__isnull=True
-            ).count()
-            
-            if approaching_bookings > 0:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"ℹ️ {approaching_bookings} booking(s) have checkout today and may need attention"
-                    )
-                )
+            if now_utc >= checkout_noon_utc:
+                # Check if already has active incident
+                existing_incident = OverstayIncident.objects.filter(
+                    booking=booking,
+                    status__in=['OPEN', 'ACKED']
+                ).first()
+                
+                if not existing_incident:
+                    count += 1
+        
+        return count

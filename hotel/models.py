@@ -253,6 +253,12 @@ class Hotel(models.Model):
         help_text='IANA timezone string (e.g., Europe/Dublin, America/New_York)'
     )
 
+    @property 
+    def timezone_obj(self):
+        """Return timezone object for this hotel"""
+        import pytz
+        return pytz.timezone(self.timezone)
+
     def __str__(self):
         return self.name
 

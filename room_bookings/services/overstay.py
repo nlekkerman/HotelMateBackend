@@ -71,45 +71,67 @@ def detect_overstays(hotel: Hotel, now_utc: datetime) -> int:
     current_date_utc = now_utc.date()
     
     # Find IN_HOUSE bookings that should have checked out
+    # IN_HOUSE = checked_in_at is not null AND checked_out_at is null
     in_house_bookings = RoomBooking.objects.filter(
         hotel=hotel,
-        status='CHECKED_IN',  # Equivalent to IN_HOUSE
-        assigned_room__isnull=False,
-        check_out__lt=current_date_utc  # Checkout date has passed
-    ).select_related('assigned_room', 'hotel')
+        checked_in_at__isnull=False,  # Must be checked in
+        checked_out_at__isnull=True,  # Still checked in (not checked out)
+        assigned_room__isnull=False,  # Must have assigned room
+        check_out__lte=current_date_utc  # Checkout date has passed (today or earlier)
+    ).select_related('assigned_room', 'hotel', 'room_type')
     
     for booking in in_house_bookings:
-        # Check if noon has passed in hotel timezone for checkout date
-        checkout_noon_utc = get_hotel_noon_utc(hotel, booking.check_out)
-        
-        if now_utc >= checkout_noon_utc:
-            # Check if already flagged
-            existing_incident = OverstayIncident.objects.filter(
-                booking=booking,
-                status__in=['OPEN', 'ACKED']
-            ).first()
-            
-            if not existing_incident:
-                # Create new incident
-                incident = OverstayIncident.objects.create(
-                    hotel=hotel,
-                    booking=booking,
-                    expected_checkout_date=booking.check_out,
-                    detected_at=now_utc,
-                    status='OPEN',
-                    severity='MEDIUM',
-                    meta={
-                        'room_number': booking.assigned_room.room_number,
-                        'guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
-                        'room_type': booking.room_type.name if booking.room_type else None
-                    }
-                )
+        try:
+            with transaction.atomic():
+                # Lock booking for update with skip_locked for concurrency safety
+                locked_booking = RoomBooking.objects.select_for_update(
+                    skip_locked=True
+                ).filter(id=booking.id).first()
                 
-                # Emit realtime event
-                _emit_overstay_flagged(incident)
-                detected_count += 1
+                # Skip if locked by another process
+                if not locked_booking:
+                    continue
                 
-                logger.info(f"Flagged overstay: booking {booking.booking_id}, room {booking.assigned_room.room_number}")
+                # Re-check IN_HOUSE status after lock (race condition protection)
+                if not locked_booking.checked_in_at or locked_booking.checked_out_at:
+                    continue
+                
+                # Check if noon has passed in hotel timezone for checkout date
+                checkout_noon_utc = get_hotel_noon_utc(hotel, locked_booking.check_out)
+                
+                if now_utc >= checkout_noon_utc:
+                    # Check if already has active incident
+                    existing_incident = OverstayIncident.objects.filter(
+                        booking=locked_booking,
+                        status__in=['OPEN', 'ACKED']
+                    ).first()
+                    
+                    if not existing_incident:
+                        # Create new incident
+                        incident = OverstayIncident.objects.create(
+                            hotel=hotel,
+                            booking=locked_booking,
+                            expected_checkout_date=locked_booking.check_out,
+                            detected_at=now_utc,
+                            status='OPEN',
+                            severity='MEDIUM',
+                            meta={
+                                'room_number': locked_booking.assigned_room.room_number,
+                                'guest_name': f"{locked_booking.primary_first_name} {locked_booking.primary_last_name}",
+                                'room_type': locked_booking.room_type.name if locked_booking.room_type else None
+                            }
+                        )
+                        
+                        # Emit realtime event
+                        _emit_overstay_flagged(incident)
+                        detected_count += 1
+                        
+                        logger.info(f"Flagged overstay: booking {locked_booking.booking_id}, room {locked_booking.assigned_room.room_number}")
+                        
+        except Exception as e:
+            logger.error(f"Error processing booking {booking.booking_id}: {e}")
+            # Continue processing other bookings
+            continue
     
     if detected_count > 0:
         logger.info(f"Hotel {hotel.slug}: detected {detected_count} new overstays")
