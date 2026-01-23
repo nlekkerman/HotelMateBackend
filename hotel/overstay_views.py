@@ -176,9 +176,9 @@ class OverstayExtendView(APIView):
         except ConflictError as e:
             return Response(
                 {
-                    'detail': e.message,
-                    'conflicts': e.conflicts,
-                    'suggested_rooms': e.suggestions
+                    "detail": str(e),
+                    "conflicts": e.conflicts,
+                    "suggested_rooms": e.suggestions
                 },
                 status=status.HTTP_409_CONFLICT
             )
