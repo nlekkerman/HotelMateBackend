@@ -35,7 +35,7 @@ from hotel.staff_views import (
 )
 
 # Import overstay views
-from room_bookings.api.staff.overstay_views import (
+from hotel.overstay_views import (
     OverstayAcknowledgeView,
     OverstayExtendView,
     OverstayStatusView,

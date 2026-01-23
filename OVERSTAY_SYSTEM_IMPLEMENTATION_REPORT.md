@@ -144,7 +144,7 @@ class Hotel(models.Model):
 
 ### 3. API Layer (✅ Complete)
 
-**Location**: `room_bookings/api/staff/overstay_views.py`
+**Location**: `hotel/overstay_views.py`
 
 #### Endpoints Implemented:
 
@@ -239,15 +239,13 @@ path('<str:booking_id>/overstay/status/', OverstayStatusView.as_view(), name='ov
 ```
 hotel/
 ├── models.py                          # ✅ OverstayIncident, BookingExtension, Hotel.timezone
+├── overstay_views.py                  # ✅ API endpoints (3 views)
 ├── migrations/
 │   └── 0055_hotel_timezone_*.py      # ✅ Migration for overstay models
 
 room_bookings/
 ├── services/
 │   └── overstay.py                   # ✅ Complete business logic (948 lines)
-├── api/
-│   └── staff/
-│       └── overstay_views.py         # ✅ API endpoints (3 views)
 ├── staff_urls.py                     # ✅ URL routing with overstay endpoints
 └── models/
     └── __init__.py                   # ✅ Cleaned up (redirect comment only)
@@ -256,8 +254,9 @@ room_bookings/
 ## Removed/Cleaned Files
 
 1. ✅ **Deleted**: `room_bookings/models/overstay.py` - Models moved to hotel app
-2. ✅ **Cleaned**: `room_bookings/models/__init__.py` - Removed model exports
-3. ✅ **Cleaned**: `HotelMateBackend/settings.py` - Did NOT add room_bookings to INSTALLED_APPS
+2. ✅ **Deleted**: `room_bookings/api/` - Entire API folder removed, views moved to hotel app  
+3. ✅ **Cleaned**: `room_bookings/models/__init__.py` - Removed model exports
+4. ✅ **Cleaned**: `HotelMateBackend/settings.py` - Did NOT add room_bookings to INSTALLED_APPS
 
 ## Implementation Compliance
 
