@@ -1,0 +1,1 @@
+# Management module for room_bookings app

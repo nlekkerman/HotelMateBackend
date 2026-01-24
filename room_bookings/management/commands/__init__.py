@@ -1,0 +1,1 @@
+# Management commands for room_bookings app
