@@ -1,4 +1,4 @@
-"""
+"""  
 Booking Service
 
 Room booking creation with integrated pricing engine.
@@ -11,6 +11,8 @@ from decimal import Decimal
 from typing import Dict, Optional, Tuple
 from django.utils import timezone
 from django.http import Http404
+from django.db.models import Max
+from django.db import transaction
 
 from hotel.models import Hotel, RoomBooking, GuestBookingToken
 from rooms.models import RoomType
@@ -22,6 +24,73 @@ from hotel.services.pricing import (
     apply_promotion,
     apply_taxes
 )
+
+
+def generate_booking_id(hotel: Hotel) -> str:
+    """
+    Generate hotel-specific booking ID with format: BK-{HOTEL_CODE}-{YEAR}-{SEQUENCE}
+    
+    Examples:
+        BK-NOWAY-2026-0001 (for no-way-hotel)
+        BK-KILLARNEY-2026-0042 (for hotel-killarney)
+    
+    Rules:
+        - HOTEL_CODE: From hotel.slug, uppercase, remove hyphens, max 8 chars
+        - YEAR: Current year at creation time
+        - SEQUENCE: Zero-padded, sequential per hotel per year
+    
+    Args:
+        hotel: Hotel instance
+        
+    Returns:
+        str: Unique booking ID for this hotel
+        
+    Note:
+        Future migration should add: UniqueConstraint(fields=["hotel", "booking_id"])
+    """
+    # Generate HOTEL_CODE from slug
+    hotel_code = hotel.slug.upper().replace('-', '')[:8]
+    
+    # Get current year
+    year = timezone.now().year
+    
+    # Find next sequence number for this hotel + year
+    # Use select_for_update() for concurrency safety if in transaction
+    try:
+        if transaction.get_connection().in_atomic_block:
+            # We're in a transaction, use locking
+            last_booking = RoomBooking.objects.select_for_update().filter(
+                hotel=hotel,
+                booking_id__startswith=f'BK-{hotel_code}-{year}-'
+            ).aggregate(max_id=Max('booking_id'))['max_id']
+        else:
+            # No transaction, regular query
+            last_booking = RoomBooking.objects.filter(
+                hotel=hotel,
+                booking_id__startswith=f'BK-{hotel_code}-{year}-'
+            ).aggregate(max_id=Max('booking_id'))['max_id']
+    except Exception:
+        # Fallback if any query issues
+        last_booking = None
+    
+    if last_booking:
+        # Extract sequence number from last booking ID
+        # Format: BK-HOTELCODE-YEAR-NNNN
+        try:
+            parts = last_booking.split('-')
+            if len(parts) >= 4:
+                last_sequence = int(parts[-1])
+                next_sequence = last_sequence + 1
+            else:
+                next_sequence = 1
+        except (ValueError, IndexError):
+            next_sequence = 1
+    else:
+        next_sequence = 1
+    
+    # Generate booking ID with hotel-specific prefix
+    booking_id = f"BK-{hotel_code}-{year}-{next_sequence:04d}"
+    return booking_id
 
 
 def create_room_booking_from_request(
@@ -99,10 +168,13 @@ def create_room_booking_from_request(
     total, taxes = apply_taxes(subtotal_after_promo)
     
     # Create RoomBooking instance using NEW canonical fields
-    # Uses existing auto-generation logic for booking_id and confirmation_number
+    # Generate hotel-specific booking ID instead of auto-generation
+    booking_id = generate_booking_id(hotel)
+    
     booking = RoomBooking.objects.create(
         hotel=hotel,
         room_type=room_type,
+        booking_id=booking_id,
         check_in=check_in,
         check_out=check_out,
         # Primary staying guest (ALWAYS required)
