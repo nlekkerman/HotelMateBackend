@@ -19,6 +19,13 @@ from rooms.models import RoomType
 
 class HotelAccessConfigStaffSerializer(serializers.ModelSerializer):
     """Staff CRUD for access configuration"""
+    
+    def validate_approval_cutoff_day_offset(self, value):
+        """Validate day offset is only 0 or 1"""
+        if value not in [0, 1]:
+            raise serializers.ValidationError("Day offset must be 0 (same day) or 1 (next day)")
+        return value
+    
     class Meta:
         model = HotelAccessConfig
         fields = [
@@ -29,6 +36,12 @@ class HotelAccessConfigStaffSerializer(serializers.ModelSerializer):
             'rotate_pin_on_checkout',
             'allow_multiple_guest_sessions',
             'max_active_guest_devices_per_room',
+            # Time control fields
+            'standard_checkout_time',
+            'late_checkout_grace_minutes', 
+            'approval_sla_minutes',
+            'approval_cutoff_time',
+            'approval_cutoff_day_offset',
         ]
 
 

@@ -372,6 +372,17 @@ class HotelAccessConfig(models.Model):
         default=30,
         help_text="SLA minutes for staff to approve paid bookings (PENDING_APPROVAL)"
     )
+    
+    # Approval cutoff configuration
+    approval_cutoff_time = models.TimeField(
+        default="22:00",
+        help_text="Daily cutoff time for booking approval (e.g., 22:00)"
+    )
+    approval_cutoff_day_offset = models.PositiveSmallIntegerField(
+        default=0,
+        choices=[(0, "Same day"), (1, "Next day")],
+        help_text="Day offset: 0=check-in day, 1=day after check-in"
+    )
 
     def __str__(self):
         return f"Access config for {self.hotel.name}"

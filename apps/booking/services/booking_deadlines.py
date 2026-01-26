@@ -4,7 +4,7 @@ Booking deadline computation service for approval SLA management.
 Handles calculation of approval deadlines for bookings in PENDING_APPROVAL status,
 ensuring staff have clear SLAs for processing paid bookings.
 """
-from datetime import timedelta
+from datetime import timedelta, time
 from django.utils import timezone
 from typing import Optional
 
@@ -33,6 +33,39 @@ def compute_approval_deadline(booking, *, base_dt: Optional[timezone.datetime] =
         sla_minutes = 30
     
     return base_dt + timedelta(minutes=sla_minutes)
+
+
+def compute_approval_cutoff(booking) -> timezone.datetime:
+    """
+    Compute the approval cutoff (hard expiry time) for a booking.
+    
+    Rule: Uses hotel-configured cutoff time and day offset relative to check-in.
+    After this time, bookings are auto-expired with refund.
+    
+    Args:
+        booking: RoomBooking instance
+    
+    Returns:
+        Timezone-aware datetime when booking expires (UTC)
+    """
+    # Get hotel configuration
+    hotel_config = booking.hotel.access_config
+    
+    # Use hotel-configured cutoff time and day offset
+    cutoff_time = hotel_config.approval_cutoff_time
+    day_offset = hotel_config.approval_cutoff_day_offset
+    
+    # Compute cutoff date (check-in + offset)
+    cutoff_date = booking.check_in + timedelta(days=day_offset)
+    
+    # Create timezone-aware datetime
+    hotel_tz = booking.hotel.timezone_obj
+    cutoff_local = hotel_tz.localize(
+        timezone.datetime.combine(cutoff_date, cutoff_time)
+    )
+    
+    # Convert to UTC for consistent storage/comparison
+    return cutoff_local.astimezone(timezone.utc)
 
 
 def should_set_approval_deadline(booking) -> bool:

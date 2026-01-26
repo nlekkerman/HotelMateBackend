@@ -12,7 +12,8 @@ from rooms.models import Room, RoomType
 from apps.booking.services.booking_deadlines import (
     get_approval_risk_level,
     is_approval_overdue,
-    get_approval_overdue_minutes
+    get_approval_overdue_minutes,
+    compute_approval_cutoff
 )
 from apps.booking.services.stay_time_rules import (
     compute_checkout_deadline,
@@ -450,6 +451,7 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             
             # Time control fields (model + computed)
             'approval_deadline_at',
+            'approval_cutoff_at',
             'is_approval_due_soon',
             'is_approval_overdue',
             'approval_overdue_minutes',
@@ -544,7 +546,6 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'can_check_out': can_check_out,
             'can_edit_party': can_edit_party,
         }
-    
     def get_survey_response(self, obj):
         """Return full survey response data if available."""
         # Always return survey data if it exists  
@@ -593,6 +594,12 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     def get_overstay_risk_level(self, obj):
         """Get overstay risk level for staff warnings."""
         return get_overstay_risk_level(obj)
+    
+    def get_approval_cutoff_at(self, obj):
+        """Get hotel-configured approval cutoff datetime for frontend clarity."""
+        if obj.status == 'PENDING_APPROVAL':
+            return compute_approval_cutoff(obj)
+        return None
         
     def get_staff_seen_by_display(self, obj):
         """Get display name for staff member who first saw this booking."""

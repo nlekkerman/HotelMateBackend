@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.conf import settings
 
 from hotel.models import RoomBooking
+from apps.booking.services.booking_deadlines import compute_approval_cutoff
 
 
 class Command(BaseCommand):
@@ -39,14 +40,33 @@ class Command(BaseCommand):
         if dry_run:
             self.stdout.write("🔥 DRY RUN MODE - No changes will be made")
         
-        # Find overdue bookings
+        # Find bookings that have passed their hotel-configured approval cutoff
+        # This is the hard expiry rule - SLA deadline is for warnings only
         now = timezone.now()
-        overdue_qs = RoomBooking.objects.filter(
+        
+        # Get all PENDING_APPROVAL bookings and check their cutoff time
+        candidate_bookings = RoomBooking.objects.filter(
             status='PENDING_APPROVAL',
             approval_deadline_at__isnull=False,
-            approval_deadline_at__lt=now,
             expired_at__isnull=True  # Not already expired
-        ).order_by('approval_deadline_at')[:max_bookings]
+        ).order_by('approval_deadline_at')
+        
+        # Filter by hotel-configured approval cutoff
+        overdue_bookings = []
+        for booking in candidate_bookings[:max_bookings * 2]:  # Check more to account for filtering
+            approval_cutoff = compute_approval_cutoff(booking)
+            if now > approval_cutoff:
+                overdue_bookings.append(booking)
+            if len(overdue_bookings) >= max_bookings:
+                break
+        
+        if not overdue_bookings:
+            self.stdout.write(self.style.SUCCESS("✅ No bookings past approval cutoff"))
+            return
+        
+        # Convert to queryset for compatibility with existing code
+        overdue_ids = [b.id for b in overdue_bookings]
+        overdue_qs = RoomBooking.objects.filter(id__in=overdue_ids)
         
         if not overdue_qs.exists():
             self.stdout.write(self.style.SUCCESS("✅ No overdue bookings found"))
@@ -82,10 +102,16 @@ class Command(BaseCommand):
                     
                     # Recompute now inside transaction for precision
                     now = timezone.now()
-                    overdue_minutes = int((now - booking.approval_deadline_at).total_seconds() / 60)
+                    approval_cutoff = compute_approval_cutoff(booking)
+                    cutoff_overdue_minutes = int((now - approval_cutoff).total_seconds() / 60)
                     
-                    self.stdout.write(f"⏰ Expiring booking {booking.booking_id} "
-                                    f"[{booking.hotel.slug}] (overdue by {overdue_minutes} minutes)")
+                    # Show SLA vs cutoff for transparency
+                    sla_overdue_minutes = int((now - booking.approval_deadline_at).total_seconds() / 60) if booking.approval_deadline_at else 0
+                    
+                    self.stdout.write(
+                        f"⏰ Expiring booking {booking.booking_id} [{booking.hotel.slug}] "
+                        f"(SLA overdue: {sla_overdue_minutes}min, cutoff overdue: {cutoff_overdue_minutes}min)"
+                    )
                     
                     if not dry_run:
                         # Process refund if payment was made
@@ -109,7 +135,8 @@ class Command(BaseCommand):
                                         'booking_id': booking.booking_id,
                                         'hotel_slug': booking.hotel.slug,
                                         'auto_expired': 'true',
-                                        'overdue_minutes': str(overdue_minutes)
+                                        'cutoff_overdue_minutes': str(cutoff_overdue_minutes),
+                                        'sla_overdue_minutes': str(sla_overdue_minutes)
                                     }
                                 )
                                 
