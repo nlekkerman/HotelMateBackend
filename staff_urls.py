@@ -65,11 +65,6 @@ STAFF_APPS = [
 # Create router for direct staff endpoints
 staff_hotel_router = DefaultRouter()
 staff_hotel_router.register(
-    r'access-config',
-    StaffAccessConfigViewSet,
-    basename='staff-access-config'
-)
-staff_hotel_router.register(
     r'presets',
     PresetViewSet,
     basename='staff-presets'
@@ -190,6 +185,17 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/settings/',
         HotelSettingsView.as_view(),
         name='staff-hotel-settings'
+    ),
+    
+    # Access Configuration (singleton pattern)
+    path(
+        'hotel/<str:hotel_slug>/access-config/',
+        StaffAccessConfigViewSet.as_view({
+            'get': 'list',
+            'put': 'update', 
+            'patch': 'partial_update'
+        }),
+        name='staff-access-config'
     ),
     
     # Public Page Builder (Super Staff Admin only)
