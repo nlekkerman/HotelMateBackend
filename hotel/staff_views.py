@@ -328,7 +328,7 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
     """
     Staff endpoint to manage hotel access configuration.
     OneToOne relationship - only one config per hotel.
-    Only supports GET/PUT/PATCH (no create/delete).
+    Handles singleton pattern for hotel configuration.
     """
     serializer_class = HotelAccessConfigStaffSerializer
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
@@ -350,8 +350,14 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
         )
         return config
 
+    def list(self, request, *args, **kwargs):
+        """Return the single config object as if it were a list with one item"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+
     def update(self, request, *args, **kwargs):
-        """Handle PUT requests"""
+        """Handle PUT requests on collection URL"""
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -359,7 +365,7 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def partial_update(self, request, *args, **kwargs):
-        """Handle PATCH requests"""
+        """Handle PATCH requests on collection URL"""
         instance = self.get_object()
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
