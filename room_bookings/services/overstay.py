@@ -377,7 +377,7 @@ def _check_room_conflicts(booking: RoomBooking, start_date: date, end_date: date
         assigned_room=booking.assigned_room,
         check_in__lt=end_date,
         check_out__gt=start_date,
-        status__in=['CONFIRMED', 'CHECKED_IN']
+        status__in=['CONFIRMED', 'IN_HOUSE']
     ).exclude(id=booking.id)
     
     conflicts = []

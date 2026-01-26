@@ -41,7 +41,7 @@ class OverstayAcknowledgeView(APIView):
             )
             
             # Validate booking status (must be checked in)
-            if booking.status != 'CHECKED_IN':
+            if booking.status != 'IN_HOUSE':
                 return Response(
                     {'detail': 'Booking not in valid state (not checked-in)'},
                     status=status.HTTP_409_CONFLICT
@@ -100,7 +100,7 @@ class OverstayExtendView(APIView):
             )
             
             # Validate booking status (must be checked in)
-            if booking.status != 'CHECKED_IN':
+            if booking.status != 'IN_HOUSE':
                 return Response(
                     {'detail': 'Booking not in valid state (not checked-in)'},
                     status=status.HTTP_409_CONFLICT
@@ -221,7 +221,7 @@ class OverstayStatusView(APIView):
             now_utc = timezone.now()
             checkout_noon_utc = get_hotel_noon_utc(hotel, booking.check_out)
             is_overstay = (
-                booking.status == 'CHECKED_IN' and
+                booking.status == 'IN_HOUSE' and
                 booking.assigned_room is not None and
                 now_utc >= checkout_noon_utc
             )

@@ -1987,6 +1987,7 @@ class BookingAssignmentView(APIView):
                 booking.assigned_room = room
                 if not booking.checked_in_at:
                     booking.checked_in_at = timezone.now()
+                booking.status = 'IN_HOUSE'  # Update status to IN_HOUSE when checked in
                 booking.save()
                 
                 # Get all booking party members

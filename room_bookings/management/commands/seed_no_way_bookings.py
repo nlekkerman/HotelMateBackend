@@ -28,6 +28,7 @@ from hotel.models import (
 from rooms.models import Room, RoomType
 from staff.models import Staff
 from room_bookings.services.overstay import get_hotel_noon_utc
+from hotel.services.booking import generate_booking_id
 
 
 class Command(BaseCommand):
@@ -35,75 +36,6 @@ class Command(BaseCommand):
     
     # Constant tag for idempotent operations
     SEED_TAG = "[SEED_NO_WAY_HOTEL]"
-    
-    def generate_booking_id(self, hotel):
-        """
-        Generate hotel-specific booking ID with format: BK-{HOTEL_CODE}-{YEAR}-{SEQUENCE}
-        
-        Examples:
-            BK-NOWAY-2026-0001 (for no-way-hotel)
-            BK-KILLARNEY-2026-0042 (for hotel-killarney)
-        
-        Rules:
-            - HOTEL_CODE: From hotel.slug, uppercase, remove hyphens, max 8 chars
-            - YEAR: Current year at creation time
-            - SEQUENCE: Zero-padded, sequential per hotel per year
-        
-        Args:
-            hotel: Hotel instance
-            
-        Returns:
-            str: Unique booking ID for this hotel
-            
-        Note:
-            Future migration should add: UniqueConstraint(fields=["hotel", "booking_id"])
-        """
-        from django.db.models import Max
-        from django.db import transaction
-        
-        # Generate HOTEL_CODE from slug
-        hotel_code = hotel.slug.upper().replace('-', '')[:8]
-        
-        # Get current year
-        year = timezone.now().year
-        
-        # Find next sequence number for this hotel + year
-        # Use select_for_update() for concurrency safety if in transaction
-        try:
-            if transaction.get_connection().in_atomic_block:
-                # We're in a transaction, use locking
-                last_booking = RoomBooking.objects.select_for_update().filter(
-                    hotel=hotel,
-                    booking_id__startswith=f'BK-{hotel_code}-{year}-'
-                ).aggregate(max_id=Max('booking_id'))['max_id']
-            else:
-                # No transaction, regular query
-                last_booking = RoomBooking.objects.filter(
-                    hotel=hotel,
-                    booking_id__startswith=f'BK-{hotel_code}-{year}-'
-                ).aggregate(max_id=Max('booking_id'))['max_id']
-        except Exception:
-            # Fallback if any query issues
-            last_booking = None
-        
-        if last_booking:
-            # Extract sequence number from last booking ID
-            # Format: BK-HOTELCODE-YEAR-NNNN
-            try:
-                parts = last_booking.split('-')
-                if len(parts) >= 4:
-                    last_sequence = int(parts[-1])
-                    next_sequence = last_sequence + 1
-                else:
-                    next_sequence = 1
-            except (ValueError, IndexError):
-                next_sequence = 1
-        else:
-            next_sequence = 1
-        
-        # Generate booking ID with hotel-specific prefix
-        booking_id = f"BK-{hotel_code}-{year}-{next_sequence:04d}"
-        return booking_id
     
     def add_arguments(self, parser):
         parser.add_argument(
@@ -501,8 +433,8 @@ class Command(BaseCommand):
     
     def _create_booking_scenario(self, hotel, room_type, config, staff_member, set_num, available_rooms):
         """Create a single booking scenario with all related objects."""
-        # Generate hotel-specific booking ID using canonical helper
-        booking_id = self.generate_booking_id(hotel)
+        # Generate hotel-specific booking ID using imported function
+        booking_id = generate_booking_id(hotel)
         confirmation_number = f"{config['key']}{set_num:02d}{secrets.randbelow(9999):04d}"
         
         # Base booking fields

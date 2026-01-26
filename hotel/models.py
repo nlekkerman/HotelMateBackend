@@ -618,6 +618,7 @@ class RoomBooking(models.Model):
         ('PENDING_PAYMENT', 'Pending Payment'),
         ('PENDING_APPROVAL', 'Pending Staff Approval'),  # NEW: Authorization pending
         ('CONFIRMED', 'Confirmed'),
+        ('IN_HOUSE', 'In House'),  # NEW: Guest checked in
         ('DECLINED', 'Declined'),  # NEW: Authorization cancelled
         ('CANCELLED', 'Cancelled'),
         ('CANCELLED_DRAFT', 'Cancelled Draft'),  # NEW: Expired unpaid bookings
