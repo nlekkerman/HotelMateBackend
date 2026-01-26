@@ -19,6 +19,7 @@ from hotel.staff_views import (
     HotelPrecheckinConfigView,
     HotelSurveyConfigView,
     # CRUD ViewSets
+    StaffAccessConfigViewSet,
     StaffRoomTypeViewSet,
     PresetViewSet,
     HotelPublicPageViewSet,
@@ -63,6 +64,11 @@ STAFF_APPS = [
 
 # Create router for direct staff endpoints
 staff_hotel_router = DefaultRouter()
+staff_hotel_router.register(
+    r'access-config',
+    StaffAccessConfigViewSet,
+    basename='staff-access-config'
+)
 staff_hotel_router.register(
     r'presets',
     PresetViewSet,
