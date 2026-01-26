@@ -350,6 +350,22 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
         )
         return config
 
+    def update(self, request, *args, **kwargs):
+        """Handle PUT requests"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+    def partial_update(self, request, *args, **kwargs):
+        """Handle PATCH requests"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
 
 # ============================================================================
 # PRESET MANAGEMENT
