@@ -333,7 +333,7 @@ def get_room_suggestions(hotel: Hotel, start_date: date, end_date: date, room_ty
             # Exclude rooms with conflicting bookings
             room_bookings__check_in__lt=end_date,
             room_bookings__check_out__gt=start_date,
-            room_bookings__status__in=['CONFIRMED', 'CHECKED_IN']
+            room_bookings__status__in=['CONFIRMED', 'IN_HOUSE']
         ).distinct()
         
         for room in same_type_rooms[:3]:  # Limit suggestions
@@ -352,7 +352,7 @@ def get_room_suggestions(hotel: Hotel, start_date: date, end_date: date, room_ty
         ).exclude(
             room_bookings__check_in__lt=end_date,
             room_bookings__check_out__gt=start_date,
-            room_bookings__status__in=['CONFIRMED', 'CHECKED_IN']
+            room_bookings__status__in=['CONFIRMED', 'IN_HOUSE']
         ).select_related('room_type').distinct()[:5]
         
         for room in any_rooms:
