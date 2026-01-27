@@ -6,7 +6,7 @@ Bypasses Django test framework to avoid migration issues.
 import os
 import sys
 import django
-from datetime import datetime, date, time
+from datetime import datetime, date, time, timedelta
 import pytz
 
 # Setup Django
@@ -15,12 +15,13 @@ django.setup()
 
 from hotel.models import Hotel, RoomBooking, OverstayIncident
 from rooms.models import Room, RoomType  
-from room_bookings.services.overstay import detect_overstays, get_hotel_noon_utc
+# Add missing imports
+from room_bookings.services.overstay import detect_overstays, compute_checkout_deadline_at, compute_checkout_deadline_at
 
 
-def test_noon_detection():
-    """Test basic noon-based overstay detection."""
-    print("🧪 Testing noon-based overstay detection...")
+def test_configurable_checkout_detection():
+    """Test basic configurable checkout overstay detection."""
+    print("🧪 Testing configurable checkout overstay detection...")
     
     try:
         # Get or create test hotel
@@ -37,20 +38,35 @@ def test_noon_detection():
         tz_obj = hotel.timezone_obj
         print(f"✓ Timezone object: {tz_obj}")
         
-        # Test noon calculation
+        # Test checkout deadline calculation
         test_date = date(2025, 1, 15)
-        noon_utc = get_hotel_noon_utc(hotel, test_date)
-        print(f"✓ Noon UTC for {test_date}: {noon_utc}")
         
-        # Test detection before noon (should find 0 overstays)
-        before_noon = noon_utc.replace(hour=11)
-        count = detect_overstays(hotel, before_noon)
-        print(f"✓ Before noon detection: {count} overstays found")
+        # Create a test booking for deadline calculation
+        test_booking = RoomBooking.objects.create(
+            hotel=hotel,
+            booking_id='TEST-DEADLINE',
+            check_in=test_date - timedelta(days=1),
+            check_out=test_date,
+            status='CONFIRMED',
+            booker_first_name='Test',
+            booker_last_name='User',
+            booker_email='test@example.com',
+            total_amount=100.00
+        )
         
-        # Test detection at noon (actual detection time)
-        at_noon = noon_utc
-        count = detect_overstays(hotel, at_noon)
-        print(f"✓ At noon detection: {count} overstays found")
+        deadline_utc = compute_checkout_deadline_at(test_booking)
+        print(f"✓ Checkout deadline for {test_date}: {deadline_utc}")
+        
+        # Test detection before deadline (should find 0 overstays)
+        before_deadline = deadline_utc - timedelta(hours=1)
+        count = detect_overstays(hotel, before_deadline)
+        print(f"✓ Before deadline detection: {count} overstays found")
+        
+        # Test detection at configured checkout deadline
+        from room_bookings.services.overstay import compute_checkout_deadline_at
+        at_deadline = compute_checkout_deadline_at(booking)
+        count = detect_overstays(hotel, at_deadline)
+        print(f"✓ At checkout deadline detection: {count} overstays found")
         
         print("✅ All basic tests passed!")
         return True
@@ -123,14 +139,14 @@ def test_with_booking():
         print(f"  Checked in: {booking.checked_in_at}")
         print(f"  Checked out: {booking.checked_out_at}")
         
-        # Now test detection at noon today
-        today_noon = get_hotel_noon_utc(hotel, date.today())
-        print(f"✓ Testing detection at: {today_noon}")
+        # Now test detection after checkout deadline today
+        checkout_deadline = compute_checkout_deadline_at(booking)
+        print(f"✓ Testing detection at: {checkout_deadline}")
         
         # Clear any existing incidents first
         OverstayIncident.objects.filter(booking=booking).delete()
         
-        count = detect_overstays(hotel, today_noon)
+        count = detect_overstays(hotel, checkout_deadline + timedelta(minutes=30))
         print(f"✓ Overstays detected: {count}")
         
         # Check if incident was created
@@ -145,7 +161,9 @@ def test_with_booking():
             print(f"    Severity: {incident.severity}")
         
         # Test idempotency - running again should not create duplicates
-        count2 = detect_overstays(hotel, today_noon)
+        # Use configured deadline instead of hardcoded noon
+        checkout_deadline = compute_checkout_deadline_at(booking)
+        count2 = detect_overstays(hotel, checkout_deadline)
         incidents_after = OverstayIncident.objects.filter(booking=booking).count()
         print(f"✓ Second run detected: {count2} (should be 0)")
         print(f"✓ Total incidents after: {incidents_after} (should be same)")
@@ -165,13 +183,13 @@ def main():
     print("🚀 Starting overstay detection tests...\n")
     
     success = True
-    success &= test_noon_detection()
+    success &= test_configurable_checkout_detection()
     success &= test_with_booking()
     
     if success:
         print("\n🎉 All tests completed successfully!")
         print("\n📋 Summary:")
-        print("  ✅ Noon-based detection working")
+        print("  ✅ Configurable checkout detection working")
         print("  ✅ Timezone handling working") 
         print("  ✅ OverstayIncident creation working")
         print("  ✅ Idempotency working (no duplicates)")

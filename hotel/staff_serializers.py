@@ -26,6 +26,20 @@ class HotelAccessConfigStaffSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Day offset must be 0 (same day) or 1 (next day)")
         return value
     
+    def validate_late_checkout_grace_minutes(self, value):
+        """Validate grace minutes is non-negative and within sane max"""
+        if value < 0:
+            raise serializers.ValidationError("Grace minutes cannot be negative")
+        if value > 720:  # 12 hours max
+            raise serializers.ValidationError("Grace minutes cannot exceed 720 (12 hours)")
+        return value
+    
+    def validate_standard_checkout_time(self, value):
+        """Validate checkout time is a valid time"""
+        if not value:
+            raise serializers.ValidationError("Checkout time is required")
+        return value
+    
     class Meta:
         model = HotelAccessConfig
         fields = [

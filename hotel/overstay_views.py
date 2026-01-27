@@ -15,7 +15,7 @@ from rest_framework.permissions import IsAuthenticated
 from hotel.models import Hotel, RoomBooking, OverstayIncident
 from room_bookings.services.overstay import (
     acknowledge_overstay, extend_overstay, ConflictError,
-    get_hotel_noon_utc
+    compute_checkout_deadline_at
 )
 
 logger = logging.getLogger(__name__)
@@ -202,38 +202,39 @@ class OverstayStatusView(APIView):
     Retrieve current overstay status for booking.
     """
     permission_classes = [IsAuthenticated]  # TODO: Add HasOverstayPermissions
-    
+
     def get(self, request, hotel_slug, booking_id):
         try:
             # Get hotel
             hotel = Hotel.objects.get(slug=hotel_slug)
-            
+
             # Get booking by booking_id (reference string, not pk)
             booking = RoomBooking.objects.get(
                 hotel=hotel,
                 booking_id=booking_id
             )
-            
+
             # Check if booking has an overstay incident
             incident = OverstayIncident.objects.filter(booking=booking).first()
-            
+
             # Calculate if currently overstay
             now_utc = timezone.now()
-            checkout_noon_utc = get_hotel_noon_utc(hotel, booking.check_out)
+            checkout_deadline_utc = compute_checkout_deadline_at(booking)
             is_overstay = (
                 booking.status == 'IN_HOUSE' and
                 booking.assigned_room is not None and
-                now_utc >= checkout_noon_utc
+                now_utc >= checkout_deadline_utc
             )
-            
+
             result = {
                 'booking_id': booking.booking_id,
                 'is_overstay': is_overstay
             }
-            
+
             if incident:
-                # Calculate hours overdue
-                hours_overdue = max(0, (now_utc - checkout_noon_utc).total_seconds() / 3600)
+                # Calculate hours overdue using configured checkout deadline
+                checkout_deadline_utc = compute_checkout_deadline_at(booking)
+                hours_overdue = max(0, (now_utc - checkout_deadline_utc).total_seconds() / 3600)
                 
                 result['overstay'] = {
                     'status': incident.status,

@@ -1,7 +1,7 @@
 """
-Detect overstay incidents using noon-based rule management command.
+Detect overstay incidents using configurable checkout deadline management command.
 
-This command finds IN_HOUSE bookings that have passed noon on their checkout date 
+This command finds IN_HOUSE bookings that have passed their checkout deadline 
 and creates OverstayIncident records for staff attention.
 
 Run as a scheduled job (e.g., every 15-30 minutes) to monitor overstay situations.
@@ -14,7 +14,7 @@ from room_bookings.services.overstay import detect_overstays
 
 
 class Command(BaseCommand):
-    help = 'Detect overstay incidents using noon-based rule'
+    help = 'Detect overstay incidents using configurable checkout deadline'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -26,7 +26,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         
-        self.stdout.write("🔍 Detecting overstay incidents using noon rule...")
+        self.stdout.write("🔍 Detecting overstay incidents using configurable checkout deadline...")
         if dry_run:
             self.stdout.write("🔥 DRY RUN MODE - No changes will be made")
         
@@ -101,7 +101,7 @@ class Command(BaseCommand):
                 
     def _count_potential_overstays(self, hotel, now_utc):
         """Count bookings that would trigger overstay incidents (for dry run)."""
-        from room_bookings.services.overstay import get_hotel_noon_utc
+        from room_bookings.services.overstay import compute_checkout_deadline_at
         from hotel.models import RoomBooking, OverstayIncident
         
         count = 0
@@ -118,10 +118,10 @@ class Command(BaseCommand):
         ).select_related('assigned_room', 'hotel')
         
         for booking in in_house_bookings:
-            # Check if noon has passed in hotel timezone for checkout date
-            checkout_noon_utc = get_hotel_noon_utc(hotel, booking.check_out)
+            # Check if checkout deadline has passed using hotel configuration
+            checkout_deadline_utc = compute_checkout_deadline_at(booking)
             
-            if now_utc >= checkout_noon_utc:
+            if now_utc >= checkout_deadline_utc:
                 # Check if already has active incident
                 existing_incident = OverstayIncident.objects.filter(
                     booking=booking,

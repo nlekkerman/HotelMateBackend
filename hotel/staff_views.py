@@ -362,6 +362,34 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance, data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        
+        # Emit realtime event for access config update
+        try:
+            staff = request.user.staff_profile
+            hotel_slug = staff.hotel.slug
+            
+            # Send hotel-wide staff notification about config change
+            from notifications.pusher_utils import pusher_client
+            staff_channel = f"{hotel_slug}.staff-menu-management"
+            
+            notification_data = {
+                'category': 'hotel_config',
+                'event_type': 'access_config_updated',
+                'hotel_slug': hotel_slug,
+                'payload': {
+                    'standard_checkout_time': serializer.data.get('standard_checkout_time'),
+                    'late_checkout_grace_minutes': serializer.data.get('late_checkout_grace_minutes'),
+                    'approval_cutoff_time': serializer.data.get('approval_cutoff_time'),
+                    'approval_cutoff_day_offset': serializer.data.get('approval_cutoff_day_offset'),
+                }
+            }
+            
+            pusher_client.trigger(staff_channel, "access-config-updated", notification_data)
+            logger.info(f"✅ Access config update broadcasted to {staff_channel}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to broadcast access config update: {e}")
+        
         return Response(serializer.data)
 
     def partial_update(self, request, *args, **kwargs):
@@ -370,6 +398,34 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
+        
+        # Emit realtime event for access config update
+        try:
+            staff = request.user.staff_profile
+            hotel_slug = staff.hotel.slug
+            
+            # Send hotel-wide staff notification about config change
+            from notifications.pusher_utils import pusher_client
+            staff_channel = f"{hotel_slug}.staff-menu-management"
+            
+            notification_data = {
+                'category': 'hotel_config',
+                'event_type': 'access_config_updated',
+                'hotel_slug': hotel_slug,
+                'payload': {
+                    'standard_checkout_time': serializer.data.get('standard_checkout_time'),
+                    'late_checkout_grace_minutes': serializer.data.get('late_checkout_grace_minutes'),
+                    'approval_cutoff_time': serializer.data.get('approval_cutoff_time'),
+                    'approval_cutoff_day_offset': serializer.data.get('approval_cutoff_day_offset'),
+                }
+            }
+            
+            pusher_client.trigger(staff_channel, "access-config-updated", notification_data)
+            logger.info(f"✅ Access config update broadcasted to {staff_channel}")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to broadcast access config update: {e}")
+        
         return Response(serializer.data)
 
 

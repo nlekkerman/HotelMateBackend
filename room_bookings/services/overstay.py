@@ -14,7 +14,7 @@ from django.conf import settings
 import pytz
 import stripe
 
-from hotel.models import Hotel, RoomBooking, OverstayIncident, BookingExtension
+from hotel.models import Hotel, RoomBooking, OverstayIncident, BookingExtension, HotelAccessConfig
 from rooms.models import Room
 from rooms.models import Room, RoomType
 from notifications.pusher_utils import pusher_client
@@ -25,39 +25,54 @@ logger = logging.getLogger(__name__)
 stripe.api_key = getattr(settings, 'STRIPE_SECRET_KEY', '')
 
 
-def get_hotel_noon_utc(hotel: Hotel, date_local: date) -> datetime:
+def compute_checkout_deadline_at(booking) -> datetime:
     """
-    Convert noon local hotel time to UTC for given date.
-    Handles DST transitions properly.
+    Compute the TRUE checkout deadline for a booking using hotel configuration.
+    
+    ❗ INVARIANT: Checkout/overstay logic must NEVER use hardcoded times (12:00/noon).
+    ❗ All checkout deadline calculations MUST go through this function.
     
     Args:
-        hotel: Hotel instance with timezone field
-        date_local: Local date for the hotel
+        booking: RoomBooking instance with check_out date and hotel
         
     Returns:
-        timezone-aware UTC datetime representing noon at hotel
+        timezone-aware UTC datetime representing the configured checkout deadline
+        (WITHOUT grace period - grace only affects risk level calculations)
     """
+    hotel = booking.hotel
+    
+    # Get checkout time from hotel access config
+    try:
+        access_config = hotel.access_config
+        checkout_time = access_config.standard_checkout_time
+    except (AttributeError, HotelAccessConfig.DoesNotExist):
+        # Fallback to default 11:00 AM if no config
+        from datetime import time
+        checkout_time = time(11, 0)
+        logger.warning(f"No access config for hotel {hotel.id}, using default 11:00 AM checkout")
+    
+    # Get hotel timezone
     try:
         hotel_tz = pytz.timezone(hotel.timezone)
     except pytz.UnknownTimeZoneError:
         logger.warning(f"Unknown timezone {hotel.timezone} for hotel {hotel.id}, using Europe/Dublin")
         hotel_tz = pytz.timezone('Europe/Dublin')
     
-    # Create naive datetime for noon local time
-    noon_naive = datetime.combine(date_local, datetime.min.time().replace(hour=12))
+    # Create naive datetime for checkout time on checkout date
+    checkout_naive = datetime.combine(booking.check_out, checkout_time)
     
     # Localize to hotel timezone (handles DST)
-    noon_local = hotel_tz.localize(noon_naive)
+    checkout_local = hotel_tz.localize(checkout_naive)
     
     # Convert to UTC
-    noon_utc = noon_local.astimezone(pytz.UTC)
+    checkout_utc = checkout_local.astimezone(pytz.UTC)
     
-    return noon_utc
+    return checkout_utc
 
 
 def detect_overstays(hotel: Hotel, now_utc: datetime) -> int:
     """
-    Detect and flag new overstays at noon hotel-local time.
+    Detect and flag new overstays using hotel's configured checkout deadline.
     Only creates incidents for bookings not already flagged.
     
     Args:
@@ -96,10 +111,10 @@ def detect_overstays(hotel: Hotel, now_utc: datetime) -> int:
                 if not locked_booking.checked_in_at or locked_booking.checked_out_at:
                     continue
                 
-                # Check if noon has passed in hotel timezone for checkout date
-                checkout_noon_utc = get_hotel_noon_utc(hotel, locked_booking.check_out)
+                # Check if checkout deadline has passed using hotel configuration
+                checkout_deadline_utc = compute_checkout_deadline_at(locked_booking)
                 
-                if now_utc >= checkout_noon_utc:
+                if now_utc >= checkout_deadline_utc:
                     # Check if already has active incident
                     existing_incident = OverstayIncident.objects.filter(
                         booking=locked_booking,
@@ -112,7 +127,7 @@ def detect_overstays(hotel: Hotel, now_utc: datetime) -> int:
                             hotel=hotel,
                             booking=locked_booking,
                             expected_checkout_date=locked_booking.check_out,
-                            detected_at=checkout_noon_utc,  # FIXED: Use checkout noon, not current time
+                            detected_at=now_utc,
                             status='OPEN',
                             severity='MEDIUM',
                             meta={
@@ -458,13 +473,13 @@ def _resolve_overstay_if_applicable(booking: RoomBooking, staff_user, now_utc: d
     if not incident:
         return
     
-    # Check if booking is still overstay under noon rule
-    hotel_noon_utc = get_hotel_noon_utc(booking.hotel, booking.check_out)
+    # Check if booking is still overstay under configured checkout deadline
+    checkout_deadline_utc = compute_checkout_deadline_at(booking)
     
-    # Resolve if new checkout date is in future OR today but before noon
+    # Resolve if new checkout date is in future OR today but before checkout deadline
     should_resolve = (
         booking.check_out > now_utc.date() or
-        (booking.check_out == now_utc.date() and now_utc < hotel_noon_utc)
+        (booking.check_out == now_utc.date() and now_utc < checkout_deadline_utc)
     )
     
     if should_resolve:

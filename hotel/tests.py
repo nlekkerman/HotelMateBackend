@@ -10,11 +10,11 @@ from django.io import StringIO
 
 from hotel.models import Hotel, RoomBooking, OverstayIncident
 from rooms.models import Room, RoomType
-from room_bookings.services.overstay import detect_overstays, get_hotel_noon_utc
+from room_bookings.services.overstay import detect_overstays, compute_checkout_deadline_at
 
 
 class OverstayDetectionTestCase(TestCase):
-    """Tests for noon-based overstay detection system."""
+    """Tests for configurable checkout overstay detection system."""
     
     def setUp(self):
         """Set up test data."""
@@ -71,11 +71,11 @@ class OverstayDetectionTestCase(TestCase):
         booking.save()
         return booking
 
-    def test_detect_overstays_before_noon(self):
-        """Test that no incident is created before noon on checkout date."""
+    def test_detect_overstays_before_deadline(self):
+        """Test that no incident is created before configured checkout deadline."""
         booking = self._create_in_house_booking()
         
-        # Set time to 10:00 AM on checkout date (before noon)
+        # Set time to 10:00 AM on checkout date (before default 11:00 AM)
         test_time = datetime.combine(self.checkout_date, time(10, 0))
         test_time_utc = self.hotel.timezone_obj.localize(test_time).astimezone(pytz.UTC)
         
@@ -84,12 +84,12 @@ class OverstayDetectionTestCase(TestCase):
         self.assertEqual(incidents_created, 0)
         self.assertEqual(OverstayIncident.objects.count(), 0)
     
-    def test_detect_overstays_at_noon(self):
-        """Test that incident is created exactly at noon on checkout date."""
+    def test_detect_overstays_at_deadline(self):
+        """Test that incident is created exactly at configured checkout deadline."""
         booking = self._create_in_house_booking()
         
-        # Set time to exactly 12:00 PM (noon) on checkout date
-        test_time = datetime.combine(self.checkout_date, time(12, 0))
+        # Set time to exactly the default checkout time (11:00 AM)
+        test_time = datetime.combine(self.checkout_date, time(11, 0))
         test_time_utc = self.hotel.timezone_obj.localize(test_time).astimezone(pytz.UTC)
         
         incidents_created = detect_overstays(self.hotel, test_time_utc)
@@ -103,11 +103,11 @@ class OverstayDetectionTestCase(TestCase):
         self.assertEqual(incident.status, 'OPEN')
         self.assertEqual(incident.severity, 'MEDIUM')
     
-    def test_detect_overstays_after_noon(self):
-        """Test that incident is created after noon on checkout date."""
+    def test_detect_overstays_after_deadline(self):
+        """Test that incident is created after configured checkout deadline."""
         booking = self._create_in_house_booking()
         
-        # Set time to 2:00 PM on checkout date (after noon)
+        # Set time to 2:00 PM on checkout date (after default 11:00 AM)
         test_time = datetime.combine(self.checkout_date, time(14, 0))
         test_time_utc = self.hotel.timezone_obj.localize(test_time).astimezone(pytz.UTC)
         
@@ -123,7 +123,7 @@ class OverstayDetectionTestCase(TestCase):
         """Test that completed (checked out) bookings are ignored."""
         completed_booking = self._create_completed_booking()
         
-        # Set time to after noon on checkout date
+        # Set time to after configured checkout deadline
         test_time = datetime.combine(self.checkout_date, time(14, 0))
         test_time_utc = self.hotel.timezone_obj.localize(test_time).astimezone(pytz.UTC)
         
@@ -136,7 +136,7 @@ class OverstayDetectionTestCase(TestCase):
         """Test that running detection twice doesn't create duplicates."""
         booking = self._create_in_house_booking()
         
-        # Set time to after noon on checkout date
+        # Set time to after configured checkout deadline
         test_time = datetime.combine(self.checkout_date, time(14, 0))
         test_time_utc = self.hotel.timezone_obj.localize(test_time).astimezone(pytz.UTC)
         
@@ -165,7 +165,7 @@ class OverstayDetectionTestCase(TestCase):
             severity='MEDIUM'
         )
         
-        # Set time to after noon on checkout date
+        # Set time to after configured checkout deadline
         test_time = datetime.combine(self.checkout_date, time(14, 0))
         test_time_utc = self.hotel.timezone_obj.localize(test_time).astimezone(pytz.UTC)
         
@@ -180,7 +180,7 @@ class OverstayDetectionTestCase(TestCase):
         booking2 = self._create_in_house_booking(date(2025, 1, 14))  # 1 day overdue
         booking3 = self._create_in_house_booking(date(2025, 1, 16))  # Future checkout
         
-        # Set time to afternoon on Jan 15
+        # Set time to afternoon on Jan 15 (after checkout deadline)
         test_time = datetime.combine(date(2025, 1, 15), time(15, 0))
         test_time_utc = self.hotel.timezone_obj.localize(test_time).astimezone(pytz.UTC)
         
@@ -189,25 +189,65 @@ class OverstayDetectionTestCase(TestCase):
         self.assertEqual(incidents_created, 2)  # booking1 and booking2 only
         self.assertEqual(OverstayIncident.objects.count(), 2)
     
-    def test_get_hotel_noon_utc_winter_time(self):
-        """Test noon UTC calculation during winter time (no DST)."""
-        # January 15, 2025 - Dublin is UTC+0 (no DST)
+    def test_compute_checkout_deadline_winter_time(self):
+        """Test configurable checkout deadline during winter time (no DST)."""
+        # Create access config with 10:30 AM checkout
+        from hotel.models import HotelAccessConfig
+        from datetime import time
+        config = HotelAccessConfig.objects.create(
+            hotel=self.hotel,
+            standard_checkout_time=time(10, 30)
+        )
+        
+        # Create test booking
         winter_date = date(2025, 1, 15)
+        booking = RoomBooking.objects.create(
+            hotel=self.hotel,
+            booking_id='TEST-WINTER',
+            check_in=winter_date - timedelta(days=1),
+            check_out=winter_date,
+            status='CONFIRMED',
+            booker_first_name='Test',
+            booker_last_name='User',
+            booker_email='test@example.com',
+            total_amount=100.00
+        )
         
-        noon_utc = get_hotel_noon_utc(self.hotel, winter_date)
-        expected_utc = datetime(2025, 1, 15, 12, 0, 0, tzinfo=pytz.UTC)
+        deadline_utc = compute_checkout_deadline_at(booking)
+        # 10:30 AM Dublin time in winter = 10:30 UTC (no DST)
+        expected_utc = datetime(2025, 1, 15, 10, 30, 0, tzinfo=pytz.UTC)
         
-        self.assertEqual(noon_utc, expected_utc)
+        self.assertEqual(deadline_utc, expected_utc)
     
-    def test_get_hotel_noon_utc_summer_time(self):
-        """Test noon UTC calculation during summer time (DST active)."""
-        # July 15, 2025 - Dublin is UTC+1 (DST active)
+    def test_compute_checkout_deadline_summer_time(self):
+        """Test configurable checkout deadline during summer time (DST active)."""
+        # Create access config with 10:30 AM checkout
+        from hotel.models import HotelAccessConfig
+        from datetime import time
+        config = HotelAccessConfig.objects.create(
+            hotel=self.hotel,
+            standard_checkout_time=time(10, 30)
+        )
+        
+        # Create test booking
         summer_date = date(2025, 7, 15)
+        booking = RoomBooking.objects.create(
+            hotel=self.hotel,
+            booking_id='TEST-SUMMER',
+            check_in=summer_date - timedelta(days=1),
+            check_out=summer_date,
+            status='CONFIRMED',
+            booker_first_name='Test',
+            booker_last_name='User',
+            booker_email='test@example.com',
+            total_amount=100.00
+        )
         
-        noon_utc = get_hotel_noon_utc(self.hotel, summer_date)
-        expected_utc = datetime(2025, 7, 15, 11, 0, 0, tzinfo=pytz.UTC)  # 12:00 Dublin = 11:00 UTC
+        deadline_utc = compute_checkout_deadline_at(booking)
+        # 10:30 AM Dublin time in summer = 09:30 UTC (DST active, UTC+1)
+        expected_utc = datetime(2025, 7, 15, 9, 30, 0, tzinfo=pytz.UTC)
         
-        self.assertEqual(noon_utc, expected_utc)
+        self.assertEqual(deadline_utc, expected_utc)
 
 
 class OverstayManagementCommandTestCase(TestCase):

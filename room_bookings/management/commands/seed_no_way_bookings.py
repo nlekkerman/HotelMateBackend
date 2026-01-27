@@ -16,6 +16,7 @@ import hashlib
 import secrets
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+import pytz
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -27,7 +28,7 @@ from hotel.models import (
 )
 from rooms.models import Room, RoomType
 from staff.models import Staff
-from room_bookings.services.overstay import get_hotel_noon_utc
+from room_bookings.services.overstay import compute_checkout_deadline_at
 from hotel.services.booking import generate_booking_id
 
 
@@ -242,8 +243,13 @@ class Command(BaseCommand):
             return local_dt.astimezone(timezone.utc)
         
         def hotel_noon_utc(date_obj):
-            """Get noon UTC for given date in hotel timezone."""
-            return get_hotel_noon_utc(hotel, date_obj)
+            """Get noon UTC for given date in hotel timezone (seed data only)."""
+            # For seed data, we still use noon as detection timestamp
+            # This is just for historical test data creation
+            tz = pytz.timezone(hotel.timezone)
+            naive_dt = datetime.combine(date_obj, time(12, 0))
+            local_dt = tz.localize(naive_dt)
+            return local_dt.astimezone(timezone.utc)
         
         # Get staff member for attributions (optional)
         staff_member = Staff.objects.filter(hotel=hotel).first()
@@ -607,9 +613,12 @@ class Command(BaseCommand):
         """Create OverstayIncident with specified status."""
         incident_status = config['create_overstay']
         
-        # Calculate detected_at as noon UTC on the day AFTER checkout (the detection day)
+        # Calculate detected_at as noon UTC on the day AFTER checkout (for seed data only)
         detection_date = booking.check_out + timedelta(days=1)
-        detected_at = get_hotel_noon_utc(booking.hotel, detection_date)
+        # For seed data, use noon as historical detection timestamp
+        tz = pytz.timezone(booking.hotel.timezone)
+        noon_naive = datetime.combine(detection_date, time(12, 0))
+        detected_at = tz.localize(noon_naive).astimezone(timezone.utc)
         
         incident_data = {
             'hotel': booking.hotel,

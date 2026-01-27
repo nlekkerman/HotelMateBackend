@@ -16,11 +16,11 @@ from apps.booking.services.booking_deadlines import (
     compute_approval_cutoff
 )
 from apps.booking.services.stay_time_rules import (
-    compute_checkout_deadline,
     is_overstay,
     get_overstay_minutes,
     get_overstay_risk_level
 )
+from room_bookings.services.overstay import compute_checkout_deadline_at
 
 
 class BookingPartyGuestSerializer(serializers.ModelSerializer):
@@ -339,9 +339,9 @@ class StaffRoomBookingListSerializer(serializers.ModelSerializer):
         return get_approval_risk_level(obj)
     
     def get_checkout_deadline_at(self, obj):
-        """Get checkout deadline with grace period."""
+        """Get checkout deadline using hotel configuration."""
         try:
-            return compute_checkout_deadline(obj)
+            return compute_checkout_deadline_at(obj)
         except Exception:
             return None
     
@@ -577,9 +577,9 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
         return get_approval_risk_level(obj)
     
     def get_checkout_deadline_at(self, obj):
-        """Get checkout deadline with grace period."""
+        """Get checkout deadline using hotel configuration."""
         try:
-            return compute_checkout_deadline(obj)
+            return compute_checkout_deadline_at(obj)
         except Exception:
             return None
     
