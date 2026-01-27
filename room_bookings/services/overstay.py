@@ -167,22 +167,30 @@ def acknowledge_overstay(hotel: Hotel, booking: RoomBooking, staff_user, note: s
     """
     now_utc = timezone.now()
     
-    # Get or create incident
-    incident, created = OverstayIncident.objects.get_or_create(
+    # Get active incident or create new one
+    # Only target OPEN incidents for acknowledgment (not RESOLVED/DISMISSED)
+    incident = OverstayIncident.objects.filter(
         booking=booking,
-        defaults={
-            'hotel': hotel,
-            'expected_checkout_date': booking.check_out,
-            'detected_at': now_utc,
-            'status': 'OPEN',
-            'severity': 'MEDIUM',
-            'meta': {
+        status='OPEN'
+    ).first()
+    
+    created = False
+    if not incident:
+        # Create new incident if no OPEN incident exists
+        incident = OverstayIncident.objects.create(
+            hotel=hotel,
+            booking=booking,
+            expected_checkout_date=booking.check_out,
+            detected_at=now_utc,
+            status='OPEN',
+            severity='MEDIUM',
+            meta={
                 'room_number': booking.assigned_room.room_number if booking.assigned_room else None,
                 'guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
                 'room_type': booking.room_type.name if booking.room_type else None
             }
-        }
-    )
+        )
+        created = True
     
     # Update acknowledgment or dismissal
     if dismiss:
