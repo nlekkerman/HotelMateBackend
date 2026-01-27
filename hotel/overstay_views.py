@@ -214,26 +214,32 @@ class OverstayStatusView(APIView):
                 booking_id=booking_id
             )
 
-            # Check if booking has an overstay incident
-            incident = OverstayIncident.objects.filter(booking=booking).first()
-
-            # Calculate if currently overstay
+            # Calculate current overstay status (compute once)
             now_utc = timezone.now()
             checkout_deadline_utc = compute_checkout_deadline_at(booking)
+            
+            # Check if booking has an active overstay incident (ordered by newest first)
+            incident = (OverstayIncident.objects
+                .filter(booking=booking, status__in=['OPEN', 'ACKED'])
+                .order_by('-detected_at', '-id')
+                .first()
+            )
+
+            # Calculate if currently overstay (separate "clock fact")
             is_overstay = (
                 booking.status == 'IN_HOUSE' and
-                booking.assigned_room is not None and
+                booking.assigned_room_id is not None and
                 now_utc >= checkout_deadline_utc
             )
 
             result = {
                 'booking_id': booking.booking_id,
-                'is_overstay': is_overstay
+                'is_overstay': is_overstay,
+                'incident_state': 'ACTIVE' if incident else 'MISSING'
             }
 
             if incident:
-                # Calculate hours overdue using configured checkout deadline
-                checkout_deadline_utc = compute_checkout_deadline_at(booking)
+                # Calculate hours overdue using pre-computed deadline
                 hours_overdue = max(0, (now_utc - checkout_deadline_utc).total_seconds() / 3600)
                 
                 result['overstay'] = {
