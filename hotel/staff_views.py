@@ -370,7 +370,7 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
             
             # Send hotel-wide staff notification about config change
             from notifications.pusher_utils import pusher_client
-            staff_channel = f"{hotel_slug}.staff-menu-management"
+            staff_channel = f"{hotel_slug}.staff"
             
             notification_data = {
                 'category': 'hotel_config',
@@ -406,7 +406,7 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
             
             # Send hotel-wide staff notification about config change
             from notifications.pusher_utils import pusher_client
-            staff_channel = f"{hotel_slug}.staff-menu-management"
+            staff_channel = f"{hotel_slug}.staff"
             
             notification_data = {
                 'category': 'hotel_config',

@@ -51,12 +51,8 @@ def compute_checkout_deadline_at(booking) -> datetime:
         checkout_time = time(11, 0)
         logger.warning(f"No access config for hotel {hotel.id}, using default 11:00 AM checkout")
     
-    # Get hotel timezone
-    try:
-        hotel_tz = pytz.timezone(hotel.timezone)
-    except pytz.UnknownTimeZoneError:
-        logger.warning(f"Unknown timezone {hotel.timezone} for hotel {hotel.id}, using Europe/Dublin")
-        hotel_tz = pytz.timezone('Europe/Dublin')
+    # Use hotel's timezone object (single source of truth)
+    hotel_tz = hotel.timezone_obj
     
     # Create naive datetime for checkout time on checkout date
     checkout_naive = datetime.combine(booking.check_out, checkout_time)
@@ -77,7 +73,7 @@ def detect_overstays(hotel: Hotel, now_utc: datetime) -> int:
     
     Args:
         hotel: Hotel instance
-        now_utc: Current UTC datetime
+        now_utc: Current UTC datetime for detection timestamp
         
     Returns:
         Number of new overstays detected and flagged

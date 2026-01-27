@@ -404,6 +404,7 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     is_approval_overdue = serializers.SerializerMethodField()
     approval_overdue_minutes = serializers.SerializerMethodField()
     approval_risk_level = serializers.SerializerMethodField()
+    approval_cutoff_at = serializers.SerializerMethodField()
     
     checkout_deadline_at = serializers.SerializerMethodField()
     is_overstay = serializers.SerializerMethodField()
