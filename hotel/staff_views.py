@@ -1184,7 +1184,7 @@ class StaffBookingsListView(APIView):
         ).select_related(
             'hotel', 'room_type', 'assigned_room', 'staff_seen_by'
         ).prefetch_related(
-            'booking_guests'  # If you have related party members
+            'party'  # BookingGuest objects (party members)
         )
         
         # Apply comprehensive filtering using FilterSet

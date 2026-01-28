@@ -147,10 +147,8 @@ class StaffRoomBookingFilter(django_filters.FilterSet):
         help_text="Filter by currency code"
     )
     
-    payment_status = django_filters.CharFilter(
-        field_name='payment_status',
-        help_text="Filter by payment status"
-    )
+    # payment_status removed - field doesn't exist on RoomBooking model
+    # Use 'status' field instead for booking status filtering
     
     # H) STAFF WORKFLOW
     seen = django_filters.BooleanFilter(
@@ -417,7 +415,7 @@ class StaffRoomBookingFilter(django_filters.FilterSet):
         """
         counts = {}
         
-        bucket_choices = [choice[0] for choice in self.filters['bucket'].extra['choices']]
+        bucket_choices = [choice[0] for choice in self.filters['bucket'].field.choices]
         
         for bucket in bucket_choices:
             # Create a temporary filter instance to get bucket-filtered queryset
