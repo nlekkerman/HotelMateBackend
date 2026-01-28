@@ -74,6 +74,8 @@ class OverstayAcknowledgeView(APIView):
             )
         except Exception as e:
             logger.error(f"Error acknowledging overstay: {e}")
+            logger.error(f"Booking: {booking_id}, Hotel: {hotel_slug}")
+            logger.error(f"Request data keys: {getattr(request, 'data', {}).keys() if hasattr(request, 'data') else 'No data attr'}")
             return Response(
                 {'detail': 'Internal server error'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

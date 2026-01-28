@@ -167,16 +167,16 @@ def acknowledge_overstay(hotel: Hotel, booking: RoomBooking, staff_user, note: s
     """
     now_utc = timezone.now()
     
-    # Get active incident or create new one
-    # Only target OPEN incidents for acknowledgment (not RESOLVED/DISMISSED)
+    # Get active incident (OPEN or ACKED) or create new one
+    # The DB constraint "unique_active_overstay_per_booking" prevents multiple active incidents
     incident = OverstayIncident.objects.filter(
         booking=booking,
-        status='OPEN'
+        status__in=['OPEN', 'ACKED']  # Both are considered "active"
     ).first()
     
     created = False
     if not incident:
-        # Create new incident if no OPEN incident exists
+        # Create new incident if no active incident exists
         incident = OverstayIncident.objects.create(
             hotel=hotel,
             booking=booking,
@@ -496,8 +496,12 @@ def _resolve_overstay_if_applicable(booking: RoomBooking, staff_user, now_utc: d
 
 def _build_extension_response(extension: BookingExtension, booking: RoomBooking) -> Dict:
     """Build standardized extension response."""
-    # Get overstay incident if exists
-    incident = OverstayIncident.objects.filter(booking=booking).first()
+    # Get latest active overstay incident if exists (for response building)
+    incident = (OverstayIncident.objects
+        .filter(booking=booking, status__in=['OPEN', 'ACKED'])
+        .order_by('-detected_at', '-id')
+        .first()
+    )
     overstay_data = None
     
     if incident:
