@@ -33,8 +33,9 @@ def compute_checkout_deadline(booking, check_out_date=None) -> timezone.datetime
         checkout_time = time(11, 0)  # 11:00 AM
         grace_minutes = 30
     
-    # Combine checkout date with hotel's checkout time
-    checkout_datetime = timezone.make_aware(
+    # Combine checkout date with hotel's checkout time in hotel timezone
+    hotel_tz = booking.hotel.timezone_obj  # pytz timezone object
+    checkout_datetime = hotel_tz.localize(
         datetime.combine(checkout_date, checkout_time)
     )
     
@@ -120,7 +121,8 @@ def get_overstay_risk_level(booking, now=None) -> str:
     grace_minutes = hotel_config.late_checkout_grace_minutes if hotel_config else 30
     
     # If within grace period of standard checkout time, show as GRACE
-    standard_checkout = timezone.make_aware(
+    hotel_tz = booking.hotel.timezone_obj
+    standard_checkout = hotel_tz.localize(
         datetime.combine(booking.check_out, 
                         hotel_config.standard_checkout_time if hotel_config else time(11, 0))
     )
