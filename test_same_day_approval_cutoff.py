@@ -272,7 +272,7 @@ class ApprovalCutoffRuleTest(TestCase):
         late_payment_local = dublin_tz.localize(
             datetime.combine(today, time(23, 30))
         )
-        late_payment_utc = late_payment_local.astimezone(timezone.utc)
+        late_payment_utc = late_payment_local.astimezone(pytz.UTC)
         
         booking = self._create_booking(
             today, 

@@ -4,7 +4,7 @@ Booking deadline computation service for approval SLA management.
 Handles calculation of approval deadlines for bookings in PENDING_APPROVAL status,
 ensuring staff have clear SLAs for processing paid bookings.
 """
-from datetime import timedelta, time
+from datetime import timedelta, time, timezone as dt_timezone
 from django.utils import timezone
 from typing import Optional
 
@@ -65,7 +65,7 @@ def compute_approval_cutoff(booking) -> timezone.datetime:
     )
     
     # Convert to UTC for consistent storage/comparison
-    return cutoff_local.astimezone(timezone.utc)
+    return cutoff_local.astimezone(dt_timezone.utc)
 
 
 def should_set_approval_deadline(booking) -> bool:

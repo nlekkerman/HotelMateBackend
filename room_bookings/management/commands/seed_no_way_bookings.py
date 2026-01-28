@@ -240,7 +240,7 @@ class Command(BaseCommand):
             """Create timezone-aware datetime in hotel timezone, converted to UTC."""
             naive_dt = datetime.combine(date_obj, time(hour, minute))
             local_dt = tz.localize(naive_dt)
-            return local_dt.astimezone(timezone.utc)
+            return local_dt.astimezone(pytz.UTC)
         
         def hotel_noon_utc(date_obj):
             """Get noon UTC for given date in hotel timezone (seed data only)."""
@@ -249,7 +249,7 @@ class Command(BaseCommand):
             tz = pytz.timezone(hotel.timezone)
             naive_dt = datetime.combine(date_obj, time(12, 0))
             local_dt = tz.localize(naive_dt)
-            return local_dt.astimezone(timezone.utc)
+            return local_dt.astimezone(pytz.UTC)
         
         # Get staff member for attributions (optional)
         staff_member = Staff.objects.filter(hotel=hotel).first()
@@ -567,7 +567,7 @@ class Command(BaseCommand):
             """Convert date to end-of-day timezone-aware datetime in UTC."""
             tz = booking.hotel.timezone_obj
             local_dt = tz.localize(datetime.combine(date_obj, time(23, 59, 59)))
-            return local_dt.astimezone(timezone.utc)
+            return local_dt.astimezone(pytz.UTC)
         
         # GuestBookingToken for status access
         guest_token_data = {
@@ -618,7 +618,7 @@ class Command(BaseCommand):
         # For seed data, use noon as historical detection timestamp
         tz = pytz.timezone(booking.hotel.timezone)
         noon_naive = datetime.combine(detection_date, time(12, 0))
-        detected_at = tz.localize(noon_naive).astimezone(timezone.utc)
+        detected_at = tz.localize(noon_naive).astimezone(pytz.UTC)
         
         incident_data = {
             'hotel': booking.hotel,

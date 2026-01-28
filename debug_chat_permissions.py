@@ -88,7 +88,7 @@ def debug_chat_permissions():
             print(f"   Scopes: {token.scopes}")
             
             # Test if token is expired
-            now = datetime.now(timezone.utc)
+            now = datetime.now(dt_timezone.utc)
             if token.expires_at and token.expires_at < now:
                 print(f"   ⚠️  Token is expired (expired {token.expires_at})")
                 continue
