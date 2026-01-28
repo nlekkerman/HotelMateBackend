@@ -21,7 +21,6 @@ from hotel.staff_views import (
     SafeAssignRoomView,
     UnassignRoomView,
     MoveRoomView,
-    SafeStaffBookingListView,
     # Check-in/Check-out Views
     BookingCheckInView,
     BookingCheckOutView,
@@ -136,13 +135,6 @@ urlpatterns = [
         '<str:booking_id>/check-out/',
         BookingCheckOutView.as_view(),
         name='room-bookings-check-out'
-    ),
-    
-    # Enhanced staff bookings list with assignment filters
-    path(
-        'safe/',
-        SafeStaffBookingListView.as_view(),
-        name='room-bookings-safe-staff-list'
     ),
     
     # Send pre-check-in link to guests

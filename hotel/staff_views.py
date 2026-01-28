@@ -98,6 +98,10 @@ from staff.models import Staff
 from bookings.models import Restaurant
 from common.models import ThemePreference
 from hotel.services.booking_integrity import heal_booking_party
+from hotel.filters.room_booking_filters import (
+    StaffRoomBookingFilter, validate_ordering, get_allowed_orderings
+)
+from hotel.utils.hotel_time import hotel_today
 from hotel.precheckin.field_registry import PRECHECKIN_FIELD_REGISTRY
 from hotel.survey.field_registry import SURVEY_FIELD_REGISTRY
 from django.core.exceptions import ValidationError
@@ -1139,7 +1143,14 @@ class HotelSettingsView(APIView):
 
 
 class StaffBookingsListView(APIView):
-    """Staff endpoint to list room bookings for their hotel."""
+    """
+    Modern staff booking list endpoint with comprehensive filtering.
+    
+    Single source of truth for all booking filters. Uses FilterSet for consistent
+    filtering logic and timezone-aware operations.
+    
+    Endpoint: GET /api/staff/hotel/{hotel_slug}/room-bookings/
+    """
     permission_classes = []
     
     def get_permissions(self):
@@ -1149,201 +1160,102 @@ class StaffBookingsListView(APIView):
         try:
             staff = request.user.staff_profile
         except AttributeError:
-            return Response({'error': 'Staff profile not found'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({
+                'error': {
+                    'code': 'STAFF_PROFILE_NOT_FOUND',
+                    'message': 'Staff profile not found'
+                }
+            }, status=status.HTTP_403_FORBIDDEN)
 
         if staff.hotel.slug != hotel_slug:
-            return Response({'error': 'You can only view bookings for your hotel'}, status=status.HTTP_403_FORBIDDEN)
+            return Response({
+                'error': {
+                    'code': 'HOTEL_ACCESS_DENIED', 
+                    'message': 'You can only view bookings for your hotel'
+                }
+            }, status=status.HTTP_403_FORBIDDEN)
 
-        # Base queryset - exclude non-operational bookings from staff view
-        bookings = RoomBooking.objects.filter(
+        # Build base queryset with performance optimizations
+        base_queryset = RoomBooking.objects.filter(
             hotel=staff.hotel
         ).exclude(
+            # Exclude non-operational bookings from staff view
             status__in=['DRAFT', 'PENDING_PAYMENT', 'CANCELLED_DRAFT']
         ).select_related(
             'hotel', 'room_type', 'assigned_room', 'staff_seen_by'
+        ).prefetch_related(
+            'booking_guests'  # If you have related party members
         )
-
-        # Get query parameters
-        bucket = request.query_params.get('bucket')
-        date_from = request.query_params.get('date_from')
-        date_to = request.query_params.get('date_to')
-        search_query = request.query_params.get('q')
-        assigned = request.query_params.get('assigned')
-        precheckin = request.query_params.get('precheckin')
-        ordering = request.query_params.get('ordering')
         
-        # Legacy parameters (maintain backwards compatibility)
-        status_filter = request.query_params.get('status')
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
-
-        # Parse dates with error handling
-        parsed_date_from = None
-        parsed_date_to = None
-        today = timezone.now().date()
-
-        if date_from:
-            try:
-                parsed_date_from = datetime.strptime(date_from, '%Y-%m-%d').date()
-            except ValueError:
-                return Response({'error': 'Invalid date_from format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-        
-        if date_to:
-            try:
-                parsed_date_to = datetime.strptime(date_to, '%Y-%m-%d').date()
-            except ValueError:
-                return Response({'error': 'Invalid date_to format. Use YYYY-MM-DD'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Apply operational bucket filtering
-        if bucket:
-            bucket = bucket.lower()
+        # Apply comprehensive filtering using FilterSet
+        try:
+            booking_filter = StaffRoomBookingFilter(
+                data=request.GET,
+                queryset=base_queryset,
+                hotel=staff.hotel
+            )
             
-            if bucket == 'arrivals':
-                # check_in_date between date_from and date_to (default today)
-                # checked_in_at IS NULL, status IN (CONFIRMED, PENDING_APPROVAL)
-                start_dt = parsed_date_from or today
-                end_dt = parsed_date_to or today
-                bookings = bookings.filter(
-                    Q(check_in__gte=start_dt) & Q(check_in__lte=end_dt) &
-                    Q(checked_in_at__isnull=True) &
-                    Q(status__in=['CONFIRMED', 'PENDING_APPROVAL'])
-                )
-            elif bucket == 'in_house':
-                # checked_in_at IS NOT NULL, checked_out_at IS NULL
-                bookings = bookings.filter(
-                    Q(checked_in_at__isnull=False) & Q(checked_out_at__isnull=True)
-                )
-            elif bucket == 'departures':
-                # check_out_date between date_from and date_to (default today)
-                # checked_out_at IS NULL
-                start_dt = parsed_date_from or today
-                end_dt = parsed_date_to or today
-                bookings = bookings.filter(
-                    Q(check_out__gte=start_dt) & Q(check_out__lte=end_dt) &
-                    Q(checked_out_at__isnull=True)
-                )
-            elif bucket == 'pending':
-                # status IN (PENDING_PAYMENT, PENDING_APPROVAL)
-                bookings = bookings.filter(
-                    Q(status__in=['PENDING_PAYMENT', 'PENDING_APPROVAL'])
-                )
-            elif bucket == 'checked_out':
-                # checked_out_at IS NOT NULL OR status == COMPLETED
-                bookings = bookings.filter(
-                    Q(checked_out_at__isnull=False) | Q(status='COMPLETED')
-                )
-            elif bucket == 'cancelled':
-                # status == CANCELLED
-                bookings = bookings.filter(status='CANCELLED')
-            else:
-                return Response({'error': 'Invalid bucket. Valid values: arrivals, in_house, departures, pending, checked_out, cancelled'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Apply search filtering
-        if search_query:
-            search_terms = Q()
-            search_terms |= Q(booking_id__icontains=search_query)
-            search_terms |= Q(primary_first_name__icontains=search_query)
-            search_terms |= Q(primary_last_name__icontains=search_query)
-            search_terms |= Q(primary_email__icontains=search_query)
-            search_terms |= Q(primary_phone__icontains=search_query)
-            search_terms |= Q(booker_first_name__icontains=search_query)
-            search_terms |= Q(booker_last_name__icontains=search_query)
-            search_terms |= Q(booker_email__icontains=search_query)
-            search_terms |= Q(booker_phone__icontains=search_query)
-            bookings = bookings.filter(search_terms)
-
-        # Apply boolean filters
-        if assigned == 'true':
-            bookings = bookings.filter(assigned_room__isnull=False)
-        elif assigned == 'false':
-            bookings = bookings.filter(assigned_room__isnull=True)
-
-        if precheckin == 'complete':
-            bookings = bookings.filter(precheckin_submitted_at__isnull=False)
-        elif precheckin == 'pending':
-            bookings = bookings.filter(precheckin_submitted_at__isnull=True)
-
-        # Legacy filters for backwards compatibility
-        if status_filter:
-            bookings = bookings.filter(status=status_filter.upper())
-
-        if start_date:
-            try:
-                start = datetime.strptime(start_date, '%Y-%m-%d').date()
-                bookings = bookings.filter(check_in__gte=start)
-            except ValueError:
-                return Response({'error': 'Invalid start_date format'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if end_date:
-            try:
-                end = datetime.strptime(end_date, '%Y-%m-%d').date()
-                bookings = bookings.filter(check_out__lte=end)
-            except ValueError:
-                return Response({'error': 'Invalid end_date format'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Apply ordering (maintain default if not specified)
-        valid_orderings = [
-            'check_in', '-check_in',
-            'check_out', '-check_out',
-            'created_at', '-created_at',
-            'booking_id', '-booking_id',
-            'status', '-status'
-        ]
-        
-        if ordering and ordering in valid_orderings:
-            bookings = bookings.order_by(ordering)
-        else:
-            # Default ordering maintained
-            bookings = bookings.order_by('-created_at')
-
-        # Optional: Add bucket counts if no specific bucket is requested
-        counts = None
-        if not bucket:
-            # Only compute counts if safe to do so (no specific filtering)
-            try:
-                base_queryset = RoomBooking.objects.filter(
-                    hotel=staff.hotel
-                ).exclude(
-                    status__in=['DRAFT', 'PENDING_PAYMENT', 'CANCELLED_DRAFT']
-                )
-                today_date = today
+            if not booking_filter.form.is_valid():
+                # Return structured error response for invalid filters
+                errors = {}
+                for field, field_errors in booking_filter.form.errors.items():
+                    errors[field] = field_errors[0]  # First error message
                 
-                counts = {
-                    'arrivals': base_queryset.filter(
-                        Q(check_in=today_date) &
-                        Q(checked_in_at__isnull=True) &
-                        Q(status__in=['CONFIRMED', 'PENDING_APPROVAL'])
-                    ).count(),
-                    'in_house': base_queryset.filter(
-                        Q(checked_in_at__isnull=False) & Q(checked_out_at__isnull=True)
-                    ).count(),
-                    'departures': base_queryset.filter(
-                        Q(check_out=today_date) &
-                        Q(checked_out_at__isnull=True)
-                    ).count(),
-                    'pending': base_queryset.filter(
-                        Q(status__in=['PENDING_PAYMENT', 'PENDING_APPROVAL'])
-                    ).count(),
-                    'checked_out': base_queryset.filter(
-                        Q(checked_out_at__isnull=False) | Q(status='COMPLETED')
-                    ).count(),
-                    'cancelled': base_queryset.filter(status='CANCELLED').count(),
+                return Response({
+                    'error': {
+                        'code': 'INVALID_FILTER_PARAMETERS',
+                        'message': 'Invalid filter parameters provided',
+                        'details': errors
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            filtered_queryset = booking_filter.qs
+            
+        except ValueError as e:
+            return Response({
+                'error': {
+                    'code': 'FILTER_CONFIGURATION_ERROR',
+                    'message': str(e)
                 }
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Apply ordering with validation
+        ordering = request.query_params.get('ordering', '-created_at')
+        try:
+            allowed_orderings = get_allowed_orderings()
+            validated_ordering = validate_ordering(ordering, allowed_orderings)
+            filtered_queryset = filtered_queryset.order_by(validated_ordering)
+            
+        except ValueError as e:
+            return Response({
+                'error': {
+                    'code': 'INVALID_ORDERING',
+                    'message': str(e),
+                    'field': 'ordering'
+                }
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get bucket counts (always included for consistency)
+        include_counts = request.query_params.get('include_counts', '1') == '1'
+        bucket_counts = None
+        if include_counts:
+            try:
+                bucket_counts = booking_filter.get_bucket_counts(base_queryset)
             except Exception:
                 # If counts fail, skip them to avoid breaking the response
-                counts = None
+                bucket_counts = None
 
         # Pagination
         paginator = PageNumberPagination()
-        page = paginator.paginate_queryset(bookings, request)
+        page = paginator.paginate_queryset(filtered_queryset, request)
         
-        # Convert to list for survey response attachment
+        # Convert to list for survey response attachment (maintain existing behavior)
         if page is not None:
             bookings_list = list(page)
         else:
-            bookings_list = list(bookings)
+            bookings_list = list(filtered_queryset)
         
-        # Manually attach survey responses (maintain existing behavior)
+        # Attach survey responses (maintain existing behavior)
         for booking in bookings_list:
             try:
                 survey_response = BookingSurveyResponse.objects.get(booking=booking)
@@ -1351,18 +1263,28 @@ class StaffBookingsListView(APIView):
             except BookingSurveyResponse.DoesNotExist:
                 booking.survey_response = None
 
-        serializer = StaffRoomBookingListSerializer(bookings_list, many=True, context={'request': request})
+        # Serialize results
+        serializer = StaffRoomBookingListSerializer(
+            bookings_list, 
+            many=True, 
+            context={'request': request}
+        )
         
-        # Return paginated response with optional counts
+        # Build consistent response format
         if page is not None:
             response_data = paginator.get_paginated_response(serializer.data)
-            if counts:
-                response_data.data['counts'] = counts
+            if bucket_counts:
+                response_data.data['bucket_counts'] = bucket_counts
             return response_data
         else:
-            response_data = {'results': serializer.data}
-            if counts:
-                response_data['counts'] = counts
+            response_data = {
+                'count': len(bookings_list),
+                'next': None,
+                'previous': None,
+                'results': serializer.data
+            }
+            if bucket_counts:
+                response_data['bucket_counts'] = bucket_counts
             return Response(response_data)
 
 
@@ -2825,60 +2747,6 @@ class BookingCheckOutView(APIView):
                 {'error': {'code': 'INTERNAL_ERROR', 'message': 'An unexpected error occurred'}},
                 status=500
             )
-
-
-class SafeStaffBookingListView(APIView):
-    """GET /api/staff/hotels/{hotel_slug}/bookings/safe/"""
-    
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel] 
-    
-    def get(self, request, hotel_slug):
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        
-        # Base queryset - exclude non-operational bookings from staff view
-        # Staff should only see real bookings, not drafts/holds/expired bookings
-        queryset = RoomBooking.objects.filter(
-            hotel=hotel
-        ).exclude(
-            status__in=['DRAFT', 'PENDING_PAYMENT', 'CANCELLED_DRAFT']
-        ).select_related(
-            'assigned_room', 'room_type', 'room_assigned_by'
-        )
-        
-        # Query parameter filters
-        from_date = request.query_params.get('from')
-        to_date = request.query_params.get('to')
-        status_filter = request.query_params.get('status')
-        assigned = request.query_params.get('assigned')  # true/false
-        arriving = request.query_params.get('arriving')  # today
-        room_type = request.query_params.get('room_type')
-        
-        if from_date:
-            queryset = queryset.filter(check_in__gte=from_date)
-        if to_date:
-            queryset = queryset.filter(check_out__lte=to_date)
-        if status_filter:
-            queryset = queryset.filter(status=status_filter)
-        if assigned == 'true':
-            queryset = queryset.filter(assigned_room__isnull=False)
-        elif assigned == 'false':
-            queryset = queryset.filter(assigned_room__isnull=True)
-        if arriving == 'today':
-            today = timezone.now().date()
-            queryset = queryset.filter(check_in=today)
-        if room_type:
-            # Use room_type code instead of name (names can collide across hotels)
-            try:
-                room_type_obj = RoomType.objects.get(hotel=hotel, code=room_type)
-                queryset = queryset.filter(room_type=room_type_obj)
-            except RoomType.DoesNotExist:
-                pass  # Invalid room type, ignore filter
-                
-        # Paginate and serialize
-        paginator = PageNumberPagination()
-        page = paginator.paginate_queryset(queryset, request)
-        serializer = RoomBookingListSerializer(page, many=True)
-        return paginator.get_paginated_response(serializer.data)
 
 
 class SendPrecheckinLinkView(APIView):

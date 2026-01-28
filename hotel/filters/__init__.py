@@ -1,0 +1,1 @@
+# hotel/filters/__init__.py
