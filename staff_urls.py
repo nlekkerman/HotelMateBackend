@@ -1,0 +1,271 @@
+"""
+STAFF Zone Routing Wrapper - Phase 1
+Routes all existing Django apps under:
+/api/staff/hotel/<hotel_slug>/<app_name>/
+Preserves existing app URL structures without modification.
+"""
+
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+
+# Import from separated view modules
+from hotel.staff_views import (
+    # Management views
+    HotelSettingsView,
+    PublicPageBuilderView,
+    PublicPageBootstrapView,
+    HotelStatusCheckView,
+    SectionCreateView,
+    HotelPrecheckinConfigView,
+    HotelSurveyConfigView,
+    # CRUD ViewSets
+    StaffAccessConfigViewSet,
+    StaffRoomTypeViewSet,
+    PresetViewSet,
+    HotelPublicPageViewSet,
+    PublicSectionViewSet,
+    PublicElementViewSet,
+    PublicElementItemViewSet,
+    HeroSectionViewSet,
+    GalleryContainerViewSet,
+    GalleryImageViewSet,
+    ListContainerViewSet,
+    CardViewSet,
+    NewsItemViewSet,
+    ContentBlockViewSet,
+)
+
+from staff.me_views import StaffMeView
+from room_services.staff_views import (
+    StaffRoomServiceItemViewSet,
+    StaffBreakfastItemViewSet
+)
+from rooms.views import RoomViewSet, RoomTypeViewSet
+
+# List of all apps with URLs to wrap in STAFF zone
+# Note: 'posts' app excluded (no urls.py - only contains static files)
+# Note: 'hotel' removed to avoid double nesting (using direct routes above)
+STAFF_APPS = [
+    'attendance',
+    'chat',
+    'common',
+    'entertainment',
+    'guests',
+    'home',
+    'hotel_info',
+    'maintenance',
+    'notifications',
+    'room_services',
+    # 'rooms', # Removed - using dedicated rooms.staff_urls instead
+    'staff',
+    'staff_chat',
+    'stock_tracker',
+]
+
+# Create router for direct staff endpoints
+staff_hotel_router = DefaultRouter()
+staff_hotel_router.register(
+    r'presets',
+    PresetViewSet,
+    basename='staff-presets'
+)
+staff_hotel_router.register(
+    r'public-page',
+    HotelPublicPageViewSet,
+    basename='staff-public-page'
+)
+staff_hotel_router.register(
+    r'room-types',
+    StaffRoomTypeViewSet,
+    basename='staff-room-types-direct'
+)
+staff_hotel_router.register(
+    r'public-sections',
+    PublicSectionViewSet,
+    basename='staff-public-sections'
+)
+staff_hotel_router.register(
+    r'public-elements',
+    PublicElementViewSet,
+    basename='staff-public-elements'
+)
+staff_hotel_router.register(
+    r'public-element-items',
+    PublicElementItemViewSet,
+    basename='staff-public-element-items'
+)
+staff_hotel_router.register(
+    r'hero-sections',
+    HeroSectionViewSet,
+    basename='staff-hero-sections'
+)
+staff_hotel_router.register(
+    r'gallery-containers',
+    GalleryContainerViewSet,
+    basename='staff-gallery-containers'
+)
+staff_hotel_router.register(
+    r'gallery-images',
+    GalleryImageViewSet,
+    basename='staff-gallery-images'
+)
+staff_hotel_router.register(
+    r'list-containers',
+    ListContainerViewSet,
+    basename='staff-list-containers'
+)
+staff_hotel_router.register(
+    r'cards',
+    CardViewSet,
+    basename='staff-cards'
+)
+staff_hotel_router.register(
+    r'news-items',
+    NewsItemViewSet,
+    basename='staff-news-items'
+)
+staff_hotel_router.register(
+    r'content-blocks',
+    ContentBlockViewSet,
+    basename='staff-content-blocks'
+)
+staff_hotel_router.register(
+    r'room-service-items',
+    StaffRoomServiceItemViewSet,
+    basename='staff-room-service-items'
+)
+staff_hotel_router.register(
+    r'breakfast-items',
+    StaffBreakfastItemViewSet,
+    basename='staff-breakfast-items'
+)
+staff_hotel_router.register(
+    r'room-management',  # Changed from 'rooms' to avoid conflict with turnover workflow
+    RoomViewSet,
+    basename='staff-rooms'
+)
+staff_hotel_router.register(
+    r'room-types',
+    RoomTypeViewSet,
+    basename='staff-room-types'
+)
+
+urlpatterns = [
+    # Include staff authentication routes FIRST (no hotel_slug required)
+    path('', include('staff.urls')),
+    
+    # Phase 1 Direct Staff Routes (cleaner URLs)
+    # Staff Profile
+    path(
+        'hotel/<str:hotel_slug>/me/',
+        StaffMeView.as_view(),
+        name='staff-profile-me'
+    ),
+    
+    # Room bookings management - Phase 2 routing
+    path(
+        'hotel/<str:hotel_slug>/room-bookings/',
+        include('room_bookings.staff_urls')
+    ),
+    
+    # Service bookings management - Phase 4A routing  
+    path(
+        'hotel/<str:hotel_slug>/service-bookings/',
+        include('bookings.staff_urls')
+    ),
+    
+    # Housekeeping workflow management
+    path(
+        'hotel/<str:hotel_slug>/housekeeping/',
+        include('housekeeping.staff_urls')
+    ),
+    
+    # Hotel Settings
+    path(
+        'hotel/<str:hotel_slug>/settings/',
+        HotelSettingsView.as_view(),
+        name='staff-hotel-settings'
+    ),
+    
+    # Access Configuration (singleton pattern)
+    path(
+        'hotel/<str:hotel_slug>/access-config/',
+        StaffAccessConfigViewSet.as_view({
+            'get': 'list',
+            'put': 'update', 
+            'patch': 'partial_update'
+        }),
+        name='staff-access-config'
+    ),
+    
+    # Public Page Builder (Super Staff Admin only)
+    path(
+        'hotel/<str:hotel_slug>/status/',
+        HotelStatusCheckView.as_view(),
+        name='staff-hotel-status'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/public-page-builder/',
+        PublicPageBuilderView.as_view(),
+        name='staff-public-page-builder'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/public-page-builder/bootstrap-default/',
+        PublicPageBootstrapView.as_view(),
+        name='staff-public-page-bootstrap'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/sections/create/',
+        SectionCreateView.as_view(),
+        name='staff-section-create'
+    ),
+    
+    # Precheckin Configuration (Super Staff Admin only)
+    path(
+        'hotel/<str:hotel_slug>/precheckin-config/',
+        HotelPrecheckinConfigView.as_view(),
+        name='staff-precheckin-config'
+    ),
+    
+    # Survey Configuration (Super Staff Admin only)
+    path(
+        'hotel/<str:hotel_slug>/survey-config/',
+        HotelSurveyConfigView.as_view(),
+        name='staff-survey-config'
+    ),
+    
+    # Cancellation Policy Management
+    path(
+        'hotel/<str:hotel_slug>/cancellation-policies/',
+        include('hotel.views.cancellation_policies.urls')
+    ),
+    
+    # Rate Plan Management  
+    path(
+        'hotel/<str:hotel_slug>/rate-plans/',
+        include('hotel.views.rate_plans.urls')
+    ),
+    
+    # Room Types & Section CRUD (clean path)
+    path(
+        'hotel/<str:hotel_slug>/',
+        include(staff_hotel_router.urls)
+    ),
+]
+
+# Add Room Turnover Workflow Staff URLs FIRST (more specific patterns)
+urlpatterns += [
+    path('hotel/<str:hotel_slug>/', include('rooms.staff_urls')),
+]
+
+# App-wrapped routes for legacy compatibility
+urlpatterns += [
+    path(
+        f'hotel/<str:hotel_slug>/{app}/',
+        include(f'{app}.staff_urls' if app == 'chat' else f'{app}.urls'),
+        name=f'staff-{app}'
+    )
+    for app in STAFF_APPS
+]
+
+
