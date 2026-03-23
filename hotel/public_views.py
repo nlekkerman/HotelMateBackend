@@ -159,11 +159,11 @@ class HotelPublicPageView(APIView):
         hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
         
         # Get or create HotelPublicPage to access preset
-        public_page, created = hotel.public_page, False
         try:
             public_page = hotel.public_page
-        except:
-            public_page = None
+        except Hotel.public_page.RelatedObjectDoesNotExist:
+            from .models import HotelPublicPage
+            public_page = HotelPublicPage.objects.create(hotel=hotel)
         
         # Get all active sections ordered by position
         sections = hotel.public_sections.filter(is_active=True).order_by('position')
