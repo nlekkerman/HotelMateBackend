@@ -38,7 +38,8 @@ def download_all_qrs(request):
 
 class HotelInfoViewSet(viewsets.ModelViewSet):
     queryset = HotelInfo.objects.all()
-    permission_classes = [permissions.AllowAny]
+    # AllowAny for reads (guest-facing hotel info pages); mutations require auth
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     pagination_class = None
 
     def get_serializer_class(self):
@@ -59,20 +60,20 @@ class HotelInfoCategoryViewSet(viewsets.ModelViewSet):
     """
     queryset = HotelInfoCategory.objects.all()
     serializer_class = HotelInfoCategorySerializer
-    permission_classes = [permissions.AllowAny]
+    # AllowAny for reads (guest-facing); mutations require auth
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     filter_backends = [DjangoFilterBackend]
     # this lets you do ?infos__hotel__slug=<slug> to only get categories
     filterset_fields = ["infos__hotel__slug"]
     
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
-        category = HotelInfoCategory.objects.get(slug=response.data["slug"])  
-        hotel_slug = request.data.get("hotel_slug")
+        category = HotelInfoCategory.objects.get(slug=response.data["slug"])
 
-        if hotel_slug:
-            from hotel.models import Hotel
-            hotel = get_object_or_404(Hotel, slug=hotel_slug)
-            qr, _ = CategoryQRCode.objects.get_or_create(hotel=hotel, category=category)
+        # Scope QR generation to the authenticated staff member's hotel
+        staff = getattr(request.user, 'staff_profile', None)
+        if staff and staff.hotel:
+            qr, _ = CategoryQRCode.objects.get_or_create(hotel=staff.hotel, category=category)
             qr.generate_qr()
 
         return response
@@ -136,16 +137,22 @@ class CategoryQRView(APIView):
         return Response({"detail": "QR code URL is missing"}, status=status.HTTP_404_NOT_FOUND)
 
     def post(self, request):
-        hotel_slug = request.data.get("hotel_slug")
         category_slug = request.data.get("category_slug")
-        if not hotel_slug or not category_slug:
+        if not category_slug:
             return Response(
-                {"detail": "hotel_slug and category_slug are required"},
+                {"detail": "category_slug is required"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Fetch the Hotel and Category; 404 if not found
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+        # Scope to authenticated staff member's hotel — never trust request.data for hotel
+        staff = getattr(request.user, 'staff_profile', None)
+        if not staff or not staff.hotel:
+            return Response(
+                {"detail": "Only hotel staff can generate QR codes"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        hotel = staff.hotel
         category = get_object_or_404(HotelInfoCategory, slug=category_slug)
 
         # Create or fetch the QR record

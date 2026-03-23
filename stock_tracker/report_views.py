@@ -11,7 +11,7 @@ from django.db.models import Q
 from decimal import Decimal
 
 from hotel.models import Hotel
-from staff_chat.permissions import IsStaffMember
+from hotel.permissions import IsSuperStaffAdminForHotel
 from .models import StockPeriod, StockSnapshot, StockMovement
 
 
@@ -21,7 +21,7 @@ class StockValueReportView(APIView):
     Returns cost value, sales value, and potential profit
     Grouped by category and by item
     """
-    permission_classes = [IsAuthenticated, IsStaffMember]
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
     
     def get(self, request, hotel_identifier):
         hotel = get_object_or_404(
@@ -203,7 +203,7 @@ class SalesReportView(APIView):
     Returns revenue, cost of sales, gross profit
     Grouped by category and by item
     """
-    permission_classes = [IsAuthenticated, IsStaffMember]
+    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
     
     def get(self, request, hotel_identifier):
         hotel = get_object_or_404(

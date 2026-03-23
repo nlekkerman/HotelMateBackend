@@ -21,8 +21,8 @@ class IsSuperStaffAdminForHotel(BasePermission):
         if not request.user or not request.user.is_authenticated:
             return False
         
-        # Get hotel_slug from URL kwargs
-        hotel_slug = view.kwargs.get('hotel_slug')
+        # Get hotel_slug from URL kwargs (supports both hotel_slug and hotel_identifier)
+        hotel_slug = view.kwargs.get('hotel_slug') or view.kwargs.get('hotel_identifier')
         if not hotel_slug:
             return False
         
