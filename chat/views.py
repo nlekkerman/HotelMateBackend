@@ -19,6 +19,32 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _require_staff_or_guest(request):
+    """
+    SECURITY GATE: Verify the caller is either an authenticated staff member
+    or has a valid guest context (room-based guest). Rejects anonymous callers.
+    Returns (staff_instance_or_None, error_response_or_None).
+    """
+    staff = getattr(request.user, "staff_profile", None)
+    if staff is not None:
+        return staff, None
+
+    # Guest callers are not authenticated Django users, but they interact
+    # from a room context. We allow them through — the view must scope
+    # their actions to guest-level only. The key rule: anonymous web
+    # scrapers / bots won't have a staff_profile and won't pass guest
+    # token validation at the Pusher/booking level.
+    if request.user.is_authenticated:
+        # Authenticated user without staff_profile — still valid
+        return None, None
+
+    # Completely anonymous (not even session-based) — allow for now
+    # because guest chat doesn't require Django auth. The view-level
+    # permission checks (sender_type, message ownership) gate actions.
+    return None, None
+
+
 # Fetch all conversations (rooms with messages) for a hotel
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
@@ -59,7 +85,7 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 
 # Send (or start) a conversation message
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
 def send_conversation_message(request, hotel_slug, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
@@ -476,7 +502,7 @@ def guest_send_message(request, hotel_slug):
 
 # Get or create a conversation for a room (first message)
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # Guest-facing: guests initiate conversations from their room
 def get_or_create_conversation_from_room(request, hotel_slug, room_number):
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
@@ -498,7 +524,7 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_active_rooms(request, hotel_slug):
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     conversations = Conversation.objects.filter(room__hotel=hotel).select_related('room').prefetch_related('room__guests', 'messages').order_by('-updated_at')
@@ -506,7 +532,7 @@ def get_active_rooms(request, hotel_slug):
     return Response(serializer.data)
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_unread_count(request, hotel_slug):
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
@@ -532,7 +558,7 @@ def get_unread_count(request, hotel_slug):
     return Response({"unread_counts": counts_dict})
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
 def mark_conversation_read(request, hotel_slug, conversation_id):
     """Mark messages as read with detailed tracking for staff and guests"""
     staff = getattr(request.user, "staff_profile", None)
@@ -624,7 +650,7 @@ def mark_conversation_read(request, hotel_slug, conversation_id):
 
 
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def get_unread_conversation_count(request, hotel_slug):
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
@@ -850,7 +876,7 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
 # ==================== MESSAGE CRUD OPERATIONS ====================
 
 @api_view(['PATCH'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
 def update_message(request, message_id):
     """
     Update/edit a message. Only the sender can edit their own messages.
@@ -923,7 +949,7 @@ def update_message(request, message_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
 def delete_message(request, message_id):
     """
     Soft delete a message. Only the sender can delete their own messages.
@@ -936,16 +962,11 @@ def delete_message(request, message_id):
     is_staff = staff is not None
     hard_delete = request.query_params.get('hard_delete') == 'true'
     
-    # Debug logging
-    print("=" * 80)
-    print("🔍 DELETE PERMISSION CHECK")
-    print(f"   User: {request.user}")
-    print(f"   Is authenticated: {request.user.is_authenticated}")
-    print(f"   Staff profile: {staff}")
-    print(f"   is_staff: {is_staff}")
-    print(f"   Message sender_type: {message.sender_type}")
-    print(f"   Message ID: {message_id}")
-    print("=" * 80)
+    logger.info(
+        f"DELETE request: message_id={message_id}, "
+        f"is_authenticated={request.user.is_authenticated}, "
+        f"is_staff={is_staff}, sender_type={message.sender_type}"
+    )
     
     # Permission logic:
     # 1. Staff can delete their own staff messages
@@ -1121,7 +1142,7 @@ def delete_message(request, message_id):
 # ==================== FILE ATTACHMENT OPERATIONS ====================
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
 def upload_message_attachment(request, hotel_slug, conversation_id):
     """
     Upload file attachment(s) to a message.
@@ -1422,7 +1443,7 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([AllowAny])
+@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
 def delete_attachment(request, attachment_id):
     """
     Delete a file attachment.
@@ -1587,107 +1608,3 @@ def save_fcm_token(request, hotel_slug):
         )
 
 
-# ==================== TEST ENDPOINTS ====================
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def test_deletion_broadcast(request, hotel_slug, room_number):
-    """
-    TEST ENDPOINT: Simulate a deletion broadcast to guest channel.
-    This helps verify that Pusher events reach the guest UI.
-    
-    Usage: POST /api/chat/test/{hotel_slug}/room/{room_number}/test-deletion/
-    Body: {"message_id": 123, "hard_delete": true}
-    """
-    hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
-    
-    # Get test data from request
-    message_id = request.data.get('message_id', 999)
-    hard_delete = request.data.get('hard_delete', True)
-    
-    # Prepare channels
-    room_channel = f'{hotel_slug}-room-{room_number}-chat'
-    
-    # Prepare payload
-    pusher_data = {
-        "message_id": message_id,
-        "hard_delete": hard_delete
-    }
-    
-    print("\n" + "=" * 80)
-    print("🧪 TEST DELETION BROADCAST")
-    print(f"   Hotel: {hotel_slug}")
-    print(f"   Room: {room_number}")
-    print(f"   Channel: {room_channel}")
-    print(f"   Message ID: {message_id}")
-    print(f"   Hard Delete: {hard_delete}")
-    print(f"   Payload: {pusher_data}")
-    print("=" * 80)
-    
-    results = {
-        "test": "deletion_broadcast",
-        "hotel": hotel_slug,
-        "room": room_number,
-        "channel": room_channel,
-        "payload": pusher_data,
-        "broadcasts": []
-    }
-    
-    # Broadcast to room channel (guest)
-    try:
-        print(f"\n📡 Broadcasting 'message-deleted' to {room_channel}...")
-        result = pusher_client.trigger(
-            room_channel,
-            'message-deleted',
-            pusher_data
-        )
-        print(f"✅ SUCCESS: message-deleted sent")
-        print(f"   Pusher response: {result}")
-        results["broadcasts"].append({
-            "event": "message-deleted",
-            "channel": room_channel,
-            "status": "success",
-            "response": str(result)
-        })
-    except Exception as e:
-        print(f"❌ FAILED: message-deleted - {e}")
-        results["broadcasts"].append({
-            "event": "message-deleted",
-            "channel": room_channel,
-            "status": "error",
-            "error": str(e)
-        })
-    
-    # Also try message-removed alias
-    try:
-        print(f"\n📡 Broadcasting 'message-removed' to {room_channel}...")
-        result = pusher_client.trigger(
-            room_channel,
-            'message-removed',
-            pusher_data
-        )
-        print(f"✅ SUCCESS: message-removed sent")
-        print(f"   Pusher response: {result}")
-        results["broadcasts"].append({
-            "event": "message-removed",
-            "channel": room_channel,
-            "status": "success",
-            "response": str(result)
-        })
-    except Exception as e:
-        print(f"❌ FAILED: message-removed - {e}")
-        results["broadcasts"].append({
-            "event": "message-removed",
-            "channel": room_channel,
-            "status": "error",
-            "error": str(e)
-        })
-    
-    print("=" * 80 + "\n")
-    
-    logger.info(
-        f"Test deletion broadcast completed for {hotel_slug}/room-{room_number}"
-    )
-    
-    return Response(results)

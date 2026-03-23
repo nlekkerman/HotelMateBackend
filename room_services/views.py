@@ -38,7 +38,7 @@ def get_hotel_from_request(request):
 
 class RoomServiceItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = RoomServiceItemSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.AllowAny]  # Guest-facing: guests browse menu from room tablet
 
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)
@@ -53,7 +53,7 @@ class RoomServiceItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
     serializer_class = BreakfastItemSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.AllowAny]  # Guest-facing: guests browse breakfast menu from room tablet
 
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)
@@ -68,7 +68,7 @@ class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.AllowAny]  # Guest-facing: guests place orders from room tablet (no Django auth)
 
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)

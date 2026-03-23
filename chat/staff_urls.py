@@ -10,14 +10,13 @@ from chat.views import (
     get_active_rooms,
     get_unread_count,
     mark_conversation_read,
-    get_unread_conversation_count,
     assign_staff_to_conversation,
     update_message,
     delete_message,
     upload_message_attachment,
     delete_attachment,
     save_fcm_token,
-    test_deletion_broadcast,
+  
 )
 
 # These patterns don't include hotel_slug because it's already provided by the staff wrapper
@@ -61,5 +60,4 @@ urlpatterns = [
     path("save-fcm-token/", save_fcm_token, name="save_fcm_token"),
 
     # --- Testing (development only) ---
-    path("test/room/<int:room_number>/test-deletion/", test_deletion_broadcast, name="test_deletion_broadcast"),
 ]

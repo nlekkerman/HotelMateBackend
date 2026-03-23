@@ -36,7 +36,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.pagination import PageNumberPagination
 from django.shortcuts import get_object_or_404
+import logging
 
+logger = logging.getLogger(__name__)
 
 from .permissions_superuser import IsSuperUser
 
@@ -290,7 +292,7 @@ class StaffViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         try:
-            Staff.objects.get(user=user, hotel=hotel)
+            requesting_staff = Staff.objects.get(user=user, hotel=hotel)
         except Staff.DoesNotExist:
             return Response(
                 {
@@ -299,6 +301,14 @@ class StaffViewSet(viewsets.ModelViewSet):
                         "create staff."
                     )
                 },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # SECURITY: Only super_staff_admin can create other super_staff_admin
+        requested_access_level = request.data.get("access_level", "")
+        if requested_access_level == "super_staff_admin" and requesting_staff.access_level != "super_staff_admin":
+            return Response(
+                {"detail": "Only super_staff_admin can create other super_staff_admin accounts."},
                 status=status.HTTP_403_FORBIDDEN
             )
 
@@ -315,21 +325,15 @@ class StaffViewSet(viewsets.ModelViewSet):
         # AUTOMATICALLY set user flags for all staff
         user = staff.user
         
-        # All staff members should have is_staff=True
+        # All staff members should have is_staff=True (Django admin flag)
         user.is_staff = True
         
-        # Keep is_superuser=False for all staff (super_staff_admin is NOT Django superuser)
-        # Only actual Django superusers should have is_superuser=True
+        # SECURITY: is_superuser is NEVER set via API — only via Django admin / CLI
+        # super_staff_admin is an app-level role, NOT a Django superuser
         user.is_superuser = False
             
-        # Allow manual override if explicitly provided in request
-        if "is_staff" in request.data:
-            user.is_staff = request.data["is_staff"]
-        if "is_superuser" in request.data:
-            user.is_superuser = request.data["is_superuser"]
-            
         user.save()
-        print(f"✅ Set User flags for {user.username}: is_staff={user.is_staff}, is_superuser={user.is_superuser}")
+        logger.info(f"Set User flags for {user.username}: is_staff=True, is_superuser=False")
 
         return Response(
             self.get_serializer(staff).data,

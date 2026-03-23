@@ -38,6 +38,7 @@ class GameViewSet(viewsets.ReadOnlyModelViewSet):
     """List all games or retrieve a single game."""
     queryset = Game.objects.filter(active=True)
     serializer_class = GameSerializer
+    # AllowAny: read-only game catalog, guest-facing (room tablet)
     permission_classes = [permissions.AllowAny]
 
 
@@ -46,6 +47,7 @@ class GameHighScoreViewSet(viewsets.GenericViewSet,
                            mixins.CreateModelMixin):
     """List highscores or submit a new highscore."""
     queryset = GameHighScore.objects.all()
+    # AllowAny: guests submit scores from room tablet
     permission_classes = [permissions.AllowAny]
     pagination_class = None  # Disable DRF pagination
 
@@ -173,6 +175,7 @@ class MemoryGameSessionViewSet(viewsets.ModelViewSet):
     ViewSet for memory game sessions
     """
     serializer_class = MemoryGameSessionSerializer
+    # AllowAny: anonymous guest game sessions from room tablet
     permission_classes = [permissions.AllowAny]
     
     def get_queryset(self):
@@ -306,7 +309,8 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
     ViewSet for memory game tournaments
     """
     serializer_class = MemoryGameTournamentSerializer
-    permission_classes = [permissions.AllowAny]  # Allow anonymous access for tournament info
+    # AllowAny: guests browse/join tournaments from room tablet. perform_create requires auth implicitly.
+    permission_classes = [permissions.AllowAny]
     
     def get_queryset(self):
         """Filter tournaments by hotel and status"""
@@ -495,10 +499,10 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
     @action(
         detail=True,
         methods=['post'],
-        permission_classes=[permissions.AllowAny]
+        permission_classes=[permissions.IsAuthenticated]
     )
     def generate_qr_code(self, request, pk=None):
-        """Generate QR code pointing to game dashboard"""
+        """Generate QR code pointing to game dashboard (staff-only)"""
         tournament = self.get_object()
         
         success = tournament.generate_qr_code()
@@ -872,6 +876,7 @@ class QuizSessionViewSet(viewsets.ModelViewSet):
     Handles session creation, answer submission, completion
     """
     queryset = QuizSession.objects.all()
+    # AllowAny: guests play quizzes from room tablet
     permission_classes = [permissions.AllowAny]
     
     def get_serializer_class(self):

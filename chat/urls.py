@@ -14,7 +14,6 @@ from .views import (
     upload_message_attachment,
     delete_attachment,
     save_fcm_token,
-    test_deletion_broadcast,
 )
 
 urlpatterns = [
@@ -75,12 +74,5 @@ urlpatterns = [
         "<slug:hotel_slug>/save-fcm-token/",
         save_fcm_token,
         name="save_fcm_token"
-    ),
-    
-    # --- TEST ENDPOINTS (Development/Debug Only) ---
-    path(
-        "test/<slug:hotel_slug>/room/<int:room_number>/test-deletion/",
-        test_deletion_broadcast,
-        name="test_deletion_broadcast"
     ),
 ]

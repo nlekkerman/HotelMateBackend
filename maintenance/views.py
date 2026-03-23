@@ -42,7 +42,7 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
 class MaintenanceCommentViewSet(viewsets.ModelViewSet):
     queryset = MaintenanceComment.objects.all()
     serializer_class = MaintenanceCommentSerializer
-    permission_classes = [permissions.AllowAny]
+    permission_classes = [permissions.IsAuthenticated]
     
     def perform_create(self, serializer):
         user = self.request.user

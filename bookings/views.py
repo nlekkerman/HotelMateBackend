@@ -397,7 +397,7 @@ class BlueprintObjectViewSet(viewsets.ModelViewSet):
     Supports list, create, retrieve, update, delete.
     """
     serializer_class = BlueprintObjectSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -508,7 +508,7 @@ def mark_bookings_seen(request, hotel_slug):
 
 
 class AssignGuestToTableAPIView(APIView):
-    permission_classes = []  # Or IsAuthenticated if you want
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, hotel_slug, restaurant_slug):
         try:

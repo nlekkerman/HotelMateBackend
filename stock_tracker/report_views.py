@@ -5,12 +5,13 @@ Provides calculated data for frontend display
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from decimal import Decimal
 
 from hotel.models import Hotel
+from staff_chat.permissions import IsStaffMember
 from .models import StockPeriod, StockSnapshot, StockMovement
 
 
@@ -20,7 +21,7 @@ class StockValueReportView(APIView):
     Returns cost value, sales value, and potential profit
     Grouped by category and by item
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsStaffMember]
     
     def get(self, request, hotel_identifier):
         hotel = get_object_or_404(
@@ -202,7 +203,7 @@ class SalesReportView(APIView):
     Returns revenue, cost of sales, gross profit
     Grouped by category and by item
     """
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated, IsStaffMember]
     
     def get(self, request, hotel_identifier):
         hotel = get_object_or_404(

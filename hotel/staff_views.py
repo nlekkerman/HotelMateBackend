@@ -1151,10 +1151,7 @@ class StaffBookingsListView(APIView):
     
     Endpoint: GET /api/staff/hotel/{hotel_slug}/room-bookings/
     """
-    permission_classes = []
-    
-    def get_permissions(self):
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     def get(self, request, hotel_slug):
         try:
@@ -1290,10 +1287,7 @@ class StaffBookingsListView(APIView):
 
 class StaffBookingConfirmView(APIView):
     """Staff endpoint to confirm a booking."""
-    permission_classes = []
-    
-    def get_permissions(self):
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1392,10 +1386,7 @@ class StaffBookingConfirmView(APIView):
 
 class StaffBookingCancelView(APIView):
     """Staff endpoint to cancel a booking."""
-    permission_classes = []
-    
-    def get_permissions(self):
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1533,10 +1524,7 @@ class StaffBookingCancelView(APIView):
 
 class StaffBookingDetailView(APIView):
     """Staff endpoint to get detailed booking information."""
-    permission_classes = []
-    
-    def get_permissions(self):
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
 
     def get(self, request, hotel_slug, booking_id):
         try:

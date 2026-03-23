@@ -10,13 +10,13 @@ class GuestViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        hotel_slug = self.request.headers.get('x-hotel-slug')
+        hotel_slug = self.kwargs.get('hotel_slug')
         if not hotel_slug:
             return Guest.objects.none()
         return Guest.objects.filter(hotel__slug=hotel_slug)
 
     def get_object(self):
-        hotel_slug = self.request.headers.get('x-hotel-slug')
+        hotel_slug = self.kwargs.get('hotel_slug')
         return Guest.objects.get(pk=self.kwargs['pk'], hotel__slug=hotel_slug)
     
     
