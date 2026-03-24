@@ -12,6 +12,7 @@ from django.conf import settings
 import logging
 
 from .models import Hotel, BookerType, BookingGuest, RoomBooking
+from common.guest_auth import PublicBurstThrottle, PublicSustainedThrottle
 
 # Import service layer functions
 from hotel.services.availability import (
@@ -187,6 +188,7 @@ class HotelBookingCreateView(APIView):
     - party: [{role, first_name, last_name, email?, phone?}]
     """
     permission_classes = [AllowAny]
+    throttle_classes = [PublicBurstThrottle, PublicSustainedThrottle]
     
     def post(self, request, hotel_slug):
         # Get hotel
@@ -421,6 +423,7 @@ class PublicRoomBookingDetailView(APIView):
     GET /api/public/hotel/<hotel_slug>/room-bookings/<booking_id>/
     """
     permission_classes = [AllowAny]
+    throttle_classes = [PublicBurstThrottle, PublicSustainedThrottle]
     
     def get(self, request, hotel_slug, booking_id):
         # Get hotel first to verify it exists and is active

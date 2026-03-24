@@ -25,10 +25,6 @@ from hotel.payment_views import (
     VerifyPaymentView,
     StripeWebhookView,
 )
-from hotel.canonical_guest_chat_views import (
-    GuestChatContextView,
-    GuestChatSendMessageView,
-)
 
 app_name = "public"
 

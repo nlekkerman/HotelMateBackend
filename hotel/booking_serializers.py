@@ -325,13 +325,13 @@ class RoomBookingDetailSerializer(serializers.ModelSerializer):
 class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     """
     Public serializer for room booking details exposed to external systems.
-    Only includes public-safe fields as defined in the API contracts.
+    Returns only public-safe fields.  **No guest tokens are ever generated
+    or returned** — token minting belongs to the booking-creation flow.
     """
     hotel_info = serializers.SerializerMethodField()
     room_info = serializers.SerializerMethodField()
     dates_info = serializers.SerializerMethodField()
     guests_info = serializers.SerializerMethodField()
-    guest_info = serializers.SerializerMethodField()
     pricing_info = serializers.SerializerMethodField()
     payment_url = serializers.SerializerMethodField()
     payment_required = serializers.SerializerMethodField()
@@ -339,8 +339,6 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     cancellation_preview = serializers.SerializerMethodField()
     checked_in_at = serializers.SerializerMethodField()
     checked_out_at = serializers.SerializerMethodField()
-    assigned_room_number = serializers.SerializerMethodField()
-    guest_token = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -353,7 +351,6 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             'room_info',
             'dates_info',
             'guests_info',
-            'guest_info',
             'special_requests',
             'pricing_info',
             'promo_code',
@@ -363,8 +360,6 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             'cancellation_preview',
             'checked_in_at',
             'checked_out_at',
-            'assigned_room_number',
-            'guest_token',
         ]
         read_only_fields = fields
 
@@ -373,36 +368,6 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
 
     def get_checked_out_at(self, obj):
         return obj.checked_out_at.isoformat() if obj.checked_out_at else None
-
-    def get_assigned_room_number(self, obj):
-        return obj.assigned_room.room_number if getattr(obj, 'assigned_room', None) else None
-    
-    def get_guest_token(self, obj):
-        """Generate a fresh GuestBookingToken for checked-in guests"""
-        if not (obj.checked_in_at and not obj.checked_out_at):
-            return None
-            
-        try:
-            from hotel.models import GuestBookingToken
-            import logging
-            
-            logger = logging.getLogger(__name__)
-            
-            # Generate fresh token for checked-in guest
-            token_obj, raw_token = GuestBookingToken.generate_token(
-                booking=obj,
-                purpose='REALTIME_ACCESS',
-                scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
-            )
-            
-            logger.info(f"Generated fresh guest token for booking {obj.booking_id} via PublicRoomBookingDetailSerializer")
-            return raw_token
-            
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Failed to generate guest token for booking {obj.booking_id}: {str(e)}")
-            return None
     
     def get_hotel_info(self, obj):
         """Hotel information"""
@@ -435,14 +400,6 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             "adults": obj.adults,
             "children": obj.children,
             "total": obj.adults + obj.children
-        }
-    
-    def get_guest_info(self, obj):
-        """Primary guest information (public-safe fields only)"""
-        return {
-            "name": obj.primary_guest_name,
-            "email": obj.primary_email,
-            "phone": obj.primary_phone
         }
     
     def get_pricing_info(self, obj):

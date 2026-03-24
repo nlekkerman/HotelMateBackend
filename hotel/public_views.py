@@ -11,6 +11,8 @@ from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
 from django.db import models
 
+from common.guest_auth import PublicBurstThrottle, PublicSustainedThrottle
+
 logger = logging.getLogger(__name__)
 
 from .models import Hotel, Preset
@@ -918,6 +920,7 @@ class ValidateBookingManagementTokenView(APIView):
     Allows guests to view their booking status and manage their booking.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [PublicBurstThrottle, PublicSustainedThrottle]
 
     def get(self, request, hotel_slug):
         """Validate token and return booking information for management page"""
@@ -1028,6 +1031,7 @@ class CancelBookingView(APIView):
     Cancel a booking using a valid management token.
     """
     permission_classes = [AllowAny]
+    throttle_classes = [PublicBurstThrottle, PublicSustainedThrottle]
 
     def post(self, request, hotel_slug):
         """Process booking cancellation with management token using guest cancellation service"""
@@ -1121,26 +1125,7 @@ class BookingStatusView(APIView):
     Secure URL: GET /api/public/hotels/{hotel_slug}/booking/status/{booking_id}/?token={token}
     """
     permission_classes = [AllowAny]
-    
-    def _get_or_create_guest_token(self, booking):
-        """Generate a fresh GuestBookingToken for in-house guests"""
-        from .models import GuestBookingToken
-        
-        try:
-            # Always generate a fresh token for checked-in guests
-            # This ensures frontend gets a working token for chat/room service
-            token_obj, raw_token = GuestBookingToken.generate_token(
-                booking=booking,
-                purpose='CHAT',
-                scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
-            )
-            
-            logger.info(f"Generated fresh guest token for booking {booking.booking_id} via BookingStatusView")
-            return raw_token
-            
-        except Exception as e:
-            logger.error(f"Failed to generate guest token for booking {booking.booking_id}: {e}")
-            return None
+    throttle_classes = [PublicBurstThrottle, PublicSustainedThrottle]
 
     def get(self, request, hotel_slug, booking_id):
         """Return booking status and details with mandatory token validation"""
@@ -1260,7 +1245,6 @@ class BookingStatusView(APIView):
             'cancellation_policy': cancellation_policy_data,
             'can_cancel': can_cancel,
             'cancellation_preview': cancellation_preview,
-            'guest_token': self._get_or_create_guest_token(booking) if booking.checked_in_at and not booking.checked_out_at else None
         }, status=status.HTTP_200_OK)
     
     def post(self, request, hotel_slug, booking_id):

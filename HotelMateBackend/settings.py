@@ -219,6 +219,12 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_THROTTLE_RATES': {
+        'public_burst': '30/minute',
+        'public_sustained': '200/hour',
+        'guest_burst': '60/minute',
+        'guest_sustained': '600/hour',
+    },
 }
 
 AUTHENTICATION_BACKENDS = [

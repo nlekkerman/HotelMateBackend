@@ -12,6 +12,15 @@ from notifications.notification_manager import NotificationManager
 from django.db import transaction
 import logging
 
+from common.guest_auth import (
+    TokenAuthenticationMixin,
+    resolve_guest_token,
+    PublicBurstThrottle,
+    PublicSustainedThrottle,
+    GuestTokenBurstThrottle,
+    GuestTokenSustainedThrottle,
+)
+
 logger = logging.getLogger(__name__)
 
 from .serializers import (
@@ -66,18 +75,71 @@ class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
         serializer = self.get_serializer(items, many=True)
         return Response(serializer.data)
 
-class OrderViewSet(viewsets.ModelViewSet):
+class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     serializer_class = OrderSerializer
-    permission_classes = [permissions.AllowAny]  # Guest-facing: guests place orders from room tablet (no Django auth)
+    permission_classes = [permissions.AllowAny]  # Per-action auth enforced below
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_guest_context(self, request, hotel):
+        """
+        Try to authenticate via GuestBookingToken.
+        Returns (guest_token, booking, room) or raises ValueError.
+        """
+        token_str = self.get_token_from_request(request)
+        if not token_str:
+            raise ValueError("Token is required")
+        return resolve_guest_token(
+            token_str,
+            hotel_slug=hotel.slug,
+            required_scopes=['ROOM_SERVICE'],
+            require_checked_in=True,
+        )
+
+    def _is_staff_request(self, request):
+        """Return True if the request comes from an authenticated staff user."""
+        return (
+            request.user
+            and request.user.is_authenticated
+            and hasattr(request.user, 'staff_profile')
+        )
+
+    # ------------------------------------------------------------------
+    # Queryset
+    # ------------------------------------------------------------------
 
     def get_queryset(self):
         hotel = get_hotel_from_request(self.request)
         # Filter orders for rooms in this hotel only
         return Order.objects.filter(hotel=hotel).exclude(status="completed")
+
+    # ------------------------------------------------------------------
+    # Create – requires guest token (staff can also create with their auth)
+    # ------------------------------------------------------------------
     
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
-        order = serializer.save(hotel=hotel)
+
+        # Staff bypass: authenticated staff can create orders (dashboard use)
+        if self._is_staff_request(self.request):
+            order = serializer.save(hotel=hotel)
+        else:
+            # Guest path: validate token → derive room from booking
+            try:
+                _token_obj, booking, room = self._resolve_guest_context(self.request, hotel)
+            except ValueError as exc:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied(detail=str(exc))
+
+            if not room:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied(detail="No room assigned to this booking")
+
+            # Override room_number from token context (ignore client-supplied value)
+            order = serializer.save(hotel=hotel, room_number=room.room_number)
 
         # Use unified NotificationManager for all notifications
         nm = NotificationManager()
@@ -106,16 +168,37 @@ class OrderViewSet(viewsets.ModelViewSet):
         count = Order.objects.filter(hotel=hotel).filter(status="pending").count()
         return Response({"count": count})
 
-    @action(detail=False, methods=["get"], url_path="room-history", permission_classes=[AllowAny])
+    @action(detail=False, methods=["get"], url_path="room-history")
     def room_order_history(self, request):
+        """
+        GET /room_services/{hotel_slug}/orders/room-history/?token=...
+        Returns order history for the guest's assigned room.
+        Requires a valid GuestBookingToken with ROOM_SERVICE scope.
+        Staff users with DRF TokenAuthentication may also access by
+        providing hotel_slug + room_number query params.
+        """
         hotel_slug = request.query_params.get("hotel_slug")
-        room_number = request.query_params.get("room_number")
+        hotel = get_object_or_404(Hotel, slug=hotel_slug) if hotel_slug else get_hotel_from_request(request)
 
-        if not hotel_slug or not room_number:
-            return Response({"error": "hotel_slug and room_number are required"}, status=400)
+        # Staff bypass
+        if self._is_staff_request(request):
+            room_number = request.query_params.get("room_number")
+            if not room_number:
+                return Response({"error": "room_number query param required"}, status=400)
+            queryset = Order.objects.filter(hotel=hotel, room_number=room_number)
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
 
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        queryset = Order.objects.filter(hotel=hotel, room_number=room_number)
+        # Guest path – validate token
+        try:
+            _token_obj, booking, room = self._resolve_guest_context(request, hotel)
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=403)
+
+        if not room:
+            return Response({"error": "No room assigned to this booking"}, status=403)
+
+        queryset = Order.objects.filter(hotel=hotel, room_number=room.room_number)
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
     

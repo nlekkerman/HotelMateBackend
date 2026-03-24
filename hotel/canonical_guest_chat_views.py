@@ -30,26 +30,13 @@ import json
 import hmac
 import hashlib
 
+from common.guest_auth import (
+    TokenAuthenticationMixin,
+    GuestTokenBurstThrottle,
+    GuestTokenSustainedThrottle,
+)
+
 logger = logging.getLogger(__name__)
-
-
-class TokenAuthenticationMixin:
-    """
-    Mixin for token-based authentication using GuestBookingToken.
-    Extracts token from Authorization header or query parameter.
-    """
-    
-    def get_token_from_request(self, request):
-        """Extract token from request headers or query params"""
-        # Try Authorization header first
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        if auth_header.startswith('Bearer '):
-            return auth_header.replace('Bearer ', '')
-        elif auth_header.startswith('GuestToken '):
-            return auth_header.replace('GuestToken ', '')
-        
-        # Fall back to query parameter
-        return request.GET.get('token', '')
 
 
 @method_decorator(never_cache, name='dispatch')
@@ -62,6 +49,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
     """
     
     permission_classes = [AllowAny]
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
     def get(self, request, hotel_slug):
         """Get chat context for guest token"""
@@ -161,6 +149,7 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
     """
     
     permission_classes = [AllowAny]
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
     def get(self, request, hotel_slug):
         """Retrieve chat messages for guest"""
@@ -349,6 +338,7 @@ class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
     """
     
     permission_classes = [AllowAny]
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
     def post(self, request, hotel_slug):
         """Authenticate Pusher private channel subscription for guest chat"""

@@ -14,27 +14,13 @@ import logging
 
 from hotel.services.booking import resolve_token_context, resolve_in_house_context
 from hotel.models import GuestBookingToken
+from common.guest_auth import (
+    TokenAuthenticationMixin,
+    GuestTokenBurstThrottle,
+    GuestTokenSustainedThrottle,
+)
 
 logger = logging.getLogger(__name__)
-
-
-class TokenAuthenticationMixin:
-    """
-    Mixin for token-based authentication using GuestBookingToken.
-    Extracts token from Authorization header or query parameter.
-    """
-    
-    def get_token_from_request(self, request):
-        """Extract token from request headers or query params"""
-        # Try Authorization header first
-        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        if auth_header.startswith('Bearer '):
-            return auth_header.replace('Bearer ', '')
-        elif auth_header.startswith('GuestToken '):
-            return auth_header.replace('GuestToken ', '')
-        
-        # Fall back to query parameter
-        return request.GET.get('token', '')
 
 
 @method_decorator(never_cache, name='dispatch')
@@ -66,6 +52,8 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
         "allowed_actions": ["chat", "room_service", "view_booking"]
     }
     """
+    permission_classes = []
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
     def get(self, request):
         """Get booking context for authenticated guest"""
@@ -123,6 +111,8 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
         "recent_messages": [...] // Last 50 messages
     }
     """
+    permission_classes = []
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
     def get(self, request):
         """Get chat context for authenticated guest"""
@@ -185,23 +175,9 @@ class GuestRoomServiceView(APIView, TokenAuthenticationMixin):
     Only available for CHECKED_IN guests with assigned rooms.
     
     Authentication: GuestBookingToken via Authorization header or ?token= param
-    
-    Response format:
-    {
-        "room_service_enabled": true,
-        "in_house": true,
-        "room_context": {
-            "room_number": "101",
-            "room_type_name": "Standard Room", 
-            "floor": "1",
-            "amenities": ["WiFi", "TV"],
-            "check_in_time": "2025-01-15T15:30:00Z",
-            "expected_checkout": "2025-01-17"
-        },
-        "menu_categories": [...], // Available service categories
-        "order_history": [...] // Recent orders
-    }
     """
+    permission_classes = []
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
     def get(self, request):
         """Get room service context for authenticated in-house guest"""
