@@ -620,15 +620,17 @@ class StripeWebhookView(APIView):
             try:
                 # Generate guest status token
                 from .models import GuestBookingToken
+                from urllib.parse import quote
                 token_obj, raw_guest_token = GuestBookingToken.generate_token(
                     booking=booking,
                     purpose='STATUS',
                     scopes=['VIEW_STATUS']
                 )
                 
-                # Build guest status URL
+                # Build guest status URL with email and token
                 base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
-                status_url = f"{base_url}/booking/status/{booking.hotel.slug}/{booking.booking_id}?token={raw_guest_token}"
+                email_param = quote(booking.primary_email or '', safe='')
+                status_url = f"{base_url}/hotel/{booking.hotel.slug}/booking/{booking.booking_id}?email={email_param}&token={raw_guest_token}"
                 
                 # Send payment confirmation email
                 success = send_payment_received_email(booking, status_url, customer_email)

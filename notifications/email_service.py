@@ -5,25 +5,62 @@ from django.core.mail import send_mail
 from django.template.loader import render_to_string
 from django.utils.html import strip_tags
 from django.conf import settings
+from urllib.parse import quote
 import logging
 
 logger = logging.getLogger(__name__)
 
 
-def send_booking_received_email(booking, status_url, guest_token):
+def get_secure_booking_url(booking, raw_token=None):
+    """
+    Build secure booking URL with email and guest token parameters.
+    Retrieves existing active GuestBookingToken or generates a new one.
+
+    Args:
+        booking: RoomBooking instance
+        raw_token: Optional raw token string (if already available)
+
+    Returns:
+        tuple: (url_string, raw_token_string)
+    """
+    from hotel.models import GuestBookingToken
+
+    if raw_token is None:
+        # Try to find an existing active token — but raw tokens aren't stored,
+        # so we must generate a new one when the raw value isn't available.
+        token_obj, raw_token = GuestBookingToken.generate_token(
+            booking=booking,
+            purpose='FULL_ACCESS',
+            scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE'],
+        )
+
+    base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
+    email_param = quote(booking.primary_email or '', safe='')
+    url = (
+        f"{base_url}/hotel/{booking.hotel.slug}/booking/{booking.booking_id}"
+        f"?email={email_param}&token={raw_token}"
+    )
+    return url, raw_token
+
+
+def send_booking_received_email(booking, status_url=None, guest_token=None):
     """
     Send "Booking Received" email to guest when booking is created (PENDING_APPROVAL)
     Includes link to status page for tracking.
     
     Args:
         booking: RoomBooking instance
-        status_url: Full URL to booking status page with token
-        guest_token: Raw guest token for access
+        status_url: Full URL to booking status page (auto-generated if None)
+        guest_token: Raw guest token for access (auto-generated if None)
     
     Returns:
         bool: True if email sent successfully
     """
     try:
+        # Auto-generate secure booking URL if not provided
+        if not status_url or not guest_token:
+            status_url, guest_token = get_secure_booking_url(booking, guest_token)
+
         # Email subject
         subject = f"📋 Booking Received - {booking.hotel.name} - {booking.confirmation_number}"
         
@@ -179,17 +216,21 @@ def send_booking_received_email(booking, status_url, guest_token):
         return False
 
 
-def send_booking_confirmation_email(booking):
+def send_booking_confirmation_email(booking, raw_token=None):
     """
     Send confirmation email to guest when booking is confirmed by staff
     
     Args:
         booking: RoomBooking instance
+        raw_token: Optional raw guest token (auto-generated if None)
     
     Returns:
         bool: True if email sent successfully
     """
     try:
+        # Generate secure booking URL
+        status_url, raw_token = get_secure_booking_url(booking, raw_token)
+
         # Email subject
         subject = f"✅ Booking Confirmed - {booking.hotel.name} - {booking.confirmation_number}"
         
@@ -278,6 +319,12 @@ def send_booking_confirmation_email(booking):
                         <li>Contact the hotel directly for any special requests</li>
                     </ul>
                     
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="{status_url}" style="display: inline-block; background: #667eea; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                            📱 View Your Booking
+                        </a>
+                    </div>
+                    
                     <p>We look forward to welcoming you to {hotel_name}!</p>
                     
                     <div class="footer">
@@ -306,6 +353,8 @@ def send_booking_confirmation_email(booking):
         Duration: {nights} night(s)
         Guests: {booking.adults} adult(s){f", {booking.children} child(ren)" if booking.children > 0 else ""}
         Total Amount: {total_amount}
+        
+        View your booking: {status_url}
         
         Please bring a valid ID and this confirmation email when you arrive.
         
@@ -336,7 +385,7 @@ def send_booking_confirmation_email(booking):
         return False
 
 
-def send_booking_cancellation_email(booking, reason=None, cancelled_by=None):
+def send_booking_cancellation_email(booking, reason=None, cancelled_by=None, raw_token=None):
     """
     Send cancellation email to guest when booking is cancelled
     
@@ -344,11 +393,15 @@ def send_booking_cancellation_email(booking, reason=None, cancelled_by=None):
         booking: RoomBooking instance
         reason: Cancellation reason
         cancelled_by: Who cancelled the booking
+        raw_token: Optional raw guest token (auto-generated if None)
     
     Returns:
         bool: True if email sent successfully
     """
     try:
+        # Generate secure booking URL
+        status_url, raw_token = get_secure_booking_url(booking, raw_token)
+
         # Email subject
         subject = f"❌ Booking Cancelled - {booking.hotel.name} - {booking.confirmation_number}"
         
@@ -436,6 +489,12 @@ def send_booking_cancellation_email(booking, reason=None, cancelled_by=None):
                         <li>We apologize for any inconvenience caused</li>
                     </ul>
                     
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="{status_url}" style="display: inline-block; background: #6c757d; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+                            📋 View Booking Details
+                        </a>
+                    </div>
+                    
                     <p>If you have any questions about this cancellation, please contact {hotel_name} directly.</p>
                     
                     <div class="footer">
@@ -467,6 +526,8 @@ def send_booking_cancellation_email(booking, reason=None, cancelled_by=None):
         Amount: {total_amount}
         
         If you made a payment, refunds will be processed according to our policy.
+        
+        View booking details: {status_url}
         
         For questions, please contact the hotel directly.
         

@@ -7,6 +7,7 @@ Allows guests to view and manage their bookings via secure links.
 import hashlib
 import secrets
 from datetime import timedelta
+from urllib.parse import quote
 from django.utils import timezone
 from django.template.loader import render_to_string
 from django.conf import settings
@@ -66,9 +67,10 @@ def send_booking_management_email(booking: RoomBooking, raw_token: str, recipien
     if not recipient_email:
         raise ValueError("No recipient email provided")
     
-    # Build management URL with hotel slug, booking ID, and token
+    # Build management URL with hotel slug, booking ID, email, and token
     base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
-    management_url = f"{base_url}/booking/status/{booking.hotel.slug}/{booking.booking_id}?token={raw_token}"
+    email_param = quote(booking.primary_email or '', safe='')
+    management_url = f"{base_url}/hotel/{booking.hotel.slug}/booking/{booking.booking_id}?email={email_param}&token={raw_token}"
     
     # Prepare email context
     context = {
@@ -144,19 +146,22 @@ def create_and_send_booking_management_token(booking: RoomBooking, recipient_ema
         return False
 
 
-def get_booking_management_url(booking_id: str, raw_token: str) -> str:
+def get_booking_management_url(booking_id: str, raw_token: str, hotel_slug: str = '', primary_email: str = '') -> str:
     """
     Generate the frontend URL for booking management.
     
     Args:
         booking_id: Booking ID (e.g., 'BK-2025-0023')
         raw_token: Raw token string
+        hotel_slug: Hotel slug for URL path
+        primary_email: Guest email for verification
     
     Returns:
         str: Complete management URL
     """
     base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
-    return f"{base_url}/booking/status/{booking_id}?token={raw_token}"
+    email_param = quote(primary_email, safe='')
+    return f"{base_url}/hotel/{hotel_slug}/booking/{booking_id}?email={email_param}&token={raw_token}"
 
 
 def cancel_booking_programmatically(booking: RoomBooking, reason: str = "Cancelled by system", cancelled_by: str = "System") -> dict:
