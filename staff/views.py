@@ -1122,7 +1122,8 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing departments.
     List, create, retrieve, update, delete departments.
-    Read: any authenticated user. Write: superuser only.
+    Read: any authenticated user (scoped to hotel's departments).
+    Write: superuser only.
     """
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
@@ -1141,13 +1142,25 @@ class DepartmentViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated()]
         return [IsSuperUser()]
 
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_superuser:
+            return Department.objects.all()
+        if hasattr(user, 'staff_profile'):
+            hotel = user.staff_profile.hotel
+            return Department.objects.filter(
+                staff_members__hotel=hotel
+            ).distinct()
+        return Department.objects.none()
+
 
 class RoleViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing roles.
     List, create, retrieve, update, delete roles.
     Filter by department using ?department_slug=<slug>
-    Read: any authenticated user. Write: superuser only.
+    Read: any authenticated user (scoped to hotel's roles).
+    Write: superuser only.
     """
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
@@ -1168,21 +1181,21 @@ class RoleViewSet(viewsets.ModelViewSet):
             return [permissions.IsAuthenticated()]
         return [IsSuperUser()]
     
-    filter_backends = [
-        DjangoFilterBackend,
-        filters.SearchFilter,
-        filters.OrderingFilter
-    ]
-    filterset_fields = ['department', 'department__slug']
-    search_fields = ['name', 'slug', 'description']
-    ordering_fields = ['name', 'id']
-    ordering = ['name']
-    
     def get_queryset(self):
         """
-        Filter roles by department_slug query parameter.
+        Scope roles to hotel via staff membership; supports department_slug filter.
         """
-        queryset = Role.objects.select_related('department').all()
+        user = self.request.user
+        if user.is_superuser:
+            queryset = Role.objects.select_related('department').all()
+        elif hasattr(user, 'staff_profile'):
+            hotel = user.staff_profile.hotel
+            queryset = Role.objects.select_related('department').filter(
+                staff_members__hotel=hotel
+            ).distinct()
+        else:
+            return Role.objects.none()
+
         department_slug = self.request.query_params.get(
             'department_slug', None
         )

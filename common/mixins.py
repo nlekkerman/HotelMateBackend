@@ -9,6 +9,38 @@ from hotel.models import Hotel
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 
 
+class HotelScopedQuerysetMixin:
+    """
+    Lightweight mixin that scopes querysets to the authenticated user's hotel.
+
+    For use with any ModelViewSet whose model has a ``hotel`` ForeignKey.
+    Does NOT rely on URL parameters – it derives the hotel entirely from
+    ``request.user.staff_profile.hotel``, providing strict tenant isolation
+    regardless of what the URL contains.
+
+    Usage:
+        class MyViewSet(HotelScopedQuerysetMixin, viewsets.ModelViewSet):
+            queryset = MyModel.objects.all()
+            ...
+    """
+
+    def get_hotel(self):
+        """Return the hotel the authenticated staff member belongs to."""
+        if not hasattr(self.request.user, 'staff_profile'):
+            raise exceptions.PermissionDenied(
+                "User must have a staff profile"
+            )
+        return self.request.user.staff_profile.hotel
+
+    def get_queryset(self):
+        """Filter the base queryset to the user's hotel."""
+        return super().get_queryset().filter(hotel=self.get_hotel())
+
+    def perform_create(self, serializer):
+        """Ensure the hotel is always set from the user's profile."""
+        serializer.save(hotel=self.get_hotel())
+
+
 class HotelScopedViewSetMixin:
     """
     Mixin that provides hotel-scoped functionality for attendance/roster viewsets.

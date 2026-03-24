@@ -31,12 +31,18 @@ class OverstayAcknowledgeView(APIView):
     
     def post(self, request, hotel_slug, booking_id):
         try:
-            # Get hotel
+            # Verify hotel matches the authenticated user's hotel
+            staff_hotel = request.user.staff_profile.hotel
             hotel = Hotel.objects.get(slug=hotel_slug)
+            if hotel.id != staff_hotel.id:
+                return Response(
+                    {'detail': 'You do not have access to this hotel'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
             
             # Get booking by booking_id (reference string, not pk)
             booking = RoomBooking.objects.get(
-                hotel=hotel,
+                hotel=staff_hotel,
                 booking_id=booking_id
             )
             
@@ -53,7 +59,7 @@ class OverstayAcknowledgeView(APIView):
             
             # Acknowledge overstay
             result = acknowledge_overstay(
-                hotel=hotel,
+                hotel=staff_hotel,
                 booking=booking,
                 staff_user=request.user,
                 note=note,
@@ -92,12 +98,18 @@ class OverstayExtendView(APIView):
     
     def post(self, request, hotel_slug, booking_id):
         try:
-            # Get hotel
+            # Verify hotel matches the authenticated user's hotel
+            staff_hotel = request.user.staff_profile.hotel
             hotel = Hotel.objects.get(slug=hotel_slug)
+            if hotel.id != staff_hotel.id:
+                return Response(
+                    {'detail': 'You do not have access to this hotel'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
             
             # Get booking by booking_id (reference string, not pk)  
             booking = RoomBooking.objects.get(
-                hotel=hotel,
+                hotel=staff_hotel,
                 booking_id=booking_id
             )
             
@@ -155,7 +167,7 @@ class OverstayExtendView(APIView):
             
             # Extend overstay
             result = extend_overstay(
-                hotel=hotel,
+                hotel=staff_hotel,
                 booking=booking,
                 staff_user=request.user,
                 new_checkout_date=new_checkout_date,
@@ -207,12 +219,18 @@ class OverstayStatusView(APIView):
 
     def get(self, request, hotel_slug, booking_id):
         try:
-            # Get hotel
+            # Verify hotel matches the authenticated user's hotel
+            staff_hotel = request.user.staff_profile.hotel
             hotel = Hotel.objects.get(slug=hotel_slug)
+            if hotel.id != staff_hotel.id:
+                return Response(
+                    {'detail': 'You do not have access to this hotel'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
 
             # Get booking by booking_id (reference string, not pk)
             booking = RoomBooking.objects.get(
-                hotel=hotel,
+                hotel=staff_hotel,
                 booking_id=booking_id
             )
 

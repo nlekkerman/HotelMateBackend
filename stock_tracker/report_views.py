@@ -13,6 +13,7 @@ from decimal import Decimal
 from hotel.models import Hotel
 from hotel.permissions import IsSuperStaffAdminForHotel
 from .models import StockPeriod, StockSnapshot, StockMovement
+from .views import _get_staff_hotel
 
 
 class StockValueReportView(APIView):
@@ -24,10 +25,7 @@ class StockValueReportView(APIView):
     permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         period_id = request.query_params.get('period')
         
@@ -206,10 +204,7 @@ class SalesReportView(APIView):
     permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         period_id = request.query_params.get('period')
         

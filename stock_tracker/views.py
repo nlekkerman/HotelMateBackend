@@ -150,6 +150,16 @@ def get_periods_from_request(request, hotel):
     return periods, None
 
 
+def _get_staff_hotel(request):
+    """
+    Defence-in-depth helper: return the hotel from the authenticated user's
+    staff profile.  All stock-tracker views that resolve a hotel from the
+    URL should prefer this over a bare Hotel.objects.get() so that the
+    queryset is always tied to the *user's* hotel, not just the URL value.
+    """
+    return request.user.staff_profile.hotel
+
+
 class IngredientViewSet(viewsets.ModelViewSet):
     serializer_class = IngredientSerializer
     permission_classes = [IsHotelStaff]
@@ -158,11 +168,7 @@ class IngredientViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return Ingredient.objects.filter(hotel=hotel)
 
 
@@ -174,11 +180,7 @@ class CocktailRecipeViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return CocktailRecipe.objects.filter(hotel=hotel).prefetch_related(
             'ingredients__ingredient'
         )
@@ -191,11 +193,7 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
     ordering = ['-timestamp']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         qs = CocktailConsumption.objects.filter(
             hotel=hotel
         ).select_related('cocktail')
@@ -217,10 +215,7 @@ class CocktailConsumptionViewSet(viewsets.ModelViewSet):
         from django.db.models import Sum, Count
         from decimal import Decimal
         
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Base queryset
         qs = CocktailConsumption.objects.filter(hotel=hotel)
@@ -308,11 +303,7 @@ class CocktailIngredientConsumptionViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         from .models import CocktailIngredientConsumption
         
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         
         qs = CocktailIngredientConsumption.objects.filter(
             cocktail_consumption__hotel=hotel
@@ -424,10 +415,7 @@ class IngredientUsageView(APIView):
     permission_classes = [IsHotelStaff]
 
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
 
         try:
             data = ingredient_usage(hotel_id=hotel.id)
@@ -443,9 +431,9 @@ class IngredientUsageView(APIView):
 # Stock Management ViewSets
 
 class StockCategoryViewSet(viewsets.ModelViewSet):
-    """ViewSet for stock categories (D, B, S, W, M)"""
+    """ViewSet for stock categories (D, B, S, W, M) — global lookup table"""
     serializer_class = StockCategorySerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsHotelStaff]
     pagination_class = None
 
     def get_queryset(self):
@@ -453,12 +441,9 @@ class StockCategoryViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['get'])
     def items(self, request, pk=None, hotel_identifier=None):
-        """Get all items in this category"""
+        """Get all items in this category for the user's hotel"""
         category = self.get_object()
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         items = StockItem.objects.filter(
             hotel=hotel,
             category=category
@@ -474,19 +459,11 @@ class LocationViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return Location.objects.filter(hotel=hotel)
     
     def perform_create(self, serializer):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         serializer.save(hotel=hotel)
 
 
@@ -504,19 +481,11 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         return StockPeriodSerializer
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return StockPeriod.objects.filter(hotel=hotel)
     
     def perform_create(self, serializer):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         serializer.save(hotel=hotel)
     
     def destroy(self, request, *args, **kwargs):
@@ -599,10 +568,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'])
     def compare(self, request, hotel_identifier=None):
         """Compare two periods"""
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         period1_id = request.query_params.get('period1')
         period2_id = request.query_params.get('period2')
@@ -843,10 +809,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 'error': 'Only superusers can view reopen permissions'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         permissions = PeriodReopenPermission.objects.filter(
             hotel=hotel
@@ -886,10 +849,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             # Check if user has permission with can_grant_to_others
             try:
                 staff = request.user.staff_profile
-                hotel = get_object_or_404(
-                    Hotel,
-                    Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-                )
+                hotel = _get_staff_hotel(request)
                 manager_permission = PeriodReopenPermission.objects.filter(
                     hotel=hotel,
                     staff=staff,
@@ -905,10 +865,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 'error': 'You do not have permission to grant reopen access. Only superusers or managers can grant permissions.'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         staff_id = request.data.get('staff_id')
         notes = request.data.get('notes', '')
@@ -995,10 +952,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
             # Check if user has manager permission
             try:
                 staff = request.user.staff_profile
-                hotel = get_object_or_404(
-                    Hotel,
-                    Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-                )
+                hotel = _get_staff_hotel(request)
                 manager_permission = PeriodReopenPermission.objects.filter(
                     hotel=hotel,
                     staff=staff,
@@ -1014,10 +968,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
                 'error': 'You do not have permission to revoke reopen access'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         staff_id = request.data.get('staff_id')
         
@@ -1206,10 +1157,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         from datetime import datetime
         
         # Get hotel
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Method 1: Access by ID (if pk is provided)
         if pk is not None:
@@ -1308,10 +1256,7 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
         from datetime import datetime
         
         # Get hotel
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Method 1: Access by ID (if pk is provided)
         if pk is not None:
@@ -1397,22 +1342,14 @@ class StockSnapshotViewSet(viewsets.ModelViewSet):
     filterset_fields = ['item', 'period']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return StockSnapshot.objects.filter(
             hotel=hotel
         ).select_related('item', 'period', 'item__category')
     
     def perform_create(self, serializer):
         """Set hotel when creating snapshot"""
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         serializer.save(hotel=hotel)
 
 
@@ -1425,21 +1362,13 @@ class StockItemViewSet(viewsets.ModelViewSet):
     search_fields = ['sku', 'name']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return StockItem.objects.filter(
             hotel=hotel
         ).select_related('category')
     
     def perform_create(self, serializer):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         serializer.save(hotel=hotel)
     
     @action(detail=False, methods=['get'])
@@ -1526,10 +1455,7 @@ class StockItemViewSet(viewsets.ModelViewSet):
         period_id = request.query_params.get('period_id')
         override_threshold = request.query_params.get('threshold')
         
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         low_stock_data = []
         
@@ -1647,24 +1573,16 @@ class StockMovementViewSet(viewsets.ModelViewSet):
     ordering = ['-timestamp']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return StockMovement.objects.filter(hotel=hotel)
 
     def perform_create(self, serializer):
         """
-        Auto-set hotel from URL parameter and staff from request.user.
+        Auto-set hotel from user's staff profile and staff from request.user.
         This prevents the client needing to provide the hotel field and
         avoids invalid staff PK errors when client omits staff (we set it).
         """
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
 
         staff = None
         if hasattr(self.request, 'user') and \
@@ -1684,11 +1602,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
     ordering = ['-period_end']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return Stocktake.objects.filter(hotel=hotel)
 
     def get_serializer_class(self):
@@ -1697,12 +1611,9 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         return StocktakeSerializer
 
     def perform_create(self, serializer):
-        """Auto-set hotel from URL parameter and broadcast creation"""
+        """Auto-set hotel from user's staff profile and broadcast creation"""
         hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         instance = serializer.save(hotel=hotel)
         
         # Broadcast stocktake creation to all users viewing stocktakes list
@@ -2201,10 +2112,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         from datetime import datetime
         
         # Get hotel
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Method 1: Access by ID (if pk is provided)
         if pk is not None:
@@ -2297,10 +2205,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         from datetime import datetime
         
         # Get hotel
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Method 1: Access by ID (if pk is provided)
         if pk is not None:
@@ -2395,10 +2300,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
         from datetime import datetime
         
         # Get hotel
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Method 1: Access by ID
         if pk is not None:
@@ -2494,11 +2396,7 @@ class StocktakeLineViewSet(viewsets.ModelViewSet):
     filterset_fields = ['stocktake', 'item']
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
         return StocktakeLine.objects.filter(stocktake__hotel=hotel)
 
     def update(self, request, *args, **kwargs):
@@ -3379,11 +3277,7 @@ class SaleViewSet(viewsets.ModelViewSet):
         return SaleSerializer
 
     def get_queryset(self):
-        hotel_identifier = self.kwargs.get('hotel_identifier')
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(self.request)
 
         # Base queryset - filter by item's hotel to include standalone sales
         queryset = Sale.objects.filter(
@@ -3463,10 +3357,7 @@ class SaleViewSet(viewsets.ModelViewSet):
         from django.db.models import Sum, Count
         from datetime import datetime
 
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
 
         # Base queryset - filter by hotel through item
         sales_qs = Sale.objects.filter(item__hotel=hotel)
@@ -3561,10 +3452,7 @@ class SaleViewSet(viewsets.ModelViewSet):
         Create multiple sales at once.
         Accepts a list of sale objects in request body.
         """
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
 
         sales_data = request.data.get('sales', [])
         if not sales_data:
@@ -3623,10 +3511,7 @@ class KPISummaryView(APIView):
     
     def get(self, request, hotel_identifier):
         # Get hotel
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Use helper function to get periods
         periods, error_response = get_periods_from_request(request, hotel)

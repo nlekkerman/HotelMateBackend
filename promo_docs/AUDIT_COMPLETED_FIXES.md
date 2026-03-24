@@ -302,3 +302,148 @@ Note: One remaining inconsistency at line ~1476 in `notification_manager.py` sti
 | Realtime/Comms | 4 fixes (test endpoint removed, staff chat auth, debug prints removed, channel naming) |
 | Scheduler/Infra | 3 fixes (auto-creation signals, backfill command, flexible permissions) |
 | **Total** | **~18 fixes** |
+
+---
+
+## Phase 2 — Staff-Facing API Permission Enforcement (March 24, 2026)
+
+Aligned backend staff-facing API enforcement with frontend route-level permission coverage. Four target areas addressed.
+
+---
+
+### FIX: `hotel/permissions.py` — New `IsHotelStaff` Reusable Permission Class
+
+**Audit finding:** No reusable permission existed to verify "user is authenticated staff belonging to this hotel." Individual views duplicated this logic or omitted it entirely.
+
+**What changed:**
+- Added `IsHotelStaff(BasePermission)` class
+- Checks: user authenticated → has `Staff` profile → staff's hotel matches URL `hotel_slug` or `hotel_identifier` (supports both slug and subdomain)
+- Used as the standard permission class across all hotel-scoped staff endpoints below
+
+---
+
+### FIX: `stock_tracker/views.py` — All 14 ViewSets/Views Now Enforce Hotel-Aware Staff Access
+
+**Audit finding:** Every ViewSet in stock_tracker had **zero** `permission_classes`. They inherited the DRF default (`IsAuthenticated` or project default). Any authenticated user from any hotel could read/mutate stock data, stocktakes, periods, sales, KPIs, ingredients, and cocktail records by supplying any `hotel_identifier` in the URL. The `get_queryset()` methods filtered by hotel but never verified the caller *belongs* to that hotel.
+
+**What changed:**
+
+| ViewSet / View | Permission Added |
+|---|---|
+| `IngredientViewSet` | `[IsHotelStaff]` |
+| `CocktailRecipeViewSet` | `[IsHotelStaff]` |
+| `CocktailConsumptionViewSet` | `[IsHotelStaff]` |
+| `CocktailIngredientConsumptionViewSet` | `[IsHotelStaff]` |
+| `IngredientUsageView` | `[IsHotelStaff]` |
+| `LocationViewSet` | `[IsHotelStaff]` |
+| `StockPeriodViewSet` | `[IsHotelStaff]` |
+| `StockSnapshotViewSet` | `[IsHotelStaff]` |
+| `StockItemViewSet` | `[IsHotelStaff]` |
+| `StockMovementViewSet` | `[IsHotelStaff]` |
+| `StocktakeViewSet` | `[IsHotelStaff]` |
+| `StocktakeLineViewSet` | `[IsHotelStaff]` |
+| `SaleViewSet` | `[IsHotelStaff]` |
+| `KPISummaryView` | `[IsHotelStaff]` |
+| `StockCategoryViewSet` | `[IsAuthenticated]` (global reference data, no hotel FK) |
+
+Additional: `StockPeriodViewSet.destroy` upgraded from superuser-only to accept `super_staff_admin` access level (hotel-scoped admin check).
+
+**Frontend pages protected:** Stock Tracker dashboard, Period management, Stocktake workflow, Sales entry, KPI reports, Cocktail management, Ingredient usage.
+
+---
+
+### FIX: `maintenance/views.py` — Hotel-Scoped Querysets + Staff Permission Enforcement
+
+**Audit finding:** `MaintenanceRequestViewSet` used `queryset = MaintenanceRequest.objects.all()` — returned every maintenance request across all hotels. `MaintenanceCommentViewSet` and `MaintenancePhotoViewSet` had the same cross-hotel exposure. All three used basic `IsAuthenticated` / `permissions.IsAuthenticated`.
+
+**What changed:**
+
+| ViewSet | Before | After |
+|---|---|---|
+| `MaintenanceRequestViewSet` | `queryset = ...objects.all()`, `IsAuthenticated` | `get_queryset()` filters by `user.staff_profile.hotel`, `[IsHotelStaff]` |
+| `MaintenanceCommentViewSet` | `queryset = ...objects.all()`, `IsAuthenticated` | `get_queryset()` filters by `maintenance_request__hotel=user.staff_profile.hotel`, `[IsHotelStaff]` |
+| `MaintenancePhotoViewSet` | `queryset = ...objects.all()`, `IsAuthenticated` | `get_queryset()` filters by `maintenance_request__hotel=user.staff_profile.hotel`, `[IsHotelStaff]` |
+
+**Frontend pages protected:** Maintenance Requests list, maintenance request detail, comments, photo uploads.
+
+---
+
+### FIX: `staff/views.py` — `DepartmentViewSet` & `RoleViewSet` Mutations Restricted to Superuser
+
+**Audit finding:** Both ViewSets used `permission_classes = [IsAuthenticated]`. Department and Role are global lookup tables (no hotel FK), so cross-hotel read exposure is by design. However, **mutations** (create/update/delete) were unrestricted — any authenticated user could alter global departments and roles used by all hotels.
+
+**What changed:**
+- Added `get_permissions()` override on both ViewSets
+- `list` / `retrieve` actions → `[IsAuthenticated()]` (unchanged behavior)
+- `create` / `update` / `partial_update` / `destroy` actions → `[IsSuperUser()]`
+- Querysets unchanged (global lookup tables are intentionally shared)
+
+**Frontend pages protected:** Department & Role management admin pages. Regular staff can still read department/role lists for dropdowns.
+
+---
+
+### FIX: `hotel/overstay_views.py` — Hotel-Aware Staff Permission Enforcement
+
+**Audit finding:** All three views (`OverstayAcknowledgeView`, `OverstayExtendView`, `OverstayStatusView`) used only `permission_classes = [IsAuthenticated]` with stale `# TODO: Add HasOverstayPermissions` comments. The `hotel_slug` URL kwarg was available but never checked against the caller's staff profile. Staff from hotel B could acknowledge or extend overstays for hotel A.
+
+**What changed:**
+
+| View | Before | After |
+|---|---|---|
+| `OverstayAcknowledgeView` | `[IsAuthenticated]` | `[IsHotelStaff]` |
+| `OverstayExtendView` | `[IsAuthenticated]` | `[IsHotelStaff]` |
+| `OverstayStatusView` | `[IsAuthenticated]` | `[IsHotelStaff]` |
+
+Removed stale TODO comments. `IsHotelStaff` resolves `hotel_slug` from URL kwargs and verifies the caller's staff profile belongs to that hotel.
+
+**Frontend pages protected:** Overstay management panel (acknowledge, extend, status check).
+
+---
+
+### Phase 2 QA Checklist
+
+#### Stock Tracker (`/api/staff/hotel/{slug}/stock_tracker/...`)
+
+| Scenario | Expected |
+|---|---|
+| Regular staff, same hotel | 200 on GET/POST/PUT/PATCH. 403 on period delete/reopen (inline admin check) |
+| Super staff admin, same hotel | 200 on all operations including period delete, reopen, grant/revoke |
+| Staff from another hotel | **403 Forbidden** on every endpoint |
+| Unauthenticated | **401 Unauthorized** |
+
+#### Maintenance (`/api/staff/hotel/{slug}/maintenance/...`)
+
+| Scenario | Expected |
+|---|---|
+| Regular staff, same hotel | 200 — sees only own hotel's requests |
+| Staff from another hotel | **403 Forbidden** |
+| Unauthenticated | **401 Unauthorized** |
+
+#### Departments/Roles (`/api/staff/departments/`, `/api/staff/roles/`)
+
+| Scenario | Expected |
+|---|---|
+| Regular staff (any hotel) | 200 on GET. **403** on POST/PUT/PATCH/DELETE |
+| Django superuser | 200 on all CRUD |
+| Unauthenticated | **401 Unauthorized** |
+
+#### Overstay Views (`/api/staff/hotel/{slug}/room-bookings/{id}/overstay/...`)
+
+| Scenario | Expected |
+|---|---|
+| Regular staff, same hotel | 200 on acknowledge, extend, status |
+| Staff from another hotel | **403 Forbidden** |
+| Unauthenticated | **401 Unauthorized** |
+
+---
+
+### Phase 2 Summary
+
+| Category | Fixes Applied |
+|----------|---------------|
+| New Permission Class | 1 (`IsHotelStaff` in `hotel/permissions.py`) |
+| Stock Tracker Enforcement | 15 ViewSets/Views secured with `[IsHotelStaff]` or `[IsAuthenticated]` |
+| Maintenance Isolation | 3 ViewSets: hotel-scoped querysets + `[IsHotelStaff]` |
+| Department/Role Mutation Lock | 2 ViewSets: read=`IsAuthenticated`, write=`IsSuperUser` |
+| Overstay Cross-Hotel Block | 3 Views: `IsAuthenticated` → `IsHotelStaff` |
+| **Total** | **24 endpoint-level fixes** |

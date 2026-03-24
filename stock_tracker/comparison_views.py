@@ -11,13 +11,14 @@ from decimal import Decimal
 from collections import defaultdict
 
 from hotel.models import Hotel
+from hotel.permissions import IsHotelStaff
 from .models import (
     StockPeriod,
     StockSnapshot,
     StockMovement,
     StockCategory
 )
-from .views import get_periods_from_request
+from .views import get_periods_from_request, _get_staff_hotel
 
 
 class CompareCategoriesView(APIView):
@@ -27,12 +28,10 @@ class CompareCategoriesView(APIView):
     
     GET /stock_tracker/<hotel>/compare/categories/?periods=1,2,3
     """
+    permission_classes = [IsHotelStaff]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Use helper to get periods (supports IDs, year/month, date range)
         periods, error_response = get_periods_from_request(request, hotel)
@@ -209,12 +208,10 @@ class TopMoversView(APIView):
     
     GET /stock_tracker/<hotel>/compare/top-movers/?period1=1&period2=2&limit=10
     """
+    permission_classes = [IsHotelStaff]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         period1_id = request.query_params.get('period1', '').strip()
         period2_id = request.query_params.get('period2', '').strip()
@@ -360,12 +357,10 @@ class CostAnalysisView(APIView):
     
     GET /stock_tracker/<hotel>/compare/cost-analysis/?period1=1&period2=2
     """
+    permission_classes = [IsHotelStaff]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         period1_id = request.query_params.get('period1', '').strip()
         period2_id = request.query_params.get('period2', '').strip()
@@ -585,12 +580,10 @@ class TrendAnalysisView(APIView):
         &category=S (optional)
         &items=123,456 (optional - specific item IDs)
     """
+    permission_classes = [IsHotelStaff]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Get period IDs
         period_ids_str = request.query_params.get('periods', '').strip()
@@ -768,12 +761,10 @@ class VarianceHeatmapView(APIView):
     
     GET /stock_tracker/<hotel>/compare/variance-heatmap/?periods=1,2,3,4
     """
+    permission_classes = [IsHotelStaff]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         # Get period IDs
         period_ids_str = request.query_params.get('periods', '').strip()
@@ -889,12 +880,10 @@ class PerformanceScorecardView(APIView):
     GET /stock_tracker/<hotel>/compare/performance-scorecard/
         ?period1=1&period2=2
     """
+    permission_classes = [IsHotelStaff]
     
     def get(self, request, hotel_identifier):
-        hotel = get_object_or_404(
-            Hotel,
-            Q(slug=hotel_identifier) | Q(subdomain=hotel_identifier)
-        )
+        hotel = _get_staff_hotel(request)
         
         period1_id = request.query_params.get('period1', '').strip()
         period2_id = request.query_params.get('period2', '').strip()
