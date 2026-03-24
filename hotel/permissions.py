@@ -5,6 +5,35 @@ from rest_framework.permissions import BasePermission
 from staff.models import Staff
 
 
+class IsHotelStaff(BasePermission):
+    """
+    Permission: user is authenticated staff belonging to the hotel in the URL.
+
+    Resolves hotel from URL kwargs ``hotel_slug`` or ``hotel_identifier``
+    and compares against the staff member's hotel slug/subdomain.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        hotel_identifier = (
+            view.kwargs.get('hotel_slug')
+            or view.kwargs.get('hotel_identifier')
+        )
+        if not hotel_identifier:
+            return False
+
+        try:
+            staff = Staff.objects.get(user=request.user)
+            return (
+                staff.hotel.slug == hotel_identifier
+                or staff.hotel.subdomain == hotel_identifier
+            )
+        except Staff.DoesNotExist:
+            return False
+
+
 class IsSuperStaffAdminForHotel(BasePermission):
     """
     Permission to check if the user is a Super Staff Admin for the given hotel.

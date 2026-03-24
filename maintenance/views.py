@@ -6,14 +6,22 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
 from staff.serializers import StaffSerializer
+from hotel.permissions import IsHotelStaff
 
 
 class MaintenanceRequestViewSet(viewsets.ModelViewSet):
-    queryset = MaintenanceRequest.objects.all().order_by('-created_at')
     serializer_class = MaintenanceRequestSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsHotelStaff]
     reported_by = StaffSerializer(read_only=True)
     accepted_by = StaffSerializer(read_only=True)
+
+    def get_queryset(self):
+        user = self.request.user
+        if not hasattr(user, 'staff_profile'):
+            return MaintenanceRequest.objects.none()
+        return MaintenanceRequest.objects.filter(
+            hotel=user.staff_profile.hotel
+        ).order_by('-created_at')
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -40,9 +48,16 @@ class MaintenanceRequestViewSet(viewsets.ModelViewSet):
 
 
 class MaintenanceCommentViewSet(viewsets.ModelViewSet):
-    queryset = MaintenanceComment.objects.all()
     serializer_class = MaintenanceCommentSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsHotelStaff]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if not hasattr(user, 'staff_profile'):
+            return MaintenanceComment.objects.none()
+        return MaintenanceComment.objects.filter(
+            maintenance_request__hotel=user.staff_profile.hotel
+        )
     
     def perform_create(self, serializer):
         user = self.request.user
@@ -52,9 +67,16 @@ class MaintenanceCommentViewSet(viewsets.ModelViewSet):
 
 
 class MaintenancePhotoViewSet(viewsets.ModelViewSet):
-    queryset = MaintenancePhoto.objects.all()
     serializer_class = MaintenancePhotoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsHotelStaff]
+
+    def get_queryset(self):
+        user = self.request.user
+        if not hasattr(user, 'staff_profile'):
+            return MaintenancePhoto.objects.none()
+        return MaintenancePhoto.objects.filter(
+            maintenance_request__hotel=user.staff_profile.hotel
+        )
 
     def create(self, request, *args, **kwargs):
         if not hasattr(request.user, 'staff_profile'):

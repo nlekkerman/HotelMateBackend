@@ -2,6 +2,7 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.db.models import Q
 from django.utils import timezone
@@ -9,6 +10,7 @@ from decimal import Decimal, InvalidOperation
 import logging
 
 from hotel.models import Hotel
+from hotel.permissions import IsHotelStaff, IsSuperStaffAdminForHotel
 from .pusher_utils import (
     broadcast_stocktake_created,
     broadcast_stocktake_status_changed,
@@ -150,6 +152,7 @@ def get_periods_from_request(request, hotel):
 
 class IngredientViewSet(viewsets.ModelViewSet):
     serializer_class = IngredientSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     search_fields = ['name']
     ordering_fields = ['name']
@@ -165,6 +168,7 @@ class IngredientViewSet(viewsets.ModelViewSet):
 
 class CocktailRecipeViewSet(viewsets.ModelViewSet):
     serializer_class = CocktailRecipeSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     search_fields = ['name']
     ordering_fields = ['name']
@@ -182,6 +186,7 @@ class CocktailRecipeViewSet(viewsets.ModelViewSet):
 
 class CocktailConsumptionViewSet(viewsets.ModelViewSet):
     serializer_class = CocktailConsumptionSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     ordering = ['-timestamp']
 
@@ -290,6 +295,7 @@ class CocktailIngredientConsumptionViewSet(viewsets.ReadOnlyModelViewSet):
     Read-only - these are auto-created when cocktails are made.
     Supports filtering by merge status, stock item, date range, etc.
     """
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     ordering = ['-timestamp']
     
@@ -415,6 +421,8 @@ class CocktailIngredientConsumptionViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class IngredientUsageView(APIView):
+    permission_classes = [IsHotelStaff]
+
     def get(self, request, hotel_identifier):
         hotel = get_object_or_404(
             Hotel,
@@ -437,6 +445,7 @@ class IngredientUsageView(APIView):
 class StockCategoryViewSet(viewsets.ModelViewSet):
     """ViewSet for stock categories (D, B, S, W, M)"""
     serializer_class = StockCategorySerializer
+    permission_classes = [IsAuthenticated]
     pagination_class = None
 
     def get_queryset(self):
@@ -461,6 +470,7 @@ class StockCategoryViewSet(viewsets.ModelViewSet):
 class LocationViewSet(viewsets.ModelViewSet):
     """ViewSet for stock locations (Bar, Cellar, Storage)"""
     serializer_class = LocationSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
 
     def get_queryset(self):
@@ -482,6 +492,7 @@ class LocationViewSet(viewsets.ModelViewSet):
 
 class StockPeriodViewSet(viewsets.ModelViewSet):
     """ViewSet for stock periods (Weekly, Monthly, Quarterly, Yearly)"""
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     ordering = ['-start_date']
 
@@ -511,14 +522,26 @@ class StockPeriodViewSet(viewsets.ModelViewSet):
     def destroy(self, request, *args, **kwargs):
         """
         Delete period and all related data (stocktake, lines, snapshots).
-        Only superusers can delete periods.
+        Only superusers or super_staff_admin can delete periods.
         """
-        # Check if user is superuser
+        # Check if user is superuser or super_staff_admin for this hotel
         if not request.user.is_superuser:
-            return Response(
-                {"error": "Only superusers can delete periods"},
-                status=status.HTTP_403_FORBIDDEN
-            )
+            hotel_identifier = self.kwargs.get('hotel_identifier')
+            try:
+                staff = request.user.staff_profile
+                if staff.access_level != 'super_staff_admin' or (
+                    staff.hotel.slug != hotel_identifier
+                    and staff.hotel.subdomain != hotel_identifier
+                ):
+                    return Response(
+                        {"error": "Only super staff admins can delete periods"},
+                        status=status.HTTP_403_FORBIDDEN
+                    )
+            except AttributeError:
+                return Response(
+                    {"error": "Only super staff admins can delete periods"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
         
         period = self.get_object()
         
@@ -1369,6 +1392,7 @@ class StockSnapshotViewSet(viewsets.ModelViewSet):
     Staff can POST new counts or PATCH existing snapshots.
     """
     serializer_class = StockSnapshotSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     filterset_fields = ['item', 'period']
 
@@ -1395,6 +1419,7 @@ class StockSnapshotViewSet(viewsets.ModelViewSet):
 class StockItemViewSet(viewsets.ModelViewSet):
     """ViewSet for stock items with profitability analysis"""
     serializer_class = StockItemSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     filterset_fields = ['category']
     search_fields = ['sku', 'name']
@@ -1616,6 +1641,7 @@ class StockItemViewSet(viewsets.ModelViewSet):
 
 class StockMovementViewSet(viewsets.ModelViewSet):
     serializer_class = StockMovementSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     filterset_fields = ['item', 'movement_type']
     ordering = ['-timestamp']
@@ -1652,6 +1678,7 @@ class StockMovementViewSet(viewsets.ModelViewSet):
 
 
 class StocktakeViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     filterset_fields = ['status']
     ordering = ['-period_end']
@@ -2462,6 +2489,7 @@ class StocktakeViewSet(viewsets.ModelViewSet):
 
 class StocktakeLineViewSet(viewsets.ModelViewSet):
     serializer_class = StocktakeLineSerializer
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     filterset_fields = ['stocktake', 'item']
 
@@ -3342,6 +3370,7 @@ class SaleViewSet(viewsets.ModelViewSet):
     ViewSet for Sales - independent sales tracking.
     Allows CRUD operations on sales records for stocktakes.
     """
+    permission_classes = [IsHotelStaff]
     pagination_class = None
     ordering = ['-sale_date', '-created_at']
 
@@ -3590,6 +3619,7 @@ class KPISummaryView(APIView):
     
     GET /api/stock-tracker/<hotel>/kpi-summary/?period_ids=1,2,3
     """
+    permission_classes = [IsHotelStaff]
     
     def get(self, request, hotel_identifier):
         # Get hotel

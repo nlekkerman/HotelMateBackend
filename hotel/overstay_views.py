@@ -10,9 +10,9 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
 
 from hotel.models import Hotel, RoomBooking, OverstayIncident
+from hotel.permissions import IsHotelStaff
 from room_bookings.services.overstay import (
     acknowledge_overstay, extend_overstay, ConflictError,
     compute_checkout_deadline_at
@@ -27,7 +27,7 @@ class OverstayAcknowledgeView(APIView):
     
     Staff acknowledges awareness of overstay.
     """
-    permission_classes = [IsAuthenticated]  # TODO: Add HasOverstayPermissions
+    permission_classes = [IsHotelStaff]
     
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -88,7 +88,7 @@ class OverstayExtendView(APIView):
     
     Staff approves additional nights for overstaying guest.
     """
-    permission_classes = [IsAuthenticated]  # TODO: Add HasOverstayPermissions
+    permission_classes = [IsHotelStaff]
     
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -203,7 +203,7 @@ class OverstayStatusView(APIView):
     
     Retrieve current overstay status for booking.
     """
-    permission_classes = [IsAuthenticated]  # TODO: Add HasOverstayPermissions
+    permission_classes = [IsHotelStaff]
 
     def get(self, request, hotel_slug, booking_id):
         try:

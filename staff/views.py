@@ -1122,10 +1122,10 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing departments.
     List, create, retrieve, update, delete departments.
+    Read: any authenticated user. Write: superuser only.
     """
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
-    permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'slug'
     
     filter_backends = [
@@ -1136,17 +1136,37 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     ordering_fields = ['name', 'id']
     ordering = ['name']
 
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.IsAuthenticated()]
+        return [IsSuperUser()]
+
 
 class RoleViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing roles.
     List, create, retrieve, update, delete roles.
     Filter by department using ?department_slug=<slug>
+    Read: any authenticated user. Write: superuser only.
     """
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
-    permission_classes = [permissions.IsAuthenticated]
     lookup_field = 'slug'
+    
+    filter_backends = [
+        DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter
+    ]
+    filterset_fields = ['department', 'department__slug']
+    search_fields = ['name', 'slug', 'description']
+    ordering_fields = ['name', 'id']
+    ordering = ['name']
+
+    def get_permissions(self):
+        if self.action in ['list', 'retrieve']:
+            return [permissions.IsAuthenticated()]
+        return [IsSuperUser()]
     
     filter_backends = [
         DjangoFilterBackend,
