@@ -419,8 +419,11 @@ class PublicRoomBookingDetailView(APIView):
     """
     Get booking details by booking ID for external booking system.
     Queries the actual RoomBooking model and returns public-safe fields.
+
+    Requires the guest's email as a verification parameter to mitigate
+    IDOR via predictable sequential booking IDs.
     
-    GET /api/public/hotel/<hotel_slug>/room-bookings/<booking_id>/
+    GET /api/public/hotel/<hotel_slug>/room-bookings/<booking_id>/?email=<primary_email>
     """
     permission_classes = [AllowAny]
     throttle_classes = [PublicBurstThrottle, PublicSustainedThrottle]
@@ -428,13 +431,31 @@ class PublicRoomBookingDetailView(APIView):
     def get(self, request, hotel_slug, booking_id):
         # Get hotel first to verify it exists and is active
         hotel = get_object_or_404(Hotel, slug=hotel_slug, is_active=True)
-        
+
+        # Require email parameter for verification (anti-enumeration)
+        email = request.query_params.get('email', '').strip().lower()
+        if not email:
+            return Response(
+                {"detail": "email query parameter is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Get booking by ID, scoped to this hotel
         booking = get_object_or_404(
             RoomBooking,
             booking_id=booking_id,
             hotel=hotel
         )
+
+        # Verify email matches the booking's primary email (constant-time
+        # comparison is not critical here since the booking_id is already
+        # known, but we use the same generic error to avoid oracle leaks).
+        booking_email = (booking.primary_email or '').strip().lower()
+        if not booking_email or email != booking_email:
+            return Response(
+                {"detail": "Booking not found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
         
         # Import the public serializer
         from .booking_serializers import PublicRoomBookingDetailSerializer

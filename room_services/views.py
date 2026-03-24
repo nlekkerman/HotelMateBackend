@@ -1,5 +1,5 @@
 from rest_framework import viewsets, mixins, permissions
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.shortcuts import get_object_or_404
 from rooms.models import Room
 from hotel.models import Hotel  # Assuming you have a Hotel model
@@ -20,6 +20,7 @@ from common.guest_auth import (
     GuestTokenBurstThrottle,
     GuestTokenSustainedThrottle,
 )
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,18 @@ class BreakfastItemViewSet(mixins.ListModelMixin, viewsets.GenericViewSet):
 
 class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     serializer_class = OrderSerializer
-    permission_classes = [permissions.AllowAny]  # Per-action auth enforced below
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
+
+    # ---- Per-action permission dispatch ----
+    # Guest-facing actions (create, room_order_history) use AllowAny at the
+    # DRF layer; actual auth is enforced via guest-token validation in the
+    # view body.  All other actions are staff-only.
+    _GUEST_ACTIONS = {'create', 'room_order_history'}
+
+    def get_permissions(self):
+        if self.action in self._GUEST_ACTIONS:
+            return [AllowAny()]
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
 
     # ------------------------------------------------------------------
     # Helpers
@@ -441,8 +452,37 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
 
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
-class BreakfastOrderViewSet(viewsets.ModelViewSet):
+class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     serializer_class = BreakfastOrderSerializer
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
+
+    # ---- Per-action permission dispatch ----
+    # Guest-facing: create (token validated in perform_create).
+    # All other actions are staff-only.
+    _GUEST_ACTIONS = {'create'}
+
+    def get_permissions(self):
+        if self.action in self._GUEST_ACTIONS:
+            return [AllowAny()]
+        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+
+    def _resolve_guest_context(self, request, hotel):
+        token_str = self.get_token_from_request(request)
+        if not token_str:
+            raise ValueError("Token is required")
+        return resolve_guest_token(
+            token_str,
+            hotel_slug=hotel.slug,
+            required_scopes=['ROOM_SERVICE'],
+            require_checked_in=True,
+        )
+
+    def _is_staff_request(self, request):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and hasattr(request.user, 'staff_profile')
+        )
 
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -466,7 +506,25 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         hotel = self.get_serializer_context()['hotel']
-        order = serializer.save(hotel=hotel)
+
+        # Staff bypass: authenticated staff can create orders (dashboard use)
+        if self._is_staff_request(self.request):
+            order = serializer.save(hotel=hotel)
+        else:
+            # Guest path: validate token → derive room from booking
+            try:
+                _token_obj, booking, room = self._resolve_guest_context(
+                    self.request, hotel
+                )
+            except ValueError as exc:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied(detail=str(exc))
+
+            if not room:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied(detail="No room assigned to this booking")
+
+            order = serializer.save(hotel=hotel, room_number=room.room_number)
         
         # Prepare notification data
         order_data = {
@@ -529,28 +587,58 @@ class BreakfastOrderViewSet(viewsets.ModelViewSet):
 @permission_classes([AllowAny])
 def save_guest_fcm_token(request, hotel_slug, room_number):
     """
-    Save FCM token for anonymous guest in a specific room.
-    Called after PIN verification to enable push notifications.
+    Save FCM token for a checked-in guest's room.
+    Requires a valid GuestBookingToken; the room is derived from the
+    token's booking (the URL room_number must match).
     """
     hotel = get_hotel_from_request(request)
-    room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
     fcm_token = request.data.get('fcm_token')
-    
+
     if not fcm_token:
         return Response(
             {'error': 'fcm_token is required'},
             status=400
         )
-    
-    # Save FCM token to room
+
+    # --- Authenticate via guest token ---
+    auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+    token_str = ''
+    if auth_header.startswith('Bearer '):
+        token_str = auth_header[7:]
+    elif auth_header.startswith('GuestToken '):
+        token_str = auth_header[11:]
+    else:
+        token_str = request.GET.get('token', '')
+
+    if not token_str:
+        return Response({'error': 'Guest token is required'}, status=401)
+
+    try:
+        _token_obj, booking, room = resolve_guest_token(
+            token_str,
+            hotel_slug=hotel.slug,
+            required_scopes=['ROOM_SERVICE'],
+            require_checked_in=True,
+        )
+    except ValueError as exc:
+        return Response({'error': str(exc)}, status=403)
+
+    if not room:
+        return Response({'error': 'No room assigned to this booking'}, status=403)
+
+    # Verify URL room_number matches token-derived room
+    if str(room.room_number) != str(room_number):
+        return Response({'error': 'Room mismatch'}, status=403)
+
+    # Save FCM token to token-derived room
     room.guest_fcm_token = fcm_token
-    room.save()
-    
+    room.save(update_fields=['guest_fcm_token'])
+
     logger.info(
-        f"FCM token saved for room {room_number} "
-        f"at {hotel.name}"
+        f"FCM token saved for room {room.room_number} "
+        f"at {hotel.name} (booking {booking.booking_id})"
     )
-    
+
     return Response({
         'success': True,
         'message': 'FCM token saved successfully'

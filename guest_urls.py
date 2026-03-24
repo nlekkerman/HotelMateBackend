@@ -551,7 +551,7 @@ urlpatterns = [
     # Room service endpoints
     path(
         'hotels/<str:hotel_slug>/room-services/orders/',
-        OrderViewSet.as_view({'get': 'list', 'post': 'create'}),
+        OrderViewSet.as_view({'get': 'room_order_history', 'post': 'create'}),
         name='guest-room-service-orders'
     ),
     path(
