@@ -52,8 +52,8 @@
 
 | Method | Path | Handler | Notes |
 |--------|------|---------|-------|
-| GET/POST | `/api/public/hotels/{slug}/precheckin/validate-token/` | `ValidatePrecheckinTokenView` | Token validation |
-| POST | `/api/public/hotels/{slug}/precheckin/submit/` | `SubmitPrecheckinView` | Submit pre-checkin data |
+| GET | `/api/public/hotel/{slug}/precheckin/?token={token}` | `ValidatePrecheckinTokenView` | Token validation + booking hydration |
+| POST | `/api/public/hotel/{slug}/precheckin/submit/` | `SubmitPrecheckinDataView` | Submit party data + mark token used |
 
 ### Survey
 

@@ -273,8 +273,8 @@ class ValidatePrecheckinTokenView(APIView):
         raw_token = request.query_params.get('token')
         if not raw_token:
             return Response(
-                {'message': 'Link invalid or expired.'},
-                status=404
+                {'error': 'missing_token', 'message': 'Token is required.'},
+                status=400
             )
         
         # Hash the provided token
@@ -290,15 +290,25 @@ class ValidatePrecheckinTokenView(APIView):
             )
         except BookingPrecheckinToken.DoesNotExist:
             return Response(
-                {'message': 'Link invalid or expired.'},
+                {'error': 'invalid_token', 'message': 'Link invalid or expired.'},
                 status=404
             )
         
-        # Validate token status (unified 404 response for all invalid states)
-        if not token.is_valid:
+        # Check specific invalid states for clear client feedback
+        if token.used_at is not None:
             return Response(
-                {'message': 'Link invalid or expired.'},
-                status=404
+                {'error': 'token_used', 'message': 'This pre-check-in link has already been used.'},
+                status=410
+            )
+        if token.revoked_at is not None:
+            return Response(
+                {'error': 'token_revoked', 'message': 'This pre-check-in link is no longer valid.'},
+                status=410
+            )
+        if token.expires_at <= timezone.now():
+            return Response(
+                {'error': 'token_expired', 'message': 'This pre-check-in link has expired. Please request a new one.'},
+                status=410
             )
         
         booking = token.booking
@@ -400,8 +410,8 @@ class SubmitPrecheckinDataView(APIView):
         
         if not raw_token:
             return Response(
-                {'message': 'Link invalid or expired.'},
-                status=404
+                {'error': 'missing_token', 'message': 'Token is required.'},
+                status=400
             )
         
         # Hash the provided token
@@ -417,15 +427,25 @@ class SubmitPrecheckinDataView(APIView):
             )
         except BookingPrecheckinToken.DoesNotExist:
             return Response(
-                {'message': 'Link invalid or expired.'},
+                {'error': 'invalid_token', 'message': 'Link invalid or expired.'},
                 status=404
             )
         
-        # Validate token status
-        if not token.is_valid:
+        # Check specific invalid states for clear client feedback
+        if token.used_at is not None:
             return Response(
-                {'message': 'Link invalid or expired.'},
-                status=404
+                {'error': 'token_used', 'message': 'This pre-check-in link has already been used.'},
+                status=410
+            )
+        if token.revoked_at is not None:
+            return Response(
+                {'error': 'token_revoked', 'message': 'This pre-check-in link is no longer valid.'},
+                status=410
+            )
+        if token.expires_at <= timezone.now():
+            return Response(
+                {'error': 'token_expired', 'message': 'This pre-check-in link has expired. Please request a new one.'},
+                status=410
             )
         
         booking = token.booking
