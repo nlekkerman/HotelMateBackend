@@ -618,13 +618,11 @@ class StripeWebhookView(APIView):
         # Send post-payment confirmation email with guest status token
         if booking_updated and customer_email:
             try:
-                # Generate guest status token
-                from .models import GuestBookingToken
+                # Reuse or rotate guest token for payment confirmation link
+                from hotel.services.guest_token import get_or_create_guest_token
                 from urllib.parse import quote
-                token_obj, raw_guest_token = GuestBookingToken.generate_token(
-                    booking=booking,
-                    purpose='STATUS',
-                    scopes=['VIEW_STATUS']
+                token_obj, raw_guest_token = get_or_create_guest_token(
+                    booking, needs_plaintext=True,
                 )
                 
                 # Build guest status URL with email and token

@@ -2616,15 +2616,14 @@ class BookingCheckInView(APIView):
                         guest.primary_guest = primary_guest
                         guest.save()
             
-            # Generate fresh guest token with CHAT scope for in-house access
-            from hotel.models import GuestBookingToken
-            token_obj, raw_token = GuestBookingToken.generate_token(
-                booking=booking,
-                purpose='CHAT',
-                scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
+            # Rotate guest token at check-in to ensure fresh plaintext is available
+            # for the guest portal link returned to staff.
+            from hotel.services.guest_token import get_or_create_guest_token
+            token_obj, raw_token = get_or_create_guest_token(
+                booking, rotate=True, needs_plaintext=True,
             )
             
-            logger.info(f"Generated fresh guest token for booking {booking.booking_id} after check-in")
+            logger.info(f"Issued guest token for booking {booking.booking_id} after check-in")
             
             # Update room occupancy - Room Turnover Workflow
             room.is_occupied = True

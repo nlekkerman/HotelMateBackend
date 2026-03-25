@@ -23,15 +23,13 @@ def get_secure_booking_url(booking, raw_token=None):
     Returns:
         tuple: (url_string, raw_token_string)
     """
-    from hotel.models import GuestBookingToken
+    from hotel.services.guest_token import get_or_create_guest_token
 
     if raw_token is None:
-        # Try to find an existing active token — but raw tokens aren't stored,
-        # so we must generate a new one when the raw value isn't available.
-        token_obj, raw_token = GuestBookingToken.generate_token(
-            booking=booking,
-            purpose='FULL_ACCESS',
-            scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE'],
+        # needs_plaintext=True: hash-only storage means we must rotate
+        # if no plaintext is available from the calling context.
+        token_obj, raw_token = get_or_create_guest_token(
+            booking, needs_plaintext=True,
         )
 
     base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')

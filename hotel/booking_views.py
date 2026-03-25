@@ -384,12 +384,10 @@ class HotelBookingCreateView(APIView):
         # Count party members (1 PRIMARY + companions)
         party_count = 1 + len(party_data)  # 1 PRIMARY + companions
         
-        # Generate secure guest booking token
-        from .models import GuestBookingToken
-        token_obj, raw_token = GuestBookingToken.generate_token(
-            booking=booking,
-            purpose='FULL_ACCESS',
-            scopes=['STATUS_READ', 'CHAT', 'ROOM_SERVICE']
+        # Issue canonical guest booking token (first token for this booking)
+        from hotel.services.guest_token import get_or_create_guest_token
+        token_obj, raw_token = get_or_create_guest_token(
+            booking, needs_plaintext=True,
         )
         
         # Email will be sent after payment completion (no immediate email needed)
