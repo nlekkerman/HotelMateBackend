@@ -47,9 +47,8 @@ def resolve_guest_chat_context(hotel_slug: str, token_str: str, required_scopes=
     Resolve guest chat context from token with scope validation.
 
     Delegates token validation to the canonical resolver in
-    common.guest_access (supports both GuestBookingToken and
-    BookingManagementToken). Adds chat-specific conversation lookup
-    and UX hints on top.
+    common.guest_access (BookingManagementToken only).
+    Adds chat-specific conversation lookup and UX hints on top.
 
     Args:
         hotel_slug:      Hotel slug from the URL.

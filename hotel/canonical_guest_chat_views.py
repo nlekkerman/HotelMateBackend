@@ -126,7 +126,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
         except InvalidTokenError as e:
             return Response(
                 {'error': e.message, 'code': e.code},
-                status=status.HTTP_404_NOT_FOUND
+                status=e.status_code
             )
         except MissingScopeError as e:
             return Response(
@@ -215,7 +215,7 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
         except InvalidTokenError as e:
             return Response(
                 {'error': e.message, 'code': e.code},
-                status=status.HTTP_404_NOT_FOUND
+                status=e.status_code
             )
         except MissingScopeError as e:
             return Response(
@@ -311,7 +311,7 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
         except InvalidTokenError as e:
             return Response(
                 {'error': e.message, 'code': e.code},
-                status=status.HTTP_404_NOT_FOUND
+                status=e.status_code
             )
         except MissingScopeError as e:
             return Response(
@@ -430,7 +430,7 @@ class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
         except InvalidTokenError as e:
             return Response(
                 {'error': e.message, 'code': e.code},
-                status=status.HTTP_404_NOT_FOUND
+                status=e.status_code
             )
         except MissingScopeError as e:
             return Response(

@@ -9,7 +9,12 @@ import hashlib
 import logging
 from django.conf import settings
 from staff.models import Staff
-from hotel.models import GuestBookingToken
+from common.guest_access import (
+    resolve_guest_access,
+    resolve_guest_access_without_slug,
+    GuestAccessError,
+    InvalidTokenError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +102,8 @@ class PusherAuthView(APIView):
     
     def _handle_guest_auth(self, socket_id, channel_name, guest_token):
         """
-        Mode 2: Guest token authentication for booking channels
+        Mode 2: Guest token authentication for booking channels.
+        Uses canonical resolve_guest_access (BookingManagementToken only).
         """
         # CRITICAL: Hard reject any hotel channels for guest tokens
         if '.' in channel_name and not channel_name.startswith('private-guest-booking.'):
@@ -123,35 +129,28 @@ class PusherAuthView(APIView):
         elif clean_token.startswith('Bearer '):
             clean_token = clean_token.replace('Bearer ', '', 1)
         
-        logger.info(f"Token cleanup: original='{guest_token[:20]}...', cleaned='{clean_token[:20]}...'")
-        
-        # Validate guest token
+        # Validate via canonical resolver (BookingManagementToken only)
         try:
-            token_obj = GuestBookingToken.validate_token(clean_token, booking_id)
-        except Http404:
+            ctx = resolve_guest_access_without_slug(clean_token)
+        except GuestAccessError:
             logger.warning(f"Guest auth failed: invalid token for booking {booking_id}")
-            logger.warning(f"Frontend sent token: {guest_token[:20]}... (length: {len(guest_token)})")
-            logger.warning(f"Cleaned token: {clean_token[:20]}... (length: {len(clean_token)})")
-            # Debug: Check if any tokens exist for this booking
-            from hotel.models import RoomBooking
-            try:
-                booking = RoomBooking.objects.get(booking_id=booking_id)
-                existing_tokens = GuestBookingToken.objects.filter(
-                    booking=booking,
-                    status='ACTIVE'
-                )
-                logger.warning(f"Existing valid tokens for {booking_id}: {existing_tokens.count()}")
-            except:
-                logger.warning(f"Booking {booking_id} not found during debug")
             return Response({"error": "UNAUTHORIZED", "detail": "Invalid or expired guest token"}, status=403)
+        
+        # Verify the resolved booking matches the channel's booking ID
+        if ctx.booking.booking_id != booking_id:
+            logger.warning(
+                f"Guest auth failed: token booking {ctx.booking.booking_id} "
+                f"does not match channel booking {booking_id}"
+            )
+            return Response({"error": "UNAUTHORIZED", "detail": "Token does not match channel"}, status=403)
         
         # Generate Pusher auth signature for guest
         auth = self._generate_pusher_auth(socket_id, channel_name, {
-            "user_id": f"guest-{token_obj.booking.booking_id}",
+            "user_id": f"guest-{ctx.booking.booking_id}",
             "user_info": {
                 "type": "guest",
-                "booking_id": token_obj.booking.booking_id,
-                "hotel": token_obj.hotel.slug
+                "booking_id": ctx.booking.booking_id,
+                "hotel": ctx.booking.hotel.slug
             }
         })
         

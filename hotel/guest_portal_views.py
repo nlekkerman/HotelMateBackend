@@ -2,7 +2,7 @@
 Guest Portal Views - Token-Authenticated Endpoints
 
 Endpoints for guests to access their booking context, chat, and room services
-using GuestBookingToken authentication. Uses assigned_room as room source of truth.
+using BookingManagementToken authentication. Uses assigned_room as room source of truth.
 """
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -13,11 +13,10 @@ from django.views.decorators.cache import never_cache
 import logging
 
 from common.guest_access import (
-    resolve_guest_access,
+    resolve_guest_access_without_slug,
     GuestAccessError,
     InvalidTokenError,
 )
-from hotel.models import BookingManagementToken
 from common.guest_auth import (
     TokenAuthenticationMixin,
     GuestTokenBurstThrottle,
@@ -25,65 +24,6 @@ from common.guest_auth import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_context_without_slug(raw_token):
-    """
-    Resolve a guest token when no hotel_slug is in the URL.
-
-    Looks up the token in both tables (GuestBookingToken first, then
-    BookingManagementToken) and uses the booking's own hotel slug for
-    the canonical validation. This is safe because we are not comparing
-    against a user-supplied slug — we trust the booking's own data.
-    """
-    import hashlib
-    from django.utils import timezone as tz
-    from hotel.models import GuestBookingToken, BookingManagementToken
-    from common.guest_access import (
-        GuestAccessContext,
-        InvalidTokenError,
-        _MANAGEMENT_TOKEN_IMPLIED_SCOPES,
-    )
-
-    if not raw_token or not raw_token.strip():
-        raise InvalidTokenError()
-
-    token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
-
-    # Try GuestBookingToken
-    try:
-        gt = GuestBookingToken.objects.select_related(
-            "booking__hotel", "booking__assigned_room"
-        ).get(token_hash=token_hash, status="ACTIVE")
-        if not (gt.expires_at and tz.now() > gt.expires_at):
-            gt.last_used_at = tz.now()
-            gt.save(update_fields=["last_used_at"])
-            return GuestAccessContext(
-                booking=gt.booking,
-                room=gt.booking.assigned_room,
-                scopes=gt.scopes or [],
-                token_type="guest_booking",
-            )
-    except GuestBookingToken.DoesNotExist:
-        pass
-
-    # Try BookingManagementToken
-    try:
-        bmt = BookingManagementToken.objects.select_related(
-            "booking__hotel", "booking__assigned_room"
-        ).get(token_hash=token_hash)
-        if bmt.is_valid:
-            bmt.record_action("VIEW")
-            return GuestAccessContext(
-                booking=bmt.booking,
-                room=bmt.booking.assigned_room,
-                scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
-                token_type="booking_management",
-            )
-    except BookingManagementToken.DoesNotExist:
-        pass
-
-    raise InvalidTokenError()
 
 
 @method_decorator(never_cache, name='dispatch')
@@ -132,7 +72,7 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
             # Resolve via canonical guest access (hotel_slug extracted from booking)
             # GuestContextView doesn't have hotel_slug in URL, so we need a
             # two-step approach: first try without slug constraint.
-            ctx = _resolve_context_without_slug(raw_token)
+            ctx = resolve_guest_access_without_slug(raw_token)
             
             booking = ctx.booking
             room_info = None
@@ -176,7 +116,7 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
         except GuestAccessError as e:
             logger.warning(f"Guest context access failed: {e.message}")
             return Response(
-                {'error': 'INVALID_TOKEN', 'detail': e.message},
+                {'error': e.code, 'detail': e.message},
                 status=e.status_code
             )
         except Exception as e:
@@ -224,7 +164,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             
-            ctx = _resolve_context_without_slug(raw_token)
+            ctx = resolve_guest_access_without_slug(raw_token)
             booking = ctx.booking
 
             # Check if chat is allowed
@@ -261,7 +201,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
         except GuestAccessError as e:
             logger.warning(f"Guest chat access failed: {e.message}")
             return Response(
-                {'error': 'INVALID_TOKEN', 'detail': e.message},
+                {'error': e.code, 'detail': e.message},
                 status=e.status_code
             )
         except Exception as e:
@@ -296,7 +236,7 @@ class GuestRoomServiceView(APIView, TokenAuthenticationMixin):
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             
-            ctx = _resolve_context_without_slug(raw_token)
+            ctx = resolve_guest_access_without_slug(raw_token)
             booking = ctx.booking
 
             is_in_house = ctx.is_in_house
@@ -335,7 +275,7 @@ class GuestRoomServiceView(APIView, TokenAuthenticationMixin):
         except GuestAccessError as e:
             logger.warning(f"Guest room service access failed: {e.message}")
             return Response(
-                {'error': 'INVALID_TOKEN', 'detail': e.message},
+                {'error': e.code, 'detail': e.message},
                 status=e.status_code
             )
         except Exception as e:

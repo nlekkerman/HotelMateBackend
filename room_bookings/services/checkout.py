@@ -12,38 +12,10 @@ All checkout operations go through checkout_booking() to ensure consistency.
 from django.db import transaction
 from django.utils import timezone
 from guests.models import Guest
-from hotel.models import GuestBookingToken
 from chat.utils import pusher_client
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def _revoke_guest_tokens(booking, reason):
-    """
-    Revoke all active guest tokens for a booking.
-    
-    Args:
-        booking: RoomBooking instance
-        reason: Revocation reason string
-    """
-    try:
-        # Revoke all active guest tokens for this booking
-        tokens_updated = GuestBookingToken.objects.filter(
-            booking=booking,
-            status='ACTIVE'
-        ).update(
-            status='REVOKED',
-            revoked_at=timezone.now(),
-            revoked_reason=reason
-        )
-        
-        if tokens_updated > 0:
-            logger.info(f"Revoked {tokens_updated} guest tokens for booking {booking.booking_id}: {reason}")
-        
-    except Exception as e:
-        logger.error(f"Failed to revoke guest tokens for booking {booking.booking_id}: {e}")
-        # Don't fail the entire checkout if token revocation fails
 
 
 def checkout_booking(
@@ -129,9 +101,6 @@ def checkout_booking(
         booking.checked_out_at = timezone.now()
         booking.status = "COMPLETED"
         booking.save(update_fields=["checked_out_at", "status"])
-        
-        # 2b️⃣ Revoke guest booking tokens after checkout
-        _revoke_guest_tokens(booking, "Booking checked out")
 
         # 3️⃣ Update room for turnover workflow using canonical service
         room.is_occupied = False

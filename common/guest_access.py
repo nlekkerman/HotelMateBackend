@@ -4,11 +4,8 @@ Canonical Guest Access Resolver
 THE single source of truth for resolving guest identity from a raw token.
 Every guest-facing endpoint MUST use resolve_guest_access() to authenticate.
 
-Supports both token types:
-- GuestBookingToken (guest portal tokens with explicit scopes)
-- BookingManagementToken (email management tokens, implied scopes)
-
-Both resolve to the same canonical GuestAccessContext.
+ONE booking → ONE token → ONE system.
+Only BookingManagementToken is accepted. No fallback. No legacy paths.
 """
 
 import hashlib
@@ -40,9 +37,9 @@ class TokenRequiredError(GuestAccessError):
 
 
 class InvalidTokenError(GuestAccessError):
-    """Anti-enumeration: returns 404 for invalid/expired/mismatched tokens."""
+    """Returns 401 for invalid/expired/mismatched tokens."""
     def __init__(self, message="Invalid or expired token"):
-        super().__init__(message, "INVALID_TOKEN", 404)
+        super().__init__(message, "INVALID_TOKEN", 401)
 
 
 class MissingScopeError(GuestAccessError):
@@ -82,7 +79,7 @@ class NoRoomAssignedError(GuestAccessError):
 # Canonical result object
 # ---------------------------------------------------------------------------
 
-# Default scopes implied for BookingManagementToken (email link guests).
+# Implied scopes for BookingManagementToken (the only token type).
 _MANAGEMENT_TOKEN_IMPLIED_SCOPES = ["STATUS_READ", "CHAT", "ROOM_SERVICE"]
 
 
@@ -92,7 +89,7 @@ class GuestAccessContext:
     booking: object          # RoomBooking
     room: Optional[object]   # Room or None
     scopes: List[str] = field(default_factory=list)
-    token_type: str = ""     # 'guest_booking' | 'booking_management'
+    token_type: str = "booking_management"
 
     @property
     def is_in_house(self) -> bool:
@@ -116,9 +113,12 @@ def resolve_guest_access(
     """
     Canonical guest access resolver.
 
-    Validates a raw token against GuestBookingToken first, then
-    BookingManagementToken. Returns a unified GuestAccessContext on
-    success; raises a typed GuestAccessError subclass on failure.
+    Validates a raw token against BookingManagementToken ONLY.
+    Returns a GuestAccessContext on success; raises a typed
+    GuestAccessError subclass on failure.
+
+    Uses the EXACT same validation logic as BookingStatusView:
+    SHA-256 hash lookup → is_valid check → hotel_slug match.
 
     Args:
         token_str:        Raw token string from the request.
@@ -131,28 +131,26 @@ def resolve_guest_access(
         GuestAccessContext
 
     Raises:
-        TokenRequiredError  – empty / missing token
-        InvalidTokenError   – not found, expired, hotel mismatch, cancelled
-        MissingScopeError   – token lacks required scopes
-        NotCheckedInError   – require_in_house but not checked in
+        TokenRequiredError     – empty / missing token
+        InvalidTokenError      – not found, expired, hotel mismatch, cancelled
+        MissingScopeError      – token lacks required scopes
+        NotCheckedInError      – require_in_house but not checked in
         AlreadyCheckedOutError – require_in_house but already checked out
-        NoRoomAssignedError – require_in_house but no room assigned
+        NoRoomAssignedError    – require_in_house but no room assigned
     """
     if not token_str or not token_str.strip():
         raise TokenRequiredError()
 
     token_hash = hashlib.sha256(token_str.strip().encode("utf-8")).hexdigest()
 
-    # --- Lookup: try GuestBookingToken, then BookingManagementToken ---
-    ctx = _try_guest_booking_token(token_hash, hotel_slug)
-    if ctx is None:
-        ctx = _try_booking_management_token(token_hash, hotel_slug)
+    # --- Lookup: BookingManagementToken ONLY ---
+    ctx = _try_booking_management_token(token_hash, hotel_slug)
     if ctx is None:
         raise InvalidTokenError()
 
     booking = ctx.booking
 
-    # Booking lifecycle gate (anti-enumeration: same 404 as "not found")
+    # Booking lifecycle gate (anti-enumeration: same error as "not found")
     if booking.status in ("CANCELLED", "CANCELLED_DRAFT", "DECLINED"):
         raise InvalidTokenError()
 
@@ -174,37 +172,74 @@ def resolve_guest_access(
     return ctx
 
 
-# ---------------------------------------------------------------------------
-# Internal lookup helpers
-# ---------------------------------------------------------------------------
+def resolve_guest_access_without_slug(
+    token_str: str,
+    required_scopes: Optional[List[str]] = None,
+    require_in_house: bool = False,
+) -> GuestAccessContext:
+    """
+    Resolve a guest token when no hotel_slug is available in the URL.
 
-def _try_guest_booking_token(token_hash: str, hotel_slug: str):
-    from hotel.models import GuestBookingToken
+    Looks up the BookingManagementToken by hash and derives the hotel
+    from the booking itself. This is safe because we are not comparing
+    against a user-supplied slug — we trust the booking's own data.
+
+    Same validation and gates as resolve_guest_access().
+    """
+    if not token_str or not token_str.strip():
+        raise TokenRequiredError()
+
+    from hotel.models import BookingManagementToken
+
+    token_hash = hashlib.sha256(token_str.strip().encode("utf-8")).hexdigest()
 
     try:
-        gt = GuestBookingToken.objects.select_related(
+        bmt = BookingManagementToken.objects.select_related(
             "booking__hotel",
             "booking__assigned_room",
-        ).get(token_hash=token_hash, status="ACTIVE")
-    except GuestBookingToken.DoesNotExist:
-        return None
+        ).get(token_hash=token_hash)
+    except BookingManagementToken.DoesNotExist:
+        raise InvalidTokenError()
 
-    if gt.expires_at and timezone.now() > gt.expires_at:
-        return None
+    if not bmt.is_valid:
+        raise InvalidTokenError()
 
-    if gt.booking.hotel.slug != hotel_slug:
-        return None
+    booking = bmt.booking
 
-    gt.last_used_at = timezone.now()
-    gt.save(update_fields=["last_used_at"])
+    # Booking lifecycle gate
+    if booking.status in ("CANCELLED", "CANCELLED_DRAFT", "DECLINED"):
+        raise InvalidTokenError()
 
-    return GuestAccessContext(
-        booking=gt.booking,
-        room=gt.booking.assigned_room,
-        scopes=gt.scopes or [],
-        token_type="guest_booking",
+    bmt.record_action("VIEW")
+
+    ctx = GuestAccessContext(
+        booking=booking,
+        room=booking.assigned_room,
+        scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
+        token_type="booking_management",
     )
 
+    # Scope gate
+    if required_scopes:
+        missing = [s for s in required_scopes if s not in ctx.scopes]
+        if missing:
+            raise MissingScopeError(missing)
+
+    # In-house gate
+    if require_in_house:
+        if not booking.checked_in_at:
+            raise NotCheckedInError()
+        if booking.checked_out_at:
+            raise AlreadyCheckedOutError()
+        if not booking.assigned_room:
+            raise NoRoomAssignedError()
+
+    return ctx
+
+
+# ---------------------------------------------------------------------------
+# Internal lookup helper
+# ---------------------------------------------------------------------------
 
 def _try_booking_management_token(token_hash: str, hotel_slug: str):
     from hotel.models import BookingManagementToken

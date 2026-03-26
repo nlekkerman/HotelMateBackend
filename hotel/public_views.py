@@ -1149,9 +1149,9 @@ class BookingStatusView(APIView):
 
     def get(self, request, hotel_slug, booking_id):
         """Return booking status and details with mandatory token validation"""
-        import hashlib
-        from .models import BookingManagementToken, RoomBooking, Hotel
+        from .models import RoomBooking, Hotel
         from hotel.services.cancellation import CancellationCalculator
+        from common.guest_access import resolve_guest_access, GuestAccessError
         
         # Token is REQUIRED - no access without it
         raw_token = request.query_params.get('token')
@@ -1161,50 +1161,32 @@ class BookingStatusView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        # Hash the provided token
-        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-        
+        # Validate via canonical resolver (BookingManagementToken only)
         try:
-            # Validate hotel exists
-            hotel = Hotel.objects.get(slug=hotel_slug)
-            
-            # Find booking - must belong to this hotel
-            booking = RoomBooking.objects.select_related(
-                'hotel', 'room_type', 'cancellation_policy'
-            ).get(booking_id=booking_id, hotel=hotel)
-            
-            # Find token for this specific booking
-            token = BookingManagementToken.objects.filter(
-                booking=booking,
-                token_hash=token_hash
-            ).first()
-            
-            if not token:
-                return Response(
-                    {'error': 'Invalid or expired access token'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-                
-        except Hotel.DoesNotExist:
-            return Response(
-                {'error': 'Hotel not found'},
-                status=status.HTTP_404_NOT_FOUND
+            ctx = resolve_guest_access(
+                token_str=raw_token,
+                hotel_slug=hotel_slug,
             )
-        except RoomBooking.DoesNotExist:
+        except GuestAccessError:
             return Response(
-                {'error': 'Booking not found or does not belong to this hotel'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Validate token status
-        if not token.is_valid:
-            return Response(
-                {'error': 'Token is no longer valid'},
+                {'error': 'Invalid or expired access token'},
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Record view action
-        token.record_action('VIEW')
+        booking = ctx.booking
+        
+        # Verify booking_id matches the resolved booking
+        if booking.booking_id != booking_id:
+            return Response(
+                {'error': 'Invalid or expired access token'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Eager-load room_type and cancellation_policy if not already loaded
+        if not hasattr(booking, '_room_type_cache'):
+            booking = RoomBooking.objects.select_related(
+                'hotel', 'room_type', 'cancellation_policy'
+            ).get(pk=booking.pk)
         
         # Get cancellation policy information
         cancellation_policy_data = None
@@ -1270,7 +1252,8 @@ class BookingStatusView(APIView):
     def post(self, request, hotel_slug, booking_id):
         """Cancel booking with token validation and hotel verification using guest cancellation service"""
         import hashlib
-        from .models import BookingManagementToken, Hotel, RoomBooking
+        from .models import BookingManagementToken
+        from common.guest_access import resolve_guest_access, GuestAccessError
         from hotel.services.guest_cancellation import (
             cancel_booking_with_token, 
             GuestCancellationError, 
@@ -1287,45 +1270,37 @@ class BookingStatusView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
         
-        # Hash the provided token
-        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-        
+        # Validate via canonical resolver (BookingManagementToken only)
         try:
-            # Views retain full responsibility for hotel + booking + token validation
-            hotel = Hotel.objects.get(slug=hotel_slug)
-            
-            # Find booking - must belong to this hotel
-            booking = RoomBooking.objects.select_related('hotel').get(
-                booking_id=booking_id, hotel=hotel
+            ctx = resolve_guest_access(
+                token_str=raw_token,
+                hotel_slug=hotel_slug,
             )
-            
-            # Find token for this specific booking
-            token = BookingManagementToken.objects.filter(
-                booking=booking,
-                token_hash=token_hash
-            ).first()
-            
-            if not token:
-                return Response(
-                    {'error': 'Invalid or expired access token'},
-                    status=status.HTTP_403_FORBIDDEN
-                )
-                
-        except Hotel.DoesNotExist:
+        except GuestAccessError:
             return Response(
-                {'error': 'Hotel not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except RoomBooking.DoesNotExist:
-            return Response(
-                {'error': 'Booking not found or does not belong to this hotel'},
-                status=status.HTTP_404_NOT_FOUND
+                {'error': 'Invalid or expired access token'},
+                status=status.HTTP_403_FORBIDDEN
             )
         
-        # Validate token status (views handle token validation BEFORE calling service)
-        if not token.is_valid:
+        booking = ctx.booking
+        
+        # Verify booking_id matches the resolved booking
+        if booking.booking_id != booking_id:
             return Response(
-                {'error': 'Token is no longer valid'},
+                {'error': 'Invalid or expired access token'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Retrieve the actual token object for the cancellation service
+        token_hash = hashlib.sha256(raw_token.strip().encode('utf-8')).hexdigest()
+        token = BookingManagementToken.objects.filter(
+            booking=booking,
+            token_hash=token_hash
+        ).first()
+        
+        if not token:
+            return Response(
+                {'error': 'Invalid or expired access token'},
                 status=status.HTTP_403_FORBIDDEN
             )
         

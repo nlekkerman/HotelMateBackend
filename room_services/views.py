@@ -14,11 +14,14 @@ import logging
 
 from common.guest_auth import (
     TokenAuthenticationMixin,
-    resolve_guest_token,
     PublicBurstThrottle,
     PublicSustainedThrottle,
     GuestTokenBurstThrottle,
     GuestTokenSustainedThrottle,
+)
+from common.guest_access import (
+    resolve_guest_access,
+    GuestAccessError,
 )
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 
@@ -97,18 +100,19 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
 
     def _resolve_guest_context(self, request, hotel):
         """
-        Try to authenticate via GuestBookingToken.
-        Returns (guest_token, booking, room) or raises ValueError.
+        Authenticate via BookingManagementToken using canonical resolver.
+        Returns (booking, room) or raises GuestAccessError.
         """
         token_str = self.get_token_from_request(request)
         if not token_str:
-            raise ValueError("Token is required")
-        return resolve_guest_token(
+            raise GuestAccessError("Token is required", "TOKEN_REQUIRED", 401)
+        ctx = resolve_guest_access(
             token_str,
             hotel_slug=hotel.slug,
             required_scopes=['ROOM_SERVICE'],
-            require_checked_in=True,
+            require_in_house=True,
         )
+        return ctx.booking, ctx.room
 
     def _is_staff_request(self, request):
         """Return True if the request comes from an authenticated staff user."""
@@ -140,10 +144,10 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
         else:
             # Guest path: validate token → derive room from booking
             try:
-                _token_obj, booking, room = self._resolve_guest_context(self.request, hotel)
-            except ValueError as exc:
+                booking, room = self._resolve_guest_context(self.request, hotel)
+            except GuestAccessError as exc:
                 from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied(detail=str(exc))
+                raise PermissionDenied(detail=exc.message)
 
             if not room:
                 from rest_framework.exceptions import PermissionDenied
@@ -202,9 +206,9 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
 
         # Guest path – validate token
         try:
-            _token_obj, booking, room = self._resolve_guest_context(request, hotel)
-        except ValueError as exc:
-            return Response({"error": str(exc)}, status=403)
+            booking, room = self._resolve_guest_context(request, hotel)
+        except GuestAccessError as exc:
+            return Response({"error": exc.message}, status=exc.status_code)
 
         if not room:
             return Response({"error": "No room assigned to this booking"}, status=403)
@@ -469,13 +473,14 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     def _resolve_guest_context(self, request, hotel):
         token_str = self.get_token_from_request(request)
         if not token_str:
-            raise ValueError("Token is required")
-        return resolve_guest_token(
+            raise GuestAccessError("Token is required", "TOKEN_REQUIRED", 401)
+        ctx = resolve_guest_access(
             token_str,
             hotel_slug=hotel.slug,
             required_scopes=['ROOM_SERVICE'],
-            require_checked_in=True,
+            require_in_house=True,
         )
+        return ctx.booking, ctx.room
 
     def _is_staff_request(self, request):
         return (
@@ -513,12 +518,12 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
         else:
             # Guest path: validate token → derive room from booking
             try:
-                _token_obj, booking, room = self._resolve_guest_context(
+                booking, room = self._resolve_guest_context(
                     self.request, hotel
                 )
-            except ValueError as exc:
+            except GuestAccessError as exc:
                 from rest_framework.exceptions import PermissionDenied
-                raise PermissionDenied(detail=str(exc))
+                raise PermissionDenied(detail=exc.message)
 
             if not room:
                 from rest_framework.exceptions import PermissionDenied
@@ -588,7 +593,7 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
 def save_guest_fcm_token(request, hotel_slug, room_number):
     """
     Save FCM token for a checked-in guest's room.
-    Requires a valid GuestBookingToken; the room is derived from the
+    Requires a valid BookingManagementToken; the room is derived from the
     token's booking (the URL room_number must match).
     """
     hotel = get_hotel_from_request(request)
@@ -600,7 +605,7 @@ def save_guest_fcm_token(request, hotel_slug, room_number):
             status=400
         )
 
-    # --- Authenticate via guest token ---
+    # --- Authenticate via canonical resolver ---
     auth_header = request.META.get('HTTP_AUTHORIZATION', '')
     token_str = ''
     if auth_header.startswith('Bearer '):
@@ -614,15 +619,16 @@ def save_guest_fcm_token(request, hotel_slug, room_number):
         return Response({'error': 'Guest token is required'}, status=401)
 
     try:
-        _token_obj, booking, room = resolve_guest_token(
+        ctx = resolve_guest_access(
             token_str,
             hotel_slug=hotel.slug,
             required_scopes=['ROOM_SERVICE'],
-            require_checked_in=True,
+            require_in_house=True,
         )
-    except ValueError as exc:
-        return Response({'error': str(exc)}, status=403)
+    except GuestAccessError as exc:
+        return Response({'error': exc.message}, status=exc.status_code)
 
+    room = ctx.room
     if not room:
         return Response({'error': 'No room assigned to this booking'}, status=403)
 
@@ -636,7 +642,7 @@ def save_guest_fcm_token(request, hotel_slug, room_number):
 
     logger.info(
         f"FCM token saved for room {room.room_number} "
-        f"at {hotel.name} (booking {booking.booking_id})"
+        f"at {hotel.name} (booking {ctx.booking.booking_id})"
     )
 
     return Response({

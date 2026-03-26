@@ -13,8 +13,8 @@ logger = logging.getLogger(__name__)
 
 def get_secure_booking_url(booking, raw_token=None):
     """
-    Build secure booking URL with email and guest token parameters.
-    Retrieves existing active GuestBookingToken or generates a new one.
+    Build secure booking URL with email and management token parameters.
+    Uses BookingManagementToken (the only valid guest token type).
 
     Args:
         booking: RoomBooking instance
@@ -23,14 +23,10 @@ def get_secure_booking_url(booking, raw_token=None):
     Returns:
         tuple: (url_string, raw_token_string)
     """
-    from hotel.services.guest_token import get_or_create_guest_token
+    from hotel.services.booking_management import generate_booking_management_token
 
     if raw_token is None:
-        # needs_plaintext=True: hash-only storage means we must rotate
-        # if no plaintext is available from the calling context.
-        token_obj, raw_token = get_or_create_guest_token(
-            booking, needs_plaintext=True,
-        )
+        raw_token, _token_obj = generate_booking_management_token(booking)
 
     base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
     email_param = quote(booking.primary_email or '', safe='')
