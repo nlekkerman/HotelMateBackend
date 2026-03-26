@@ -76,6 +76,21 @@ class NoRoomAssignedError(GuestAccessError):
 
 
 # ---------------------------------------------------------------------------
+# Canonical token hashing — single source of truth
+# ---------------------------------------------------------------------------
+
+def hash_token(raw_token: str) -> str:
+    """Canonical SHA-256 hash of a raw token string.
+
+    Always strips whitespace before hashing so that tokens copied
+    from emails or URLs with trailing spaces still resolve.
+    Every piece of code that hashes a BookingManagementToken MUST
+    use this function.
+    """
+    return hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Canonical result object
 # ---------------------------------------------------------------------------
 
@@ -90,6 +105,7 @@ class GuestAccessContext:
     room: Optional[object]   # Room or None
     scopes: List[str] = field(default_factory=list)
     token_type: str = "booking_management"
+    token_obj: Optional[object] = None  # BookingManagementToken instance
 
     @property
     def is_in_house(self) -> bool:
@@ -141,7 +157,7 @@ def resolve_guest_access(
     if not token_str or not token_str.strip():
         raise TokenRequiredError()
 
-    token_hash = hashlib.sha256(token_str.strip().encode("utf-8")).hexdigest()
+    token_hash = hash_token(token_str)
 
     # --- Lookup: BookingManagementToken ONLY ---
     ctx = _try_booking_management_token(token_hash, hotel_slug)
@@ -191,7 +207,7 @@ def resolve_guest_access_without_slug(
 
     from hotel.models import BookingManagementToken
 
-    token_hash = hashlib.sha256(token_str.strip().encode("utf-8")).hexdigest()
+    token_hash = hash_token(token_str)
 
     try:
         bmt = BookingManagementToken.objects.select_related(
@@ -217,6 +233,7 @@ def resolve_guest_access_without_slug(
         room=booking.assigned_room,
         scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
         token_type="booking_management",
+        token_obj=bmt,
     )
 
     # Scope gate
@@ -265,4 +282,5 @@ def _try_booking_management_token(token_hash: str, hotel_slug: str):
         room=bmt.booking.assigned_room,
         scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
         token_type="booking_management",
+        token_obj=bmt,
     )

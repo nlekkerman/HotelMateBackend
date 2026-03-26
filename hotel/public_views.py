@@ -944,10 +944,9 @@ class ValidateBookingManagementTokenView(APIView):
 
     def get(self, request, hotel_slug):
         """Validate token and return booking information for management page"""
-        import hashlib
-        from django.utils import timezone
-        from .models import BookingManagementToken, RoomBooking
+        from .models import RoomBooking
         from hotel.services.cancellation import CancellationCalculator
+        from common.guest_access import resolve_guest_access, GuestAccessError
         
         raw_token = request.query_params.get('token')
         if not raw_token:
@@ -956,34 +955,26 @@ class ValidateBookingManagementTokenView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Hash the provided token
-        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-        
+        # Validate via canonical resolver (BookingManagementToken only)
         try:
-            # Find token with constant-time lookup
-            token = BookingManagementToken.objects.select_related(
-                'booking', 'booking__hotel', 'booking__room_type', 'booking__cancellation_policy'
-            ).get(
-                token_hash=token_hash,
-                booking__hotel__slug=hotel_slug
+            ctx = resolve_guest_access(
+                token_str=raw_token,
+                hotel_slug=hotel_slug,
             )
-        except BookingManagementToken.DoesNotExist:
+        except GuestAccessError:
             return Response(
                 {'message': 'Link invalid or expired.'},
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Validate token status
-        if not token.is_valid:
-            return Response(
-                {'message': 'Link invalid or expired.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
+        booking = ctx.booking
+        token = ctx.token_obj
         
-        booking = token.booking
-        
-        # Record view action
-        token.record_action('VIEW')
+        # Eager-load room_type and cancellation_policy if not already loaded
+        if not hasattr(booking, '_room_type_cache'):
+            booking = RoomBooking.objects.select_related(
+                'hotel', 'room_type', 'cancellation_policy'
+            ).get(pk=booking.pk)
         
         # Get cancellation policy information
         cancellation_policy_data = None
@@ -1055,8 +1046,7 @@ class CancelBookingView(APIView):
 
     def post(self, request, hotel_slug):
         """Process booking cancellation with management token using guest cancellation service"""
-        import hashlib
-        from .models import BookingManagementToken
+        from common.guest_access import resolve_guest_access, GuestAccessError
         from hotel.services.guest_cancellation import (
             cancel_booking_with_token, 
             GuestCancellationError, 
@@ -1072,31 +1062,20 @@ class CancelBookingView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Hash the provided token
-        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
-        
+        # Validate via canonical resolver (BookingManagementToken only)
         try:
-            # Find token with constant-time lookup
-            token = BookingManagementToken.objects.select_related(
-                'booking', 'booking__hotel'
-            ).get(
-                token_hash=token_hash,
-                booking__hotel__slug=hotel_slug
+            ctx = resolve_guest_access(
+                token_str=raw_token,
+                hotel_slug=hotel_slug,
             )
-        except BookingManagementToken.DoesNotExist:
+        except GuestAccessError:
             return Response(
                 {'message': 'Link invalid or expired.'},
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Validate token status
-        if not token.is_valid:
-            return Response(
-                {'message': 'Link invalid or expired.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        booking = token.booking
+        booking = ctx.booking
+        token = ctx.token_obj
         
         # Call the shared cancellation service with pre-validated booking and token
         try:
@@ -1251,8 +1230,6 @@ class BookingStatusView(APIView):
     
     def post(self, request, hotel_slug, booking_id):
         """Cancel booking with token validation and hotel verification using guest cancellation service"""
-        import hashlib
-        from .models import BookingManagementToken
         from common.guest_access import resolve_guest_access, GuestAccessError
         from hotel.services.guest_cancellation import (
             cancel_booking_with_token, 
@@ -1283,6 +1260,7 @@ class BookingStatusView(APIView):
             )
         
         booking = ctx.booking
+        token = ctx.token_obj
         
         # Verify booking_id matches the resolved booking
         if booking.booking_id != booking_id:
@@ -1290,13 +1268,6 @@ class BookingStatusView(APIView):
                 {'error': 'Invalid or expired access token'},
                 status=status.HTTP_403_FORBIDDEN
             )
-        
-        # Retrieve the actual token object for the cancellation service
-        token_hash = hashlib.sha256(raw_token.strip().encode('utf-8')).hexdigest()
-        token = BookingManagementToken.objects.filter(
-            booking=booking,
-            token_hash=token_hash
-        ).first()
         
         if not token:
             return Response(

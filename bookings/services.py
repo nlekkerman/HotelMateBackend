@@ -38,8 +38,13 @@ GuestChatAccessError = GuestAccessError
 
 
 def hash_token(token_str: str) -> str:
-    """Generate SHA-256 hash of token string for database lookup."""
-    return hashlib.sha256(token_str.encode('utf-8')).hexdigest()
+    """Generate SHA-256 hash of token string for database lookup.
+    
+    Delegates to the canonical hash_token in common.guest_access
+    to ensure consistent .strip() handling across all endpoints.
+    """
+    from common.guest_access import hash_token as _canonical_hash
+    return _canonical_hash(token_str)
 
 
 def resolve_guest_chat_context(hotel_slug: str, token_str: str, required_scopes=None, action_required: bool = True):
