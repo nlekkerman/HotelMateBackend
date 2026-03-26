@@ -339,6 +339,7 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
     cancellation_preview = serializers.SerializerMethodField()
     checked_in_at = serializers.SerializerMethodField()
     checked_out_at = serializers.SerializerMethodField()
+    assigned_room_number = serializers.SerializerMethodField()
 
     class Meta:
         model = RoomBooking
@@ -360,6 +361,7 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             'cancellation_preview',
             'checked_in_at',
             'checked_out_at',
+            'assigned_room_number',
         ]
         read_only_fields = fields
 
@@ -368,6 +370,9 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
 
     def get_checked_out_at(self, obj):
         return obj.checked_out_at.isoformat() if obj.checked_out_at else None
+
+    def get_assigned_room_number(self, obj):
+        return obj.assigned_room.room_number if obj.assigned_room else None
     
     def get_hotel_info(self, obj):
         """Hotel information"""
@@ -473,4 +478,5 @@ class PublicRoomBookingDetailSerializer(serializers.ModelSerializer):
             "cancellation_preview": data["cancellation_preview"],
             "checked_in_at": data["checked_in_at"],
             "checked_out_at": data["checked_out_at"],
+            "assigned_room_number": data["assigned_room_number"],
         }

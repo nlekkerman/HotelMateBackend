@@ -223,7 +223,7 @@ class NotificationManager:
         channel = f"private-guest-booking.{booking.booking_id}"
         return self._safe_pusher_trigger(channel, "booking_cancelled", normalized_event)
     
-    def realtime_guest_booking_checked_in(self, booking, room_number=None):
+    def realtime_guest_booking_checked_in(self, booking, room_number=None, guest_token=None):
         """
         Emit guest-scoped event when booking is checked in.
         Uses the same PublicRoomBookingDetailSerializer to ensure consistency.
@@ -1204,18 +1204,28 @@ class NotificationManager:
         return self._safe_pusher_trigger(channel, "booking_created", event_data)
     
     def realtime_booking_updated(self, booking):
-        """Emit normalized booking updated event."""
+        """Emit normalized booking updated event.
+        
+        Refreshes booking from DB to ensure assigned_room and other fields
+        reflect the committed state, then uses the canonical serializer
+        so the frontend receives the same shape as list/detail endpoints.
+        """
+        # Refresh to pick up any just-committed changes (e.g. room assignment)
+        try:
+            booking.refresh_from_db()
+        except Exception:
+            pass  # If booking was deleted, we still try to emit with stale data
+
         self.logger.info(f"🔄 Realtime booking: {booking.booking_id} updated")
         
+        from hotel.canonical_serializers import StaffRoomBookingListSerializer
+        serializer = StaffRoomBookingListSerializer(booking)
+        
         payload = {
-            'booking_id': booking.booking_id,
-            'confirmation_number': getattr(booking, 'confirmation_number', None),
+            **serializer.data,
+            # Ensure backward-compatible fields that older clients may rely on
             'primary_guest_name': f"{booking.primary_first_name} {booking.primary_last_name}",
-            'assigned_room_number': booking.assigned_room.room_number if booking.assigned_room else None,
-            'check_in': booking.check_in.isoformat(),
-            'check_out': booking.check_out.isoformat(),
-            'status': getattr(booking, 'status', 'CONFIRMED'),
-            'updated_at': timezone.now().isoformat()
+            'updated_at': timezone.now().isoformat(),
         }
         
         event_data = self._create_normalized_event(
@@ -1223,7 +1233,7 @@ class NotificationManager:
             event_type="booking_updated",
             payload=payload,
             hotel=booking.hotel,
-            scope={'booking_id': booking.booking_id, 'status': payload['status']}
+            scope={'booking_id': booking.booking_id, 'status': payload.get('status')}
         )
         
         hotel_slug = booking.hotel.slug

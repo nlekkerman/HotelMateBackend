@@ -387,7 +387,9 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
     # In-house guests grouped
     in_house = serializers.SerializerMethodField()
     
-    # Assigned room summary
+    # Assigned room – flat canonical field + nested object
+    assigned_room_number = serializers.SerializerMethodField()
+    room_number = serializers.SerializerMethodField()
     room = serializers.SerializerMethodField()
     
     # Computed flags
@@ -442,6 +444,10 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
             'precheckin_payload',       # Add booking-level precheckin data
             'party_complete',           # Party completion status (authoritative)
             'party_missing_count',      # Number of missing party members (authoritative)
+            
+            # Assigned room – flat canonical fields
+            'assigned_room_number',
+            'room_number',
             
             # Survey operational flags (Tier 1 Backend Hardening)
             'survey_sent',
@@ -502,6 +508,12 @@ class StaffRoomBookingDetailSerializer(serializers.ModelSerializer):
         serializer = InHouseGuestsGroupedSerializer()
         return serializer.to_representation(obj)
     
+    def get_assigned_room_number(self, obj):
+        return obj.assigned_room.room_number if obj.assigned_room else None
+
+    def get_room_number(self, obj):
+        return obj.assigned_room.room_number if obj.assigned_room else None
+
     def get_room(self, obj):
         """Return assigned room summary."""
         if not obj.assigned_room:

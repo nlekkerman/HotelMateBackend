@@ -2337,7 +2337,7 @@ class SafeAssignRoomView(APIView):
         staff_user = get_staff_or_403(request.user, booking.hotel)
         
         try:
-            # ONLY ASSIGN ROOM - NO CHECK-IN SIDE EFFECTS - NO REALTIME EVENTS
+            # ONLY ASSIGN ROOM - NO CHECK-IN SIDE EFFECTS
             booking = RoomAssignmentService.assign_room_atomic(
                 booking_id=booking_id,
                 room_id=room_id,
@@ -2345,7 +2345,18 @@ class SafeAssignRoomView(APIView):
                 notes=notes
             )
             
-            # Return updated booking with assigned room details (SILENT - NO REALTIME)
+            # Refresh from DB to ensure serializer sees committed state
+            booking.refresh_from_db()
+            
+            # Emit realtime event so other staff clients see the assignment
+            def _emit_assign_event():
+                try:
+                    notification_manager.realtime_booking_updated(booking)
+                except Exception as exc:
+                    logger.error(f"Failed to emit room-assign realtime for {booking_id}: {exc}")
+            transaction.on_commit(_emit_assign_event)
+            
+            # Return updated booking with assigned room details
             serializer = StaffRoomBookingDetailSerializer(booking)
             return Response({
                 'message': f'Successfully assigned room to booking {booking_id}',
@@ -2409,7 +2420,20 @@ class UnassignRoomView(APIView):
             booking.assignment_notes = f"[UNASSIGNED: {timezone.now()} by {staff_user}]"
         booking.save()
         
-        return Response({'message': 'Room unassigned successfully'})
+        # Emit realtime event so other staff clients see the unassignment
+        def _emit_unassign_event():
+            try:
+                notification_manager.realtime_booking_updated(booking)
+            except Exception as exc:
+                logger.error(f"Failed to emit room-unassign realtime for {booking_id}: {exc}")
+        transaction.on_commit(_emit_unassign_event)
+        
+        # Return serialized booking so frontend can update its state
+        serializer = StaffRoomBookingDetailSerializer(booking)
+        return Response({
+            'message': 'Room unassigned successfully',
+            **serializer.data
+        })
 
 
 class MoveRoomInputSerializer(serializers.Serializer):
