@@ -14,12 +14,16 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 import logging
 
-from bookings.services import (
-    resolve_guest_chat_context, 
-    InvalidTokenError, 
-    NotInHouseError, 
+from bookings.services import resolve_guest_chat_context
+from common.guest_access import (
+    GuestAccessError,
+    TokenRequiredError,
+    InvalidTokenError,
+    NotInHouseError,
+    NotCheckedInError,
+    AlreadyCheckedOutError,
     NoRoomAssignedError,
-    MissingScopeError
+    MissingScopeError,
 )
 from chat.models import RoomMessage, Conversation
 from staff.models import Staff
@@ -66,8 +70,8 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
             token_str = self.get_token_from_request(request)
             if not token_str:
                 return Response(
-                    {'error': 'Token is required'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED
                 )
             
             # Resolve context with UX-friendly mode (action_required=False)
@@ -121,13 +125,18 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
             
         except InvalidTokenError as e:
             return Response(
-                {'error': 'Invalid or expired token'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_404_NOT_FOUND
             )
         except MissingScopeError as e:
             return Response(
-                {'error': f'Token lacks required permissions: {", ".join(e.required_scopes)}'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_403_FORBIDDEN
+            )
+        except GuestAccessError as e:
+            return Response(
+                {'error': e.message, 'code': e.code},
+                status=e.status_code
             )
         except Exception as e:
             logger.error(f"Chat context error: {str(e)}")
@@ -158,8 +167,8 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
             token_str = self.get_token_from_request(request)
             if not token_str:
                 return Response(
-                    {'error': 'Token is required'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED
                 )
             
             # Resolve context (allow pre-checkin guests to view messages)
@@ -205,18 +214,23 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
             
         except InvalidTokenError as e:
             return Response(
-                {'error': 'Invalid or expired token'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_404_NOT_FOUND
             )
         except MissingScopeError as e:
             return Response(
-                {'error': f'Token lacks required permissions: {", ".join(e.required_scopes)}'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_403_FORBIDDEN
             )
         except NoRoomAssignedError as e:
             return Response(
-                {'error': str(e)},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_409_CONFLICT
+            )
+        except GuestAccessError as e:
+            return Response(
+                {'error': e.message, 'code': e.code},
+                status=e.status_code
             )
         except Exception as e:
             logger.error(f"Get messages error: {str(e)}")
@@ -232,8 +246,8 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
             token_str = self.get_token_from_request(request)
             if not token_str:
                 return Response(
-                    {'error': 'Token is required'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED
                 )
             
             # Resolve context with strict validation (action_required=True)
@@ -296,23 +310,33 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
             
         except InvalidTokenError as e:
             return Response(
-                {'error': 'Invalid or expired token'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_404_NOT_FOUND
             )
         except MissingScopeError as e:
             return Response(
-                {'error': f'Token lacks required permissions: {", ".join(e.required_scopes)}'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_403_FORBIDDEN
             )
-        except NotInHouseError as e:
+        except NotCheckedInError as e:
             return Response(
-                {'error': str(e)},
+                {'error': e.message, 'code': e.code},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        except AlreadyCheckedOutError as e:
+            return Response(
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_403_FORBIDDEN
             )
         except NoRoomAssignedError as e:
             return Response(
-                {'error': str(e)},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_409_CONFLICT
+            )
+        except GuestAccessError as e:
+            return Response(
+                {'error': e.message, 'code': e.code},
+                status=e.status_code
             )
         except Exception as e:
             logger.error(f"Send message error: {str(e)}")
@@ -357,8 +381,8 @@ class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
             token_str = self.get_token_from_request(request)
             if not token_str:
                 return Response(
-                    {'error': 'Token is required'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED
                 )
             
             # Resolve guest context to get booking info
@@ -405,18 +429,23 @@ class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
             
         except InvalidTokenError as e:
             return Response(
-                {'error': 'Invalid or expired token'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_404_NOT_FOUND
             )
         except MissingScopeError as e:
             return Response(
-                {'error': f'Token lacks required permissions: {", ".join(e.required_scopes)}'},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_403_FORBIDDEN
             )
         except NoRoomAssignedError as e:
             return Response(
-                {'error': str(e)},
+                {'error': e.message, 'code': e.code},
                 status=status.HTTP_409_CONFLICT
+            )
+        except GuestAccessError as e:
+            return Response(
+                {'error': e.message, 'code': e.code},
+                status=e.status_code
             )
         except Exception as e:
             logger.error(f"Guest chat Pusher auth error: {str(e)}")

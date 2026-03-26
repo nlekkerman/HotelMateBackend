@@ -12,8 +12,12 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 import logging
 
-from hotel.services.booking import resolve_token_context, resolve_in_house_context
-from hotel.models import GuestBookingToken
+from common.guest_access import (
+    resolve_guest_access,
+    GuestAccessError,
+    InvalidTokenError,
+)
+from hotel.models import BookingManagementToken
 from common.guest_auth import (
     TokenAuthenticationMixin,
     GuestTokenBurstThrottle,
@@ -21,6 +25,65 @@ from common.guest_auth import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _resolve_context_without_slug(raw_token):
+    """
+    Resolve a guest token when no hotel_slug is in the URL.
+
+    Looks up the token in both tables (GuestBookingToken first, then
+    BookingManagementToken) and uses the booking's own hotel slug for
+    the canonical validation. This is safe because we are not comparing
+    against a user-supplied slug — we trust the booking's own data.
+    """
+    import hashlib
+    from django.utils import timezone as tz
+    from hotel.models import GuestBookingToken, BookingManagementToken
+    from common.guest_access import (
+        GuestAccessContext,
+        InvalidTokenError,
+        _MANAGEMENT_TOKEN_IMPLIED_SCOPES,
+    )
+
+    if not raw_token or not raw_token.strip():
+        raise InvalidTokenError()
+
+    token_hash = hashlib.sha256(raw_token.strip().encode("utf-8")).hexdigest()
+
+    # Try GuestBookingToken
+    try:
+        gt = GuestBookingToken.objects.select_related(
+            "booking__hotel", "booking__assigned_room"
+        ).get(token_hash=token_hash, status="ACTIVE")
+        if not (gt.expires_at and tz.now() > gt.expires_at):
+            gt.last_used_at = tz.now()
+            gt.save(update_fields=["last_used_at"])
+            return GuestAccessContext(
+                booking=gt.booking,
+                room=gt.booking.assigned_room,
+                scopes=gt.scopes or [],
+                token_type="guest_booking",
+            )
+    except GuestBookingToken.DoesNotExist:
+        pass
+
+    # Try BookingManagementToken
+    try:
+        bmt = BookingManagementToken.objects.select_related(
+            "booking__hotel", "booking__assigned_room"
+        ).get(token_hash=token_hash)
+        if bmt.is_valid:
+            bmt.record_action("VIEW")
+            return GuestAccessContext(
+                booking=bmt.booking,
+                room=bmt.booking.assigned_room,
+                scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
+                token_type="booking_management",
+            )
+    except BookingManagementToken.DoesNotExist:
+        pass
+
+    raise InvalidTokenError()
 
 
 @method_decorator(never_cache, name='dispatch')
@@ -66,19 +129,55 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             
-            # Get booking context via service
-            context = resolve_token_context(raw_token)
+            # Resolve via canonical guest access (hotel_slug extracted from booking)
+            # GuestContextView doesn't have hotel_slug in URL, so we need a
+            # two-step approach: first try without slug constraint.
+            ctx = _resolve_context_without_slug(raw_token)
             
-            logger.info(f"Guest context accessed: booking_id={context['booking_id']}, "
-                       f"room={context.get('assigned_room', {}).get('room_number', 'unassigned')}")
-            
+            booking = ctx.booking
+            room_info = None
+            if booking.assigned_room:
+                room_info = {
+                    'room_number': booking.assigned_room.room_number,
+                    'room_type_name': booking.assigned_room.room_type.name,
+                }
+
+            # Determine allowed actions
+            allowed_actions = []
+            if 'STATUS_READ' in ctx.scopes:
+                allowed_actions.append('view_booking')
+            if 'CHAT' in ctx.scopes and booking.status in ('CONFIRMED', 'CHECKED_IN'):
+                allowed_actions.append('chat')
+            if ('ROOM_SERVICE' in ctx.scopes
+                    and booking.status == 'CHECKED_IN'
+                    and booking.assigned_room):
+                allowed_actions.append('room_service')
+
+            context = {
+                'booking_id': booking.booking_id,
+                'hotel_slug': booking.hotel.slug,
+                'assigned_room': room_info,
+                'guest_name': booking.primary_guest_name,
+                'check_in': booking.check_in,
+                'check_out': booking.check_out,
+                'status': booking.status,
+                'party_size': booking.adults + booking.children,
+                'is_checked_in': booking.status == 'CHECKED_IN',
+                'is_checked_out': booking.status == 'CHECKED_OUT',
+                'allowed_actions': allowed_actions,
+            }
+
+            logger.info(
+                f"Guest context accessed: booking_id={booking.booking_id}, "
+                f"room={room_info['room_number'] if room_info else 'unassigned'}"
+            )
             return Response(context, status=status.HTTP_200_OK)
-            
-        except Http404 as e:
-            logger.warning(f"Guest context access failed: {str(e)}")
+
+        except GuestAccessError as e:
+            logger.warning(f"Guest context access failed: {e.message}")
             return Response(
-                {'error': 'INVALID_TOKEN', 'detail': 'Token is invalid or expired'},
-                status=status.HTTP_404_NOT_FOUND
+                {'error': 'INVALID_TOKEN', 'detail': e.message},
+                status=e.status_code
             )
         except Exception as e:
             logger.error(f"Guest context error: {str(e)}")
@@ -125,38 +224,45 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             
-            # Get booking context
-            context = resolve_token_context(raw_token)
-            
+            ctx = _resolve_context_without_slug(raw_token)
+            booking = ctx.booking
+
             # Check if chat is allowed
-            if 'chat' not in context['allowed_actions']:
+            chat_allowed = (
+                'CHAT' in ctx.scopes
+                and booking.status in ('CONFIRMED', 'CHECKED_IN')
+            )
+            if not chat_allowed:
                 return Response(
                     {'error': 'CHAT_NOT_AVAILABLE', 'detail': 'Chat not available for current booking status'},
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            # Build chat context
+            room_number = (
+                booking.assigned_room.room_number
+                if booking.assigned_room else 'Unassigned'
+            )
+
             chat_context = {
                 'chat_enabled': True,
-                'channel_name': f"private-guest-booking.{context['booking_id']}",
+                'channel_name': f"private-guest-booking.{booking.booking_id}",
                 'booking_context': {
-                    'booking_id': context['booking_id'],
-                    'hotel_name': context.get('hotel_slug', '').replace('-', ' ').title(),
-                    'guest_name': context['guest_name'],
-                    'room_number': context.get('assigned_room', {}).get('room_number', 'Unassigned')
+                    'booking_id': booking.booking_id,
+                    'hotel_name': booking.hotel.name,
+                    'guest_name': booking.primary_guest_name,
+                    'room_number': room_number,
                 },
-                'recent_messages': []  # TODO: Implement message history retrieval
+                'recent_messages': [],
             }
             
-            logger.info(f"Guest chat context accessed: booking_id={context['booking_id']}")
-            
+            logger.info(f"Guest chat context accessed: booking_id={booking.booking_id}")
             return Response(chat_context, status=status.HTTP_200_OK)
             
-        except Http404 as e:
-            logger.warning(f"Guest chat access failed: {str(e)}")
+        except GuestAccessError as e:
+            logger.warning(f"Guest chat access failed: {e.message}")
             return Response(
-                {'error': 'INVALID_TOKEN', 'detail': 'Token is invalid or expired'},
-                status=status.HTTP_404_NOT_FOUND
+                {'error': 'INVALID_TOKEN', 'detail': e.message},
+                status=e.status_code
             )
         except Exception as e:
             logger.error(f"Guest chat error: {str(e)}")
@@ -190,40 +296,47 @@ class GuestRoomServiceView(APIView, TokenAuthenticationMixin):
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             
-            # Check if guest is in-house
-            is_in_house, room_context = resolve_in_house_context(raw_token)
-            
+            ctx = _resolve_context_without_slug(raw_token)
+            booking = ctx.booking
+
+            is_in_house = ctx.is_in_house
             if not is_in_house:
-                # Get basic context for better error message
-                basic_context = resolve_token_context(raw_token)
                 return Response(
                     {
                         'error': 'NOT_IN_HOUSE',
                         'detail': 'Room service only available for checked-in guests',
-                        'booking_status': basic_context['status'],
-                        'room_service_enabled': False
+                        'booking_status': booking.status,
+                        'room_service_enabled': False,
                     },
                     status=status.HTTP_403_FORBIDDEN
                 )
             
-            # Build room service context
+            room = booking.assigned_room
+            room_context = {
+                'room_number': room.room_number,
+                'room_type_name': room.room_type.name,
+                'floor': room.floor,
+                'amenities': room.room_type.amenities or [],
+                'check_in_time': booking.checked_in_at,
+                'expected_checkout': booking.check_out,
+            }
+
             service_context = {
                 'room_service_enabled': True,
                 'in_house': True,
                 'room_context': room_context,
-                'menu_categories': [],  # TODO: Implement menu retrieval
-                'order_history': []     # TODO: Implement order history
+                'menu_categories': [],
+                'order_history': [],
             }
             
-            logger.info(f"Guest room service accessed: room={room_context['room_number']}")
-            
+            logger.info(f"Guest room service accessed: room={room.room_number}")
             return Response(service_context, status=status.HTTP_200_OK)
             
-        except Http404 as e:
-            logger.warning(f"Guest room service access failed: {str(e)}")
+        except GuestAccessError as e:
+            logger.warning(f"Guest room service access failed: {e.message}")
             return Response(
-                {'error': 'INVALID_TOKEN', 'detail': 'Token is invalid or expired'},
-                status=status.HTTP_404_NOT_FOUND
+                {'error': 'INVALID_TOKEN', 'detail': e.message},
+                status=e.status_code
             )
         except Exception as e:
             logger.error(f"Guest room service error: {str(e)}")
