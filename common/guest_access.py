@@ -4,8 +4,12 @@ Canonical Guest Access Resolver
 THE single source of truth for resolving guest identity from a raw token.
 Every guest-facing endpoint MUST use resolve_guest_access() to authenticate.
 
-ONE booking → ONE token → ONE system.
-Only BookingManagementToken is accepted. No fallback. No legacy paths.
+TWO token models are accepted (checked in order):
+1. BookingManagementToken — issued via email management links.
+2. GuestBookingToken      — issued at booking creation time (returned in API response).
+
+Both use SHA-256 hashed storage. The lookup checks BookingManagementToken first,
+then falls back to GuestBookingToken.
 """
 
 import hashlib
@@ -169,12 +173,14 @@ def resolve_guest_access(
         token_hash[:8],
     )
 
-    # --- Lookup: BookingManagementToken ONLY ---
+    # --- Lookup: BookingManagementToken first, then GuestBookingToken ---
     ctx = _try_booking_management_token(token_hash, hotel_slug)
     if ctx is None:
+        ctx = _try_guest_booking_token(token_hash, hotel_slug)
+    if ctx is None:
         logger.warning(
-            "guest_access resolve: REJECTED — _try_bmt returned None "
-            "for slug=%s hash_prefix=%s (see _try_bmt log above for reason)",
+            "guest_access resolve: REJECTED — both _try_bmt and _try_gbt "
+            "returned None for slug=%s hash_prefix=%s",
             hotel_slug,
             token_hash[:8],
         )
@@ -243,35 +249,108 @@ def resolve_guest_access_without_slug(
     if not token_str or not token_str.strip():
         raise TokenRequiredError()
 
-    from hotel.models import BookingManagementToken
+    from hotel.models import BookingManagementToken, GuestBookingToken
 
     token_hash = hash_token(token_str)
 
+    logger.warning(
+        "guest_access resolve_without_slug: token_len=%d "
+        "token_prefix=%s token_suffix=%s hash_prefix=%s",
+        len(token_str),
+        token_str[:4] if token_str else "",
+        token_str[-4:] if token_str else "",
+        token_hash[:8],
+    )
+
+    # --- Try BookingManagementToken first ---
+    bmt = None
+    gbt = None
     try:
         bmt = BookingManagementToken.objects.select_related(
             "booking__hotel",
             "booking__assigned_room",
         ).get(token_hash=token_hash)
     except BookingManagementToken.DoesNotExist:
-        raise InvalidTokenError()
+        logger.warning(
+            "guest_access resolve_without_slug: BMT NOT FOUND hash_prefix=%s, "
+            "falling back to GuestBookingToken",
+            token_hash[:8],
+        )
 
-    if not bmt.is_valid:
-        raise InvalidTokenError()
+    if bmt is not None:
+        if not bmt.is_valid:
+            logger.warning(
+                "guest_access resolve_without_slug: BMT INVALID "
+                "booking_id=%s revoked=%s status=%s",
+                bmt.booking.booking_id,
+                bmt.revoked_at is not None,
+                bmt.booking.status,
+            )
+            raise InvalidTokenError()
 
-    booking = bmt.booking
+        booking = bmt.booking
 
-    # Booking lifecycle gate
-    if booking.status in ("CANCELLED", "CANCELLED_DRAFT", "DECLINED"):
-        raise InvalidTokenError()
+        if booking.status in ("CANCELLED", "CANCELLED_DRAFT", "DECLINED"):
+            raise InvalidTokenError()
 
-    bmt.record_action("VIEW")
+        bmt.record_action("VIEW")
 
-    ctx = GuestAccessContext(
-        booking=booking,
-        room=booking.assigned_room,
-        scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
-        token_type="booking_management",
-        token_obj=bmt,
+        ctx = GuestAccessContext(
+            booking=booking,
+            room=booking.assigned_room,
+            scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
+            token_type="booking_management",
+            token_obj=bmt,
+        )
+    else:
+        # --- Fallback: GuestBookingToken ---
+        try:
+            gbt = GuestBookingToken.objects.select_related(
+                "booking__hotel",
+                "booking__assigned_room",
+            ).get(token_hash=token_hash, status="ACTIVE")
+        except GuestBookingToken.DoesNotExist:
+            logger.warning(
+                "guest_access resolve_without_slug: GBT NOT FOUND (or not ACTIVE) "
+                "hash_prefix=%s — token does not exist in either model",
+                token_hash[:8],
+            )
+            raise InvalidTokenError()
+
+        if gbt.expires_at and timezone.now() > gbt.expires_at:
+            logger.warning(
+                "guest_access resolve_without_slug: GBT EXPIRED "
+                "booking_id=%s expires_at=%s",
+                gbt.booking.booking_id,
+                gbt.expires_at,
+            )
+            raise InvalidTokenError()
+
+        booking = gbt.booking
+
+        if booking.status in ("CANCELLED", "CANCELLED_DRAFT", "DECLINED"):
+            raise InvalidTokenError()
+
+        gbt.last_used_at = timezone.now()
+        gbt.save(update_fields=["last_used_at"])
+
+        scopes = gbt.scopes if gbt.scopes else list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES)
+
+        ctx = GuestAccessContext(
+            booking=booking,
+            room=booking.assigned_room,
+            scopes=scopes,
+            token_type="guest_booking",
+            token_obj=gbt,
+        )
+
+    logger.warning(
+        "guest_access resolve_without_slug: SUCCESS booking_id=%s "
+        "slug=%s status=%s token_type=%s",
+        ctx.booking.booking_id,
+        ctx.booking.hotel.slug,
+        ctx.booking.status,
+        ctx.token_type,
     )
 
     # Scope gate
@@ -346,4 +425,59 @@ def _try_booking_management_token(token_hash: str, hotel_slug: str):
         scopes=list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES),
         token_type="booking_management",
         token_obj=bmt,
+    )
+
+
+def _try_guest_booking_token(token_hash: str, hotel_slug: str):
+    """Fallback lookup in GuestBookingToken (issued at booking creation)."""
+    from hotel.models import GuestBookingToken
+
+    try:
+        gbt = GuestBookingToken.objects.select_related(
+            "booking__hotel",
+            "booking__assigned_room",
+        ).get(token_hash=token_hash, status="ACTIVE")
+    except GuestBookingToken.DoesNotExist:
+        logger.warning(
+            "guest_access _try_gbt: token NOT FOUND (or not ACTIVE) "
+            "hash_prefix=%s",
+            token_hash[:8],
+        )
+        return None
+
+    booking = gbt.booking
+    booking_slug = getattr(getattr(booking, "hotel", None), "slug", None)
+
+    # Time-based expiry check
+    if gbt.expires_at and timezone.now() > gbt.expires_at:
+        logger.warning(
+            "guest_access _try_gbt: token EXPIRED "
+            "booking_id=%s expires_at=%s requested_slug=%s",
+            booking.booking_id,
+            gbt.expires_at,
+            hotel_slug,
+        )
+        return None
+
+    if booking_slug != hotel_slug:
+        logger.warning(
+            "guest_access _try_gbt: SLUG MISMATCH "
+            "booking_id=%s requested_slug=%r booking_slug=%r",
+            booking.booking_id,
+            hotel_slug,
+            booking_slug,
+        )
+        return None
+
+    gbt.last_used_at = timezone.now()
+    gbt.save(update_fields=["last_used_at"])
+
+    scopes = gbt.scopes if gbt.scopes else list(_MANAGEMENT_TOKEN_IMPLIED_SCOPES)
+
+    return GuestAccessContext(
+        booking=gbt.booking,
+        room=gbt.booking.assigned_room,
+        scopes=scopes,
+        token_type="guest_booking",
+        token_obj=gbt,
     )
