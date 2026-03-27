@@ -28,22 +28,27 @@ class PusherAuthView(APIView):
     
     Channel Access Rules:
     - Staff: {hotelSlug}.room-bookings, {hotelSlug}.rooms, etc.
-    - Guests: ONLY private-guest-booking.{booking_id}
+    - Guests: ONLY private-hotel-{slug}-guest-chat-booking-{booking_id}
     
-    CRITICAL: Guest tokens must hard-reject any {hotelSlug}.* channels
+    CRITICAL: Guest tokens must hard-reject any non-guest channels
     """
+    authentication_classes = []  # Staff auth checked manually; guest tokens use our own resolver
     permission_classes = [AllowAny]  # Custom auth logic inside
     
     def post(self, request, hotel_slug=None):
         socket_id = request.data.get('socket_id')
         channel_name = request.data.get('channel_name')
-        # Check token in multiple places: querystring, body, headers
+        # Guest token: prefer ?token= query param, fall back to body/GuestToken header
         guest_token = (
             request.GET.get('token') or 
             request.data.get('token') or 
-            request.data.get('guest_token') or 
-            request.headers.get('Authorization', '').replace('Bearer ', '')
+            request.data.get('guest_token')
         )
+        # Also check GuestToken header (NOT Bearer — that's staff)
+        if not guest_token:
+            auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+            if auth_header.startswith('GuestToken '):
+                guest_token = auth_header[11:]
         
         logger.info(f"Pusher auth request: channel={channel_name}, has_token={bool(guest_token)}, hotel_slug={hotel_slug}")
         
@@ -103,37 +108,45 @@ class PusherAuthView(APIView):
     def _handle_guest_auth(self, socket_id, channel_name, guest_token):
         """
         Mode 2: Guest token authentication for booking channels.
-        Uses canonical resolve_guest_access (BookingManagementToken only).
-        """
-        # CRITICAL: Hard reject any hotel channels for guest tokens
-        if '.' in channel_name and not channel_name.startswith('private-guest-booking.'):
-            logger.warning(f"Guest auth rejected: attempted access to staff channel {channel_name}")
-            return Response({"error": "Guest tokens cannot access staff channels"}, status=403)
         
-        # Validate guest booking channel format
-        if not channel_name.startswith('private-guest-booking.'):
+        Canonical channel format: private-hotel-{slug}-guest-chat-booking-{booking_id}
+        Also supports legacy format: private-guest-booking.{booking_id} (for transition)
+        
+        Uses resolve_guest_access (with slug) when slug is extractable from channel,
+        falls back to resolve_guest_access_without_slug for legacy channels.
+        """
+        import re
+        
+        # Canonical channel: private-hotel-{slug}-guest-chat-booking-{booking_id}
+        canonical_match = re.match(
+            r'^private-hotel-([a-z0-9-]+)-guest-chat-booking-(.+)$',
+            channel_name
+        )
+        # Legacy channel: private-guest-booking.{booking_id}
+        legacy_match = re.match(
+            r'^private-guest-booking\.(.+)$',
+            channel_name
+        ) if not canonical_match else None
+        
+        if not canonical_match and not legacy_match:
             logger.warning(f"Guest auth rejected: invalid channel format {channel_name}")
             return Response({"error": "Invalid channel format for guest token"}, status=403)
         
-        # Extract booking ID from channel name
-        try:
-            booking_id = channel_name.replace('private-guest-booking.', '')
-        except:
-            logger.error(f"Guest auth failed: invalid booking channel format {channel_name}")
-            return Response({"error": "Invalid booking channel format"}, status=400)
-        
-        # Clean token - remove common prefixes that frontend might add
         clean_token = guest_token.strip()
-        if clean_token.startswith('GuestToken '):
-            clean_token = clean_token.replace('GuestToken ', '', 1)
-        elif clean_token.startswith('Bearer '):
-            clean_token = clean_token.replace('Bearer ', '', 1)
         
-        # Validate via canonical resolver (BookingManagementToken only)
         try:
-            ctx = resolve_guest_access_without_slug(clean_token)
+            if canonical_match:
+                hotel_slug = canonical_match.group(1)
+                booking_id = canonical_match.group(2)
+                ctx = resolve_guest_access(
+                    token_str=clean_token,
+                    hotel_slug=hotel_slug,
+                )
+            else:
+                booking_id = legacy_match.group(1)
+                ctx = resolve_guest_access_without_slug(clean_token)
         except GuestAccessError:
-            logger.warning(f"Guest auth failed: invalid token for booking {booking_id}")
+            logger.warning(f"Guest auth failed: invalid token for channel {channel_name}")
             return Response({"error": "UNAUTHORIZED", "detail": "Invalid or expired guest token"}, status=403)
         
         # Verify the resolved booking matches the channel's booking ID

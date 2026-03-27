@@ -52,6 +52,7 @@ class GuestChatContextView(APIView, TokenAuthenticationMixin):
     Always returns 200 for valid tokens with allowed_actions and disabled_reason.
     """
     
+    authentication_classes = []  # Disable DRF's default TokenAuthentication — we do our own token validation
     permission_classes = [AllowAny]
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
@@ -157,6 +158,7 @@ class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
     Returns 403 for pre-checkin guests, 409 for missing room assignment.
     """
     
+    authentication_classes = []  # Disable DRF's default TokenAuthentication — we do our own token validation
     permission_classes = [AllowAny]
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     
@@ -361,6 +363,7 @@ class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
     Security: Only allows channel names that exactly match the token's booking.
     """
     
+    authentication_classes = []  # Disable DRF's default TokenAuthentication — we do our own token validation
     permission_classes = [AllowAny]
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
     

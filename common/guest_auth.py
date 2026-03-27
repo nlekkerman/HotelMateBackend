@@ -24,19 +24,24 @@ class TokenAuthenticationMixin:
     Mixin that extracts a guest token from the request.
 
     Supported transports (in priority order):
-        1. Authorization: Bearer <token>
-        2. Authorization: GuestToken <token>
-        3. ?token=<token> query parameter
+        1. ?token=<token> query parameter  (canonical — used by email links)
+        2. Authorization: GuestToken <token>  (programmatic clients)
+
+    Bearer is intentionally NOT supported to avoid collision with
+    DRF's staff TokenAuthentication on requests that carry both.
     """
 
     def get_token_from_request(self, request):
         """Return the raw token string or empty string."""
+        # 1. Query parameter — preferred, always unambiguous
+        qp_token = request.GET.get('token', '')
+        if qp_token:
+            return qp_token
+        # 2. GuestToken header — explicit guest namespace
         auth_header = request.META.get('HTTP_AUTHORIZATION', '')
-        if auth_header.startswith('Bearer '):
-            return auth_header[7:]
         if auth_header.startswith('GuestToken '):
             return auth_header[11:]
-        return request.GET.get('token', '')
+        return ''
 
 
 # ---------------------------------------------------------------------------

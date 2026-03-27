@@ -17,7 +17,7 @@ from hotel.models import Hotel, RoomBooking, PricingQuote
 from rooms.models import RoomType, Room
 
 # Import guest portal views for token-authenticated endpoints
-from hotel.guest_portal_views import GuestContextView, GuestRoomServiceView
+from hotel.guest_portal_views import GuestContextView
 from hotel.canonical_guest_chat_views import (
     GuestChatContextView as CanonicalGuestChatContextView,
     GuestChatSendMessageView as CanonicalGuestChatSendMessageView,
@@ -504,11 +504,7 @@ urlpatterns = [
         GuestContextView.as_view(),
         name='guest-context'
     ),
-    path(
-        'room-service/',
-        GuestRoomServiceView.as_view(),
-        name='guest-room-service-context'
-    ),
+    # Legacy room-service/ route REMOVED — use /api/guest/hotel/{slug}/room-services/orders/
     
     # Base guest hotel endpoint
     path(

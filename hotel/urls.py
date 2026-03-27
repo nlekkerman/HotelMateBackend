@@ -24,8 +24,6 @@ from .booking_views import (
 # Guest portal views (token-authenticated)
 from .guest_portal_views import (
     GuestContextView,
-    GuestChatContextView,
-    GuestRoomServiceView,
 )
 
 # Staff CRUD views and management views
@@ -151,16 +149,8 @@ urlpatterns = [
         GuestContextView.as_view(),
         name="guest-context"
     ),
-    path(
-        "guest/chat/",
-        GuestChatContextView.as_view(),
-        name="guest-chat-context"
-    ),
-    path(
-        "guest/room-service/",
-        GuestRoomServiceView.as_view(),
-        name="guest-room-service"
-    ),
+    # Legacy guest/chat/ route REMOVED — use /api/guest/hotel/{slug}/chat/context
+    # Legacy guest/room-service/ route REMOVED — use /api/guest/hotel/{slug}/room-services/orders/
     
     # Staff CRUD endpoints (B5)
     # Accessed via: /api/staff/hotels/<slug>/hotel/offers/, etc.
