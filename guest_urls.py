@@ -21,7 +21,8 @@ from hotel.guest_portal_views import GuestContextView
 from hotel.canonical_guest_chat_views import (
     GuestChatContextView as CanonicalGuestChatContextView,
     GuestChatSendMessageView as CanonicalGuestChatSendMessageView,
-    GuestChatPusherAuthView as CanonicalGuestChatPusherAuthView
+    GuestChatPusherAuthView as CanonicalGuestChatPusherAuthView,
+    GuestChatMarkReadView as CanonicalGuestChatMarkReadView,
 )
 
 # Import room service views
@@ -500,12 +501,13 @@ urlpatterns = [
     # ──────────────────────────────────────────────────────────────────────
     # RULE: Bootstrap is token-only. Everything else MUST be slug-scoped.
     #
-    #   /api/guest/context/?token=...                    ← bootstrap (no slug)
-    #   /api/guest/hotel/{slug}/chat/context?token=...   ← slug-scoped
-    #   /api/guest/hotels/{slug}/room-services/...       ← slug-scoped
+    #   /api/guest/context/?token=...                           ← bootstrap
+    #   /api/guest/hotel/{slug}/chat/...                        ← session
+    #   /api/guest/hotels/{slug}/room-services/...              ← slug-scoped
     #
-    # Do NOT add new slug-less routes. If the guest doesn't know the slug,
-    # they call /api/guest/context/ first, which returns hotel_slug.
+    # Bootstrap uses raw guest token (?token= or GuestToken header).
+    # All chat endpoints use X-Guest-Chat-Session header ONLY.
+    # Do NOT add new slug-less routes.
     # ──────────────────────────────────────────────────────────────────────
 
     # Bootstrap endpoint — token-only, returns hotel_slug for subsequent calls
@@ -566,7 +568,7 @@ urlpatterns = [
         name='guest-room-service-menu'
     ),
     
-    # Canonical Guest Chat API - Token-only, No Legacy
+    # Canonical Guest Chat API — Session-only, No Raw Token
     path(
         'hotel/<str:hotel_slug>/chat/context',
         CanonicalGuestChatContextView.as_view(),
@@ -581,5 +583,10 @@ urlpatterns = [
         'hotel/<str:hotel_slug>/chat/pusher/auth',
         CanonicalGuestChatPusherAuthView.as_view(),
         name='canonical-guest-chat-pusher-auth'
+    ),
+    path(
+        'hotel/<str:hotel_slug>/chat/conversations/<int:conversation_id>/mark_read/',
+        CanonicalGuestChatMarkReadView.as_view(),
+        name='canonical-guest-chat-mark-read'
     ),
 ]

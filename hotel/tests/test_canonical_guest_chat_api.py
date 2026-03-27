@@ -1,48 +1,50 @@
 """
 Tests for Canonical Guest Chat API
 
-Covers token validation, scope enforcement, pre-checkin UX flows, 
-booking-scoped pusher channels, and verification that legacy routes 
+Covers session/grant validation, scope enforcement, pre-checkin UX flows,
+booking-scoped pusher channels, and verification that legacy routes
 are completely removed.
+
+Auth model: bootstrap with raw token → get session → all chat endpoints
+accept only X-Guest-Chat-Session header.
 """
 
 from django.test import TestCase
-from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework import status
-import json
 
-from hotel.models import Hotel, RoomBooking, GuestBookingToken
+from hotel.models import Hotel, RoomBooking
 from rooms.models import Room, RoomType
 from chat.models import Conversation, RoomMessage
-from bookings.services import hash_token
+from common.guest_chat_grant import issue_guest_chat_grant
 
 
 class CanonicalGuestChatAPITest(TestCase):
+    """
+    All chat endpoints authenticate via X-Guest-Chat-Session header
+    containing a signed grant issued at bootstrap. No raw token is
+    accepted by chat views.
+    """
+
     def setUp(self):
-        """Set up test data"""
         self.client = APIClient()
-        
-        # Create hotel
+
+        # Hotel
         self.hotel = Hotel.objects.create(
-            name="Test Hotel",
-            slug="test-hotel"
+            name="Test Hotel", slug="test-hotel",
         )
-        
-        # Create room type and room
+
+        # Room
         self.room_type = RoomType.objects.create(
-            name="Standard Room",
-            hotel=self.hotel,
-            capacity=2
+            name="Standard Room", hotel=self.hotel, capacity=2,
         )
         self.room = Room.objects.create(
-            hotel=self.hotel,
-            room_number="101",
-            room_type=self.room_type
+            hotel=self.hotel, room_number="101",
+            room_type=self.room_type,
         )
-        
-        # Create booking
+
+        # Booking (CONFIRMED — not yet checked-in by default)
         self.booking = RoomBooking.objects.create(
             hotel=self.hotel,
             booking_id="BK-2026-0001",
@@ -51,333 +53,258 @@ class CanonicalGuestChatAPITest(TestCase):
             check_in=timezone.now().date(),
             check_out=(timezone.now() + timezone.timedelta(days=2)).date(),
             status="CONFIRMED",
-            assigned_room=self.room
+            assigned_room=self.room,
         )
-        
-        # Create token with CHAT scope
-        self.token_str = "test-token-123"
-        self.guest_token = GuestBookingToken.objects.create(
-            booking=self.booking,
-            hotel=self.hotel,
-            token_hash=hash_token(self.token_str),
-            status='ACTIVE',
-            scopes=['CHAT', 'STATUS_READ']
-        )
-        
-        # Create token without CHAT scope
-        self.no_chat_token_str = "no-chat-token-456"
-        self.no_chat_token = GuestBookingToken.objects.create(
-            booking=self.booking,
-            hotel=self.hotel,
-            token_hash=hash_token(self.no_chat_token_str),
-            status='ACTIVE',
-            scopes=['STATUS_READ']  # Missing CHAT scope
-        )
-        
+
+        # Issue a valid session grant
+        self.session = issue_guest_chat_grant(self.booking, self.room)
+
         # URLs
         self.context_url = f"/api/guest/hotel/{self.hotel.slug}/chat/context"
         self.messages_url = f"/api/guest/hotel/{self.hotel.slug}/chat/messages"
-    
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _get(self, url, session=None, **extra):
+        return self.client.get(
+            url, HTTP_X_GUEST_CHAT_SESSION=(session or self.session),
+            **extra,
+        )
+
+    def _post(self, url, data=None, session=None, **extra):
+        return self.client.post(
+            url, data=data,
+            HTTP_X_GUEST_CHAT_SESSION=(session or self.session),
+            **extra,
+        )
+
+    # ------------------------------------------------------------------
+    # Context endpoint
+    # ------------------------------------------------------------------
+
     def test_context_endpoint_success_checked_in(self):
-        """Test context endpoint returns correct data for checked-in guest"""
-        # Check in the guest
+        """Checked-in guest gets full chat context"""
         self.booking.checked_in_at = timezone.now()
         self.booking.status = "CHECKED_IN"
         self.booking.save()
-        
-        response = self.client.get(
-            self.context_url,
-            {'token': self.token_str}
-        )
-        
+
+        response = self._get(self.context_url)
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        
-        # Verify response structure
+
         self.assertIn('conversation_id', data)
         self.assertEqual(data['booking_id'], "BK-2026-0001")
         self.assertEqual(data['room_number'], "101")
         self.assertEqual(data['assigned_room_id'], self.room.id)
         self.assertEqual(data['allowed_actions'], ["chat"])
-        
-        # Verify booking-scoped pusher channel
-        expected_channel = f"private-hotel-{self.hotel.slug}-guest-chat-booking-{self.booking.booking_id}"
+
+        expected_channel = (
+            f"private-hotel-{self.hotel.slug}"
+            f"-guest-chat-booking-{self.booking.booking_id}"
+        )
         self.assertEqual(data['pusher']['channel'], expected_channel)
         self.assertEqual(data['pusher']['event'], "realtime_event")
-        
-        # Should not have disabled_reason for checked-in guest
         self.assertNotIn('disabled_reason', data)
-    
+
     def test_context_endpoint_pre_checkin_ux_friendly(self):
-        """Test context endpoint returns UX-friendly response for pre-checkin guest"""
-        # Guest not checked in yet
+        """Pre-checkin guest gets context with disabled chat"""
         self.booking.checked_in_at = None
         self.booking.status = "CONFIRMED"
         self.booking.save()
-        
-        response = self.client.get(
-            self.context_url,
-            {'token': self.token_str}
-        )
-        
+
+        response = self._get(self.context_url)
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        
-        # Should return context but with disabled chat
         self.assertEqual(data['allowed_actions'], [])
         self.assertEqual(data['disabled_reason'], "Check-in required to access chat")
-        self.assertIn('conversation_id', data)  # Still provides context
-        self.assertIn('pusher', data)  # Still provides pusher channel
-    
+        self.assertIn('conversation_id', data)
+        self.assertIn('pusher', data)
+
     def test_context_endpoint_post_checkout_ux_friendly(self):
-        """Test context endpoint for checked-out guest"""
-        # Guest checked out
+        """Checked-out guest sees disabled reason"""
         self.booking.checked_in_at = timezone.now() - timezone.timedelta(days=1)
         self.booking.checked_out_at = timezone.now()
         self.booking.status = "CHECKED_OUT"
         self.booking.save()
-        
-        response = self.client.get(
-            self.context_url,
-            {'token': self.token_str}
-        )
-        
+
+        response = self._get(self.context_url)
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        
         self.assertEqual(data['allowed_actions'], [])
         self.assertEqual(data['disabled_reason'], "Chat unavailable after checkout")
-    
+
     def test_context_endpoint_no_room_assigned(self):
-        """Test context endpoint when no room assigned"""
-        # Remove room assignment
+        """No room assigned → disabled reason, null room fields"""
         self.booking.assigned_room = None
         self.booking.checked_in_at = timezone.now()
         self.booking.status = "CHECKED_IN"
         self.booking.save()
-        
-        response = self.client.get(
-            self.context_url,
-            {'token': self.token_str}
-        )
-        
+
+        # Grant was issued with room, but booking now has no room;
+        # grant resolution reads current booking state
+        session = issue_guest_chat_grant(self.booking, None)
+        response = self._get(self.context_url, session=session)
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
-        
         self.assertEqual(data['allowed_actions'], [])
         self.assertEqual(data['disabled_reason'], "Room assignment required")
         self.assertIsNone(data['room_number'])
         self.assertIsNone(data['assigned_room_id'])
-    
-    def test_context_endpoint_missing_token(self):
-        """Test context endpoint with missing token"""
+
+    def test_context_endpoint_missing_session(self):
+        """No X-Guest-Chat-Session header → 401"""
         response = self.client.get(self.context_url)
-        
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('Token is required', response.json()['error'])
-    
-    def test_context_endpoint_invalid_token(self):
-        """Test context endpoint with invalid token (anti-enumeration)"""
-        response = self.client.get(
-            self.context_url,
-            {'token': 'invalid-token'}
-        )
-        
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertIn('Invalid or expired token', response.json()['error'])
-    
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertIn('session is required', response.json()['error'].lower())
+
+    def test_context_endpoint_invalid_session(self):
+        """Tampered/garbage session → 401"""
+        response = self._get(self.context_url, session="garbage-value")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_context_endpoint_hotel_mismatch(self):
-        """Test context endpoint with hotel mismatch (anti-enumeration)"""
+        """Session for hotel A used against hotel B URL → 403"""
         response = self.client.get(
             "/api/guest/hotel/wrong-hotel/chat/context",
-            {'token': self.token_str}
+            HTTP_X_GUEST_CHAT_SESSION=self.session,
         )
-        
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertIn('Invalid or expired token', response.json()['error'])
-    
-    def test_context_endpoint_missing_chat_scope(self):
-        """Test context endpoint with token lacking CHAT scope"""
-        response = self.client.get(
-            self.context_url,
-            {'token': self.no_chat_token_str}
-        )
-        
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn('Token lacks required permissions: CHAT', response.json()['error'])
-    
+
+    # ------------------------------------------------------------------
+    # Send message endpoint
+    # ------------------------------------------------------------------
+
     def test_send_message_success(self):
-        """Test sending message successfully"""
-        # Check in the guest
+        """Checked-in guest sends message → 201"""
         self.booking.checked_in_at = timezone.now()
         self.booking.status = "CHECKED_IN"
         self.booking.save()
-        
-        # Create conversation
-        conversation = Conversation.objects.create(room=self.room)
-        
-        response = self.client.post(
-            self.messages_url,
-            {
-                'message': 'Hello reception',
-                'token': self.token_str
-            }
+
+        response = self._post(
+            self.messages_url, {'message': 'Hello reception'},
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
-        
         self.assertIn('message_id', data)
         self.assertIn('sent_at', data)
         self.assertIn('conversation_id', data)
-        
-        # Verify message was created
+
         message = RoomMessage.objects.get(id=data['message_id'])
         self.assertEqual(message.sender_type, 'guest')
         self.assertEqual(message.message, 'Hello reception')
         self.assertEqual(message.booking, self.booking)
         self.assertEqual(message.room, self.room)
-    
+
     def test_send_message_with_reply_to(self):
-        """Test sending message with reply_to"""
-        # Check in the guest
+        """Reply-to links to parent message"""
         self.booking.checked_in_at = timezone.now()
         self.booking.status = "CHECKED_IN"
         self.booking.save()
-        
-        # Create conversation and existing message
-        conversation = Conversation.objects.create(room=self.room)
-        original_message = RoomMessage.objects.create(
+
+        conversation = Conversation.objects.create(
+            room=self.room, booking=self.booking,
+        )
+        original = RoomMessage.objects.create(
             conversation=conversation,
             sender_type='staff',
             message='How can I help you?',
             booking=self.booking,
-            room=self.room
+            room=self.room,
         )
-        
-        response = self.client.post(
+
+        response = self._post(
             self.messages_url,
-            {
-                'message': 'I need extra towels',
-                'reply_to': original_message.id,
-                'token': self.token_str
-            }
+            {'message': 'I need extra towels', 'reply_to': original.id},
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        
-        # Verify reply relationship
-        message = RoomMessage.objects.get(id=response.json()['message_id'])
-        self.assertEqual(message.reply_to, original_message)
-    
+        msg = RoomMessage.objects.get(id=response.json()['message_id'])
+        self.assertEqual(msg.reply_to, original)
+
     def test_send_message_pre_checkin_strict_403(self):
-        """Test sending message before check-in (strict validation)"""
-        # Guest not checked in yet
+        """Not checked in → 403"""
         self.booking.checked_in_at = None
         self.booking.status = "CONFIRMED"
         self.booking.save()
-        
-        response = self.client.post(
-            self.messages_url,
-            {
-                'message': 'Hello reception',
-                'token': self.token_str
-            }
+
+        response = self._post(
+            self.messages_url, {'message': 'Hello reception'},
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn('Guest has not checked in yet', response.json()['error'])
-    
+
     def test_send_message_post_checkout_strict_403(self):
-        """Test sending message after checkout (strict validation)"""
-        # Guest checked out
+        """Already checked out → 403"""
         self.booking.checked_in_at = timezone.now() - timezone.timedelta(days=1)
         self.booking.checked_out_at = timezone.now()
         self.booking.status = "CHECKED_OUT"
         self.booking.save()
-        
-        response = self.client.post(
-            self.messages_url,
-            {
-                'message': 'Hello reception',
-                'token': self.token_str
-            }
+
+        response = self._post(
+            self.messages_url, {'message': 'Hello reception'},
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertIn('Guest has already checked out', response.json()['error'])
-    
+
     def test_send_message_no_room_assigned_409(self):
-        """Test sending message with no room assigned"""
-        # Check in but no room
+        """Checked-in but no room → 409"""
         self.booking.checked_in_at = timezone.now()
         self.booking.status = "CHECKED_IN"
         self.booking.assigned_room = None
         self.booking.save()
-        
-        response = self.client.post(
-            self.messages_url,
-            {
-                'message': 'Hello reception',
-                'token': self.token_str
-            }
+
+        session = issue_guest_chat_grant(self.booking, None)
+        response = self._post(
+            self.messages_url, {'message': 'Hello reception'},
+            session=session,
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-        self.assertIn('No room assigned to booking', response.json()['error'])
-    
-    def test_send_message_missing_chat_scope(self):
-        """Test sending message with token lacking CHAT scope"""
-        # Check in the guest
-        self.booking.checked_in_at = timezone.now()
-        self.booking.status = "CHECKED_IN"
-        self.booking.save()
-        
+        self.assertIn('No room assigned', response.json()['error'])
+
+    def test_send_message_missing_session_401(self):
+        """No session header → 401"""
         response = self.client.post(
-            self.messages_url,
-            {
-                'message': 'Hello reception',
-                'token': self.no_chat_token_str
-            }
+            self.messages_url, {'message': 'Hello reception'},
         )
-        
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertIn('Token lacks required permissions: CHAT', response.json()['error'])
-    
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_send_message_empty_message(self):
-        """Test sending empty message"""
-        # Check in the guest
+        """Whitespace-only message → 400"""
         self.booking.checked_in_at = timezone.now()
         self.booking.status = "CHECKED_IN"
         self.booking.save()
-        
-        response = self.client.post(
-            self.messages_url,
-            {
-                'message': '   ',  # Whitespace only
-                'token': self.token_str
-            }
+
+        response = self._post(
+            self.messages_url, {'message': '   '},
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('Message text is required', response.json()['error'])
-    
+
     def test_send_message_invalid_reply_to(self):
-        """Test sending message with invalid reply_to"""
-        # Check in the guest
+        """Non-existent reply_to → 400"""
         self.booking.checked_in_at = timezone.now()
         self.booking.status = "CHECKED_IN"
         self.booking.save()
-        
-        response = self.client.post(
+
+        response = self._post(
             self.messages_url,
-            {
-                'message': 'Hello reception',
-                'reply_to': 99999,  # Non-existent message
-                'token': self.token_str
-            }
+            {'message': 'Hello reception', 'reply_to': 99999},
         )
-        
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('Reply message not found', response.json()['error'])
 
@@ -427,8 +354,8 @@ class LegacyEndpointRemovalTest(TestCase):
 
 
 class ScopeValidationTest(TestCase):
-    """Test centralized scope validation in service layer"""
-    
+    """Test centralized scope validation via bootstrap + grant issuance"""
+
     def setUp(self):
         self.hotel = Hotel.objects.create(name="Test Hotel", slug="test-hotel")
         self.room_type = RoomType.objects.create(
@@ -452,38 +379,37 @@ class ScopeValidationTest(TestCase):
             checked_in_at=timezone.now(),
             assigned_room=self.room
         )
-    
-    def test_multiple_scope_validation(self):
-        """Test validation with multiple required scopes"""
-        from bookings.services import resolve_guest_chat_context, MissingScopeError
-        
-        # Token with only CHAT scope
-        token_str = "test-token-multi"
-        guest_token = GuestBookingToken.objects.create(
-            booking=self.booking,
-            hotel=self.hotel,
-            token_hash=hash_token(token_str),
-            status='ACTIVE',
-            scopes=['CHAT']  # Missing ROOM_SERVICE
+
+    def test_grant_resolves_booking_correctly(self):
+        """Test that a grant issued for a booking resolves correctly"""
+        from bookings.services import resolve_chat_context_from_grant
+        from common.guest_chat_grant import (
+            issue_guest_chat_grant,
+            validate_guest_chat_grant,
         )
-        
-        # Should pass with CHAT only
-        booking, room, conversation, actions, reason = resolve_guest_chat_context(
-            hotel_slug=self.hotel.slug,
-            token_str=token_str,
-            required_scopes=["CHAT"],
-            action_required=True
+
+        grant_str = issue_guest_chat_grant(
+            self.booking, self.room,
+        )
+        grant_ctx = validate_guest_chat_grant(
+            grant_str, self.hotel.slug,
+        )
+        booking, room, conversation = resolve_chat_context_from_grant(
+            grant_ctx,
         )
         self.assertEqual(booking.booking_id, "BK-2026-0001")
-        
-        # Should fail with CHAT + ROOM_SERVICE
-        with self.assertRaises(MissingScopeError) as cm:
-            resolve_guest_chat_context(
-                hotel_slug=self.hotel.slug,
-                token_str=token_str,
-                required_scopes=["CHAT", "ROOM_SERVICE"],
-                action_required=True
-            )
-        
-        self.assertIn("ROOM_SERVICE", str(cm.exception))
-        self.assertEqual(cm.exception.required_scopes, ["ROOM_SERVICE"])
+        self.assertIsNotNone(conversation)
+
+    def test_grant_hotel_mismatch_rejected(self):
+        """Test that a grant for one hotel is rejected on another"""
+        from common.guest_chat_grant import (
+            issue_guest_chat_grant,
+            validate_guest_chat_grant,
+            GrantHotelMismatchError,
+        )
+
+        grant_str = issue_guest_chat_grant(
+            self.booking, self.room,
+        )
+        with self.assertRaises(GrantHotelMismatchError):
+            validate_guest_chat_grant(grant_str, "wrong-hotel")

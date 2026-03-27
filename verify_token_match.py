@@ -11,7 +11,7 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'HotelMateBackend.settings')
 django.setup()
 
-from bookings.services import hash_token
+from common.guest_access import hash_token
 
 def check_token_match():
     # Frontend token from logs
@@ -33,27 +33,8 @@ def check_token_match():
         print("❓ So why is it returning 401?")
         
         # Test the token resolution directly
-        print(f"\n🧪 Testing resolve_guest_chat_context directly...")
-        try:
-            from bookings.services import resolve_guest_chat_context
-            
-            booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
-                hotel_slug="hotel-killarney",
-                token_str=frontend_token,
-                required_scopes=["CHAT"],
-                action_required=False
-            )
-            
-            print(f"✅ Direct resolve_guest_chat_context worked!")
-            print(f"   Booking: {booking.booking_id}")
-            print(f"   Room: {room.room_number if room else 'None'}")
-            print(f"   Can Chat: {allowed_actions['can_chat']}")
-            print(f"   Disabled Reason: {disabled_reason}")
-            
-        except Exception as e:
-            print(f"❌ Direct resolve_guest_chat_context failed: {e}")
-            import traceback
-            traceback.print_exc()
+        print(f"\n🧪 Token hash matches — resolve_guest_chat_context was removed.")
+        print(f"   Use bootstrap → session grant flow for chat access.")
             
     else:
         print("❌ DIFFERENT TOKENS! Frontend token doesn't match database.")

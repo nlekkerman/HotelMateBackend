@@ -1,17 +1,14 @@
 """
-Canonical Guest Chat API Views — Grant-Authenticated, Booking-Bound
+Canonical Guest Chat API Views — Session-Authenticated, Booking-Bound
 
-Guest chat endpoints authenticate via a short-lived signed grant issued
-by the bootstrap endpoint (/api/guest/context/). The raw email/booking
-token is NEVER used here — it is only consumed at bootstrap time.
+Guest chat endpoints authenticate via a short-lived signed session
+issued by the bootstrap endpoint (/api/guest/context/). The raw
+email/booking token is NEVER accepted here.
 
-Auth flow:
-  1. Guest bootstraps with raw token → gets guest_chat_grant
-  2. All chat endpoints accept: Authorization: GuestChatGrant <grant>
-     or ?chat_grant=<grant>
-  3. Grant is validated (signature + expiry + hotel match)
-  4. Booking + conversation resolved from grant claims
+Auth header (single transport, no fallback):
+    X-Guest-Chat-Session: <session>
 
+Session is validated for signature, expiry, scope, and hotel match.
 Conversation is keyed by booking_id. Room is contextual metadata.
 """
 
@@ -21,6 +18,7 @@ from rest_framework.permissions import AllowAny
 from rest_framework import status
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
+from django.utils import timezone
 import logging
 
 from bookings.services import resolve_chat_context_from_grant
@@ -37,7 +35,7 @@ import hmac
 import hashlib
 
 from common.guest_auth import (
-    ChatGrantAuthenticationMixin,
+    ChatSessionAuthenticationMixin,
     GuestTokenBurstThrottle,
     GuestTokenSustainedThrottle,
 )
@@ -45,22 +43,65 @@ from common.guest_auth import (
 logger = logging.getLogger(__name__)
 
 
-def _grant_error_response(e):
-    """Standard error response for grant validation failures."""
+# -------------------------------------------------------------------
+# Shared helpers
+# -------------------------------------------------------------------
+
+def _session_error_response(e):
+    """Standard error response for session validation failures."""
     return Response(
         {'error': e.message, 'code': e.code},
         status=e.status_code,
     )
 
 
-@method_decorator(never_cache, name='dispatch')
-class GuestChatContextView(APIView, ChatGrantAuthenticationMixin):
-    """
-    GET/POST /api/guest/hotel/{hotel_slug}/chat/context
-    Header: Authorization: GuestChatGrant <grant>
+def _missing_session_response():
+    return Response(
+        {
+            'error': 'Guest chat session is required',
+            'code': 'SESSION_REQUIRED',
+        },
+        status=status.HTTP_401_UNAUTHORIZED,
+    )
 
-    Returns chat context with UX-friendly pre-checkin handling.
-    Always returns 200 for valid grants with allowed_actions and disabled_reason.
+
+def _resolve_from_request(mixin, request, hotel_slug):
+    """
+    Extract session header, validate, resolve booking+conversation.
+
+    Returns (grant_ctx, booking, room, conversation) on success.
+    Returns (None, None, None, Response) with error Response on failure.
+    """
+    session_str = mixin.get_chat_session_from_request(request)
+    if not session_str:
+        return None, None, None, _missing_session_response()
+
+    try:
+        grant_ctx = validate_guest_chat_grant(session_str, hotel_slug)
+        booking, room, conversation = (
+            resolve_chat_context_from_grant(grant_ctx)
+        )
+        return grant_ctx, booking, room, conversation
+    except GuestChatGrantError as e:
+        return None, None, None, _session_error_response(e)
+    except GuestAccessError as e:
+        return None, None, None, Response(
+            {'error': e.message, 'code': e.code},
+            status=e.status_code,
+        )
+
+
+# -------------------------------------------------------------------
+# Views
+# -------------------------------------------------------------------
+
+@method_decorator(never_cache, name='dispatch')
+class GuestChatContextView(APIView, ChatSessionAuthenticationMixin):
+    """
+    GET /api/guest/hotel/{slug}/chat/context
+    Header: X-Guest-Chat-Session: <session>
+
+    Returns conversation context and Pusher channel info.
     """
 
     authentication_classes = []
@@ -68,24 +109,14 @@ class GuestChatContextView(APIView, ChatGrantAuthenticationMixin):
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
 
     def get(self, request, hotel_slug):
-        return self._get_context(request, hotel_slug)
+        grant_ctx, booking, room, result = _resolve_from_request(
+            self, request, hotel_slug,
+        )
+        if isinstance(result, Response):
+            return result
+        conversation = result
 
-    def post(self, request, hotel_slug):
-        return self._get_context(request, hotel_slug)
-
-    def _get_context(self, request, hotel_slug):
         try:
-            grant_str = self.get_chat_grant_from_request(request)
-            if not grant_str:
-                return Response(
-                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
-            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
-
-            # Determine chat eligibility from current booking state
             can_chat = bool(
                 booking.checked_in_at
                 and not booking.checked_out_at
@@ -99,14 +130,23 @@ class GuestChatContextView(APIView, ChatGrantAuthenticationMixin):
             elif not booking.assigned_room:
                 disabled_reason = "Room assignment required"
 
-            pusher_channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{booking.booking_id}"
+            pusher_channel = (
+                f"private-hotel-{hotel_slug}"
+                f"-guest-chat-booking-{booking.booking_id}"
+            )
 
-            response_data = {
-                "conversation_id": conversation.id if conversation else None,
+            data = {
+                "conversation_id": (
+                    conversation.id if conversation else None
+                ),
                 "booking_id": booking.booking_id,
-                "room_number": room.room_number if room else None,
+                "room_number": (
+                    room.room_number if room else None
+                ),
                 "assigned_room_id": room.id if room else None,
-                "allowed_actions": ["chat"] if can_chat else [],
+                "allowed_actions": (
+                    ["chat"] if can_chat else []
+                ),
                 "pusher": {
                     "channel": pusher_channel,
                     "event": "realtime_event",
@@ -114,16 +154,12 @@ class GuestChatContextView(APIView, ChatGrantAuthenticationMixin):
             }
 
             if disabled_reason:
-                response_data["disabled_reason"] = disabled_reason
+                data["disabled_reason"] = disabled_reason
 
-            return Response(response_data, status=status.HTTP_200_OK)
+            return Response(data, status=status.HTTP_200_OK)
 
-        except GuestChatGrantError as e:
-            return _grant_error_response(e)
-        except GuestAccessError as e:
-            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
-            logger.error(f"Chat context error: {str(e)}")
+            logger.error(f"Chat context error: {e}")
             return Response(
                 {'error': 'Unable to retrieve chat context'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -131,13 +167,13 @@ class GuestChatContextView(APIView, ChatGrantAuthenticationMixin):
 
 
 @method_decorator(never_cache, name='dispatch')
-class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
+class GuestChatSendMessageView(
+    APIView, ChatSessionAuthenticationMixin,
+):
     """
-    GET/POST /api/guest/hotel/{hotel_slug}/chat/messages
-    Header: Authorization: GuestChatGrant <grant>
-
-    GET: Retrieve chat messages for the guest's conversation
-    POST: Send chat message (must be checked-in with room assigned)
+    GET  /api/guest/hotel/{slug}/chat/messages
+    POST /api/guest/hotel/{slug}/chat/messages
+    Header: X-Guest-Chat-Session: <session>
     """
 
     authentication_classes = []
@@ -145,18 +181,14 @@ class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
 
     def get(self, request, hotel_slug):
+        grant_ctx, booking, room, result = _resolve_from_request(
+            self, request, hotel_slug,
+        )
+        if isinstance(result, Response):
+            return result
+        conversation = result
+
         try:
-            grant_str = self.get_chat_grant_from_request(request)
-            if not grant_str:
-                return Response(
-                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
-            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
-
-            # Pagination
             limit = int(request.GET.get('limit', 50))
             before_id = request.GET.get('before_id')
 
@@ -179,43 +211,45 @@ class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
                 'has_more': messages_qs.count() > limit,
             })
 
-        except GuestChatGrantError as e:
-            return _grant_error_response(e)
-        except GuestAccessError as e:
-            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
-            logger.error(f"Get messages error: {str(e)}")
+            logger.error(f"Get messages error: {e}")
             return Response(
                 {'error': 'Unable to retrieve messages'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
     def post(self, request, hotel_slug):
+        grant_ctx, booking, room, result = _resolve_from_request(
+            self, request, hotel_slug,
+        )
+        if isinstance(result, Response):
+            return result
+        conversation = result
+
         try:
-            grant_str = self.get_chat_grant_from_request(request)
-            if not grant_str:
-                return Response(
-                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
-            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
-
             # Enforce in-house for sending messages
             if not booking.checked_in_at:
                 return Response(
-                    {'error': 'Guest has not checked in yet', 'code': 'NOT_CHECKED_IN'},
+                    {
+                        'error': 'Guest has not checked in yet',
+                        'code': 'NOT_CHECKED_IN',
+                    },
                     status=status.HTTP_403_FORBIDDEN,
                 )
             if booking.checked_out_at:
                 return Response(
-                    {'error': 'Guest has already checked out', 'code': 'ALREADY_CHECKED_OUT'},
+                    {
+                        'error': 'Guest has already checked out',
+                        'code': 'ALREADY_CHECKED_OUT',
+                    },
                     status=status.HTTP_403_FORBIDDEN,
                 )
             if not room:
                 return Response(
-                    {'error': 'No room assigned to this booking yet', 'code': 'NO_ROOM_ASSIGNED'},
+                    {
+                        'error': 'No room assigned to this booking',
+                        'code': 'NO_ROOM_ASSIGNED',
+                    },
                     status=status.HTTP_409_CONFLICT,
                 )
 
@@ -231,7 +265,8 @@ class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
             if reply_to_id:
                 try:
                     reply_to_message = RoomMessage.objects.get(
-                        id=reply_to_id, conversation=conversation,
+                        id=reply_to_id,
+                        conversation=conversation,
                     )
                 except RoomMessage.DoesNotExist:
                     return Response(
@@ -249,11 +284,15 @@ class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
             )
 
             notification_manager = NotificationManager()
-            notification_manager.realtime_guest_chat_message_created(message)
+            notification_manager.realtime_guest_chat_message_created(
+                message,
+            )
 
             logger.info(
-                f"Guest message sent: booking={booking.booking_id}, "
-                f"room={room.room_number}, message_id={message.id}"
+                "Guest message sent: booking=%s room=%s msg=%s",
+                booking.booking_id,
+                room.room_number,
+                message.id,
             )
 
             return Response(
@@ -265,12 +304,8 @@ class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
                 status=status.HTTP_201_CREATED,
             )
 
-        except GuestChatGrantError as e:
-            return _grant_error_response(e)
-        except GuestAccessError as e:
-            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
-            logger.error(f"Send message error: {str(e)}")
+            logger.error(f"Send message error: {e}")
             return Response(
                 {'error': 'Unable to send message'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -278,13 +313,83 @@ class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
 
 
 @method_decorator(never_cache, name='dispatch')
-class GuestChatPusherAuthView(APIView, ChatGrantAuthenticationMixin):
+class GuestChatMarkReadView(
+    APIView, ChatSessionAuthenticationMixin,
+):
     """
-    POST /api/guest/hotel/{hotel_slug}/chat/pusher/auth
-    Header: Authorization: GuestChatGrant <grant>
+    POST /api/guest/hotel/{slug}/chat/conversations/{id}/mark_read/
+    Header: X-Guest-Chat-Session: <session>
 
-    Pusher private channel authentication for guest chat.
-    Validates grant and ensures channel matches booking.
+    Marks all messages in the conversation as read by guest.
+    Validates conversation belongs to the session's booking.
+    """
+
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
+
+    def post(self, request, hotel_slug, conversation_id):
+        grant_ctx, booking, room, result = _resolve_from_request(
+            self, request, hotel_slug,
+        )
+        if isinstance(result, Response):
+            return result
+        conversation = result
+
+        try:
+            # Verify the conversation_id matches the booking's
+            if conversation.id != conversation_id:
+                logger.warning(
+                    "mark_read rejected: session conv=%s "
+                    "requested conv=%s booking=%s",
+                    conversation.id,
+                    conversation_id,
+                    booking.booking_id,
+                )
+                return Response(
+                    {
+                        'error': 'Conversation does not match booking',
+                        'code': 'CONVERSATION_MISMATCH',
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            now = timezone.now()
+            updated = conversation.messages.filter(
+                read_by_guest=False,
+                sender_type__in=['staff', 'system'],
+            ).update(
+                read_by_guest=True,
+                guest_read_at=now,
+                status='read',
+            )
+
+            if updated:
+                conversation.has_unread = False
+                conversation.save(update_fields=['has_unread'])
+
+            return Response(
+                {'marked_read': updated},
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            logger.error(f"Mark read error: {e}")
+            return Response(
+                {'error': 'Unable to mark messages read'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+@method_decorator(never_cache, name='dispatch')
+class GuestChatPusherAuthView(
+    APIView, ChatSessionAuthenticationMixin,
+):
+    """
+    POST /api/guest/hotel/{slug}/chat/pusher/auth
+    Header: X-Guest-Chat-Session: <session>
+
+    Pusher private channel auth. Session-only, no raw token.
     """
 
     authentication_classes = []
@@ -292,36 +397,40 @@ class GuestChatPusherAuthView(APIView, ChatGrantAuthenticationMixin):
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
 
     def post(self, request, hotel_slug):
+        socket_id = request.data.get('socket_id')
+        channel_name = request.data.get('channel_name')
+
+        if not socket_id or not channel_name:
+            return Response(
+                {'error': 'Missing socket_id or channel_name'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        grant_ctx, booking, room, result = _resolve_from_request(
+            self, request, hotel_slug,
+        )
+        if isinstance(result, Response):
+            return result
+        conversation = result
+
         try:
-            socket_id = request.data.get('socket_id')
-            channel_name = request.data.get('channel_name')
-
-            if not socket_id or not channel_name:
-                return Response(
-                    {'error': 'Missing socket_id or channel_name'},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
-            grant_str = self.get_chat_grant_from_request(request)
-            if not grant_str:
-                return Response(
-                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
-
-            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
-            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
-
-            # CRITICAL SECURITY: Validate channel name exactly matches booking
-            expected_channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{booking.booking_id}"
+            expected_channel = (
+                f"private-hotel-{hotel_slug}"
+                f"-guest-chat-booking-{booking.booking_id}"
+            )
             if channel_name != expected_channel:
                 logger.warning(
-                    f"Guest chat Pusher auth rejected: channel mismatch. "
-                    f"Expected: {expected_channel}, Requested: {channel_name}, "
-                    f"Booking: {booking.booking_id}"
+                    "Pusher auth rejected: expected=%s "
+                    "requested=%s booking=%s",
+                    expected_channel,
+                    channel_name,
+                    booking.booking_id,
                 )
                 return Response(
-                    {'error': 'Channel name does not match booking'},
+                    {
+                        'error': 'Channel does not match booking',
+                        'code': 'CHANNEL_MISMATCH',
+                    },
                     status=status.HTTP_403_FORBIDDEN,
                 )
 
@@ -331,35 +440,39 @@ class GuestChatPusherAuthView(APIView, ChatGrantAuthenticationMixin):
                     "type": "guest",
                     "booking_id": booking.booking_id,
                     "hotel_slug": hotel_slug,
-                    "room_number": room.room_number if room else None,
+                    "room_number": (
+                        room.room_number if room else None
+                    ),
                     "guest_name": booking.primary_guest_name,
                 },
             }
 
-            auth_response = self._generate_pusher_auth(socket_id, channel_name, channel_data)
+            auth_response = self._generate_pusher_auth(
+                socket_id, channel_name, channel_data,
+            )
 
             logger.info(
-                f"Guest chat Pusher auth successful: booking={booking.booking_id}, "
-                f"channel={channel_name}"
+                "Pusher auth ok: booking=%s channel=%s",
+                booking.booking_id, channel_name,
             )
 
             return Response(auth_response)
 
-        except GuestChatGrantError as e:
-            return _grant_error_response(e)
-        except GuestAccessError as e:
-            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
-            logger.error(f"Guest chat Pusher auth error: {str(e)}")
+            logger.error(f"Pusher auth error: {e}")
             return Response(
                 {'error': 'Unable to authenticate channel'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    def _generate_pusher_auth(self, socket_id, channel_name, channel_data=None):
+    def _generate_pusher_auth(
+        self, socket_id, channel_name, channel_data=None,
+    ):
         if channel_data:
             channel_data_str = json.dumps(channel_data)
-            string_to_sign = f"{socket_id}:{channel_name}:{channel_data_str}"
+            string_to_sign = (
+                f"{socket_id}:{channel_name}:{channel_data_str}"
+            )
         else:
             string_to_sign = f"{socket_id}:{channel_name}"
 

@@ -96,11 +96,31 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
                     and booking.assigned_room):
                 allowed_actions.append('room_service')
 
-            # Issue guest chat grant if chat is allowed
-            guest_chat_grant = None
+            # Issue guest chat session if chat is allowed
             chat_eligible = 'chat' in allowed_actions
+            chat_session = None
+            chat_disabled_reason = None
             if chat_eligible:
-                guest_chat_grant = issue_guest_chat_grant(booking, booking.assigned_room)
+                chat_session = issue_guest_chat_grant(
+                    booking, booking.assigned_room,
+                )
+            else:
+                if not booking.checked_in_at:
+                    chat_disabled_reason = (
+                        "Check-in required to access chat"
+                    )
+                elif booking.checked_out_at:
+                    chat_disabled_reason = (
+                        "Chat unavailable after checkout"
+                    )
+                elif not booking.assigned_room:
+                    chat_disabled_reason = (
+                        "Room assignment required"
+                    )
+                elif 'CHAT' not in ctx.scopes:
+                    chat_disabled_reason = (
+                        "Chat not available for this booking"
+                    )
 
             context = {
                 'booking_id': booking.booking_id,
@@ -114,8 +134,11 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
                 'is_checked_in': booking.status == 'CHECKED_IN',
                 'is_checked_out': booking.status == 'CHECKED_OUT',
                 'allowed_actions': allowed_actions,
-                'chat_available': chat_eligible,
-                'guest_chat_grant': guest_chat_grant,
+                'guest_chat': {
+                    'enabled': chat_eligible,
+                    'disabled_reason': chat_disabled_reason,
+                    'session': chat_session,
+                },
             }
 
             logger.info(
