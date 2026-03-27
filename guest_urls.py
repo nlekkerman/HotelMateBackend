@@ -497,8 +497,18 @@ def create_booking(request, hotel_slug):
 
 
 urlpatterns = [
-    # Guest Portal endpoints (token-authenticated)
-    # No hotel slug required - token contains booking context
+    # ──────────────────────────────────────────────────────────────────────
+    # RULE: Bootstrap is token-only. Everything else MUST be slug-scoped.
+    #
+    #   /api/guest/context/?token=...                    ← bootstrap (no slug)
+    #   /api/guest/hotel/{slug}/chat/context?token=...   ← slug-scoped
+    #   /api/guest/hotels/{slug}/room-services/...       ← slug-scoped
+    #
+    # Do NOT add new slug-less routes. If the guest doesn't know the slug,
+    # they call /api/guest/context/ first, which returns hotel_slug.
+    # ──────────────────────────────────────────────────────────────────────
+
+    # Bootstrap endpoint — token-only, returns hotel_slug for subsequent calls
     path(
         'context/',
         GuestContextView.as_view(),

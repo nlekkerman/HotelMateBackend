@@ -196,11 +196,15 @@ def resolve_guest_access_without_slug(
     """
     Resolve a guest token when no hotel_slug is available in the URL.
 
-    Looks up the BookingManagementToken by hash and derives the hotel
-    from the booking itself. This is safe because we are not comparing
-    against a user-supplied slug — we trust the booking's own data.
+    ⚠️  RESTRICTED USE — bootstrap only.
+    The ONLY legitimate caller is GuestContextView (/api/guest/context/),
+    which is the bootstrap endpoint where the guest doesn't know the slug yet.
+    Every other guest endpoint MUST use resolve_guest_access(hotel_slug=...)
+    so the slug from the URL is cross-validated against the token's booking.
 
-    Same validation and gates as resolve_guest_access().
+    If you are adding a new guest endpoint, use resolve_guest_access() instead.
+    If your endpoint doesn't have a slug in the URL, you are probably creating
+    a duplicate — ask whether the canonical slug-scoped endpoint already exists.
     """
     if not token_str or not token_str.strip():
         raise TokenRequiredError()
