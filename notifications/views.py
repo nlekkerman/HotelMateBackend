@@ -107,68 +107,22 @@ class PusherAuthView(APIView):
     
     def _handle_guest_auth(self, socket_id, channel_name, guest_token):
         """
-        Mode 2: Guest token authentication for booking channels.
-        
-        Canonical channel format: private-hotel-{slug}-guest-chat-booking-{booking_id}
-        Also supports legacy format: private-guest-booking.{booking_id} (for transition)
-        
-        Uses resolve_guest_access (with slug) when slug is extractable from channel,
-        falls back to resolve_guest_access_without_slug for legacy channels.
+        Legacy guest token path — DISABLED.
+        Guest Pusher auth is now handled exclusively by the canonical endpoint:
+        /api/guest/hotel/{slug}/chat/pusher/auth (with X-Guest-Chat-Session header)
         """
-        import re
-        
-        # Canonical channel: private-hotel-{slug}-guest-chat-booking-{booking_id}
-        canonical_match = re.match(
-            r'^private-hotel-([a-z0-9-]+)-guest-chat-booking-(.+)$',
-            channel_name
+        logger.warning(
+            f"Guest token submitted to legacy PusherAuthView — rejecting. "
+            f"channel={channel_name}"
         )
-        # Legacy channel: private-guest-booking.{booking_id}
-        legacy_match = re.match(
-            r'^private-guest-booking\.(.+)$',
-            channel_name
-        ) if not canonical_match else None
-        
-        if not canonical_match and not legacy_match:
-            logger.warning(f"Guest auth rejected: invalid channel format {channel_name}")
-            return Response({"error": "Invalid channel format for guest token"}, status=403)
-        
-        clean_token = guest_token.strip()
-        
-        try:
-            if canonical_match:
-                hotel_slug = canonical_match.group(1)
-                booking_id = canonical_match.group(2)
-                ctx = resolve_guest_access(
-                    token_str=clean_token,
-                    hotel_slug=hotel_slug,
-                )
-            else:
-                booking_id = legacy_match.group(1)
-                ctx = resolve_guest_access_without_slug(clean_token)
-        except GuestAccessError:
-            logger.warning(f"Guest auth failed: invalid token for channel {channel_name}")
-            return Response({"error": "UNAUTHORIZED", "detail": "Invalid or expired guest token"}, status=403)
-        
-        # Verify the resolved booking matches the channel's booking ID
-        if ctx.booking.booking_id != booking_id:
-            logger.warning(
-                f"Guest auth failed: token booking {ctx.booking.booking_id} "
-                f"does not match channel booking {booking_id}"
-            )
-            return Response({"error": "UNAUTHORIZED", "detail": "Token does not match channel"}, status=403)
-        
-        # Generate Pusher auth signature for guest
-        auth = self._generate_pusher_auth(socket_id, channel_name, {
-            "user_id": f"guest-{ctx.booking.booking_id}",
-            "user_info": {
-                "type": "guest",
-                "booking_id": ctx.booking.booking_id,
-                "hotel": ctx.booking.hotel.slug
-            }
-        })
-        
-        logger.info(f"Guest auth successful: booking={booking_id}, channel={channel_name}")
-        return Response(auth)
+        return Response(
+            {
+                "error": "Guest Pusher auth has moved",
+                "code": "ENDPOINT_MOVED",
+                "detail": "Use /api/guest/hotel/{slug}/chat/pusher/auth with X-Guest-Chat-Session header",
+            },
+            status=403,
+        )
     
     def _generate_pusher_auth(self, socket_id, channel_name, channel_data=None):
         """

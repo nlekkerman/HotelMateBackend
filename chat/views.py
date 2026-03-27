@@ -61,7 +61,7 @@ def get_active_conversations(request, hotel_slug):
 
 # Fetch all messages for a conversation
 @api_view(['GET'])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
 def get_conversation_messages(request, hotel_slug, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
     if conversation.room.hotel.slug != hotel_slug:
@@ -85,7 +85,7 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 
 # Send (or start) a conversation message
 @api_view(['POST'])
-@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
+@permission_classes([IsAuthenticated])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
 def send_conversation_message(request, hotel_slug, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
@@ -335,7 +335,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
 # Get or create a conversation for a room (first message)
 @api_view(['POST'])
-@permission_classes([AllowAny])  # Guest-facing: guests initiate conversations from their room
+@permission_classes([IsAuthenticated])  # Staff-only — guests use canonical chat bootstrap
 def get_or_create_conversation_from_room(request, hotel_slug, room_number):
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
@@ -1132,136 +1132,7 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
     except Exception as e:
         logger.error(f"Failed to broadcast file attachment via NotificationManager: {e}")
     
-    # Send notifications similar to text messages
-    if sender_type == "guest":
-        # Notify staff
-        reception_staff = Staff.objects.filter(
-            hotel=hotel,
-            role__slug="receptionist"
-        )
-        
-        target_staff = (
-            reception_staff if reception_staff.exists()
-            else Staff.objects.filter(hotel=hotel, department__slug="front-office")
-        )
-        
-        for staff in target_staff:
-            staff_channel = f"{hotel.slug}-staff-{staff.id}-chat"
-            
-            # Send Pusher notification
-            try:
-                pusher_client.trigger(
-                    staff_channel,
-                    "new-guest-message",
-                    message_serializer.data
-                )
-            except Exception as e:
-                logger.error(f"Failed to trigger Pusher: {e}")
-            
-            # Send FCM notification
-            if staff.fcm_token:
-                try:
-                    # Create notification based on attachment type
-                    file_types = [att.file_type for att in attachments]
-                    if 'image' in file_types:
-                        fcm_title = f"📷 Guest sent {len(attachments)} image(s) - Room {conversation.room.room_number}"
-                    elif 'pdf' in file_types:
-                        fcm_title = f"📄 Guest sent document(s) - Room {conversation.room.room_number}"
-                    else:
-                        fcm_title = f"📎 Guest sent {len(attachments)} file(s) - Room {conversation.room.room_number}"
-                    
-                    fcm_body = message_text if message_text else f"{len(attachments)} file(s) attached"
-                    fcm_data = {
-                        "type": "new_chat_message_with_files",
-                        "conversation_id": str(conversation.id),
-                        "room_number": str(conversation.room.room_number),
-                        "message_id": str(message.id),
-                        "sender_type": "guest",
-                        "has_attachments": "true",
-                        "attachment_count": str(len(attachments)),
-                        "hotel_slug": hotel.slug,
-                        "click_action": f"/chat/{hotel.slug}/conversation/{conversation.id}",
-                        "url": f"https://hotelsmates.com/chat/{hotel.slug}/conversation/{conversation.id}"
-                    }
-                    send_fcm_notification(
-                        staff.fcm_token,
-                        fcm_title,
-                        fcm_body,
-                        data=fcm_data
-                    )
-                    logger.info(
-                        f"✅ FCM sent to staff {staff.id} for file upload from room {conversation.room.room_number}"
-                    )
-                except Exception as fcm_error:
-                    logger.error(
-                        f"❌ Failed to send FCM to staff {staff.id}: {fcm_error}"
-                    )
-    else:
-        # Staff sent files - notify guest
-        guest_channel = f"{hotel.slug}-room-{conversation.room.room_number}-chat"
-        
-        # Send Pusher notification
-        try:
-            pusher_client.trigger(
-                guest_channel,
-                "new-staff-message",
-                message_serializer.data
-            )
-            logger.info(
-                f"Pusher triggered: guest_channel={guest_channel}, "
-                f"event=new-staff-message with {len(attachments)} file(s)"
-            )
-        except Exception as e:
-            logger.error(
-                f"Failed to trigger Pusher for guest_channel={guest_channel}: {e}"
-            )
-        
-        # Send FCM notification to guest
-        if conversation.room.guest_fcm_token:
-            try:
-                staff_name = (
-                    f"{staff_instance.first_name} {staff_instance.last_name}".strip()
-                    if staff_instance else "Hotel Staff"
-                )
-                
-                # Create notification based on attachment type
-                file_types = [att.file_type for att in attachments]
-                if 'image' in file_types:
-                    fcm_title = f"📷 {staff_name} sent {len(attachments)} image(s)"
-                elif 'pdf' in file_types:
-                    fcm_title = f"📄 {staff_name} sent document(s)"
-                else:
-                    fcm_title = f"📎 {staff_name} sent {len(attachments)} file(s)"
-                
-                fcm_body = message_text if message_text else "View attachment(s)"
-                fcm_data = {
-                    "type": "new_chat_message_with_files",
-                    "conversation_id": str(conversation.id),
-                    "room_number": str(conversation.room.room_number),
-                    "message_id": str(message.id),
-                    "sender_type": "staff",
-                    "staff_name": staff_name,
-                    "has_attachments": "true",
-                    "attachment_count": str(len(attachments)),
-                    "hotel_slug": hotel.slug,
-                    "click_action": f"/chat/{hotel.slug}/room/{conversation.room.room_number}",
-                    "url": f"https://hotelsmates.com/chat/{hotel.slug}/room/{conversation.room.room_number}"
-                }
-                send_fcm_notification(
-                    conversation.room.guest_fcm_token,
-                    fcm_title,
-                    fcm_body,
-                    data=fcm_data
-                )
-                logger.info(
-                    f"✅ FCM sent to guest in room {conversation.room.room_number} "
-                    f"for file upload from staff"
-                )
-            except Exception as fcm_error:
-                logger.error(
-                    f"❌ Failed to send FCM to guest room "
-                    f"{conversation.room.room_number}: {fcm_error}"
-                )
+    # Legacy direct Pusher/FCM removed — NotificationManager handles all broadcasts
     
     response_data = {
         "message": message_serializer.data,

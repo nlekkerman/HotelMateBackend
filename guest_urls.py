@@ -568,7 +568,9 @@ urlpatterns = [
         name='guest-room-service-menu'
     ),
     
-    # Canonical Guest Chat API — Session-only, No Raw Token
+    # Canonical Guest Chat API
+    # /chat/context — Bootstrap (raw token), returns session + realtime config
+    # All other endpoints — Session-only (X-Guest-Chat-Session header)
     path(
         'hotel/<str:hotel_slug>/chat/context',
         CanonicalGuestChatContextView.as_view(),

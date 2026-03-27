@@ -58,6 +58,11 @@ from .pusher_utils import (
     notify_maintenance_staff,
     notify_guest_in_room
 )
+from common.guest_chat_config import (
+    guest_chat_channel,
+    GUEST_CHAT_EVENTS,
+    GUEST_CHAT_INTERNAL_EVENTS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -744,10 +749,7 @@ class NotificationManager:
         hotel_slug = message.room.hotel.slug
         
         # Use booking from earlier lookup
-        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
-        
-        # Safety check - ensure we only use booking channels
-        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
+        channel = guest_chat_channel(hotel_slug, current_booking.booking_id)
         
         # Guardrail: prevent conversation_id regressions (must be booking-scoped)
         assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
@@ -780,7 +782,7 @@ class NotificationManager:
             }
             send_fcm_notification(message.room.guest_fcm_token, fcm_title, fcm_body, fcm_data)
         
-        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
+        return self._safe_pusher_trigger(channel, GUEST_CHAT_EVENTS["message_created"], event_data)
     
     def realtime_guest_chat_unread_updated(self, room, unread_count=None):
         """Emit normalized guest chat unread count update event."""
@@ -818,15 +820,9 @@ class NotificationManager:
         )
         
         hotel_slug = room.hotel.slug
-        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        channel = guest_chat_channel(hotel_slug, current_booking.booking_id)
         
-        # Safety check - ensure we only use booking channels
-        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
-        
-        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
-        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
-        
-        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
+        return self._safe_pusher_trigger(channel, GUEST_CHAT_INTERNAL_EVENTS["unread_updated"], event_data)
     
     def realtime_guest_chat_message_deleted(self, message_id, conversation_id, room, deleted_by_staff=None, deleted_by_guest=False):
         """
@@ -840,6 +836,21 @@ class NotificationManager:
             deleted_by_guest: Boolean if guest deleted their own message
         """
         self.logger.info(f"🗑️ Realtime guest chat: message {message_id} deleted from room {room.room_number}")
+        
+        # Get current booking FIRST for booking-scoped conversation_id
+        from hotel.models import RoomBooking
+        current_booking = RoomBooking.objects.filter(
+            assigned_room=room,
+            checked_in_at__isnull=False,
+            checked_out_at__isnull=True,
+            status__in=['CONFIRMED', 'COMPLETED']
+        ).first()
+        
+        if not current_booking:
+            self.logger.warning(
+                f"Guest chat message deletion dropped: no active booking for room {room.room_number}"
+            )
+            return False
         
         # Determine deleter info
         if deleted_by_staff:
@@ -857,9 +868,9 @@ class NotificationManager:
         
         payload = {
             'message_id': message_id,
-            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
-            'booking_id': current_booking.booking_id,  # Explicit booking reference
-            'room_conversation_id': conversation_id,  # Legacy reference
+            'conversation_id': current_booking.booking_id,
+            'booking_id': current_booking.booking_id,
+            'room_conversation_id': conversation_id,
             'room_number': room.room_number,
             'deleted_by': deleter_type,
             'deleter_name': deleter_name,
@@ -879,31 +890,10 @@ class NotificationManager:
             }
         )
         
-        # Get current booking for this room to determine channel
-        from hotel.models import RoomBooking
-        current_booking = RoomBooking.objects.filter(
-            assigned_room=room,
-            checked_in_at__isnull=False,
-            checked_out_at__isnull=True,
-            status__in=['CONFIRMED', 'COMPLETED']
-        ).first()
-        
-        if not current_booking:
-            self.logger.warning(
-                f"Guest chat message deletion dropped: no active booking for room {room.room_number}"
-            )
-            return False
-        
         hotel_slug = room.hotel.slug
-        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        channel = guest_chat_channel(hotel_slug, current_booking.booking_id)
         
-        # Safety check - ensure we only use booking channels
-        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
-        
-        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
-        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
-        
-        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
+        return self._safe_pusher_trigger(channel, GUEST_CHAT_INTERNAL_EVENTS["message_deleted"], event_data)
     
     def realtime_guest_chat_message_edited(self, message):
         """
@@ -966,15 +956,9 @@ class NotificationManager:
         )
         
         hotel_slug = message.room.hotel.slug
-        channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{current_booking.booking_id}"
+        channel = guest_chat_channel(hotel_slug, current_booking.booking_id)
         
-        # Safety check - ensure we only use booking channels
-        assert channel.startswith("private-hotel-") and "-guest-chat-booking-" in channel, f"Invalid channel: {channel}"
-        
-        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
-        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
-        
-        return self._safe_pusher_trigger(channel, "realtime_event", event_data)
+        return self._safe_pusher_trigger(channel, GUEST_CHAT_INTERNAL_EVENTS["message_edited"], event_data)
     
     def realtime_staff_chat_unread_updated(self, staff, conversation=None, unread_count=None):
         """Emit normalized staff chat unread count update event."""

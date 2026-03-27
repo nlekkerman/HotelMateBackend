@@ -1,15 +1,12 @@
 """
-Canonical Guest Chat API Views — Session-Authenticated, Booking-Bound
+Canonical Guest Chat API Views
 
-Guest chat endpoints authenticate via a short-lived signed session
-issued by the bootstrap endpoint (/api/guest/context/). The raw
-email/booking token is NEVER accepted here.
+Bootstrap endpoint authenticates via raw token (used ONCE).
+All post-bootstrap endpoints authenticate via X-Guest-Chat-Session
+header ONLY.  Raw token is NEVER accepted after bootstrap.
 
-Auth header (single transport, no fallback):
-    X-Guest-Chat-Session: <session>
-
-Session is validated for signature, expiry, scope, and hotel match.
-Conversation is keyed by booking_id. Room is contextual metadata.
+Channel naming and event constants come from
+common.guest_chat_config (single source of truth).
 """
 
 from rest_framework.views import APIView
@@ -22,12 +19,14 @@ from django.utils import timezone
 import logging
 
 from bookings.services import resolve_chat_context_from_grant
-from common.guest_access import GuestAccessError
+from common.guest_access import resolve_guest_access, GuestAccessError
 from common.guest_chat_grant import (
+    issue_guest_chat_grant,
     validate_guest_chat_grant,
     GuestChatGrantError,
 )
-from chat.models import RoomMessage
+from common.guest_chat_config import guest_chat_channel, GUEST_CHAT_EVENTS
+from chat.models import Conversation, RoomMessage
 from notifications.notification_manager import NotificationManager
 from django.conf import settings
 import json
@@ -35,6 +34,7 @@ import hmac
 import hashlib
 
 from common.guest_auth import (
+    TokenAuthenticationMixin,
     ChatSessionAuthenticationMixin,
     GuestTokenBurstThrottle,
     GuestTokenSustainedThrottle,
@@ -96,12 +96,13 @@ def _resolve_from_request(mixin, request, hotel_slug):
 # -------------------------------------------------------------------
 
 @method_decorator(never_cache, name='dispatch')
-class GuestChatContextView(APIView, ChatSessionAuthenticationMixin):
+class GuestChatContextView(APIView, TokenAuthenticationMixin):
     """
-    GET /api/guest/hotel/{slug}/chat/context
-    Header: X-Guest-Chat-Session: <session>
+    GET /api/guest/hotel/{slug}/chat/context?token=RAW_TOKEN
 
-    Returns conversation context and Pusher channel info.
+    BOOTSTRAP endpoint — the ONLY entry point for guest realtime chat.
+    Authenticates via raw token, issues chat_session, returns FULL
+    realtime config.  Raw token is NEVER accepted after this point.
     """
 
     authentication_classes = []
@@ -109,61 +110,61 @@ class GuestChatContextView(APIView, ChatSessionAuthenticationMixin):
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
 
     def get(self, request, hotel_slug):
-        grant_ctx, booking, room, result = _resolve_from_request(
-            self, request, hotel_slug,
-        )
-        if isinstance(result, Response):
-            return result
-        conversation = result
+        raw_token = self.get_token_from_request(request)
+        if not raw_token:
+            return Response(
+                {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
 
         try:
-            can_chat = bool(
-                booking.checked_in_at
-                and not booking.checked_out_at
-                and booking.assigned_room
+            ctx = resolve_guest_access(
+                raw_token, hotel_slug, required_scopes=["CHAT"],
             )
-            disabled_reason = None
-            if not booking.checked_in_at:
-                disabled_reason = "Check-in required to access chat"
-            elif booking.checked_out_at:
-                disabled_reason = "Chat unavailable after checkout"
-            elif not booking.assigned_room:
-                disabled_reason = "Room assignment required"
-
-            pusher_channel = (
-                f"private-hotel-{hotel_slug}"
-                f"-guest-chat-booking-{booking.booking_id}"
-            )
-
-            data = {
-                "conversation_id": (
-                    conversation.id if conversation else None
-                ),
-                "booking_id": booking.booking_id,
-                "room_number": (
-                    room.room_number if room else None
-                ),
-                "assigned_room_id": room.id if room else None,
-                "allowed_actions": (
-                    ["chat"] if can_chat else []
-                ),
-                "pusher": {
-                    "channel": pusher_channel,
-                    "event": "realtime_event",
-                },
-            }
-
-            if disabled_reason:
-                data["disabled_reason"] = disabled_reason
-
-            return Response(data, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            logger.error(f"Chat context error: {e}")
+        except GuestAccessError as e:
             return Response(
-                {'error': 'Unable to retrieve chat context'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                {'error': e.message, 'code': e.code},
+                status=e.status_code,
             )
+
+        booking = ctx.booking
+        room = ctx.room
+
+        # Issue signed session grant
+        chat_session = issue_guest_chat_grant(booking, room)
+
+        # Resolve or create conversation (keyed by booking)
+        conversation, created = Conversation.objects.get_or_create(
+            booking=booking,
+            defaults={"room": room},
+        )
+        if not created and room and conversation.room_id != getattr(room, 'id', None):
+            conversation.room = room
+            conversation.save(update_fields=["room"])
+
+        can_send = bool(
+            booking.checked_in_at
+            and not booking.checked_out_at
+            and room
+        )
+
+        channel = guest_chat_channel(hotel_slug, booking.booking_id)
+
+        return Response({
+            "conversation_id": conversation.id,
+            "chat_session": chat_session,
+            "channel_name": channel,
+            "events": GUEST_CHAT_EVENTS,
+            "pusher": {
+                "key": settings.PUSHER_KEY,
+                "cluster": settings.PUSHER_CLUSTER,
+                "auth_endpoint": f"/api/guest/hotel/{hotel_slug}/chat/pusher/auth",
+            },
+            "permissions": {
+                "can_send": can_send,
+                "can_read": True,
+            },
+        })
 
 
 @method_decorator(never_cache, name='dispatch')
@@ -368,6 +369,26 @@ class GuestChatMarkReadView(
                 conversation.has_unread = False
                 conversation.save(update_fields=['has_unread'])
 
+            # Broadcast message_read event on the canonical channel
+            try:
+                nm = NotificationManager()
+                channel = guest_chat_channel(
+                    hotel_slug, booking.booking_id,
+                )
+                read_event = {
+                    "conversation_id": conversation.id,
+                    "booking_id": booking.booking_id,
+                    "marked_read": updated,
+                    "read_at": now.isoformat(),
+                }
+                nm._safe_pusher_trigger(
+                    channel,
+                    GUEST_CHAT_EVENTS["message_read"],
+                    read_event,
+                )
+            except Exception as exc:
+                logger.error(f"Failed to broadcast message_read: {exc}")
+
             return Response(
                 {'marked_read': updated},
                 status=status.HTTP_200_OK,
@@ -414,9 +435,8 @@ class GuestChatPusherAuthView(
         conversation = result
 
         try:
-            expected_channel = (
-                f"private-hotel-{hotel_slug}"
-                f"-guest-chat-booking-{booking.booking_id}"
+            expected_channel = guest_chat_channel(
+                hotel_slug, booking.booking_id,
             )
             if channel_name != expected_channel:
                 logger.warning(
