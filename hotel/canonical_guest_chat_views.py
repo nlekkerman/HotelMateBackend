@@ -1,9 +1,18 @@
 """
-Canonical Guest Chat API Views - Token-only, No Legacy
+Canonical Guest Chat API Views — Grant-Authenticated, Booking-Bound
 
-Clean token-only guest chat endpoints with centralized validation, 
-UX-friendly pre-checkin handling, booking-scoped channels, and 
-complete legacy elimination. All business rules live in the service layer.
+Guest chat endpoints authenticate via a short-lived signed grant issued
+by the bootstrap endpoint (/api/guest/context/). The raw email/booking
+token is NEVER used here — it is only consumed at bootstrap time.
+
+Auth flow:
+  1. Guest bootstraps with raw token → gets guest_chat_grant
+  2. All chat endpoints accept: Authorization: GuestChatGrant <grant>
+     or ?chat_grant=<grant>
+  3. Grant is validated (signature + expiry + hotel match)
+  4. Booking + conversation resolved from grant claims
+
+Conversation is keyed by booking_id. Room is contextual metadata.
 """
 
 from rest_framework.views import APIView
@@ -14,28 +23,21 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 import logging
 
-from bookings.services import resolve_guest_chat_context
-from common.guest_access import (
-    GuestAccessError,
-    TokenRequiredError,
-    InvalidTokenError,
-    NotInHouseError,
-    NotCheckedInError,
-    AlreadyCheckedOutError,
-    NoRoomAssignedError,
-    MissingScopeError,
+from bookings.services import resolve_chat_context_from_grant
+from common.guest_access import GuestAccessError
+from common.guest_chat_grant import (
+    validate_guest_chat_grant,
+    GuestChatGrantError,
 )
-from chat.models import RoomMessage, Conversation
-from staff.models import Staff
+from chat.models import RoomMessage
 from notifications.notification_manager import NotificationManager
-from chat.utils import pusher_client
 from django.conf import settings
 import json
 import hmac
 import hashlib
 
 from common.guest_auth import (
-    TokenAuthenticationMixin,
+    ChatGrantAuthenticationMixin,
     GuestTokenBurstThrottle,
     GuestTokenSustainedThrottle,
 )
@@ -43,359 +45,273 @@ from common.guest_auth import (
 logger = logging.getLogger(__name__)
 
 
+def _grant_error_response(e):
+    """Standard error response for grant validation failures."""
+    return Response(
+        {'error': e.message, 'code': e.code},
+        status=e.status_code,
+    )
+
+
 @method_decorator(never_cache, name='dispatch')
-class GuestChatContextView(APIView, TokenAuthenticationMixin):
+class GuestChatContextView(APIView, ChatGrantAuthenticationMixin):
     """
-    GET/POST /api/guest/hotel/{hotel_slug}/chat/context?token=...
-    
+    GET/POST /api/guest/hotel/{hotel_slug}/chat/context
+    Header: Authorization: GuestChatGrant <grant>
+
     Returns chat context with UX-friendly pre-checkin handling.
-    Always returns 200 for valid tokens with allowed_actions and disabled_reason.
+    Always returns 200 for valid grants with allowed_actions and disabled_reason.
     """
-    
-    authentication_classes = []  # Disable DRF's default TokenAuthentication — we do our own token validation
+
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
-    
+
     def get(self, request, hotel_slug):
-        """Get chat context for guest token"""
         return self._get_context(request, hotel_slug)
-    
+
     def post(self, request, hotel_slug):
-        """Post method for compatibility - same as GET"""
         return self._get_context(request, hotel_slug)
-    
+
     def _get_context(self, request, hotel_slug):
-        """Get chat context for guest token"""
         try:
-            # Extract token
-            token_str = self.get_token_from_request(request)
-            if not token_str:
+            grant_str = self.get_chat_grant_from_request(request)
+            if not grant_str:
                 return Response(
-                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED
+                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED,
                 )
-            
-            # Resolve context with UX-friendly mode (action_required=False)
-            booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
-                hotel_slug=hotel_slug,
-                token_str=token_str,
-                required_scopes=["CHAT"],
-                action_required=False
+
+            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
+            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
+
+            # Determine chat eligibility from current booking state
+            can_chat = bool(
+                booking.checked_in_at
+                and not booking.checked_out_at
+                and booking.assigned_room
             )
-            
-            # Get current staff handler if available
-            current_staff_handler = None
-            if conversation:
-                # Get the latest staff participant
-                latest_staff_participant = conversation.guest_participants.filter(
-                ).select_related('staff').order_by('-joined_at').first()
-                
-                if latest_staff_participant:
-                    staff = latest_staff_participant.staff
-                    current_staff_handler = {
-                        "name": f"{staff.first_name} {staff.last_name}".strip(),
-                        "role": staff.role.name if staff.role else "Staff"
-                    }
-            
-            # Build booking-scoped pusher channel
+            disabled_reason = None
+            if not booking.checked_in_at:
+                disabled_reason = "Check-in required to access chat"
+            elif booking.checked_out_at:
+                disabled_reason = "Chat unavailable after checkout"
+            elif not booking.assigned_room:
+                disabled_reason = "Room assignment required"
+
             pusher_channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{booking.booking_id}"
-            
+
             response_data = {
                 "conversation_id": conversation.id if conversation else None,
                 "booking_id": booking.booking_id,
                 "room_number": room.room_number if room else None,
                 "assigned_room_id": room.id if room else None,
-                "allowed_actions": ["chat"] if allowed_actions["can_chat"] else [],
+                "allowed_actions": ["chat"] if can_chat else [],
                 "pusher": {
                     "channel": pusher_channel,
-                    "event": "realtime_event"
+                    "event": "realtime_event",
                 },
-                "current_staff_handler": current_staff_handler
             }
-            
-            # Add disabled_reason if chat is not available
+
             if disabled_reason:
                 response_data["disabled_reason"] = disabled_reason
-            
-            logger.info(
-                f"✅ Chat context provided: booking={booking.booking_id}, "
-                f"can_chat={allowed_actions['can_chat']}, reason={disabled_reason}"
-            )
-            
+
             return Response(response_data, status=status.HTTP_200_OK)
-            
-        except InvalidTokenError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
-        except MissingScopeError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_403_FORBIDDEN
-            )
+
+        except GuestChatGrantError as e:
+            return _grant_error_response(e)
         except GuestAccessError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
+            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
             logger.error(f"Chat context error: {str(e)}")
             return Response(
                 {'error': 'Unable to retrieve chat context'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 @method_decorator(never_cache, name='dispatch')
-class GuestChatSendMessageView(APIView, TokenAuthenticationMixin):
+class GuestChatSendMessageView(APIView, ChatGrantAuthenticationMixin):
     """
-    GET/POST /api/guest/hotel/{hotel_slug}/chat/messages?token=...
-    
+    GET/POST /api/guest/hotel/{hotel_slug}/chat/messages
+    Header: Authorization: GuestChatGrant <grant>
+
     GET: Retrieve chat messages for the guest's conversation
-    POST: Send chat message with strict validation (action_required=True)
-    
-    Returns 403 for pre-checkin guests, 409 for missing room assignment.
+    POST: Send chat message (must be checked-in with room assigned)
     """
-    
-    authentication_classes = []  # Disable DRF's default TokenAuthentication — we do our own token validation
+
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
-    
+
     def get(self, request, hotel_slug):
-        """Retrieve chat messages for guest"""
         try:
-            # Extract token
-            token_str = self.get_token_from_request(request)
-            if not token_str:
+            grant_str = self.get_chat_grant_from_request(request)
+            if not grant_str:
                 return Response(
-                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED
+                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED,
                 )
-            
-            # Resolve context (allow pre-checkin guests to view messages)
-            booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
-                hotel_slug=hotel_slug,
-                token_str=token_str,
-                required_scopes=["CHAT"],
-                action_required=False  # Allow viewing messages even if chat is disabled
-            )
-            
-            # Get pagination parameters
+
+            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
+            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
+
+            # Pagination
             limit = int(request.GET.get('limit', 50))
             before_id = request.GET.get('before_id')
-            
-            # Query messages
+
             messages_qs = conversation.messages.filter(
-                is_deleted=False
-            ).select_related('reply_to').order_by('-timestamp')  # newest first
-            
+                is_deleted=False,
+            ).select_related('reply_to').order_by('-timestamp')
+
             if before_id:
                 messages_qs = messages_qs.filter(id__lt=before_id)
-            
-            messages = messages_qs[:limit]
-            
-            # Reverse to show oldest first (chat display order)
-            messages = list(messages)[::-1]
-            
-            # Serialize messages
+
+            messages = list(messages_qs[:limit])[::-1]
+
             from chat.serializers import RoomMessageSerializer
             serializer = RoomMessageSerializer(messages, many=True)
-            
-            logger.info(
-                f"✅ Guest messages retrieved: booking={booking.booking_id}, "
-                f"conversation={conversation.id}, count={len(messages)}"
-            )
-            
+
             return Response({
                 'messages': serializer.data,
                 'conversation_id': conversation.id,
                 'count': len(messages),
-                'has_more': messages_qs.count() > limit
+                'has_more': messages_qs.count() > limit,
             })
-            
-        except InvalidTokenError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
-        except MissingScopeError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        except NoRoomAssignedError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_409_CONFLICT
-            )
+
+        except GuestChatGrantError as e:
+            return _grant_error_response(e)
         except GuestAccessError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
+            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
             logger.error(f"Get messages error: {str(e)}")
             return Response(
                 {'error': 'Unable to retrieve messages'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-    
+
     def post(self, request, hotel_slug):
-        """Send chat message from guest"""
         try:
-            # Extract token
-            token_str = self.get_token_from_request(request)
-            if not token_str:
+            grant_str = self.get_chat_grant_from_request(request)
+            if not grant_str:
                 return Response(
-                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED
+                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED,
                 )
-            
-            # Resolve context with strict validation (action_required=True)
-            booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
-                hotel_slug=hotel_slug,
-                token_str=token_str,
-                required_scopes=["CHAT"],
-                action_required=True
-            )
-            
-            # Validate request data
+
+            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
+            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
+
+            # Enforce in-house for sending messages
+            if not booking.checked_in_at:
+                return Response(
+                    {'error': 'Guest has not checked in yet', 'code': 'NOT_CHECKED_IN'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if booking.checked_out_at:
+                return Response(
+                    {'error': 'Guest has already checked out', 'code': 'ALREADY_CHECKED_OUT'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+            if not room:
+                return Response(
+                    {'error': 'No room assigned to this booking yet', 'code': 'NO_ROOM_ASSIGNED'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+
             message_text = request.data.get('message', '').strip()
             if not message_text:
                 return Response(
                     {'error': 'Message text is required'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
+
             reply_to_id = request.data.get('reply_to')
             reply_to_message = None
             if reply_to_id:
                 try:
                     reply_to_message = RoomMessage.objects.get(
-                        id=reply_to_id,
-                        conversation=conversation
+                        id=reply_to_id, conversation=conversation,
                     )
                 except RoomMessage.DoesNotExist:
                     return Response(
                         {'error': 'Reply message not found'},
-                        status=status.HTTP_400_BAD_REQUEST
+                        status=status.HTTP_400_BAD_REQUEST,
                     )
-            
-            # Create message with room snapshot
+
             message = RoomMessage.objects.create(
                 conversation=conversation,
                 sender_type='guest',
                 message=message_text,
                 booking=booking,
-                room=room,  # Room snapshot at time of message
-                reply_to=reply_to_message
+                room=room,
+                reply_to=reply_to_message,
             )
-            
-            # Fire realtime event using existing NotificationManager
+
             notification_manager = NotificationManager()
             notification_manager.realtime_guest_chat_message_created(message)
-            
+
             logger.info(
-                f"✅ Guest message sent: booking={booking.booking_id}, "
+                f"Guest message sent: booking={booking.booking_id}, "
                 f"room={room.room_number}, message_id={message.id}"
             )
-            
+
             return Response(
                 {
                     'message_id': message.id,
                     'sent_at': message.timestamp.isoformat(),
-                    'conversation_id': conversation.id
+                    'conversation_id': conversation.id,
                 },
-                status=status.HTTP_201_CREATED
+                status=status.HTTP_201_CREATED,
             )
-            
-        except InvalidTokenError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
-        except MissingScopeError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        except NotCheckedInError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        except AlreadyCheckedOutError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        except NoRoomAssignedError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_409_CONFLICT
-            )
+
+        except GuestChatGrantError as e:
+            return _grant_error_response(e)
         except GuestAccessError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
+            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
             logger.error(f"Send message error: {str(e)}")
             return Response(
                 {'error': 'Unable to send message'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
 
 @method_decorator(never_cache, name='dispatch')
-class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
+class GuestChatPusherAuthView(APIView, ChatGrantAuthenticationMixin):
     """
-    POST /api/guest/hotel/{hotel_slug}/chat/pusher/auth?token=...
-    
+    POST /api/guest/hotel/{hotel_slug}/chat/pusher/auth
+    Header: Authorization: GuestChatGrant <grant>
+
     Pusher private channel authentication for guest chat.
-    Validates guest token and ensures channel matches booking.
-    
-    Standard Pusher auth request body:
-    - socket_id: Pusher socket identifier 
-    - channel_name: Must match private-hotel-{hotel_slug}-guest-chat-booking-{booking_id}
-    
-    Security: Only allows channel names that exactly match the token's booking.
+    Validates grant and ensures channel matches booking.
     """
-    
-    authentication_classes = []  # Disable DRF's default TokenAuthentication — we do our own token validation
+
+    authentication_classes = []
     permission_classes = [AllowAny]
     throttle_classes = [GuestTokenBurstThrottle, GuestTokenSustainedThrottle]
-    
+
     def post(self, request, hotel_slug):
-        """Authenticate Pusher private channel subscription for guest chat"""
         try:
-            # Extract required Pusher auth fields
             socket_id = request.data.get('socket_id')
             channel_name = request.data.get('channel_name')
-            
+
             if not socket_id or not channel_name:
                 return Response(
                     {'error': 'Missing socket_id or channel_name'},
-                    status=status.HTTP_400_BAD_REQUEST
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-            
-            # Extract and validate token
-            token_str = self.get_token_from_request(request)
-            if not token_str:
+
+            grant_str = self.get_chat_grant_from_request(request)
+            if not grant_str:
                 return Response(
-                    {'error': 'Token is required', 'code': 'TOKEN_REQUIRED'},
-                    status=status.HTTP_401_UNAUTHORIZED
+                    {'error': 'Guest chat grant is required', 'code': 'GRANT_REQUIRED'},
+                    status=status.HTTP_401_UNAUTHORIZED,
                 )
-            
-            # Resolve guest context to get booking info
-            booking, room, conversation, allowed_actions, disabled_reason = resolve_guest_chat_context(
-                hotel_slug=hotel_slug,
-                token_str=token_str,
-                required_scopes=["CHAT"],
-                action_required=False  # Allow auth even if chat temporarily disabled
-            )
-            
+
+            grant_ctx = validate_guest_chat_grant(grant_str, hotel_slug)
+            booking, room, conversation = resolve_chat_context_from_grant(grant_ctx)
+
             # CRITICAL SECURITY: Validate channel name exactly matches booking
             expected_channel = f"private-hotel-{hotel_slug}-guest-chat-booking-{booking.booking_id}"
             if channel_name != expected_channel:
@@ -406,10 +322,9 @@ class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
                 )
                 return Response(
                     {'error': 'Channel name does not match booking'},
-                    status=status.HTTP_403_FORBIDDEN
+                    status=status.HTTP_403_FORBIDDEN,
                 )
-            
-            # Generate Pusher auth signature
+
             channel_data = {
                 "user_id": f"guest-{booking.booking_id}",
                 "user_info": {
@@ -417,66 +332,47 @@ class GuestChatPusherAuthView(APIView, TokenAuthenticationMixin):
                     "booking_id": booking.booking_id,
                     "hotel_slug": hotel_slug,
                     "room_number": room.room_number if room else None,
-                    "guest_name": booking.primary_guest_name
-                }
+                    "guest_name": booking.primary_guest_name,
+                },
             }
-            
+
             auth_response = self._generate_pusher_auth(socket_id, channel_name, channel_data)
-            
+
             logger.info(
-                f"✅ Guest chat Pusher auth successful: booking={booking.booking_id}, "
-                f"channel={channel_name}, socket={socket_id}"
+                f"Guest chat Pusher auth successful: booking={booking.booking_id}, "
+                f"channel={channel_name}"
             )
-            
+
             return Response(auth_response)
-            
-        except InvalidTokenError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
-        except MissingScopeError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        except NoRoomAssignedError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=status.HTTP_409_CONFLICT
-            )
+
+        except GuestChatGrantError as e:
+            return _grant_error_response(e)
         except GuestAccessError as e:
-            return Response(
-                {'error': e.message, 'code': e.code},
-                status=e.status_code
-            )
+            return Response({'error': e.message, 'code': e.code}, status=e.status_code)
         except Exception as e:
             logger.error(f"Guest chat Pusher auth error: {str(e)}")
             return Response(
                 {'error': 'Unable to authenticate channel'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-    
+
     def _generate_pusher_auth(self, socket_id, channel_name, channel_data=None):
-        """
-        Generate Pusher authentication signature
-        """
         if channel_data:
             channel_data_str = json.dumps(channel_data)
             string_to_sign = f"{socket_id}:{channel_name}:{channel_data_str}"
         else:
             string_to_sign = f"{socket_id}:{channel_name}"
-        
+
         signature = hmac.new(
             settings.PUSHER_SECRET.encode('utf-8'),
             string_to_sign.encode('utf-8'),
-            hashlib.sha256
+            hashlib.sha256,
         ).hexdigest()
-        
+
         auth_string = f"{settings.PUSHER_KEY}:{signature}"
-        
+
         result = {"auth": auth_string}
         if channel_data:
             result["channel_data"] = channel_data_str
-        
+
         return result

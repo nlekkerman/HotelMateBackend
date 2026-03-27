@@ -55,6 +55,10 @@ def resolve_guest_chat_context(hotel_slug: str, token_str: str, required_scopes=
     common.guest_access (BookingManagementToken only).
     Adds chat-specific conversation lookup and UX hints on top.
 
+    Conversation is keyed by booking (booking is the owner).
+    Room is attached as contextual metadata and updated on each call
+    so room changes don't break conversation identity.
+
     Args:
         hotel_slug:      Hotel slug from the URL.
         token_str:       Raw token string.
@@ -106,15 +110,23 @@ def resolve_guest_chat_context(hotel_slug: str, token_str: str, required_scopes=
         else:
             allowed_actions["can_chat"] = True
 
-    # --- conversation lookup ---
+    # --- conversation lookup: keyed by booking, room is contextual ---
     conversation = None
-    if room:
+    if booking:
         conversation, created = Conversation.objects.get_or_create(
-            room=room,
-            defaults={},
+            booking=booking,
+            defaults={"room": room},
         )
         if created:
-            logger.info(f"Created new conversation for room {room.room_number}")
+            logger.info(f"Created new conversation for booking {booking.booking_id}")
+        elif room and conversation.room_id != getattr(room, 'id', None):
+            # Room changed (e.g. room swap) — update contextual metadata
+            conversation.room = room
+            conversation.save(update_fields=["room"])
+            logger.info(
+                f"Updated conversation room context: booking={booking.booking_id}, "
+                f"new_room={room.room_number}"
+            )
 
     logger.info(
         f"✅ Guest chat context resolved: booking={booking.booking_id}, "
@@ -124,6 +136,57 @@ def resolve_guest_chat_context(hotel_slug: str, token_str: str, required_scopes=
     )
 
     return booking, room, conversation, allowed_actions, disabled_reason
+
+
+def resolve_chat_context_from_grant(grant_ctx):
+    """
+    Resolve chat context from an already-validated GuestChatGrantContext.
+
+    Looks up booking + conversation by booking_id (from grant claims).
+    Room metadata is refreshed from the current booking state.
+
+    This is the primary path for all chat endpoints after bootstrap.
+
+    Args:
+        grant_ctx: GuestChatGrantContext (from validate_guest_chat_grant)
+
+    Returns:
+        (booking, room, conversation)
+
+    Raises:
+        InvalidTokenError — if booking not found or lifecycle-rejected
+        NoRoomAssignedError — if booking has no room (and one is needed)
+    """
+    from hotel.models import RoomBooking
+
+    try:
+        booking = RoomBooking.objects.select_related(
+            "hotel", "assigned_room"
+        ).get(booking_id=grant_ctx.booking_id)
+    except RoomBooking.DoesNotExist:
+        raise InvalidTokenError("Booking not found")
+
+    if booking.status in ("CANCELLED", "CANCELLED_DRAFT", "DECLINED"):
+        raise InvalidTokenError("Booking is no longer active")
+
+    room = booking.assigned_room
+
+    # Conversation lookup: keyed by booking, room is contextual metadata
+    conversation, created = Conversation.objects.get_or_create(
+        booking=booking,
+        defaults={"room": room},
+    )
+    if created:
+        logger.info(f"Created new conversation for booking {booking.booking_id}")
+    elif room and conversation.room_id != getattr(room, 'id', None):
+        conversation.room = room
+        conversation.save(update_fields=["room"])
+        logger.info(
+            f"Updated conversation room context: booking={booking.booking_id}, "
+            f"new_room={room.room_number}"
+        )
+
+    return booking, room, conversation
 
 
 def validate_guest_conversation_access(hotel_slug: str, token_str: str, conversation_id: int):

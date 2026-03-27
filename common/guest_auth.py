@@ -44,6 +44,32 @@ class TokenAuthenticationMixin:
         return ''
 
 
+class ChatGrantAuthenticationMixin:
+    """
+    Mixin that extracts a guest chat grant from the request.
+
+    The grant is a short-lived signed token issued by the bootstrap
+    endpoint after successful raw-token resolution. Chat endpoints
+    use this instead of the raw email/booking token.
+
+    Supported transports (in priority order):
+        1. Authorization: GuestChatGrant <grant>  (programmatic — preferred)
+        2. ?chat_grant=<grant> query parameter      (fallback)
+    """
+
+    def get_chat_grant_from_request(self, request):
+        """Return the raw grant string or empty string."""
+        # 1. Header — preferred for POST bodies
+        auth_header = request.META.get('HTTP_AUTHORIZATION', '')
+        if auth_header.startswith('GuestChatGrant '):
+            return auth_header[15:]
+        # 2. Query parameter fallback
+        qp_grant = request.GET.get('chat_grant', '')
+        if qp_grant:
+            return qp_grant
+        return ''
+
+
 # ---------------------------------------------------------------------------
 # Throttle classes for public / guest endpoints
 # ---------------------------------------------------------------------------

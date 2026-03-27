@@ -23,6 +23,7 @@ from common.guest_auth import (
     GuestTokenBurstThrottle,
     GuestTokenSustainedThrottle,
 )
+from common.guest_chat_grant import issue_guest_chat_grant
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,12 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
                     and booking.assigned_room):
                 allowed_actions.append('room_service')
 
+            # Issue guest chat grant if chat is allowed
+            guest_chat_grant = None
+            chat_eligible = 'chat' in allowed_actions
+            if chat_eligible:
+                guest_chat_grant = issue_guest_chat_grant(booking, booking.assigned_room)
+
             context = {
                 'booking_id': booking.booking_id,
                 'hotel_slug': booking.hotel.slug,
@@ -107,6 +114,8 @@ class GuestContextView(APIView, TokenAuthenticationMixin):
                 'is_checked_in': booking.status == 'CHECKED_IN',
                 'is_checked_out': booking.status == 'CHECKED_OUT',
                 'allowed_actions': allowed_actions,
+                'chat_available': chat_eligible,
+                'guest_chat_grant': guest_chat_grant,
             }
 
             logger.info(

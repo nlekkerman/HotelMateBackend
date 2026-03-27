@@ -15,6 +15,13 @@ class Conversation(models.Model):
         related_name='conversations',
         null=True, blank=True  # Optional if you want direct staff DMs later
     )
+    booking = models.ForeignKey(
+        'hotel.RoomBooking',
+        on_delete=models.CASCADE,
+        related_name='chat_conversations',
+        null=True, blank=True,
+        help_text="Booking that owns this conversation. Room is contextual metadata."
+    )
     participants_staff = models.ManyToManyField(
         'staff.Staff',
         blank=True,
