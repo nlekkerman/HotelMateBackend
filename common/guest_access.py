@@ -159,15 +159,38 @@ def resolve_guest_access(
 
     token_hash = hash_token(token_str)
 
+    logger.warning(
+        "guest_access resolve: requested_slug=%s token_len=%d "
+        "token_prefix=%s token_suffix=%s hash_prefix=%s",
+        hotel_slug,
+        len(token_str),
+        token_str[:4] if token_str else "",
+        token_str[-4:] if token_str else "",
+        token_hash[:8],
+    )
+
     # --- Lookup: BookingManagementToken ONLY ---
     ctx = _try_booking_management_token(token_hash, hotel_slug)
     if ctx is None:
+        logger.warning(
+            "guest_access resolve: REJECTED — _try_bmt returned None "
+            "for slug=%s hash_prefix=%s (see _try_bmt log above for reason)",
+            hotel_slug,
+            token_hash[:8],
+        )
         raise InvalidTokenError()
 
     booking = ctx.booking
 
     # Booking lifecycle gate (anti-enumeration: same error as "not found")
     if booking.status in ("CANCELLED", "CANCELLED_DRAFT", "DECLINED"):
+        logger.warning(
+            "guest_access resolve: REJECTED — booking lifecycle "
+            "booking_id=%s status=%s slug=%s",
+            booking.booking_id,
+            booking.status,
+            hotel_slug,
+        )
         raise InvalidTokenError()
 
     # Scope gate
@@ -184,6 +207,17 @@ def resolve_guest_access(
             raise AlreadyCheckedOutError()
         if not booking.assigned_room:
             raise NoRoomAssignedError()
+
+    logger.warning(
+        "guest_access resolve: SUCCESS booking_id=%s slug=%s status=%s "
+        "checked_in=%s checked_out=%s room=%s",
+        booking.booking_id,
+        hotel_slug,
+        booking.status,
+        bool(booking.checked_in_at),
+        bool(booking.checked_out_at),
+        getattr(booking.assigned_room, "room_number", None),
+    )
 
     return ctx
 
@@ -271,12 +305,37 @@ def _try_booking_management_token(token_hash: str, hotel_slug: str):
             "booking__assigned_room",
         ).get(token_hash=token_hash)
     except BookingManagementToken.DoesNotExist:
+        logger.warning(
+            "guest_access _try_bmt: token NOT FOUND in DB hash_prefix=%s",
+            token_hash[:8],
+        )
         return None
+
+    booking = bmt.booking
+    booking_slug = getattr(getattr(booking, "hotel", None), "slug", None)
 
     if not bmt.is_valid:
+        logger.warning(
+            "guest_access _try_bmt: token INVALID "
+            "booking_id=%s revoked=%s cancelled=%s status=%s "
+            "requested_slug=%s booking_slug=%s",
+            booking.booking_id,
+            bmt.revoked_at is not None,
+            booking.cancelled_at is not None if hasattr(booking, "cancelled_at") else "N/A",
+            booking.status,
+            hotel_slug,
+            booking_slug,
+        )
         return None
 
-    if bmt.booking.hotel.slug != hotel_slug:
+    if booking_slug != hotel_slug:
+        logger.warning(
+            "guest_access _try_bmt: SLUG MISMATCH "
+            "booking_id=%s requested_slug=%r booking_slug=%r",
+            booking.booking_id,
+            hotel_slug,
+            booking_slug,
+        )
         return None
 
     bmt.record_action("VIEW")
