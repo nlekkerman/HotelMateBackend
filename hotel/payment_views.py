@@ -615,20 +615,20 @@ class StripeWebhookView(APIView):
         currency = session['metadata'].get('currency', 'EUR').upper()
         amount_total = float(session['metadata'].get('total_amount', 0))
         
-        # Send post-payment confirmation email with guest status token
+        # Send post-payment confirmation email with booking management token
+        # IMPORTANT: Use BMT (not GBT) so the guest's active GBT is NOT
+        # revoked.  The frontend holds the GBT issued at booking creation;
+        # rotating it here would silently invalidate the frontend's token.
         if booking_updated and customer_email:
             try:
-                # Reuse or rotate guest token for payment confirmation link
-                from hotel.services.guest_token import get_or_create_guest_token
+                from hotel.services.booking_management import generate_booking_management_token
                 from urllib.parse import quote
-                token_obj, raw_guest_token = get_or_create_guest_token(
-                    booking, needs_plaintext=True,
-                )
+                raw_mgmt_token, _token_obj = generate_booking_management_token(booking)
                 
-                # Build guest status URL with email and token
+                # Build guest status URL with email and BMT
                 base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
                 email_param = quote(booking.primary_email or '', safe='')
-                status_url = f"{base_url}/hotel/{booking.hotel.slug}/booking/{booking.booking_id}?email={email_param}&token={raw_guest_token}"
+                status_url = f"{base_url}/hotel/{booking.hotel.slug}/booking/{booking.booking_id}?email={email_param}&token={raw_mgmt_token}"
                 
                 # Send payment confirmation email
                 success = send_payment_received_email(booking, status_url, customer_email)

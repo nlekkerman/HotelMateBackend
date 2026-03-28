@@ -310,11 +310,25 @@ def resolve_guest_access_without_slug(
                 "booking__assigned_room",
             ).get(token_hash=token_hash, status="ACTIVE")
         except GuestBookingToken.DoesNotExist:
-            logger.warning(
-                "guest_access resolve_without_slug: GBT NOT FOUND (or not ACTIVE) "
-                "hash_prefix=%s — token does not exist in either model",
-                token_hash[:8],
-            )
+            # Diagnostic: distinguish "revoked" from "never existed"
+            revoked_exists = GuestBookingToken.objects.filter(
+                token_hash=token_hash,
+            ).exclude(status="ACTIVE").values_list("status", "revoked_reason").first()
+            if revoked_exists:
+                logger.warning(
+                    "guest_access resolve_without_slug: GBT FOUND but NOT ACTIVE "
+                    "hash_prefix=%s status=%s revoked_reason=%s — "
+                    "token was likely rotated by a subsequent needs_plaintext call",
+                    token_hash[:8],
+                    revoked_exists[0],
+                    revoked_exists[1],
+                )
+            else:
+                logger.warning(
+                    "guest_access resolve_without_slug: GBT NOT FOUND "
+                    "hash_prefix=%s — token does not exist in either model",
+                    token_hash[:8],
+                )
             raise InvalidTokenError()
 
         if gbt.expires_at and timezone.now() > gbt.expires_at:
@@ -438,11 +452,24 @@ def _try_guest_booking_token(token_hash: str, hotel_slug: str):
             "booking__assigned_room",
         ).get(token_hash=token_hash, status="ACTIVE")
     except GuestBookingToken.DoesNotExist:
-        logger.warning(
-            "guest_access _try_gbt: token NOT FOUND (or not ACTIVE) "
-            "hash_prefix=%s",
-            token_hash[:8],
-        )
+        # Diagnostic: distinguish "revoked" from "never existed"
+        revoked_exists = GuestBookingToken.objects.filter(
+            token_hash=token_hash,
+        ).exclude(status="ACTIVE").values_list("status", "revoked_reason").first()
+        if revoked_exists:
+            logger.warning(
+                "guest_access _try_gbt: token FOUND but NOT ACTIVE "
+                "hash_prefix=%s status=%s revoked_reason=%s",
+                token_hash[:8],
+                revoked_exists[0],
+                revoked_exists[1],
+            )
+        else:
+            logger.warning(
+                "guest_access _try_gbt: token NOT FOUND "
+                "hash_prefix=%s",
+                token_hash[:8],
+            )
         return None
 
     booking = gbt.booking
