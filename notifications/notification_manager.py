@@ -691,16 +691,7 @@ class NotificationManager:
         """
         self.logger.info(f"💬 Realtime guest chat: message {message.id} created")
         
-        # Determine sender info based on RoomMessage model fields
-        sender_role = message.sender_type  # "guest" or "staff"
-        sender_id = None
-        sender_name = "Guest"
-        
-        if sender_role == "staff" and message.staff:
-            sender_id = message.staff.id
-            sender_name = message.staff_display_name or f"{message.staff.first_name} {message.staff.last_name}"
-        
-        # Get current booking for this room FIRST (needed for conversation_id)
+        # Get current booking for this room FIRST (needed for sender identity + channel routing)
         from hotel.models import RoomBooking
         current_booking = RoomBooking.objects.filter(
             assigned_room=message.room,
@@ -715,33 +706,66 @@ class NotificationManager:
             )
             return False
         
-        # Build complete payload with booking-scoped conversation_id
+        # Determine sender info based on RoomMessage model fields
+        sender_type = message.sender_type  # "guest", "staff", or "system"
+        sender_id = None
+        sender_name = "Guest"  # Fallback — overridden below for all sender types
+        guest_name = current_booking.guest_display_name  # Always available: real name or "Guest" fallback
+        staff_name = None
+        staff_info = None
+        
+        if sender_type == "staff" and message.staff:
+            sender_id = message.staff.id
+            sender_name = message.staff_display_name or f"{message.staff.first_name} {message.staff.last_name}"
+            staff_name = sender_name
+            staff_info = {
+                'name': sender_name,
+                'role': message.staff_role_name or 'Staff',
+            }
+        elif sender_type == "system":
+            sender_name = "System"
+        else:
+            # Guest sender — resolve real name from the booking we already loaded
+            sender_name = guest_name
+        
+        # Build complete payload with canonical numeric conversation_id
+        conv_id = message.conversation.id if message.conversation else None
         payload = {
-            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
+            'conversation_id': conv_id,  # Numeric DB ID — canonical
             'booking_id': current_booking.booking_id,  # Explicit booking reference
-            'room_conversation_id': message.conversation.id if message.conversation else None,  # Legacy reference
-            'id': message.id,  # Match serializer field name: 'id'
-            'sender_role': sender_role,
+            'room_conversation_id': conv_id,  # Backward compat (= conversation_id)
+            'id': message.id,
+            'sender_type': sender_type,  # Canonical field name (matches serializer)
+            'sender_role': sender_type,  # Backward compat alias
             'sender_id': sender_id,
             'sender_name': sender_name,
-            'message': message.message,  # Match serializer field name: 'message'
-            'timestamp': message.timestamp.isoformat(),  # Match serializer field name: 'timestamp'
+            'guest_name': guest_name,
+            'staff_name': staff_name,
+            'staff_info': staff_info,
+            'message': message.message,
+            'timestamp': message.timestamp.isoformat(),
             'room_number': message.room.room_number,
-            'is_staff_reply': sender_role == "staff",
+            'is_staff_reply': sender_type == "staff",
             'has_attachments': message.attachments.exists() if hasattr(message, 'attachments') else False,
+            'read_by_staff': message.read_by_staff,
+            'read_by_guest': message.read_by_guest,
+            'is_edited': message.is_edited,
+            'is_deleted': message.is_deleted,
+            'status': message.status,
+            'reply_to': message.reply_to_id,
             'pin': getattr(message.room, 'pin', None)
         }
         
-        # Create normalized event
+        # Create normalized event — canonical event_type is always "message_created"
         event_data = self._create_normalized_event(
             category="guest_chat",
-            event_type="guest_message_created" if sender_role == "guest" else "staff_message_created",
+            event_type="message_created",
             payload=payload,
             hotel=message.room.hotel,
             scope={
                 'room_number': message.room.room_number,
                 'conversation_id': payload['conversation_id'],
-                'sender_role': sender_role
+                'sender_type': sender_type
             }
         )
         
@@ -751,11 +775,11 @@ class NotificationManager:
         # Use booking from earlier lookup
         channel = guest_chat_channel(hotel_slug, current_booking.booking_id)
         
-        # Guardrail: prevent conversation_id regressions (must be booking-scoped)
-        assert payload['conversation_id'] == current_booking.booking_id, f"conversation_id must be booking_id: {payload['conversation_id']} != {current_booking.booking_id}"
+        # Guardrail: conversation_id must be numeric and match room_conversation_id
+        assert payload['conversation_id'] == payload['room_conversation_id'], f"conversation_id must equal room_conversation_id: {payload['conversation_id']} != {payload['room_conversation_id']}"
         
         # Send staff notifications when guest sends a message
-        if sender_role == "guest":
+        if sender_type == "guest":
             # Send Pusher notifications to front office staff
             # All staff get notified, assignment happens when staff clicks in frontend
             self.logger.info(f"🔔 ATTEMPTING to notify staff of guest message {message.id}")
@@ -771,7 +795,7 @@ class NotificationManager:
             except Exception as e:
                 self.logger.error(f"❌ Failed to send guest message to staff conversation channel: {e}")
             
-        elif sender_role == "staff" and message.room.guest_fcm_token:
+        elif sender_type == "staff" and message.room.guest_fcm_token:
             # Notify guest of staff reply
             fcm_title = f"Reply from {sender_name}"
             fcm_body = message.message[:100] 
@@ -784,7 +808,7 @@ class NotificationManager:
         
         return self._safe_pusher_trigger(channel, GUEST_CHAT_EVENTS["message_created"], event_data)
     
-    def realtime_guest_chat_unread_updated(self, room, unread_count=None):
+    def realtime_guest_chat_unread_updated(self, room, unread_count=None, conversation=None):
         """Emit normalized guest chat unread count update event."""
         self.logger.info(f"🔢 Realtime guest chat: unread updated for room {room.room_number}")
         
@@ -803,10 +827,21 @@ class NotificationManager:
             )
             return False
         
+        # Resolve conversation for canonical numeric conversation_id
+        if conversation is None:
+            from chat.models import Conversation as ChatConversation
+            conversation = ChatConversation.objects.filter(
+                booking=current_booking,
+                room=room
+            ).first()
+
+        conv_id = conversation.id if conversation else None
+
         payload = {
             'room_number': room.room_number,
-            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
+            'conversation_id': conv_id,  # Numeric DB ID — canonical
             'booking_id': current_booking.booking_id,  # Explicit booking reference
+            'room_conversation_id': conv_id,  # Backward compat (= conversation_id)
             'unread_count': unread_count or 0,
             'updated_at': timezone.now().isoformat()
         }
@@ -859,7 +894,7 @@ class NotificationManager:
             deleter_id = deleted_by_staff.id
         elif deleted_by_guest:
             deleter_type = "guest" 
-            deleter_name = "Guest"
+            deleter_name = current_booking.guest_display_name  # Real guest name with fallback
             deleter_id = None
         else:
             deleter_type = "system"
@@ -868,9 +903,9 @@ class NotificationManager:
         
         payload = {
             'message_id': message_id,
-            'conversation_id': current_booking.booking_id,
+            'conversation_id': conversation_id,  # Numeric DB ID — canonical
             'booking_id': current_booking.booking_id,
-            'room_conversation_id': conversation_id,
+            'room_conversation_id': conversation_id,  # Backward compat (= conversation_id)
             'room_number': room.room_number,
             'deleted_by': deleter_type,
             'deleter_name': deleter_name,
@@ -922,18 +957,18 @@ class NotificationManager:
         # Determine editor info
         if message.sender_type == "staff" and message.staff:
             editor_type = "staff"
-            editor_name = f"{message.staff.first_name} {message.staff.last_name}".strip()
+            editor_name = message.staff_display_name or f"{message.staff.first_name} {message.staff.last_name}".strip()
             editor_id = message.staff.id
         else:
             editor_type = "guest"
-            editor_name = "Guest"
+            editor_name = current_booking.guest_display_name  # Real guest name with fallback
             editor_id = None
         
         payload = {
             'message_id': message.id,
-            'conversation_id': current_booking.booking_id,  # Booking-scoped, survives room changes
+            'conversation_id': message.conversation.id,  # Numeric DB ID — canonical
             'booking_id': current_booking.booking_id,  # Explicit booking reference
-            'room_conversation_id': message.conversation.id,  # Legacy reference
+            'room_conversation_id': message.conversation.id,  # Backward compat (= conversation_id)
             'room_number': message.room.room_number,
             'message_text': message.message,
             'edited_by': editor_type,
@@ -950,7 +985,7 @@ class NotificationManager:
             hotel=message.room.hotel,
             scope={
                 'room_number': message.room.room_number,
-                'conversation_id': current_booking.booking_id,
+                'conversation_id': message.conversation.id,
                 'message_id': message.id
             }
         )
@@ -1459,7 +1494,8 @@ class NotificationManager:
             "booking_id": payload['booking_id'],  # Keep booking ID for reference
             "room_number": payload['room_number'],
             "guest_message": payload['message'][:100],  # Truncated for notification
-            "sender_name": "Guest",
+            "sender_name": payload.get('sender_name', 'Guest'),
+            "guest_name": payload.get('guest_name', 'Guest'),
             "timestamp": payload['timestamp']
         }
         

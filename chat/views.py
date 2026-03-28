@@ -241,7 +241,7 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
         # Trigger unread update using NotificationManager
         try:
-            notification_manager.realtime_guest_chat_unread_updated(room, 1)  # Assume 1 new unread
+            notification_manager.realtime_guest_chat_unread_updated(room, 1, conversation=conversation)  # Assume 1 new unread
             logger.info(f"NotificationManager triggered unread update for room {room.room_number}")
         except Exception as e:
             logger.error(f"NotificationManager failed for unread update: {e}")
@@ -448,7 +448,7 @@ def mark_conversation_read(request, hotel_slug, conversation_id):
 
             # Update unread count via NotificationManager
             try:
-                notification_manager.realtime_guest_chat_unread_updated(room, 0)  # 0 unread after reading
+                notification_manager.realtime_guest_chat_unread_updated(room, 0, conversation=conversation)  # 0 unread after reading
                 logger.info(f"Unread count reset for conversation {conversation.id}")
             except Exception as e:
                 logger.error(f"Failed to update unread count via NotificationManager: {e}")

@@ -378,8 +378,10 @@ class GuestChatMarkReadView(
                 read_event = {
                     "conversation_id": conversation.id,
                     "booking_id": booking.booking_id,
+                    "room_conversation_id": conversation.id,  # Backward compat (= conversation_id)
                     "marked_read": updated,
                     "read_at": now.isoformat(),
+                    "read_by": "guest",
                 }
                 nm._safe_pusher_trigger(
                     channel,

@@ -16,15 +16,19 @@ def guest_chat_channel(hotel_slug: str, booking_id: str) -> str:
     return f"private-hotel-{hotel_slug}-guest-chat-booking-{booking_id}"
 
 
-# Contract events returned to frontend at bootstrap
+# Canonical guest chat event names — ALL exposed to frontend at bootstrap
 GUEST_CHAT_EVENTS = {
     "message_created": "chat.message.created",
     "message_read": "chat.message.read",
-}
-
-# Internal broadcast events (not part of frontend bootstrap contract)
-GUEST_CHAT_INTERNAL_EVENTS = {
     "message_deleted": "chat.message.deleted",
     "message_edited": "chat.message.edited",
     "unread_updated": "chat.unread.updated",
+}
+
+# Backward-compat alias — code that still imports GUEST_CHAT_INTERNAL_EVENTS
+# will continue to work. New code should use GUEST_CHAT_EVENTS directly.
+GUEST_CHAT_INTERNAL_EVENTS = {
+    "message_deleted": GUEST_CHAT_EVENTS["message_deleted"],
+    "message_edited": GUEST_CHAT_EVENTS["message_edited"],
+    "unread_updated": GUEST_CHAT_EVENTS["unread_updated"],
 }
