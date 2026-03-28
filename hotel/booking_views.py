@@ -386,9 +386,7 @@ class HotelBookingCreateView(APIView):
         
         # Issue canonical guest booking token (first token for this booking)
         from hotel.services.guest_token import get_or_create_guest_token
-        token_obj, raw_token = get_or_create_guest_token(
-            booking, needs_plaintext=True,
-        )
+        token_obj, raw_token = get_or_create_guest_token(booking)
         
         # Email will be sent after payment completion (no immediate email needed)
         logger.info(f"Booking {booking.booking_id} created - emails will be sent after payment")

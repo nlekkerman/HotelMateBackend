@@ -1332,13 +1332,14 @@ class GuestBookingToken(models.Model):
     @classmethod
     def generate_token(cls, booking, purpose='STATUS', expires_days=None, scopes=None):
         """
-        Low-level token generation. Creates a new token and revokes existing
+        Low-level token generation. Creates a new token and REVOKES existing
         active tokens for the booking.
 
-        DEPRECATED for production issuance — use
-        hotel.services.guest_token.get_or_create_guest_token() instead,
-        which implements the canonical one-active-reusable-token policy.
-        Retained for test/seed usage and as the underlying creation primitive.
+        ⚠️  DO NOT CALL FROM PRODUCTION CODE.
+        This method revokes existing tokens, violating the one-stable-identity
+        rule. Use hotel.services.guest_token.get_or_create_guest_token() which
+        will NEVER rotate an existing active token.
+        Retained ONLY for test fixtures and seed scripts.
         
         Args:
             booking: RoomBooking instance

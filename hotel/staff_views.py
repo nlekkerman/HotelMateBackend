@@ -2534,7 +2534,7 @@ class BookingCheckInView(APIView):
             guest_event_result = notification_manager.realtime_guest_booking_checked_in(
                 booking=booking,
                 room_number=room.room_number,
-                guest_token=guest_token  # Include fresh token for frontend update
+                guest_token=guest_token  # None unless first-time creation at check-in
             )
             print(f"✅ Guest check-in event sent: {guest_event_result}")
             
@@ -2640,14 +2640,11 @@ class BookingCheckInView(APIView):
                         guest.primary_guest = primary_guest
                         guest.save()
             
-            # Rotate guest token at check-in to ensure fresh plaintext is available
-            # for the guest portal link returned to staff.
+            # Retrieve existing guest identity token — NEVER rotate at check-in.
+            # The GBT issued at booking creation is the permanent identity key.
+            # raw_token will be None (plaintext is unrecoverable), which is correct.
             from hotel.services.guest_token import get_or_create_guest_token
-            token_obj, raw_token = get_or_create_guest_token(
-                booking, rotate=True, needs_plaintext=True,
-            )
-            
-            logger.info(f"Issued guest token for booking {booking.booking_id} after check-in")
+            token_obj, raw_token = get_or_create_guest_token(booking)
             
             # Update room occupancy - Room Turnover Workflow
             room.is_occupied = True
@@ -2674,11 +2671,11 @@ class BookingCheckInView(APIView):
                 lambda: self._emit_checkin_realtime_events(booking, room, primary_guest, party_guest_objects, raw_token)
             )
         
-        # Return updated booking with check-in details and fresh guest token
+        # Return updated booking with check-in details
         serializer = StaffRoomBookingDetailSerializer(booking)
         return Response({
             'message': f'Successfully checked in booking {booking_id}',
-            'guest_token': raw_token,  # Fresh token for guest portal access
+            'guest_token': raw_token,  # None if token was created earlier (plaintext unrecoverable)
             **serializer.data
         })
 

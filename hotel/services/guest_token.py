@@ -1,19 +1,21 @@
 """
 Canonical Guest Booking Token Service
 
-One active reusable guest token per booking. Rotate only when explicitly
-requested or when no active usable token exists.
+PRODUCT RULE: ONE stable identity token per booking.
+    - Created once at booking creation.
+    - NEVER rotated, regenerated, or mutated by any workflow.
+    - Valid until booking reaches COMPLETED/CANCELLED/DECLINED.
+    - Plaintext is available ONLY at creation time.
 
 This is the SINGLE issuance path for GuestBookingToken. All code that needs
 a guest token for a booking MUST go through get_or_create_guest_token().
 Direct calls to GuestBookingToken.generate_token() or .objects.create()
 are reserved for tests and seed scripts only.
 
-Plaintext recovery:
-    The DB stores only SHA-256 hashes. Plaintext is available ONLY at
-    creation time. Callers that need plaintext for links/emails should
-    pass needs_plaintext=True. If an active token exists but plaintext
-    is unrecoverable, the service rotates to produce a fresh plaintext.
+FORBIDDEN PATTERNS:
+    - rotate=True (removed)
+    - needs_plaintext=True causing regeneration (removed)
+    - Any workflow code that revokes/replaces a GBT
 """
 
 import hashlib
@@ -54,7 +56,10 @@ def _get_active_token(booking):
 
     # Check expiry
     if token.expires_at and timezone.now() > token.expires_at:
-        # Expired — not usable. Don't revoke here; let caller rotate.
+        logger.warning(
+            "GBT expired for booking %s, expires_at=%s",
+            booking.booking_id, token.expires_at,
+        )
         return None
 
     # Legacy cleanup: if more than one active token exists, revoke extras.
@@ -105,60 +110,41 @@ def _create_new_token(booking):
     return token_obj, raw_token
 
 
-def get_or_create_guest_token(booking, *, rotate=False, needs_plaintext=False):
+def get_or_create_guest_token(booking):
     """
     Canonical issuance / retrieval of a guest booking token.
 
-    Policy:
-        - One active reusable guest token per booking.
-        - Reuse the existing active token when possible.
-        - Rotate only when: no usable token exists, token is expired/revoked,
-          or rotate=True is explicitly passed.
-        - When needs_plaintext=True and plaintext is unrecoverable (hash-only
-          storage), rotate to produce a fresh plaintext token.
+    IDENTITY TOKEN RULES:
+        - If an ACTIVE, non-expired token exists → return it (no plaintext).
+        - If no usable token exists → create one and return plaintext.
+        - NEVER rotate, regenerate, or replace an existing active token.
+        - Plaintext is only available at initial creation time.
 
     Args:
-        booking:          RoomBooking instance.
-        rotate:           Force-rotate even if an active token exists.
-        needs_plaintext:  Caller requires the raw token string (e.g. for
-                          email links). If True and an active token exists
-                          but plaintext cannot be recovered, a rotation is
-                          performed.
+        booking: RoomBooking instance.
 
     Returns:
         (token_obj, raw_token_or_none)
-            raw_token is the plaintext string when a new token was created
-            or when rotation occurred; None when reusing an existing token
-            whose plaintext is unrecoverable.
+            raw_token is the plaintext string ONLY when a new token was
+            created (first call for this booking). None when returning
+            an existing token whose plaintext is unrecoverable.
     """
     from hotel.models import GuestBookingToken
 
     with transaction.atomic():
-        if not rotate:
-            existing = _get_active_token(booking)
-            if existing is not None:
-                if needs_plaintext:
-                    # Plaintext is not stored — must rotate to get one.
-                    # Fall through to rotation below.
-                    pass
-                else:
-                    # Reuse: active token object returned, no plaintext.
-                    return existing, None
+        existing = _get_active_token(booking)
+        if existing is not None:
+            logger.info(
+                "Reusing existing GBT for booking %s (pk=%s)",
+                booking.booking_id, existing.pk,
+            )
+            return existing, None
 
-        # Revoke any active tokens before creating a new one.
-        GuestBookingToken.objects.filter(
-            booking=booking,
-            status='ACTIVE',
-        ).update(
-            status='REVOKED',
-            revoked_at=timezone.now(),
-            revoked_reason='TOKEN_REPLACED',
-        )
-
+        # No active token — create the identity token.
         token_obj, raw_token = _create_new_token(booking)
 
     logger.info(
-        "Issued guest token for booking %s (rotate=%s, needs_plaintext=%s)",
-        booking.booking_id, rotate, needs_plaintext,
+        "Created GBT identity token for booking %s (pk=%s)",
+        booking.booking_id, token_obj.pk,
     )
     return token_obj, raw_token
