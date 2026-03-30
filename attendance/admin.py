@@ -241,4 +241,4 @@ class RosterAuditLogAdmin(admin.ModelAdmin):
         return False  # Audit logs should not be manually created
     
     def has_delete_permission(self, request, obj=None):
-        return False  # Audit logs should not be deleted
+        return request.user.is_superuser  # Allow superusers to delete audit logs

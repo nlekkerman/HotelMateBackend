@@ -245,8 +245,8 @@ class RoomStatusEventAdmin(admin.ModelAdmin):
         return False
     
     def has_delete_permission(self, request, obj=None):
-        """Disable deleting events (immutable audit trail)"""
-        return False
+        """Allow superusers to delete audit events"""
+        return request.user.is_superuser
     
     def event_summary(self, obj):
         """Display event summary with timestamp"""
