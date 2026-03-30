@@ -32,14 +32,19 @@ class HotelViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSuperUser]
     
     def create(self, request, *args, **kwargs):
-        """Create hotel with automatic post-creation setup"""
-        response = super().create(request, *args, **kwargs)
-        
-        # Hotel creation is successful, the post_save signal will handle
-        # creating default navigation items automatically
-        # See hotel/models.py @receiver(post_save, sender=Hotel)
-        
-        return response
+        """
+        Hotel creation via this endpoint is disabled.
+        Use POST /api/hotel/hotels/provision/ instead.
+        """
+        return Response(
+            {
+                "detail": (
+                    "Hotel creation through this endpoint is disabled. "
+                    "Use POST /api/hotel/hotels/provision/ to provision a new hotel."
+                )
+            },
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
 
 
 class HotelBySlugView(generics.RetrieveAPIView):

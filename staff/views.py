@@ -931,23 +931,38 @@ class PendingRegistrationsAPIView(APIView):
     GET endpoint to fetch users who have registered but don't have
     a Staff profile yet.
     Returns users with their registration codes for manager review.
+
+    Permission matrix:
+    - regular_staff: 403
+    - staff_admin: own hotel only
+    - super_staff_admin: own hotel only
+    - Django is_superuser: all hotels
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, hotel_slug):
-        # Verify requesting user has access to this hotel
-        try:
-            requesting_staff = Staff.objects.get(user=request.user)
-            if requesting_staff.hotel.slug != hotel_slug:
+        user = request.user
+
+        # Django superusers can view pending registrations for any hotel
+        if user.is_superuser:
+            pass  # no further permission check needed
+        else:
+            # Must be a staff member of this hotel with sufficient access
+            try:
+                requesting_staff = Staff.objects.get(user=user, hotel__slug=hotel_slug)
+            except Staff.DoesNotExist:
                 return Response(
-                    {'error': 'Access denied to this hotel.'},
-                    status=403
+                    {'error': 'You are not a staff member of this hotel.'},
+                    status=status.HTTP_403_FORBIDDEN
                 )
-        except Staff.DoesNotExist:
-            return Response(
-                {'error': 'Only staff members can access this endpoint.'},
-                status=403
-            )
+
+            if requesting_staff.access_level == 'regular_staff':
+                return Response(
+                    {'error': 'Regular staff cannot view pending registrations.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # staff_admin and super_staff_admin may proceed for their own hotel
 
         # Get all used registration codes for this hotel
         used_codes = RegistrationCode.objects.filter(
@@ -957,12 +972,12 @@ class PendingRegistrationsAPIView(APIView):
 
         pending_users = []
         for code in used_codes:
-            user = code.used_by
+            user_obj = code.used_by
             # Check if user has no staff profile
-            if not hasattr(user, 'staff_profile'):
+            if not hasattr(user_obj, 'staff_profile'):
                 pending_users.append({
-                    'user_id': user.id,
-                    'username': user.username,
+                    'user_id': user_obj.id,
+                    'username': user_obj.username,
                     'registration_code': code.code,
                     'registered_at': code.used_at,
                 })
@@ -978,55 +993,94 @@ class CreateStaffFromUserAPIView(APIView):
     """
     POST endpoint to create a Staff profile for a registered user.
     Deletes the registration code after successful staff creation.
+
+    Permission matrix:
+    - regular_staff: 403 (cannot create staff)
+    - staff_admin: can create regular_staff only
+    - super_staff_admin: can create regular_staff and staff_admin
+    - Django is_superuser: can create any access level including super_staff_admin
     """
     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request, hotel_slug):
-        # Verify requesting user has manager/admin access
-        try:
-            requesting_staff = Staff.objects.get(user=request.user)
-            if requesting_staff.hotel.slug != hotel_slug:
-                return Response(
-                    {'error': 'Access denied to this hotel.'},
-                    status=403
-                )
-            # Any staff member of the hotel can create staff (no access_level restriction)
-        except Staff.DoesNotExist:
-            return Response(
-                {'error': 'Only staff members can access this endpoint.'},
-                status=403
-            )
+    # Defines what each requester access level is allowed to create
+    ALLOWED_CREATIONS = {
+        'staff_admin': {'regular_staff'},
+        'super_staff_admin': {'regular_staff', 'staff_admin'},
+    }
 
-        # Get data from request
+    def post(self, request, hotel_slug):
+        user = request.user
+        requested_access_level = request.data.get('access_level', 'regular_staff')
+
+        # --- Permission enforcement ---
+        if user.is_superuser:
+            # Django superusers can create any access level
+            pass
+        else:
+            # Must be a staff member of THIS hotel
+            try:
+                requesting_staff = Staff.objects.get(user=user, hotel__slug=hotel_slug)
+            except Staff.DoesNotExist:
+                return Response(
+                    {'error': 'You are not a staff member of this hotel.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            if requesting_staff.access_level == 'regular_staff':
+                return Response(
+                    {'error': 'Regular staff cannot create staff profiles.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            allowed = self.ALLOWED_CREATIONS.get(requesting_staff.access_level, set())
+            if requested_access_level not in allowed:
+                return Response(
+                    {
+                        'error': (
+                            f'{requesting_staff.get_access_level_display()} '
+                            f'cannot create staff with access level '
+                            f'"{requested_access_level}".'
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        # --- Validate target user ---
         user_id = request.data.get('user_id')
         first_name = request.data.get('first_name', '')
         last_name = request.data.get('last_name', '')
         email = request.data.get('email', '')
         department_id = request.data.get('department_id')
         role_id = request.data.get('role_id')
-        access_level = request.data.get('access_level', 'regular_staff')
         is_active = request.data.get('is_active', True)
 
         if not user_id:
             return Response(
                 {'error': 'user_id is required.'},
-                status=400
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Get the user
+        # Get the target user
         try:
-            user = User.objects.get(id=user_id)
+            target_user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response(
                 {'error': 'User not found.'},
-                status=404
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # Enforce target user belongs to this hotel's registration flow
+        if not RegistrationCode.objects.filter(hotel_slug=hotel_slug, used_by=target_user).exists():
+            return Response(
+                {'error': 'This user did not register through this hotel.'},
+                status=status.HTTP_403_FORBIDDEN
             )
 
         # Check if staff already exists
-        if hasattr(user, 'staff_profile'):
+        if hasattr(target_user, 'staff_profile'):
             return Response(
                 {'error': 'Staff profile already exists for this user.'},
-                status=400
+                status=status.HTTP_400_BAD_REQUEST
             )
 
         # Get hotel
@@ -1035,7 +1089,7 @@ class CreateStaffFromUserAPIView(APIView):
         except Hotel.DoesNotExist:
             return Response(
                 {'error': 'Hotel not found.'},
-                status=404
+                status=status.HTTP_404_NOT_FOUND
             )
 
         # Get department and role if provided
@@ -1047,7 +1101,7 @@ class CreateStaffFromUserAPIView(APIView):
             except Department.DoesNotExist:
                 return Response(
                     {'error': 'Department not found.'},
-                    status=404
+                    status=status.HTTP_404_NOT_FOUND
                 )
 
         if role_id:
@@ -1056,44 +1110,39 @@ class CreateStaffFromUserAPIView(APIView):
             except Role.DoesNotExist:
                 return Response(
                     {'error': 'Role not found.'},
-                    status=404
+                    status=status.HTTP_404_NOT_FOUND
                 )
 
         # Create the staff profile
         staff = Staff.objects.create(
-            user=user,
+            user=target_user,
             hotel=hotel,
             first_name=first_name,
             last_name=last_name,
             email=email,
             department=department,
             role=role,
-            access_level=access_level,
+            access_level=requested_access_level,
             is_active=is_active,
             is_on_duty=False
         )
 
-        # UPDATE USER FLAGS based on staff access_level
-        # All staff members should have is_staff=True
-        user.is_staff = True
-        
-        # Keep is_superuser=False for all staff (super_staff_admin is NOT Django superuser)
-        # Only actual Django superusers should have is_superuser=True
-        user.is_superuser = False
-            
-        user.save()
-        print(f"✅ Updated User flags for {user.username}: is_staff={user.is_staff}, is_superuser={user.is_superuser}")
+        # UPDATE USER FLAGS
+        target_user.is_staff = True
+        target_user.is_superuser = False
+        target_user.save()
+        logger.info(f"Set User flags for {target_user.username}: is_staff=True, is_superuser=False")
 
         # Find and DELETE the registration code
         try:
             reg_code = RegistrationCode.objects.get(
                 hotel_slug=hotel_slug,
-                used_by=user
+                used_by=target_user
             )
             deleted_code = reg_code.code
             reg_code.delete()
         except RegistrationCode.DoesNotExist:
-            deleted_code = None  # Code might already be deleted
+            deleted_code = None
 
         # Serialize the created staff
         serializer = StaffSerializer(staff)
@@ -1103,8 +1152,8 @@ class CreateStaffFromUserAPIView(APIView):
         trigger_registration_update(
             hotel_slug,
             {
-                'user_id': user.id,
-                'username': user.username,
+                'user_id': target_user.id,
+                'username': target_user.username,
                 'staff_id': staff.id,
                 'registration_code': deleted_code,
             },
@@ -1115,7 +1164,7 @@ class CreateStaffFromUserAPIView(APIView):
             'message': 'Staff profile created successfully.',
             'staff': serializer.data,
             'deleted_code': deleted_code,
-        }, status=201)
+        }, status=status.HTTP_201_CREATED)
 
 
 class DepartmentViewSet(viewsets.ModelViewSet):

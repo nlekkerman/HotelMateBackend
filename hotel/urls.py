@@ -7,6 +7,9 @@ from .base_views import (
     HotelBySlugView,
 )
 
+# Provisioning view
+from .provisioning_views import ProvisionHotelView
+
 # Public views
 from .public_views import (
     HotelPublicListView,
@@ -184,6 +187,13 @@ urlpatterns = [
     
 
     
+    # Canonical hotel provisioning (superuser only)
+    path(
+        "hotels/provision/",
+        ProvisionHotelView.as_view(),
+        name="hotel-provision"
+    ),
+
     # Internal/admin endpoints
     path("", include(router.urls)),
 ]
