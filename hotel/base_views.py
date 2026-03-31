@@ -15,14 +15,7 @@ from django.shortcuts import get_object_or_404
 
 from .models import Hotel
 from .base_serializers import HotelSerializer
-
-
-class IsSuperUser(IsAuthenticated):
-    """
-    Custom permission to only allow superusers to access the view.
-    """
-    def has_permission(self, request, view):
-        return super().has_permission(request, view) and request.user.is_superuser
+from staff.permissions_superuser import IsSuperUser
 
 
 class HotelViewSet(viewsets.ModelViewSet):

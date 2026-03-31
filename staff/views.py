@@ -748,22 +748,11 @@ class GenerateRegistrationPackageAPIView(APIView):
                 hotel_slug=hotel_slug
             )
         else:
-            # Generate random code
-            import random
-            import string
-            code = ''.join(
-                random.choices(
-                    string.ascii_uppercase + string.digits,
-                    k=8
-                )
-            )
+            # Generate random code using cryptographically secure source
+            import secrets
+            code = secrets.token_hex(4).upper()
             while RegistrationCode.objects.filter(code=code).exists():
-                code = ''.join(
-                    random.choices(
-                        string.ascii_uppercase + string.digits,
-                        k=8
-                    )
-                )
+                code = secrets.token_hex(4).upper()
             reg_code = RegistrationCode.objects.create(
                 code=code,
                 hotel_slug=hotel_slug
@@ -1005,7 +994,7 @@ class CreateStaffFromUserAPIView(APIView):
     # Defines what each requester access level is allowed to create
     ALLOWED_CREATIONS = {
         'staff_admin': {'regular_staff'},
-        'super_staff_admin': {'regular_staff', 'staff_admin'},
+        'super_staff_admin': {'regular_staff', 'staff_admin', 'super_staff_admin'},
     }
 
     def post(self, request, hotel_slug):
