@@ -63,10 +63,11 @@ def generate_registration_packages(hotel_slug: str, count: int) -> list:
                 hotel_slug=hotel_slug,
                 qr_token=qr_token,
             )
+            reg.generate_qr_code()
             results.append({
                 "code": reg.code,
                 "qr_token": reg.qr_token,
-                "hotel_slug": reg.hotel_slug,
+                "qr_code_url": reg.qr_code_url,
             })
         except Exception as exc:
             logger.warning("Registration package %d/%d failed: %s", i + 1, count, exc)
