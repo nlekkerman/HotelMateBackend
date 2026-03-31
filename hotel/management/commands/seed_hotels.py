@@ -1,15 +1,19 @@
 """
 Management command to seed database with sample hotels for development/testing.
 Usage: python manage.py seed_hotels
+
+WARNING: This command is for LOCAL DEVELOPMENT ONLY.
+It bypasses the provisioning flow and must NEVER be run in production.
 """
 
-from django.core.management.base import BaseCommand
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from hotel.models import Hotel, HotelAccessConfig
 
 
 class Command(BaseCommand):
-    help = 'Seed database with sample hotels for development and testing'
+    help = 'Seed database with sample hotels for development and testing (DEV ONLY)'
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -19,6 +23,11 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        if not settings.DEBUG:
+            raise CommandError(
+                "seed_hotels is disabled in production. "
+                "Use POST /api/hotel/hotels/provision/ to create hotels."
+            )
         if options['clear']:
             self.stdout.write(self.style.WARNING('Clearing existing hotels...'))
             Hotel.objects.all().delete()

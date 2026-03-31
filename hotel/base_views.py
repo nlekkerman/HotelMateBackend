@@ -30,12 +30,7 @@ class HotelViewSet(viewsets.ModelViewSet):
         Use POST /api/hotel/hotels/provision/ instead.
         """
         return Response(
-            {
-                "detail": (
-                    "Hotel creation through this endpoint is disabled. "
-                    "Use POST /api/hotel/hotels/provision/ to provision a new hotel."
-                )
-            },
+            {"detail": "Hotel creation is only available through /api/hotel/hotels/provision/"},
             status=status.HTTP_405_METHOD_NOT_ALLOWED,
         )
 
