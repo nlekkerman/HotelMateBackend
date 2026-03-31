@@ -9,8 +9,13 @@ import logging
 import secrets
 import re
 
+from django.conf import settings
 from django.contrib.auth.models import User
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
 from django.db import transaction
+from django.utils.encoding import force_bytes
+from django.utils.http import urlsafe_base64_encode
 from django.utils.text import slugify
 
 from hotel.models import Hotel
@@ -74,6 +79,44 @@ def generate_registration_packages(hotel_slug: str, count: int) -> list:
             warnings.append(f"Package {i + 1} failed: {str(exc)}")
 
     return results, warnings
+
+
+def _send_admin_setup_email(user, hotel):
+    """
+    Send a password-setup email to the newly provisioned admin.
+    Uses the same token mechanism as PasswordResetConfirmView.
+    Non-critical: logs warning on failure, never raises.
+    """
+    try:
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = default_token_generator.make_token(user)
+        base_url = getattr(settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com')
+        setup_url = f"{base_url}/reset-password/{uid}/{token}/"
+
+        message = (
+            f"Welcome to HotelsMates!\n\n"
+            f"Hello {user.first_name},\n\n"
+            f"You have been set up as the primary administrator for {hotel.name}.\n\n"
+            f"Please set your password by clicking the link below:\n"
+            f"{setup_url}\n\n"
+            f"This link will expire in 24 hours.\n\n"
+            f"Your username: {user.username}\n"
+            f"Hotel: {hotel.name} ({hotel.slug})\n\n"
+            f"Best regards,\n"
+            f"HotelsMates Team"
+        )
+
+        send_mail(
+            subject=f"HotelsMates - Complete your account setup for {hotel.name}",
+            message=message,
+            from_email=f"HotelsMates Team <{settings.EMAIL_HOST_USER}>",
+            recipient_list=[user.email],
+        )
+        logger.info("Sent admin setup email to %s for hotel %s", user.email, hotel.slug)
+        return True
+    except Exception as exc:
+        logger.warning("Failed to send admin setup email to %s: %s", user.email, exc)
+        return False
 
 
 def provision_hotel(validated_data: dict) -> dict:
@@ -142,7 +185,9 @@ def provision_hotel(validated_data: dict) -> dict:
         packages, pkg_warnings = generate_registration_packages(hotel.slug, generate_count)
         warnings.extend(pkg_warnings)
 
-    # TODO: send password-setup email to admin_user (non-blocking)
+    # Send password-setup email to admin
+    if not _send_admin_setup_email(admin_user, hotel):
+        warnings.append("Failed to send admin setup email. Admin can use password reset later.")
 
     return {
         "hotel": hotel,
