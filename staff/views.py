@@ -739,64 +739,128 @@ class GenerateRegistrationPackageAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Create complete registration package via canonical path
+        # Determine how many packages to create (default 1, max 50)
         try:
-            pkg = RegistrationCode.create_package(
-                hotel_slug=hotel_slug, code=code
-            )
-        except ValueError as exc:
+            count = int(request.data.get('count', 1))
+        except (TypeError, ValueError):
+            count = 1
+        count = max(1, min(count, 50))
+
+        # Custom code only valid for single package creation
+        if count > 1 and code:
             return Response(
-                {'error': str(exc)},
+                {'error': 'Custom code cannot be used when generating multiple packages.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        reg_code = RegistrationCode.objects.get(code=pkg['code'])
-        serializer = RegistrationCodeSerializer(reg_code)
+        # Create complete registration package(s) via canonical path
+        packages = []
+        for i in range(count):
+            try:
+                pkg = RegistrationCode.create_package(
+                    hotel_slug=hotel_slug,
+                    code=code if count == 1 else None,
+                )
+                packages.append(pkg)
+            except ValueError as exc:
+                return Response(
+                    {'error': str(exc)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Fetch all created RegistrationCode objects for serialization
+        created_codes = [p['code'] for p in packages]
+        reg_codes = RegistrationCode.objects.filter(
+            code__in=created_codes
+        ).order_by('-created_at')
+        serializer = RegistrationCodeSerializer(reg_codes, many=True)
+
+        # Single package: return flat response for backward compatibility
+        if count == 1:
+            pkg = packages[0]
+            return Response({
+                'registration_code': pkg['code'],
+                'qr_token': pkg['qr_token'],
+                'qr_code_url': pkg['qr_code_url'],
+                'registration_url': pkg['registration_url'],
+                'hotel_slug': pkg['hotel_slug'],
+                'hotel_name': hotel.name,
+                'message': (
+                    'Registration package created successfully. '
+                    'Provide both the registration code and QR code '
+                    'to the new employee.'
+                ),
+                'package_details': serializer.data[0]
+            }, status=status.HTTP_201_CREATED)
+
+        # Multiple packages: return list response
         return Response({
-            'registration_code': pkg['code'],
-            'qr_token': pkg['qr_token'],
-            'qr_code_url': pkg['qr_code_url'],
-            'registration_url': pkg['registration_url'],
-            'hotel_slug': pkg['hotel_slug'],
+            'hotel_slug': hotel_slug,
             'hotel_name': hotel.name,
+            'count': len(packages),
             'message': (
-                'Registration package created successfully. '
-                'Provide both the registration code and QR code '
-                'to the new employee.'
+                f'{len(packages)} registration packages created successfully.'
             ),
-            'package_details': serializer.data
+            'packages': serializer.data
         }, status=status.HTTP_201_CREATED)
 
     def get(self, request):
         """
-        List all registration codes for the authenticated user's hotel
+        List all registration codes for the authenticated user's hotel.
+        Requires staff_admin or super_staff_admin (or superuser).
         """
-        try:
-            staff = request.user.staff_profile
-            hotel_slug = staff.hotel.slug
-
-            # Filter codes by hotel
+        # Superuser bypass
+        if request.user.is_superuser:
+            hotel_slug = request.query_params.get('hotel_slug')
+            if not hotel_slug:
+                return Response(
+                    {'error': 'hotel_slug query param required for superuser.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            try:
+                hotel = Hotel.objects.get(slug=hotel_slug)
+            except Hotel.DoesNotExist:
+                return Response(
+                    {'error': 'Hotel not found.'},
+                    status=status.HTTP_404_NOT_FOUND
+                )
             codes = RegistrationCode.objects.filter(
                 hotel_slug=hotel_slug
             ).order_by('-created_at')
-
             serializer = RegistrationCodeSerializer(codes, many=True)
             return Response({
                 'hotel_slug': hotel_slug,
-                'hotel_name': staff.hotel.name,
-                'registration_codes': serializer.data
+                'hotel_name': hotel.name,
+                'count': codes.count(),
+                'packages': serializer.data
             }, status=status.HTTP_200_OK)
 
+        try:
+            staff = request.user.staff_profile
         except Staff.DoesNotExist:
             return Response(
-                {
-                    'error': (
-                        'Only staff members can '
-                        'view registration codes.'
-                    )
-                },
+                {'error': 'Only staff members can view registration codes.'},
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        if staff.access_level not in ('staff_admin', 'super_staff_admin'):
+            return Response(
+                {'error': 'You do not have permission to view registration codes.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        hotel_slug = staff.hotel.slug
+        codes = RegistrationCode.objects.filter(
+            hotel_slug=hotel_slug
+        ).order_by('-created_at')
+
+        serializer = RegistrationCodeSerializer(codes, many=True)
+        return Response({
+            'hotel_slug': hotel_slug,
+            'hotel_name': staff.hotel.name,
+            'count': codes.count(),
+            'packages': serializer.data
+        }, status=status.HTTP_200_OK)
 
 
 class PasswordResetRequestView(APIView):
