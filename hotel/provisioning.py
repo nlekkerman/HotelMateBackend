@@ -6,7 +6,6 @@ with its primary admin user, staff profile, and optional registration
 packages. All provisioning flows must go through provision_hotel().
 """
 import logging
-import secrets
 import re
 
 from django.conf import settings
@@ -45,9 +44,13 @@ def derive_username(email: str, hotel_slug: str) -> str:
 def generate_registration_packages(hotel_slug: str, count: int) -> list:
     """
     Generate *count* registration packages (RegistrationCode + QR token)
-    for the given hotel. Uses cryptographically-secure random generation.
+    for the given hotel.
 
-    Returns list of dicts with code/qr_token/hotel_slug.
+    Delegates all code/token/QR creation to the canonical
+    RegistrationCode.create_package() class method.
+
+    Returns (results, warnings) where results is a list of dicts with
+    code/qr_token/qr_code_url/registration_url/hotel_slug.
     Partial failures are captured as warnings.
     """
     results = []
@@ -55,25 +58,8 @@ def generate_registration_packages(hotel_slug: str, count: int) -> list:
 
     for i in range(count):
         try:
-            code = secrets.token_hex(4).upper()  # 8-char hex
-            while RegistrationCode.objects.filter(code=code).exists():
-                code = secrets.token_hex(4).upper()
-
-            qr_token = secrets.token_urlsafe(32)
-            while RegistrationCode.objects.filter(qr_token=qr_token).exists():
-                qr_token = secrets.token_urlsafe(32)
-
-            reg = RegistrationCode.objects.create(
-                code=code,
-                hotel_slug=hotel_slug,
-                qr_token=qr_token,
-            )
-            reg.generate_qr_code()
-            results.append({
-                "code": reg.code,
-                "qr_token": reg.qr_token,
-                "qr_code_url": reg.qr_code_url,
-            })
+            pkg = RegistrationCode.create_package(hotel_slug)
+            results.append(pkg)
         except Exception as exc:
             logger.warning("Registration package %d/%d failed: %s", i + 1, count, exc)
             warnings.append(f"Package {i + 1} failed: {str(exc)}")

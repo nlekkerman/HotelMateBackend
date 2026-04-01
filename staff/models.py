@@ -1,10 +1,15 @@
-from django.contrib.auth.models import User
-from django.db import models
-from cloudinary.models import CloudinaryField
-import secrets
-import qrcode
+import logging
 from io import BytesIO
+
 import cloudinary.uploader
+import qrcode
+import secrets
+from django.conf import settings
+from django.contrib.auth.models import User
+from django.db import models, transaction
+from cloudinary.models import CloudinaryField
+
+logger = logging.getLogger(__name__)
 
 
 class NavigationItem(models.Model):
@@ -269,26 +274,40 @@ class RegistrationCode(models.Model):
             if self.used_by else ""
         )
         return f"{self.code} - {self.hotel_slug}{used_info}"
-    
-    def generate_qr_token(self):
-        """Generate a unique token for QR code"""
+
+    @property
+    def registration_url(self):
+        """Build the frontend registration URL for this code."""
         if not self.qr_token:
-            # Generate a cryptographically secure token
-            self.qr_token = secrets.token_urlsafe(32)
-            self.save()
+            return None
+        base_url = getattr(
+            settings, 'FRONTEND_BASE_URL', 'https://hotelsmates.com'
+        )
+        return (
+            f"{base_url}/register?"
+            f"token={self.qr_token}&hotel={self.hotel_slug}"
+        )
+
+    def generate_qr_token(self):
+        """Generate a unique, collision-safe token for QR code."""
+        if not self.qr_token:
+            token = secrets.token_urlsafe(32)
+            while RegistrationCode.objects.filter(
+                qr_token=token
+            ).exclude(pk=self.pk).exists():
+                token = secrets.token_urlsafe(32)
+            self.qr_token = token
+            self.save(update_fields=['qr_token'])
         return self.qr_token
     
     def generate_qr_code(self):
-        """Generate QR code image and upload to Cloudinary"""
+        """Generate QR code image and upload to Cloudinary."""
         # Ensure we have a token first
         if not self.qr_token:
             self.generate_qr_token()
         
-        # Build the registration URL
-        url = (
-            f"https://hotelsmates.com/register?"
-            f"token={self.qr_token}&hotel={self.hotel_slug}"
-        )
+        # Build the registration URL using settings
+        url = self.registration_url
         
         # Generate QR code
         qr = qrcode.make(url)
@@ -306,9 +325,61 @@ class RegistrationCode(models.Model):
         
         # Save the URL
         self.qr_code_url = upload_result['secure_url']
-        self.save()
+        self.save(update_fields=['qr_code_url'])
         
         return self.qr_code_url
+
+    @classmethod
+    def create_package(cls, hotel_slug, code=None):
+        """
+        Canonical factory for a complete registration package.
+
+        Creates a RegistrationCode with collision-safe code and token,
+        generates the QR image, and uploads it to Cloudinary — all inside
+        a transaction so no partial state is persisted on failure.
+
+        Args:
+            hotel_slug: Slug identifying the hotel.
+            code: Optional caller-supplied code. If None, one is generated.
+
+        Returns:
+            dict with code, qr_token, qr_code_url, registration_url,
+            hotel_slug.
+
+        Raises:
+            ValueError: if a caller-supplied code already exists.
+            Exception: on QR generation / Cloudinary failures (the DB row
+                       is rolled back automatically).
+        """
+        if code:
+            if cls.objects.filter(code=code).exists():
+                raise ValueError(
+                    f"Registration code '{code}' already exists."
+                )
+        else:
+            code = secrets.token_hex(4).upper()
+            while cls.objects.filter(code=code).exists():
+                code = secrets.token_hex(4).upper()
+
+        qr_token = secrets.token_urlsafe(32)
+        while cls.objects.filter(qr_token=qr_token).exists():
+            qr_token = secrets.token_urlsafe(32)
+
+        with transaction.atomic():
+            reg = cls.objects.create(
+                code=code,
+                hotel_slug=hotel_slug,
+                qr_token=qr_token,
+            )
+            reg.generate_qr_code()
+
+        return {
+            "code": reg.code,
+            "qr_token": reg.qr_token,
+            "qr_code_url": reg.qr_code_url,
+            "registration_url": reg.registration_url,
+            "hotel_slug": reg.hotel_slug,
+        }
 
 
 class UserProfile(models.Model):

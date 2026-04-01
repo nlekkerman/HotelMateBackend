@@ -301,10 +301,7 @@ class RegistrationCodeAdmin(admin.ModelAdmin):
     def registration_url(self, obj):
         """Display the registration URL that QR code points to"""
         if obj.qr_token:
-            url = (
-                f"https://hotelsmates.com/register?"
-                f"token={obj.qr_token}&hotel={obj.hotel_slug}"
-            )
+            url = obj.registration_url
             return format_html(
                 '<div style="background:#e7f3ff; padding:12px; '
                 'border-radius:4px; border-left:4px solid #2196F3;">'

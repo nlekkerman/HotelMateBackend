@@ -632,18 +632,22 @@ class StaffRegisterAPIView(APIView):
                 status=400
             )
 
-        user = User.objects.create(username=username)
-        user.set_password(password)
-        user.save()
+        from django.db import transaction
+        with transaction.atomic():
+            user = User.objects.create(username=username)
+            user.set_password(password)
+            user.save()
 
-        # Create user profile linked to registration code
-        UserProfile.objects.create(user=user, registration_code=reg_code)
+            # Create user profile linked to registration code
+            UserProfile.objects.create(
+                user=user, registration_code=reg_code
+            )
 
-        # Mark the registration code as used (don't delete yet)
-        # Code will be deleted when manager creates the staff profile
-        reg_code.used_by = user
-        reg_code.used_at = timezone.now()
-        reg_code.save()
+            # Mark the registration code as used (don't delete yet)
+            # Code will be deleted when manager creates the staff profile
+            reg_code.used_by = user
+            reg_code.used_at = timezone.now()
+            reg_code.save()
 
         # Create authentication token
         token, _ = Token.objects.get_or_create(user=user)
@@ -735,40 +739,25 @@ class GenerateRegistrationPackageAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # Create or get registration code
-        if code:
-            # Check if code already exists
-            if RegistrationCode.objects.filter(code=code).exists():
-                return Response(
-                    {'error': 'Registration code already exists.'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            reg_code = RegistrationCode.objects.create(
-                code=code,
-                hotel_slug=hotel_slug
+        # Create complete registration package via canonical path
+        try:
+            pkg = RegistrationCode.create_package(
+                hotel_slug=hotel_slug, code=code
             )
-        else:
-            # Generate random code using cryptographically secure source
-            import secrets
-            code = secrets.token_hex(4).upper()
-            while RegistrationCode.objects.filter(code=code).exists():
-                code = secrets.token_hex(4).upper()
-            reg_code = RegistrationCode.objects.create(
-                code=code,
-                hotel_slug=hotel_slug
+        except ValueError as exc:
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Generate QR token and QR code
-        reg_code.generate_qr_token()
-        qr_code_url = reg_code.generate_qr_code()
-
-        # Return the registration package
+        reg_code = RegistrationCode.objects.get(code=pkg['code'])
         serializer = RegistrationCodeSerializer(reg_code)
         return Response({
-            'registration_code': reg_code.code,
-            'qr_token': reg_code.qr_token,
-            'qr_code_url': qr_code_url,
-            'hotel_slug': reg_code.hotel_slug,
+            'registration_code': pkg['code'],
+            'qr_token': pkg['qr_token'],
+            'qr_code_url': pkg['qr_code_url'],
+            'registration_url': pkg['registration_url'],
+            'hotel_slug': pkg['hotel_slug'],
             'hotel_name': hotel.name,
             'message': (
                 'Registration package created successfully. '
