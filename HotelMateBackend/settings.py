@@ -39,6 +39,9 @@ EMAIL_HOST_USER = env('EMAIL_HOST_USER')
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = f'HotelsMates <{EMAIL_HOST_USER}>'
 
+# Frontend URL used for registration links, QR codes, password resets, etc.
+FRONTEND_BASE_URL = env('FRONTEND_BASE_URL', default='https://hotelsmates.com')
+
 
 # Application definition
 INSTALLED_APPS = [

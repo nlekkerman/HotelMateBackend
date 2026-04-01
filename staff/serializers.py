@@ -519,14 +519,32 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
 
 class RegistrationCodeSerializer(serializers.ModelSerializer):
     """Serializer for RegistrationCode with QR code info"""
-    
+    registration_url = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
     class Meta:
         model = RegistrationCode
         fields = [
             'id', 'code', 'hotel_slug', 'qr_token',
-            'qr_code_url', 'created_at', 'used_at', 'used_by'
+            'qr_code_url', 'registration_url',
+            'created_at', 'used_at', 'used_by', 'status'
         ]
         read_only_fields = [
             'id', 'qr_token', 'qr_code_url',
             'created_at', 'used_at', 'used_by'
         ]
+
+    def get_registration_url(self, obj):
+        return obj.registration_url
+
+    def get_status(self, obj):
+        if obj.used_by or obj.used_at:
+            return 'used'
+        return 'unused'
+
+
+class EmailRegistrationPackageSerializer(serializers.Serializer):
+    """Validates the request body for emailing a registration package."""
+    email = serializers.EmailField()
+    subject = serializers.CharField(required=False, allow_blank=True)
+    message = serializers.CharField(required=False, allow_blank=True)

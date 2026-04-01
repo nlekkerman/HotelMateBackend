@@ -1488,3 +1488,226 @@ class SaveFCMTokenView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+
+# ---------------------------------------------------------------------------
+# Registration Package Delivery Views (email + print)
+# ---------------------------------------------------------------------------
+
+class _RegistrationPackageDeliveryMixin:
+    """
+    Shared permission / lookup logic for package delivery endpoints.
+
+    Resolves the RegistrationCode by pk, enforces same-hotel scoping,
+    and requires staff_admin or super_staff_admin (or Django superuser).
+    """
+
+    def _resolve_package(self, request, pk):
+        """
+        Returns (registration_code, error_response).
+        If error_response is not None the caller should return it immediately.
+        """
+        try:
+            package = RegistrationCode.objects.get(pk=pk)
+        except RegistrationCode.DoesNotExist:
+            return None, Response(
+                {'error': 'Registration package not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Superuser bypass (consistent with project convention)
+        if request.user.is_superuser:
+            return package, None
+
+        try:
+            staff = request.user.staff_profile
+        except Staff.DoesNotExist:
+            return None, Response(
+                {'error': 'Only staff members can access registration packages.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if staff.hotel.slug != package.hotel_slug:
+            return None, Response(
+                {'error': 'You do not have access to this package.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if staff.access_level not in ('staff_admin', 'super_staff_admin'):
+            return None, Response(
+                {'error': 'You do not have permission to perform this action.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        return package, None
+
+
+class EmailRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView):
+    """
+    POST /api/staff/registration-package/<id>/email/
+
+    Email an existing registration package to a recipient.
+    Does NOT create or mutate the package.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, pk):
+        from .serializers import EmailRegistrationPackageSerializer
+        from .services import (
+            ensure_package_qr_ready,
+            build_registration_package_payload,
+        )
+
+        package, err = self._resolve_package(request, pk)
+        if err:
+            return err
+
+        # Validate request body
+        serializer = EmailRegistrationPackageSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        recipient = serializer.validated_data['email']
+        custom_subject = serializer.validated_data.get('subject', '').strip()
+        custom_message = serializer.validated_data.get('message', '').strip()
+
+        warnings = []
+
+        # Block emailing used packages
+        if package.used_by or package.used_at:
+            return Response(
+                {'error': 'This registration package has already been used and cannot be emailed.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Ensure QR is ready
+        qr_ok, qr_warnings = ensure_package_qr_ready(package)
+        warnings.extend(qr_warnings)
+        if not qr_ok:
+            return Response(
+                {'error': 'Unable to prepare QR code for this package.', 'warnings': warnings},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Reload after potential QR generation
+        package.refresh_from_db()
+        payload = build_registration_package_payload(package)
+        hotel_name = payload['hotel_name']
+        registration_url = payload['registration_url']
+
+        # Build email content
+        subject = custom_subject or f'Staff Registration Package — {hotel_name}'
+
+        intro = custom_message or (
+            f'You have been invited to register as a staff member at {hotel_name}.'
+        )
+
+        body_lines = [
+            intro,
+            '',
+            'To complete your registration:',
+            '1. Open the registration link below or scan the QR code.',
+            '2. Enter the registration code if prompted.',
+            '3. Create your username and password.',
+            '4. Wait for manager approval before first login.',
+            '',
+            f'Registration Link: {registration_url}',
+            f'Registration Code: {payload["code"]}',
+        ]
+        if payload.get('qr_code_url'):
+            body_lines.append(f'QR Code Image: {payload["qr_code_url"]}')
+
+        body = '\n'.join(body_lines)
+
+        # Send
+        logger.info(
+            'Sending registration package email: package=%s hotel=%s recipient=%s',
+            package.id,
+            package.hotel_slug,
+            recipient,
+        )
+        try:
+            send_mail(
+                subject=subject,
+                message=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[recipient],
+                fail_silently=False,
+            )
+        except Exception as exc:
+            logger.exception(
+                'Email send failed: package=%s recipient=%s error=%s',
+                package.id,
+                recipient,
+                exc,
+            )
+            return Response(
+                {'error': 'Failed to send email. Please try again later.'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        logger.info(
+            'Registration package emailed successfully: package=%s recipient=%s',
+            package.id,
+            recipient,
+        )
+
+        return Response({
+            'success': True,
+            'package': {
+                'id': payload['id'],
+                'code': payload['code'],
+                'qr_code_url': payload['qr_code_url'],
+                'registration_url': payload['registration_url'],
+                'hotel_slug': payload['hotel_slug'],
+            },
+            'sent_to': recipient,
+            'warnings': warnings,
+        }, status=status.HTTP_200_OK)
+
+
+class PrintRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView):
+    """
+    GET /api/staff/registration-package/<id>/print/
+
+    Return structured printable data for an existing registration package.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, pk):
+        from .services import (
+            ensure_package_qr_ready,
+            build_registration_package_payload,
+        )
+
+        package, err = self._resolve_package(request, pk)
+        if err:
+            return err
+
+        warnings = []
+
+        # Ensure QR is ready (even for used packages — print is allowed for audit)
+        qr_ok, qr_warnings = ensure_package_qr_ready(package)
+        warnings.extend(qr_warnings)
+        if not qr_ok:
+            return Response(
+                {'error': 'Unable to prepare QR code for this package.', 'warnings': warnings},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        package.refresh_from_db()
+        payload = build_registration_package_payload(package)
+
+        return Response({
+            'package': payload,
+            'print_meta': {
+                'title': 'Staff Registration Package',
+                'instructions': [
+                    'Scan the QR code or open the registration link.',
+                    'Enter the registration code if prompted.',
+                    'Create your username and password.',
+                    'Wait for manager approval before first login.',
+                ],
+            },
+            'warnings': warnings,
+        }, status=status.HTTP_200_OK)
+
