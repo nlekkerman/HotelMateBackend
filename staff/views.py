@@ -773,33 +773,16 @@ class GenerateRegistrationPackageAPIView(APIView):
         reg_codes = RegistrationCode.objects.filter(
             code__in=created_codes
         ).order_by('-created_at')
-        serializer = RegistrationCodeSerializer(reg_codes, many=True)
+        serializer = RegistrationCodeSerializer(
+            reg_codes, many=True, context={'hotel': hotel}
+        )
 
-        # Single package: return flat response for backward compatibility
-        if count == 1:
-            pkg = packages[0]
-            return Response({
-                'registration_code': pkg['code'],
-                'qr_token': pkg['qr_token'],
-                'qr_code_url': pkg['qr_code_url'],
-                'registration_url': pkg['registration_url'],
-                'hotel_slug': pkg['hotel_slug'],
-                'hotel_name': hotel.name,
-                'message': (
-                    'Registration package created successfully. '
-                    'Provide both the registration code and QR code '
-                    'to the new employee.'
-                ),
-                'package_details': serializer.data[0]
-            }, status=status.HTTP_201_CREATED)
-
-        # Multiple packages: return list response
         return Response({
             'hotel_slug': hotel_slug,
             'hotel_name': hotel.name,
             'count': len(packages),
             'message': (
-                f'{len(packages)} registration packages created successfully.'
+                f'{len(packages)} registration package(s) created successfully.'
             ),
             'packages': serializer.data
         }, status=status.HTTP_201_CREATED)
@@ -827,7 +810,9 @@ class GenerateRegistrationPackageAPIView(APIView):
             codes = RegistrationCode.objects.filter(
                 hotel_slug=hotel_slug
             ).order_by('-created_at')
-            serializer = RegistrationCodeSerializer(codes, many=True)
+            serializer = RegistrationCodeSerializer(
+                codes, many=True, context={'hotel': hotel}
+            )
             return Response({
                 'hotel_slug': hotel_slug,
                 'hotel_name': hotel.name,
@@ -849,15 +834,17 @@ class GenerateRegistrationPackageAPIView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        hotel_slug = staff.hotel.slug
+        hotel = staff.hotel
         codes = RegistrationCode.objects.filter(
-            hotel_slug=hotel_slug
+            hotel_slug=hotel.slug
         ).order_by('-created_at')
 
-        serializer = RegistrationCodeSerializer(codes, many=True)
+        serializer = RegistrationCodeSerializer(
+            codes, many=True, context={'hotel': hotel}
+        )
         return Response({
-            'hotel_slug': hotel_slug,
-            'hotel_name': staff.hotel.name,
+            'hotel_slug': hotel.slug,
+            'hotel_name': hotel.name,
             'count': codes.count(),
             'packages': serializer.data
         }, status=status.HTTP_200_OK)
@@ -1616,23 +1603,20 @@ class EmailRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
 
     def post(self, request, pk):
         from .serializers import EmailRegistrationPackageSerializer
-        from .services import (
-            ensure_package_qr_ready,
-            build_registration_package_payload,
-        )
+        from .services import ensure_package_qr_ready, serialize_package
 
         package, err = self._resolve_package(request, pk)
         if err:
             return err
 
         # Validate request body
-        serializer = EmailRegistrationPackageSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        body_serializer = EmailRegistrationPackageSerializer(data=request.data)
+        if not body_serializer.is_valid():
+            return Response(body_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        recipient = serializer.validated_data['email']
-        custom_subject = serializer.validated_data.get('subject', '').strip()
-        custom_message = serializer.validated_data.get('message', '').strip()
+        recipient = body_serializer.validated_data['email']
+        custom_subject = body_serializer.validated_data.get('subject', '').strip()
+        custom_message = body_serializer.validated_data.get('message', '').strip()
 
         warnings = []
 
@@ -1652,9 +1636,9 @@ class EmailRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Reload after potential QR generation
+        # Reload after potential QR generation and get canonical payload
         package.refresh_from_db()
-        payload = build_registration_package_payload(package)
+        payload = serialize_package(package)
         hotel_name = payload['hotel_name']
         registration_url = payload['registration_url']
 
@@ -1717,13 +1701,7 @@ class EmailRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
 
         return Response({
             'success': True,
-            'package': {
-                'id': payload['id'],
-                'code': payload['code'],
-                'qr_code_url': payload['qr_code_url'],
-                'registration_url': payload['registration_url'],
-                'hotel_slug': payload['hotel_slug'],
-            },
+            'package': payload,
             'sent_to': recipient,
             'warnings': warnings,
         }, status=status.HTTP_200_OK)
@@ -1738,10 +1716,7 @@ class PrintRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, pk):
-        from .services import (
-            ensure_package_qr_ready,
-            build_registration_package_payload,
-        )
+        from .services import ensure_package_qr_ready, serialize_package
 
         package, err = self._resolve_package(request, pk)
         if err:
@@ -1759,7 +1734,7 @@ class PrintRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
             )
 
         package.refresh_from_db()
-        payload = build_registration_package_payload(package)
+        payload = serialize_package(package)
 
         return Response({
             'package': payload,

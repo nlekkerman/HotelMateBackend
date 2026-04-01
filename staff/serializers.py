@@ -518,14 +518,18 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
 
 
 class RegistrationCodeSerializer(serializers.ModelSerializer):
-    """Serializer for RegistrationCode with QR code info"""
+    """
+    Canonical serializer for RegistrationCode.
+    Every endpoint that returns package data MUST use this serializer.
+    """
     registration_url = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
+    hotel_name = serializers.SerializerMethodField()
 
     class Meta:
         model = RegistrationCode
         fields = [
-            'id', 'code', 'hotel_slug', 'qr_token',
+            'id', 'code', 'hotel_slug', 'hotel_name', 'qr_token',
             'qr_code_url', 'registration_url',
             'created_at', 'used_at', 'used_by', 'status'
         ]
@@ -541,6 +545,19 @@ class RegistrationCodeSerializer(serializers.ModelSerializer):
         if obj.used_by or obj.used_at:
             return 'used'
         return 'unused'
+
+    def get_hotel_name(self, obj):
+        # Use prefetched hotel from context if available, else DB lookup
+        hotel = self.context.get('hotel')
+        if hotel and hotel.slug == obj.hotel_slug:
+            return hotel.name
+        from hotel.models import Hotel
+        try:
+            return Hotel.objects.values_list(
+                'name', flat=True
+            ).get(slug=obj.hotel_slug)
+        except Hotel.DoesNotExist:
+            return obj.hotel_slug
 
 
 class EmailRegistrationPackageSerializer(serializers.Serializer):
