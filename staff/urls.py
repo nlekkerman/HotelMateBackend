@@ -125,5 +125,8 @@ urlpatterns = [
         CreateStaffFromUserAPIView.as_view(),
         name='create-staff'
     ),
+    # Hotel-scoped department and role endpoints
+    path('<slug:hotel_slug>/', include(departments_router.urls)),
+    path('<slug:hotel_slug>/', include(roles_router.urls)),
     path('<slug:hotel_slug>/', include(router.urls)),
 ]
