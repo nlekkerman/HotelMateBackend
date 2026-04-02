@@ -2335,11 +2335,11 @@ class AttendanceSettings(models.Model):
         super().save(*args, **kwargs)
         
         if is_new and not self.face_attendance_departments:
-            # Populate with all existing departments for this hotel (through staff)
+            # Populate with all existing departments for this hotel
             from staff.models import Department
             dept_ids = list(Department.objects.filter(
-                staff_members__hotel=self.hotel
-            ).distinct().values_list('id', flat=True))
+                hotel=self.hotel
+            ).values_list('id', flat=True))
             if dept_ids:
                 self.face_attendance_departments = dept_ids
                 super().save(update_fields=['face_attendance_departments'])
@@ -2355,8 +2355,8 @@ class AttendanceSettings(models.Model):
         """Get all department IDs for this hotel"""
         from staff.models import Department
         return list(Department.objects.filter(
-            staff_members__hotel=self.hotel
-        ).distinct().values_list('id', flat=True))
+            hotel=self.hotel
+        ).values_list('id', flat=True))
     
     def add_department_to_face_attendance(self, department_id):
         """Add a department ID to face attendance allowed departments"""

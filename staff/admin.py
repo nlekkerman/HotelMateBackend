@@ -40,19 +40,20 @@ class NavigationItemAdmin(admin.ModelAdmin):
 
 @admin.register(Department)
 class DepartmentAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'description')
+    list_display = ('name', 'slug', 'hotel', 'description')
+    list_filter = ('hotel',)
     prepopulated_fields = {'slug': ('name',)}
-    search_fields = ('name', 'description')
-    ordering = ('name',)
+    search_fields = ('name', 'description', 'hotel__name')
+    ordering = ('hotel', 'name')
 
 
 @admin.register(Role)
 class RoleAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'department', 'description')
-    list_filter = ('department',)
-    search_fields = ('name', 'slug', 'description', 'department__name')
+    list_display = ('name', 'slug', 'hotel', 'department', 'description')
+    list_filter = ('hotel', 'department')
+    search_fields = ('name', 'slug', 'description', 'department__name', 'hotel__name')
     prepopulated_fields = {'slug': ('name',)}
-    ordering = ('department__name', 'name')
+    ordering = ('hotel', 'department__name', 'name')
 
 
 @admin.register(Staff)

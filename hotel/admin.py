@@ -1004,11 +1004,11 @@ class AttendanceSettingsAdmin(admin.ModelAdmin):
         form = super().get_form(request, obj, **kwargs)
         if 'face_attendance_departments' in form.base_fields:
             if obj and obj.hotel:
-                # Show available departments for this hotel (through staff members)
+                # Show available departments for this hotel
                 from staff.models import Department
                 departments = Department.objects.filter(
-                    staff_members__hotel=obj.hotel
-                ).distinct()
+                    hotel=obj.hotel
+                )
                 dept_info = [f"{dept.name} (ID: {dept.id})" for dept in departments]
                 help_text = (
                     f'Available departments for {obj.hotel.name}: '

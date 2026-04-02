@@ -64,8 +64,15 @@ class NavigationItem(models.Model):
 
 
 class Department(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(max_length=100, unique=True)
+    hotel = models.ForeignKey(
+        'hotel.Hotel',
+        on_delete=models.CASCADE,
+        related_name='departments',
+        null=True,
+        blank=True,
+    )
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True, null=True)
 
     def __str__(self):
@@ -73,9 +80,17 @@ class Department(models.Model):
 
     class Meta:
         ordering = ['name']
+        unique_together = [['hotel', 'name'], ['hotel', 'slug']]
 
 
 class Role(models.Model):
+    hotel = models.ForeignKey(
+        'hotel.Hotel',
+        on_delete=models.CASCADE,
+        related_name='roles',
+        null=True,
+        blank=True,
+    )
     department = models.ForeignKey(
         Department,
         on_delete=models.CASCADE,
@@ -83,8 +98,8 @@ class Role(models.Model):
         null=True,
         blank=True
     )
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(max_length=100, unique=True)
+    name = models.CharField(max_length=100)
+    slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True, null=True)
 
     def __str__(self):
@@ -92,6 +107,7 @@ class Role(models.Model):
 
     class Meta:
         ordering = ['name']
+        unique_together = [['hotel', 'name'], ['hotel', 'slug']]
 
 
 class Staff(models.Model):

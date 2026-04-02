@@ -1,4 +1,5 @@
 from django.contrib.auth.models import User
+from django.utils.text import slugify
 from rest_framework import serializers
 from .models import (
     Staff, Department, Role, RegistrationCode,
@@ -28,15 +29,42 @@ class NavigationItemSerializer(serializers.ModelSerializer):
 
 
 class DepartmentSerializer(serializers.ModelSerializer):
+    slug = serializers.SlugField(read_only=True)
+
     class Meta:
         model = Department
         fields = ['id', 'name', 'slug', 'description']
 
+    def create(self, validated_data):
+        validated_data['slug'] = slugify(validated_data['name'])
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'name' in validated_data:
+            validated_data['slug'] = slugify(validated_data['name'])
+        return super().update(instance, validated_data)
+
 
 class RoleSerializer(serializers.ModelSerializer):
+    slug = serializers.SlugField(read_only=True)
+    department_slug = serializers.SlugRelatedField(
+        source='department', slug_field='slug',
+        read_only=True,
+    )
+
     class Meta:
         model = Role
-        fields = ['id', 'name', 'slug', 'description']
+        fields = ['id', 'name', 'slug', 'description', 'department', 'department_slug']
+        extra_kwargs = {'department': {'required': False, 'allow_null': True}}
+
+    def create(self, validated_data):
+        validated_data['slug'] = slugify(validated_data['name'])
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if 'name' in validated_data:
+            validated_data['slug'] = slugify(validated_data['name'])
+        return super().update(instance, validated_data)
 
 
 class StaffMinimalSerializer(serializers.ModelSerializer):

@@ -55,16 +55,14 @@ class StaffMetadataView(APIView):
     def get(self, request, hotel_slug=None):
 
         if hotel_slug:
-            # Fix: Return only departments that have active staff in this hotel
-            # This ensures the dropdown shows all ~12 departments used by the hotel
+            # Return departments and roles belonging to this hotel
             departments = Department.objects.filter(
-                staff_members__hotel__slug=hotel_slug,
-                staff_members__is_active=True
-            ).distinct()
+                hotel__slug=hotel_slug
+            )
 
             roles = Role.objects.filter(
-                staff_members__hotel__slug=hotel_slug
-            ).distinct()
+                hotel__slug=hotel_slug
+            )
         else:
             departments = Department.objects.all()
             roles = Role.objects.all()
@@ -368,17 +366,19 @@ class StaffViewSet(viewsets.ModelViewSet):
         if not department_param:
             return Response({"detail": "Department query param is required."}, status=400)
 
-        # Get department by id or slug
+        # Get department by id or slug, scoped to hotel
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
         if department_param.isdigit():
-            department = Department.objects.filter(id=int(department_param)).first()
+            department = Department.objects.filter(
+                id=int(department_param), hotel=hotel
+            ).first()
         else:
-            department = Department.objects.filter(slug=department_param).first()
+            department = Department.objects.filter(
+                slug=department_param, hotel=hotel
+            ).first()
 
         if not department:
             return Response({"detail": "Department not found."}, status=404)
-
-        # Get hotel instance from URL param
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
 
         # Directly filter staff
         staff_qs = Staff.objects.filter(hotel=hotel, department=department)
@@ -1126,7 +1126,7 @@ class CreateStaffFromUserAPIView(APIView):
         role = None
         if department_id:
             try:
-                department = Department.objects.get(id=department_id)
+                department = Department.objects.get(id=department_id, hotel=hotel)
             except Department.DoesNotExist:
                 return Response(
                     {'error': 'Department not found.'},
@@ -1135,7 +1135,7 @@ class CreateStaffFromUserAPIView(APIView):
 
         if role_id:
             try:
-                role = Role.objects.get(id=role_id)
+                role = Role.objects.get(id=role_id, hotel=hotel)
             except Role.DoesNotExist:
                 return Response(
                     {'error': 'Role not found.'},
@@ -1200,8 +1200,9 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing departments.
     List, create, retrieve, update, delete departments.
-    Read: any authenticated user (scoped to hotel's departments).
-    Write: superuser only.
+    Scoped to hotel via URL hotel_slug.
+    Read: any authenticated user.
+    Write: staff_admin / super_staff_admin of the hotel, or superuser.
     """
     queryset = Department.objects.all()
     serializer_class = DepartmentSerializer
@@ -1218,18 +1219,78 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [permissions.IsAuthenticated()]
-        return [IsSuperUser()]
+        return [permissions.IsAuthenticated()]
+
+    def check_write_permission(self, hotel):
+        """Verify user can write departments for this hotel."""
+        user = self.request.user
+        if user.is_superuser:
+            return
+        if hasattr(user, 'staff_profile'):
+            staff = user.staff_profile
+            if staff.hotel_id == hotel.id and staff.access_level in (
+                'staff_admin', 'super_staff_admin'
+            ):
+                return
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("Only hotel admins can manage departments.")
+
+    def _get_hotel(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if hotel_slug:
+            return Hotel.objects.get(slug=hotel_slug)
+        if self.request.user.is_superuser:
+            return None
+        if hasattr(self.request.user, 'staff_profile'):
+            return self.request.user.staff_profile.hotel
+        return None
 
     def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if hotel_slug:
+            return Department.objects.filter(hotel__slug=hotel_slug)
         user = self.request.user
         if user.is_superuser:
             return Department.objects.all()
         if hasattr(user, 'staff_profile'):
-            hotel = user.staff_profile.hotel
-            return Department.objects.filter(
-                staff_members__hotel=hotel
-            ).distinct()
+            return Department.objects.filter(hotel=user.staff_profile.hotel)
         return Department.objects.none()
+
+    def perform_create(self, serializer):
+        hotel = self._get_hotel()
+        if hotel:
+            self.check_write_permission(hotel)
+        serializer.save(hotel=hotel)
+        trigger_department_role_update(
+            self.kwargs.get('hotel_slug', ''),
+            'department',
+            serializer.data,
+            'created',
+        )
+
+    def perform_update(self, serializer):
+        hotel = serializer.instance.hotel
+        if hotel:
+            self.check_write_permission(hotel)
+        serializer.save()
+        trigger_department_role_update(
+            self.kwargs.get('hotel_slug', ''),
+            'department',
+            serializer.data,
+            'updated',
+        )
+
+    def perform_destroy(self, instance):
+        if instance.hotel:
+            self.check_write_permission(instance.hotel)
+        data = {'id': instance.id, 'name': instance.name, 'slug': instance.slug}
+        instance.delete()
+        trigger_department_role_update(
+            self.kwargs.get('hotel_slug', ''),
+            'department',
+            data,
+            'deleted',
+        )
 
 
 class RoleViewSet(viewsets.ModelViewSet):
@@ -1237,8 +1298,9 @@ class RoleViewSet(viewsets.ModelViewSet):
     ViewSet for managing roles.
     List, create, retrieve, update, delete roles.
     Filter by department using ?department_slug=<slug>
-    Read: any authenticated user (scoped to hotel's roles).
-    Write: superuser only.
+    Scoped to hotel via URL hotel_slug.
+    Read: any authenticated user.
+    Write: staff_admin / super_staff_admin of the hotel, or superuser.
     """
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
@@ -1257,33 +1319,91 @@ class RoleViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in ['list', 'retrieve']:
             return [permissions.IsAuthenticated()]
-        return [IsSuperUser()]
-    
-    def get_queryset(self):
-        """
-        Scope roles to hotel via staff membership; supports department_slug filter.
-        """
+        return [permissions.IsAuthenticated()]
+
+    def check_write_permission(self, hotel):
+        """Verify user can write roles for this hotel."""
         user = self.request.user
         if user.is_superuser:
-            queryset = Role.objects.select_related('department').all()
-        elif hasattr(user, 'staff_profile'):
-            hotel = user.staff_profile.hotel
+            return
+        if hasattr(user, 'staff_profile'):
+            staff = user.staff_profile
+            if staff.hotel_id == hotel.id and staff.access_level in (
+                'staff_admin', 'super_staff_admin'
+            ):
+                return
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("Only hotel admins can manage roles.")
+
+    def _get_hotel(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if hotel_slug:
+            return Hotel.objects.get(slug=hotel_slug)
+        if self.request.user.is_superuser:
+            return None
+        if hasattr(self.request.user, 'staff_profile'):
+            return self.request.user.staff_profile.hotel
+        return None
+
+    def get_queryset(self):
+        hotel_slug = self.kwargs.get('hotel_slug')
+        if hotel_slug:
             queryset = Role.objects.select_related('department').filter(
-                staff_members__hotel=hotel
-            ).distinct()
+                hotel__slug=hotel_slug
+            )
         else:
-            return Role.objects.none()
+            user = self.request.user
+            if user.is_superuser:
+                queryset = Role.objects.select_related('department').all()
+            elif hasattr(user, 'staff_profile'):
+                queryset = Role.objects.select_related('department').filter(
+                    hotel=user.staff_profile.hotel
+                )
+            else:
+                return Role.objects.none()
 
         department_slug = self.request.query_params.get(
             'department_slug', None
         )
-        
         if department_slug is not None:
-            queryset = queryset.filter(
-                department__slug=department_slug
-            )
-        
+            queryset = queryset.filter(department__slug=department_slug)
         return queryset
+
+    def perform_create(self, serializer):
+        hotel = self._get_hotel()
+        if hotel:
+            self.check_write_permission(hotel)
+        serializer.save(hotel=hotel)
+        trigger_department_role_update(
+            self.kwargs.get('hotel_slug', ''),
+            'role',
+            serializer.data,
+            'created',
+        )
+
+    def perform_update(self, serializer):
+        hotel = serializer.instance.hotel
+        if hotel:
+            self.check_write_permission(hotel)
+        serializer.save()
+        trigger_department_role_update(
+            self.kwargs.get('hotel_slug', ''),
+            'role',
+            serializer.data,
+            'updated',
+        )
+
+    def perform_destroy(self, instance):
+        if instance.hotel:
+            self.check_write_permission(instance.hotel)
+        data = {'id': instance.id, 'name': instance.name, 'slug': instance.slug}
+        instance.delete()
+        trigger_department_role_update(
+            self.kwargs.get('hotel_slug', ''),
+            'role',
+            data,
+            'deleted',
+        )
 
 
 class NavigationItemViewSet(viewsets.ModelViewSet):
