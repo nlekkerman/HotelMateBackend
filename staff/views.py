@@ -396,7 +396,7 @@ class StaffViewSet(viewsets.ModelViewSet):
     @action(
         detail=False,
         methods=["get"],
-        url_path=r'by_hotel/(?P<hotel_slug>[^/.]+)',
+        url_path=r'by_hotel',
         permission_classes=[permissions.IsAuthenticated],
     )
     def by_hotel(self, request, hotel_slug=None):

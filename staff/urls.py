@@ -1,5 +1,5 @@
 from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from rest_framework.routers import DefaultRouter, SimpleRouter
 from .views import (
     StaffRegisterAPIView,
     CustomAuthToken,
@@ -21,11 +21,18 @@ from .views import (
     PrintRegistrationPackageAPIView,
 )
 
-# Staff router (hotel-specific)
-router = DefaultRouter()
-router.register(r'', StaffViewSet, basename='staff')
+# Staff router (hotel-specific, catch-all — must come LAST)
+staff_router = SimpleRouter()
+staff_router.register(r'', StaffViewSet, basename='staff')
 
-# Department and Role routers (global)
+# Hotel-scoped department & role routers (SimpleRouter — no API root)
+hotel_dept_router = SimpleRouter()
+hotel_dept_router.register(r'departments', DepartmentViewSet, basename='hotel-department')
+
+hotel_role_router = SimpleRouter()
+hotel_role_router.register(r'roles', RoleViewSet, basename='hotel-role')
+
+# Department and Role routers (global, no hotel_slug)
 departments_router = DefaultRouter()
 departments_router.register(
     r'departments',
@@ -125,8 +132,9 @@ urlpatterns = [
         CreateStaffFromUserAPIView.as_view(),
         name='create-staff'
     ),
-    # Hotel-scoped department and role endpoints
-    path('<slug:hotel_slug>/', include(departments_router.urls)),
-    path('<slug:hotel_slug>/', include(roles_router.urls)),
-    path('<slug:hotel_slug>/', include(router.urls)),
+    # Hotel-scoped departments & roles FIRST (more specific patterns)
+    path('<slug:hotel_slug>/', include(hotel_dept_router.urls)),
+    path('<slug:hotel_slug>/', include(hotel_role_router.urls)),
+    # Hotel-scoped staff endpoints LAST (catch-all '' pattern)
+    path('<slug:hotel_slug>/', include(staff_router.urls)),
 ]
