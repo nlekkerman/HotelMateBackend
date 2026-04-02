@@ -18,7 +18,7 @@ from django.utils.http import urlsafe_base64_encode
 from django.utils.text import slugify
 
 from hotel.models import Hotel
-from staff.models import Staff, RegistrationCode
+from staff.models import Staff, RegistrationCode, Department, Role
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +123,16 @@ def provision_hotel(validated_data: dict) -> dict:
     pkg_data = validated_data.get("registration_packages", {})
     generate_count = pkg_data.get("generate_count", 0)
 
+    # Resolve optional department/role
+    department = None
+    role = None
+    department_id = admin_data.get("department_id")
+    role_id = admin_data.get("role_id")
+    if department_id is not None:
+        department = Department.objects.get(id=department_id)
+    if role_id is not None:
+        role = Role.objects.get(id=role_id)
+
     # Auto-generate slug if not provided
     slug = hotel_data.get("slug") or slugify(hotel_data["name"])
 
@@ -158,6 +168,8 @@ def provision_hotel(validated_data: dict) -> dict:
             first_name=admin_data["first_name"],
             last_name=admin_data["last_name"],
             email=admin_data["email"],
+            department=department,
+            role=role,
             access_level="super_staff_admin",
             is_active=True,
         )

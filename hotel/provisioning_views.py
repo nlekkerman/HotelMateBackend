@@ -52,6 +52,8 @@ class ProvisionHotelView(APIView):
             "admin_email": result["admin_user"].email,
             "staff_id": result["staff"].id,
             "access_level": result["staff"].access_level,
+            "department": str(result["staff"].department) if result["staff"].department else None,
+            "role": str(result["staff"].role) if result["staff"].role else None,
             "registration_packages": result["registration_packages"],
             "warnings": result["warnings"],
         }

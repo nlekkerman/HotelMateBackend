@@ -5,7 +5,7 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 
 from hotel.models import Hotel
-from staff.models import Staff
+from staff.models import Staff, Department, Role
 
 
 class HotelProvisioningInputSerializer(serializers.Serializer):
@@ -25,6 +25,8 @@ class PrimaryAdminInputSerializer(serializers.Serializer):
     first_name = serializers.CharField(max_length=150)
     last_name = serializers.CharField(max_length=150)
     email = serializers.EmailField()
+    department_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    role_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
 
 class RegistrationPackagesInputSerializer(serializers.Serializer):
@@ -76,6 +78,21 @@ class ProvisionHotelRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"email": "A staff profile with this email already exists."}
             )
+
+        department_id = value.get("department_id")
+        if department_id is not None:
+            if not Department.objects.filter(id=department_id).exists():
+                raise serializers.ValidationError(
+                    {"department_id": "Department not found."}
+                )
+
+        role_id = value.get("role_id")
+        if role_id is not None:
+            if not Role.objects.filter(id=role_id).exists():
+                raise serializers.ValidationError(
+                    {"role_id": "Role not found."}
+                )
+
         return value
 
 
@@ -89,5 +106,7 @@ class ProvisionHotelResponseSerializer(serializers.Serializer):
     admin_email = serializers.EmailField()
     staff_id = serializers.IntegerField()
     access_level = serializers.CharField()
+    department = serializers.CharField(required=False, allow_null=True)
+    role = serializers.CharField(required=False, allow_null=True)
     registration_packages = serializers.ListField(child=serializers.DictField(), required=False)
     warnings = serializers.ListField(child=serializers.CharField(), required=False)
