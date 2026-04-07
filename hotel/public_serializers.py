@@ -31,6 +31,7 @@ class HotelPublicSerializer(serializers.ModelSerializer):
     Used for guest/staff portal discovery and landing page.
     """
     logo_url = serializers.SerializerMethodField()
+    hero_image_url = serializers.SerializerMethodField()
     guest_base_path = serializers.CharField(read_only=True)
     staff_base_path = serializers.CharField(read_only=True)
     guest_portal_enabled = serializers.BooleanField(
@@ -52,6 +53,7 @@ class HotelPublicSerializer(serializers.ModelSerializer):
             'country',
             'short_description',
             'logo_url',
+            'hero_image_url',
             'guest_base_path',
             'staff_base_path',
             'guest_portal_enabled',
@@ -62,6 +64,12 @@ class HotelPublicSerializer(serializers.ModelSerializer):
         """Return logo URL or None"""
         if obj.logo:
             return obj.logo.url
+        return None
+
+    def get_hero_image_url(self, obj):
+        """Return hero image URL or None"""
+        if obj.hero_image:
+            return obj.hero_image.url
         return None
 
 
