@@ -525,3 +525,65 @@ class RoomTypeInventory(models.Model):
 
     def __str__(self):
         return f"{self.date} - {self.room_type} (stop_sell={self.stop_sell}, total={self.total_rooms})"
+
+
+# ============================================================================
+# ROOM GALLERY IMAGES
+# ============================================================================
+
+class RoomImage(models.Model):
+    """
+    Gallery images for individual rooms.
+    Follows the same Cloudinary pattern as GalleryImage.
+    """
+    room = models.ForeignKey(
+        'rooms.Room',
+        on_delete=models.CASCADE,
+        related_name='images'
+    )
+    image = CloudinaryField(
+        "room_image",
+        help_text="Room image stored in Cloudinary"
+    )
+    alt_text = models.CharField(max_length=255, blank=True)
+    is_cover = models.BooleanField(
+        default=False,
+        help_text="Whether this is the cover/primary image for the room"
+    )
+    is_dummy = models.BooleanField(
+        default=False,
+        help_text="Placeholder image not uploaded by staff"
+    )
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['sort_order', 'created_at']
+        verbose_name = "Room Image"
+        verbose_name_plural = "Room Images"
+
+    def __str__(self):
+        room_num = self.room.room_number
+        return f"Image for Room {room_num} (cover={self.is_cover})"
+
+    @property
+    def image_url(self):
+        if self.image:
+            return self.image.url
+        return None
+
+    @property
+    def secure_url(self):
+        if self.image:
+            url = self.image.url
+            if url and url.startswith('http://'):
+                return url.replace('http://', 'https://', 1)
+            return url
+        return None
+
+    @property
+    def public_id(self):
+        if self.image:
+            return self.image.public_id
+        return None

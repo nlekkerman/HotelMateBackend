@@ -2,8 +2,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import viewsets, filters, status
 from rest_framework.views import APIView
-from .models import Room, RoomType
-from .serializers import RoomSerializer, RoomTypeSerializer, RoomStaffSerializer
+from .models import Room, RoomType, RoomImage
+from .serializers import RoomSerializer, RoomTypeSerializer, RoomStaffSerializer, RoomImageSerializer, BulkRoomImageUploadSerializer, RoomImageReorderSerializer
 from guests.serializers import GuestSerializer
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
@@ -17,7 +17,7 @@ from datetime import datetime
 from room_services.models import Order, BreakfastOrder
 from chat.models import Conversation, RoomMessage
 from rest_framework.decorators import api_view, permission_classes
-from django.db import transaction
+from django.db import models, transaction
 from django.utils.timezone import now
 from django.utils import timezone
 from staff_chat.permissions import IsStaffMember, IsSameHotel
@@ -808,4 +808,180 @@ def bulk_create_rooms(request, hotel_slug, room_type_id):
             'code': room_type.code
         }
     }, status=status.HTTP_201_CREATED)
+
+
+# ============================================================================
+# ROOM IMAGE GALLERY
+# ============================================================================
+
+class RoomImageViewSet(viewsets.ModelViewSet):
+    """
+    Staff CRUD for room gallery images.
+    Hotel-scoped, staff-only. Follows the GalleryImageViewSet pattern.
+    """
+    serializer_class = RoomImageSerializer
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_queryset(self):
+        try:
+            staff = self.request.user.staff_profile
+        except AttributeError:
+            return RoomImage.objects.none()
+
+        queryset = RoomImage.objects.filter(
+            room__hotel=staff.hotel
+        ).select_related('room')
+
+        # Optional filter by room
+        room_id = self.request.query_params.get('room')
+        if room_id:
+            queryset = queryset.filter(room_id=room_id)
+
+        return queryset.order_by('sort_order', 'created_at')
+
+    def _get_staff_room(self, room_id):
+        """Fetch room ensuring it belongs to the staff's hotel."""
+        staff = self.request.user.staff_profile
+        return get_object_or_404(Room, id=room_id, hotel=staff.hotel)
+
+    def perform_create(self, serializer):
+        room = self._get_staff_room(serializer.validated_data['room'].id)
+
+        # Auto-assign sort_order
+        max_order = room.images.aggregate(
+            models.Max('sort_order')
+        )['sort_order__max'] or -1
+
+        # First image becomes cover if no cover exists
+        has_cover = room.images.filter(is_cover=True).exists()
+        is_cover = serializer.validated_data.get('is_cover', False)
+        if not has_cover and not is_cover:
+            is_cover = True
+
+        # If this image is marked as cover, unset existing cover
+        if is_cover:
+            room.images.filter(is_cover=True).update(is_cover=False)
+
+        serializer.save(
+            room=room,
+            sort_order=max_order + 1,
+            is_cover=is_cover,
+        )
+
+    def perform_update(self, serializer):
+        instance = self.get_object()
+        is_cover = serializer.validated_data.get('is_cover', instance.is_cover)
+
+        # If setting this as cover, unset existing cover
+        if is_cover and not instance.is_cover:
+            instance.room.images.filter(is_cover=True).update(is_cover=False)
+
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        room = instance.room
+        was_cover = instance.is_cover
+
+        # Delete from Cloudinary
+        if instance.image and instance.image.public_id:
+            try:
+                import cloudinary.uploader
+                cloudinary.uploader.destroy(instance.image.public_id)
+            except Exception:
+                logger.warning(
+                    f"Failed to delete Cloudinary image {instance.image.public_id} "
+                    f"for room {room.room_number}"
+                )
+
+        instance.delete()
+
+        # Promote next image to cover if we deleted the cover
+        if was_cover:
+            next_image = room.images.order_by('sort_order', 'created_at').first()
+            if next_image:
+                next_image.is_cover = True
+                next_image.save(update_fields=['is_cover'])
+
+    @action(detail=False, methods=['post'], url_path='bulk-upload')
+    def bulk_upload(self, request, hotel_slug=None):
+        """
+        Bulk upload images to a room.
+        POST body: room (ID), images (array of files)
+        """
+        room_id = request.data.get('room')
+        if not room_id:
+            return Response(
+                {'error': 'room field is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        room = self._get_staff_room(room_id)
+
+        serializer = BulkRoomImageUploadSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        images = serializer.validated_data['images']
+
+        max_order = room.images.aggregate(
+            models.Max('sort_order')
+        )['sort_order__max'] or -1
+
+        has_cover = room.images.filter(is_cover=True).exists()
+
+        created_images = []
+        for idx, image_file in enumerate(images):
+            is_cover = (not has_cover and idx == 0)
+            if is_cover:
+                has_cover = True
+
+            room_image = RoomImage.objects.create(
+                room=room,
+                image=image_file,
+                sort_order=max_order + idx + 1,
+                is_cover=is_cover,
+            )
+            created_images.append(room_image)
+
+        response_serializer = RoomImageSerializer(created_images, many=True)
+        return Response({
+            'message': f'{len(created_images)} image(s) uploaded successfully',
+            'images': response_serializer.data
+        }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'], url_path='reorder')
+    def reorder(self, request, hotel_slug=None):
+        """
+        Reorder images for a room.
+        POST body: { "image_ids": [5, 3, 7, 1] }
+        """
+        serializer = RoomImageReorderSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        image_ids = serializer.validated_data['image_ids']
+
+        staff = request.user.staff_profile
+        images = RoomImage.objects.filter(
+            id__in=image_ids,
+            room__hotel=staff.hotel
+        )
+
+        if images.count() != len(image_ids):
+            return Response(
+                {'error': 'Some image IDs are invalid or do not belong to your hotel'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        for order, image_id in enumerate(image_ids):
+            RoomImage.objects.filter(id=image_id).update(sort_order=order)
+
+        return Response({'message': 'Images reordered successfully'})
+
+    @action(detail=True, methods=['post'], url_path='set-cover')
+    def set_cover(self, request, pk=None, hotel_slug=None):
+        """Set an image as the cover image for its room."""
+        image = self.get_object()
+        image.room.images.filter(is_cover=True).update(is_cover=False)
+        image.is_cover = True
+        image.save(update_fields=['is_cover'])
+        return Response(RoomImageSerializer(image).data)
 

@@ -2,11 +2,25 @@ from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
     Room, RoomType, RatePlan, RoomTypeRatePlan,
-    DailyRate, Promotion, RoomTypeInventory
+    DailyRate, Promotion, RoomTypeInventory, RoomImage
 )
 
 
+class RoomImageInline(admin.TabularInline):
+    model = RoomImage
+    extra = 0
+    readonly_fields = ('image_url_display', 'created_at')
+    fields = ('image', 'image_url_display', 'alt_text', 'is_cover', 'is_dummy', 'sort_order')
+
+    def image_url_display(self, obj):
+        if obj.image:
+            return format_html('<a href="{}" target="_blank">View</a>', obj.image.url)
+        return '-'
+    image_url_display.short_description = 'Preview'
+
+
 class RoomAdmin(admin.ModelAdmin):
+    inlines = [RoomImageInline]
     list_display = (
         'room_number', 'hotel', 'room_type', 'assigned_booking_display', 
         'is_occupied', 'get_guests_count', 'room_status', 'is_active', 
@@ -257,3 +271,12 @@ class RoomTypeInventoryAdmin(admin.ModelAdmin):
     ordering = ('-date',)
     list_editable = ('total_rooms', 'stop_sell')
     raw_id_fields = ('room_type',)
+
+
+@admin.register(RoomImage)
+class RoomImageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'room', 'is_cover', 'is_dummy', 'sort_order', 'created_at')
+    list_filter = ('is_cover', 'is_dummy', 'room__hotel')
+    search_fields = ('room__room_number', 'alt_text')
+    raw_id_fields = ('room',)
+    ordering = ('room', 'sort_order')

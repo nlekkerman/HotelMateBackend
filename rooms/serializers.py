@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Room, RoomType
+from .models import Room, RoomType, RoomImage
 from guests.serializers import GuestSerializer
 
 
@@ -206,3 +206,82 @@ class RoomTypeSerializer(serializers.ModelSerializer):
             'currency',
             'is_active',
         ]
+
+
+# ============================================================================
+# ROOM IMAGE SERIALIZERS
+# ============================================================================
+
+class RoomImageSerializer(serializers.ModelSerializer):
+    """Staff CRUD for individual room images — follows GalleryImageStaffSerializer pattern"""
+    image_url = serializers.SerializerMethodField()
+    secure_url = serializers.SerializerMethodField()
+    public_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RoomImage
+        fields = [
+            'id',
+            'room',
+            'image',
+            'image_url',
+            'secure_url',
+            'public_id',
+            'alt_text',
+            'is_cover',
+            'is_dummy',
+            'sort_order',
+            'created_at',
+            'updated_at',
+        ]
+        read_only_fields = ['id', 'image_url', 'secure_url', 'public_id', 'created_at', 'updated_at']
+
+    def get_image_url(self, obj):
+        if obj.image:
+            return obj.image.url
+        return None
+
+    def get_secure_url(self, obj):
+        if obj.image:
+            url = obj.image.url
+            if url and url.startswith('http://'):
+                return url.replace('http://', 'https://', 1)
+            return url
+        return None
+
+    def get_public_id(self, obj):
+        if obj.image:
+            return obj.image.public_id
+        return None
+
+
+class BulkRoomImageUploadSerializer(serializers.Serializer):
+    """Bulk upload images to a room — follows BulkGalleryImageUploadSerializer pattern"""
+    images = serializers.ListField(
+        child=serializers.ImageField(),
+        write_only=True,
+        min_length=1,
+        max_length=20
+    )
+
+    def validate_images(self, value):
+        max_size = 10 * 1024 * 1024
+        allowed_types = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp']
+        for image in value:
+            if image.size > max_size:
+                raise serializers.ValidationError(
+                    f"Image {image.name} is too large. Maximum size is 10MB."
+                )
+            if image.content_type not in allowed_types:
+                raise serializers.ValidationError(
+                    f"Image {image.name} has invalid type. Allowed: JPEG, PNG, WebP"
+                )
+        return value
+
+
+class RoomImageReorderSerializer(serializers.Serializer):
+    """Reorder room images by providing ordered list of image IDs"""
+    image_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1
+    )
