@@ -262,6 +262,9 @@ class RoomType(models.Model):
 
     class Meta:
         ordering = ['sort_order', 'name']
+        unique_together = [
+            ('hotel', 'name'),
+        ]
         verbose_name = "Room Type"
         verbose_name_plural = "Room Types"
 

@@ -3,7 +3,7 @@ from rest_framework.response import Response
 from rest_framework import viewsets, filters, status
 from rest_framework.views import APIView
 from .models import Room, RoomType
-from .serializers import RoomSerializer, RoomTypeSerializer
+from .serializers import RoomSerializer, RoomTypeSerializer, RoomStaffSerializer
 from guests.serializers import GuestSerializer
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.exceptions import PermissionDenied
@@ -23,6 +23,9 @@ from django.utils import timezone
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from django.db.models import Count
 from chat.utils import pusher_client
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class RoomPagination(PageNumberPagination):
@@ -32,13 +35,18 @@ class RoomPagination(PageNumberPagination):
 
 
 class RoomViewSet(viewsets.ModelViewSet):
+    """
+    Read-only room data used by internal serializers (e.g. booking views).
+    All staff write operations go through StaffRoomViewSet.
+    """
     serializer_class = RoomSerializer
-    permission_classes = [IsAuthenticated] 
+    permission_classes = [IsAuthenticated]
     serializer_class = RoomSerializer
     pagination_class = RoomPagination
     lookup_field = 'room_number'
     filter_backends = [filters.SearchFilter]
     search_fields = ['room_number', 'is_occupied']
+    http_method_names = ['get', 'head', 'options']  # Read-only
 
     def get_queryset(self):
         user = self.request.user
@@ -59,18 +67,41 @@ class RoomViewSet(viewsets.ModelViewSet):
 
         return queryset.order_by('room_number')
 
+
+class StaffRoomViewSet(viewsets.ModelViewSet):
+    """
+    Canonical staff CRUD for rooms (inventory management).
+    Hotel-scoped, staff-only, hotel injected server-side.
+    """
+    serializer_class = RoomStaffSerializer
+    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    pagination_class = RoomPagination
+    lookup_field = 'room_number'
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['room_number']
+
+    def get_queryset(self):
+        try:
+            staff = self.request.user.staff_profile
+            return Room.objects.filter(
+                hotel=staff.hotel
+            ).select_related('room_type').order_by('room_number')
+        except AttributeError:
+            return Room.objects.none()
+
     def perform_create(self, serializer):
-        staff = getattr(self.request.user, 'staff_profile', None)
-        if staff and staff.hotel:
-            serializer.save(hotel=staff.hotel)
-        else:
-            raise PermissionDenied("You must be assigned to a hotel to create a room.")
+        staff = self.request.user.staff_profile
+        serializer.save(hotel=staff.hotel)
+
+    def perform_update(self, serializer):
+        serializer.save()
 
 
 class RoomTypeViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing room types"""
+    """Legacy ViewSet — kept for internal read usage only, not mounted on any writable route"""
     serializer_class = RoomTypeSerializer
     permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'head', 'options']  # Read-only
     
     def get_queryset(self):
         user = self.request.user
@@ -80,13 +111,6 @@ class RoomTypeViewSet(viewsets.ModelViewSet):
             return RoomType.objects.filter(hotel=staff.hotel).order_by('sort_order', 'name')
         
         return RoomType.objects.none()
-    
-    def perform_create(self, serializer):
-        staff = getattr(self.request.user, 'staff_profile', None)
-        if staff and staff.hotel:
-            serializer.save(hotel=staff.hotel)
-        else:
-            raise PermissionDenied("You must be assigned to a hotel to create a room type.")
 
 
 class AddGuestToRoomView(APIView):
@@ -658,7 +682,7 @@ def turnover_stats(request, hotel_slug):
 # ============================================================================
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
 def bulk_create_rooms(request, hotel_slug, room_type_id):
     """
     POST: Bulk create Room instances for a room type
@@ -667,11 +691,21 @@ def bulk_create_rooms(request, hotel_slug, room_type_id):
     1. {"room_numbers": [101, 102, 201]}
     2. {"ranges": [{"start": 101, "end": 110}, {"start": 201, "end": 205}]}
     """
+    from housekeeping.models import RoomStatusEvent
+
     # Resolve hotel and enforce scoping
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
-    # Ensure room type belongs to this hotel
+    # Ensure room type belongs to this hotel and is active
     room_type = get_object_or_404(RoomType, id=room_type_id, hotel=hotel)
+    if not room_type.is_active:
+        return Response(
+            {'error': 'Cannot create rooms under an inactive room type'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    # Resolve staff for audit trail
+    staff = getattr(request.user, 'staff_profile', None)
     
     # Parse request payload
     room_numbers = request.data.get('room_numbers', [])
@@ -726,7 +760,7 @@ def bulk_create_rooms(request, hotel_slug, room_type_id):
     existing_numbers = list(existing_rooms)
     new_numbers = [num for num in all_room_numbers if num not in existing_numbers]
     
-    # Create new rooms in transaction
+    # Create new rooms in transaction with audit trail
     created_rooms = []
     try:
         with transaction.atomic():
@@ -746,8 +780,19 @@ def bulk_create_rooms(request, hotel_slug, room_type_id):
                     'room_type_id': room.room_type.id,
                     'room_status': room.room_status
                 })
+                # Audit trail for room creation
+                RoomStatusEvent.objects.create(
+                    hotel=hotel,
+                    room=room,
+                    from_status='',
+                    to_status='READY_FOR_GUEST',
+                    changed_by=staff,
+                    source='SYSTEM',
+                    note=f'Room created via bulk provisioning (room type: {room_type.name})'
+                )
     
     except Exception as e:
+        logger.error(f"Bulk room creation failed for hotel {hotel_slug}: {e}")
         return Response(
             {'error': f'Failed to create rooms: {str(e)}'},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

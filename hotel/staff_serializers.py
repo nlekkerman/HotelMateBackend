@@ -59,8 +59,16 @@ class HotelAccessConfigStaffSerializer(serializers.ModelSerializer):
         ]
 
 
+SUPPORTED_CURRENCIES = {
+    'EUR', 'USD', 'GBP', 'CHF', 'SEK', 'NOK', 'DKK', 'PLN', 'CZK',
+    'HUF', 'RON', 'BGN', 'HRK', 'ISK', 'TRY', 'RUB', 'AUD', 'CAD',
+    'NZD', 'JPY', 'CNY', 'INR', 'BRL', 'ZAR', 'AED', 'SGD', 'HKD',
+    'THB', 'MXN', 'ARS', 'COP', 'KRW', 'MYR', 'PHP', 'IDR', 'TWD',
+}
+
+
 class RoomTypeStaffSerializer(serializers.ModelSerializer):
-    """Staff CRUD for room types"""
+    """Staff CRUD for room types — canonical staff serializer"""
     photo_url = serializers.SerializerMethodField()
     
     class Meta:
@@ -86,6 +94,41 @@ class RoomTypeStaffSerializer(serializers.ModelSerializer):
     
     def get_photo_url(self, obj):
         return obj.photo.url if obj.photo else None
+
+    def validate_starting_price_from(self, value):
+        if value is not None and value <= 0:
+            raise serializers.ValidationError("Price must be greater than 0")
+        return value
+
+    def validate_max_occupancy(self, value):
+        if value < 1:
+            raise serializers.ValidationError("Max occupancy must be at least 1")
+        if value > 50:
+            raise serializers.ValidationError("Max occupancy cannot exceed 50")
+        return value
+
+    def validate_currency(self, value):
+        if value and value.upper() not in SUPPORTED_CURRENCIES:
+            raise serializers.ValidationError(
+                f"Unsupported currency '{value}'. Must be one of: {', '.join(sorted(SUPPORTED_CURRENCIES))}"
+            )
+        return value.upper() if value else value
+
+    def validate_code(self, value):
+        """Ensure code is unique per hotel (when provided)"""
+        if not value:
+            return value
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'staff_profile'):
+            hotel = request.user.staff_profile.hotel
+            qs = RoomType.objects.filter(hotel=hotel, code=value)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    f"A room type with code '{value}' already exists for this hotel"
+                )
+        return value
 
 
 class PublicElementItemStaffSerializer(serializers.ModelSerializer):

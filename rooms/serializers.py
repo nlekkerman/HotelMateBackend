@@ -1,14 +1,11 @@
 from rest_framework import serializers
 from .models import Room, RoomType
-from hotel.models import Hotel
 from guests.serializers import GuestSerializer
 
 
 class RoomSerializer(serializers.ModelSerializer):
     guests_in_room = GuestSerializer(many=True, read_only=True)
-    hotel = serializers.PrimaryKeyRelatedField(
-        queryset=Hotel.objects.all()
-    )
+    hotel = serializers.PrimaryKeyRelatedField(read_only=True)
     hotel_slug = serializers.SlugRelatedField(
         source='hotel',
         read_only=True,
@@ -122,7 +119,7 @@ class RoomSerializer(serializers.ModelSerializer):
 
 
 class RoomStaffSerializer(serializers.ModelSerializer):
-    """Staff CRUD for rooms (inventory management) - B1"""
+    """Staff CRUD for rooms (inventory management) - canonical staff serializer"""
     room_type_name = serializers.CharField(source='room_type.name', read_only=True)
     current_price = serializers.SerializerMethodField()
     
@@ -158,7 +155,21 @@ class RoomStaffSerializer(serializers.ModelSerializer):
             }
             
         return None
-    
+
+    def validate_room_number(self, value):
+        if value < 1 or value > 99999:
+            raise serializers.ValidationError("Room number must be between 1 and 99999")
+        return value
+
+    def validate_room_type(self, value):
+        """Ensure room_type belongs to the same hotel as the staff user"""
+        request = self.context.get('request')
+        if request and hasattr(request.user, 'staff_profile'):
+            staff_hotel = request.user.staff_profile.hotel
+            if value and value.hotel_id != staff_hotel.id:
+                raise serializers.ValidationError("Room type must belong to your hotel")
+        return value
+
     class Meta:
         model = Room
         fields = [
