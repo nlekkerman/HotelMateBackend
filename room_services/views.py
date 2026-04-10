@@ -24,6 +24,7 @@ from common.guest_access import (
     GuestAccessError,
 )
 from staff_chat.permissions import IsStaffMember, IsSameHotel
+from staff.permissions import HasNavPermission
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,8 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in self._GUEST_ACTIONS:
             return [AllowAny()]
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+        # RBAC: staff actions require nav visibility + staff membership
+        return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel()]
 
     # ------------------------------------------------------------------
     # Helpers
@@ -468,7 +470,8 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in self._GUEST_ACTIONS:
             return [AllowAny()]
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+        # RBAC: staff actions require nav visibility + staff membership
+        return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel()]
 
     def _resolve_guest_context(self, request, hotel):
         token_str = self.get_token_from_request(request)

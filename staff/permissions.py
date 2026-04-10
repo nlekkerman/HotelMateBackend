@@ -347,3 +347,35 @@ class HasAttendanceNav(HasNavPermission):
 
 class HasStaffManagementNav(HasNavPermission):
     def __init__(self): super().__init__('staff_management')
+
+class HasHousekeepingNav(HasNavPermission):
+    def __init__(self): super().__init__('housekeeping')
+
+class HasRoomServicesNav(HasNavPermission):
+    def __init__(self): super().__init__('room_services')
+
+class HasChatNav(HasNavPermission):
+    def __init__(self): super().__init__('chat')
+
+class HasHomeNav(HasNavPermission):
+    def __init__(self): super().__init__('home')
+
+
+# ---------------------------------------------------------------------------
+# Action-level: Housekeeping management
+# ---------------------------------------------------------------------------
+
+class CanManageHousekeeping(BasePermission):
+    """
+    Gates housekeeping task CUD and room status mutations.
+    Required tier: staff_admin or above (supervisors manage housekeeping).
+    Regular housekeeping staff can start/complete their own assigned tasks
+    via self-service actions — those bypass this check.
+    """
+    message = "You do not have permission to manage housekeeping."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')

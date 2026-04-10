@@ -16,6 +16,10 @@ from django.utils import timezone
 
 # Import existing permission classes
 from staff_chat.permissions import IsStaffMember, IsSameHotel
+from staff.permissions import (
+    HasNavPermission, HasHousekeepingNav, CanManageHousekeeping,
+    IsSuperStaffAdminOrAbove,
+)
 
 from hotel.models import Hotel
 from rooms.models import Room
@@ -29,14 +33,13 @@ from .serializers import (
     RoomSummarySerializer
 )
 from .services import set_room_status, get_room_dashboard_data
-from .policy import can_view_dashboard
 
 
 class HousekeepingDashboardViewSet(viewsets.ViewSet):
     """
     Housekeeping dashboard with room status overview and task summary.
     """
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasHousekeepingNav, IsStaffMember, IsSameHotel]
     
     def list(self, request, hotel_slug=None):
         """
@@ -51,19 +54,14 @@ class HousekeepingDashboardViewSet(viewsets.ViewSet):
         staff = request.user.staff_profile
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
         
-        # Validate staff belongs to hotel
+        # Validate staff belongs to hotel (defense-in-depth, IsSameHotel handles primary check)
         if staff.hotel_id != hotel.id:
             return Response(
                 {'error': 'Access denied to this hotel'}, 
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Check dashboard access permissions
-        if not can_view_dashboard(staff):
-            return Response(
-                {'error': 'Insufficient permissions to view housekeeping dashboard'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        # RBAC: HasHousekeepingNav already gates module access via permission_classes
         
         # Get room dashboard data
         dashboard_data = get_room_dashboard_data(hotel)
@@ -100,7 +98,17 @@ class HousekeepingTaskViewSet(viewsets.ModelViewSet):
     CRUD operations for housekeeping tasks.
     """
     serializer_class = HousekeepingTaskSerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        # RBAC: nav visibility for all actions
+        base = [IsAuthenticated(), HasNavPermission('housekeeping'), IsStaffMember(), IsSameHotel()]
+        # Self-service: assigned staff can start/complete their own tasks
+        self_service_actions = {'start', 'complete'}
+        # Management: create, update, delete, assign require CanManageHousekeeping (staff_admin+)
+        management_actions = {'create', 'update', 'partial_update', 'destroy', 'assign'}
+        if self.action in management_actions:
+            base.append(CanManageHousekeeping())
+        return base
     
     def get_queryset(self):
         """Filter tasks by staff's hotel"""
@@ -252,7 +260,7 @@ class RoomStatusViewSet(viewsets.ViewSet):
     """
     Room status management endpoints.
     """
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasHousekeepingNav, IsStaffMember, IsSameHotel]
     
     def update_status(self, request, hotel_slug=None, room_id=None):
         """
@@ -320,6 +328,7 @@ class RoomStatusViewSet(viewsets.ViewSet):
         POST /api/staff/hotel/{hotel_slug}/housekeeping/rooms/{room_id}/manager_override/
         
         Manager override to change room status bypassing normal restrictions.
+        Requires staff_admin+ tier (canonical RBAC).
         """
         staff = request.user.staff_profile
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
@@ -331,11 +340,10 @@ class RoomStatusViewSet(viewsets.ViewSet):
                 status=status.HTTP_403_FORBIDDEN
             )
         
-        # Check if user is manager or superuser
-        from .policy import is_manager
-        if not (is_manager(staff) or request.user.is_superuser):
+        # RBAC: manager override requires staff_admin+ tier
+        if not CanManageHousekeeping().has_permission(request, None):
             return Response(
-                {'error': 'Manager privileges or superuser status required for override'}, 
+                {'detail': 'Manager privileges required for override'},
                 status=status.HTTP_403_FORBIDDEN
             )
         

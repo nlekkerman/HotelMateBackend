@@ -15,6 +15,7 @@ from .serializers import (
 )
 from staff.models import Staff
 from hotel.models import Hotel
+from staff.permissions import HasChatNav
 
 
 class StaffListPagination(PageNumberPagination):
@@ -38,7 +39,7 @@ class StaffListViewSet(viewsets.ReadOnlyModelViewSet):
     - Search: ?search=John
     """
     serializer_class = StaffListSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasChatNav]
     pagination_class = StaffListPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
@@ -86,7 +87,7 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
     - POST /api/staff-chat/<hotel_slug>/conversations/{id}/send_message/
     - POST /api/staff-chat/<hotel_slug>/conversations/{id}/mark_as_read/
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, HasChatNav]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'participants__first_name']
     ordering_fields = ['updated_at', 'created_at']

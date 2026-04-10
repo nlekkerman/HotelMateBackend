@@ -13,6 +13,8 @@ from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
 from notifications.fcm_service import send_fcm_notification
 from notifications.notification_manager import notification_manager
+from staff.permissions import HasNavPermission
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 import json
 from django.core.serializers.json import DjangoJSONEncoder
 import logging
@@ -49,6 +51,9 @@ def _require_staff_or_guest(request):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_active_conversations(request, hotel_slug):
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
     conversations = Conversation.objects.filter(
@@ -63,6 +68,9 @@ def get_active_conversations(request, hotel_slug):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
 def get_conversation_messages(request, hotel_slug, conversation_id):
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     conversation = get_object_or_404(Conversation, id=conversation_id)
     if conversation.room.hotel.slug != hotel_slug:
         return Response({"error": "Conversation does not belong to this hotel"}, status=400)
@@ -87,6 +95,9 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
 def send_conversation_message(request, hotel_slug, conversation_id):
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
     hotel = room.hotel
@@ -337,6 +348,9 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])  # Staff-only — guests use canonical chat bootstrap
 def get_or_create_conversation_from_room(request, hotel_slug, room_number):
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
 
@@ -359,6 +373,9 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_active_rooms(request, hotel_slug):
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     conversations = Conversation.objects.filter(room__hotel=hotel).select_related('room').prefetch_related('room__guests', 'messages').order_by('-updated_at')
     serializer = ConversationSerializer(conversations, many=True)
@@ -367,6 +384,9 @@ def get_active_rooms(request, hotel_slug):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_unread_count(request, hotel_slug):
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
         return Response({"unread_counts": {}})
@@ -485,6 +505,9 @@ def mark_conversation_read(request, hotel_slug, conversation_id):
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def get_unread_conversation_count(request, hotel_slug):
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
         return Response({"unread_count": 0, "rooms": []})
@@ -568,6 +591,9 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
     This allows any staff member to take over a conversation at any time,
     and the guest will see the new staff member's name in their chat window.
     """
+    # RBAC: module visibility
+    if not HasNavPermission('chat').has_permission(request, None):
+        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
         return Response(
