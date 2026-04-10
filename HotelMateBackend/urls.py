@@ -6,37 +6,29 @@ from django.conf import settings
 from django.conf.urls.static import static
 from hotel.face_config_views import HotelFaceConfigView
 
-apps = [
-    'rooms',
-    'guests',
-    'staff',
-    'hotel_info',
-    'room_services',
-    'hotel',
-    'bookings',
-    'common',
-    'notifications',
-    'stock_tracker',
-    'maintenance',
-    'home',
-    'attendance',
-    'chat',
-    'entertainment',
-    'staff_chat',
+API_ENDPOINTS = [
+    ('/api/staff/', 'Staff zone (auth required)'),
+    ('/api/guest/', 'Guest zone (auth required)'),
+    ('/api/public/', 'Public zone (no auth)'),
+    ('/api/hotel/', 'Hotel management (admin)'),
+    ('/api/chat/', 'Chat endpoints'),
+    ('/api/room_services/', 'Room services'),
+    ('/api/bookings/', 'Restaurant bookings'),
+    ('/api/notifications/', 'Notifications & Pusher auth'),
+    ('/admin/', 'Django Admin'),
 ]
 
 
 def home(request):
-    # Create list of API URLs for each app
-    urls = [f"/api/{app}/" for app in apps]
-    # Build HTML list to display
     list_items = "".join(
-        f'<li><a href="{url}">{url}</a></li>' for url in urls
+        f'<li><a href="{url}">{url}</a> — {desc}</li>'
+        for url, desc in API_ENDPOINTS
     )
-    urls_html = f"<ul>{list_items}</ul>"
     return HttpResponse(
         f"<h1>Welcome to HotelMate API</h1>"
-        f"<p>Available API endpoints:</p>{urls_html}"
+        f"<p>Available API endpoints:</p><ul>{list_items}</ul>"
+        f"<p><em>Most endpoints require authentication. "
+        f'Log in via <a href="/admin/">Django Admin</a> first to browse the API.</em></p>'
     )
 
 
