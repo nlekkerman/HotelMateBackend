@@ -91,6 +91,7 @@ from .serializers import (
 )
 from rooms.serializers import RoomStaffSerializer
 from .permissions import IsSuperStaffAdminForHotel
+from staff.permissions import HasNavPermission, HasBookingsNav, HasHotelInfoNav, HasAdminSettingsNav, HasRoomsNav, CanManageRooms, CanManageBookings, CanConfigureHotel
 
 # Additional imports moved from inline locations
 from rest_framework.exceptions import PermissionDenied
@@ -144,7 +145,12 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
     Scoped to staff's hotel only.
     """
     serializer_class = RoomTypeStaffSerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        base = [IsAuthenticated(), HasNavPermission('rooms'), IsStaffMember(), IsSameHotel()]
+        if self.action not in ('list', 'retrieve'):
+            base.append(CanManageRooms())
+        return base
     
     def get_queryset(self):
         """Only return room types for staff's hotel"""
@@ -267,7 +273,12 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
     Includes actions for PIN and QR code generation.
     """
     serializer_class = RoomStaffSerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        base = [IsAuthenticated(), HasNavPermission('rooms'), IsStaffMember(), IsSameHotel()]
+        if self.action not in ('list', 'retrieve'):
+            base.append(CanManageRooms())
+        return base
     
     def get_queryset(self):
         """Only return rooms for staff's hotel"""
@@ -335,8 +346,13 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
     Handles singleton pattern for hotel configuration.
     """
     serializer_class = HotelAccessConfigStaffSerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
     http_method_names = ['get', 'put', 'patch']
+
+    def get_permissions(self):
+        base = [IsAuthenticated(), HasAdminSettingsNav(), IsStaffMember(), IsSameHotel()]
+        if self.action not in ('list', 'retrieve'):
+            base.append(CanConfigureHotel())
+        return base
     
     def get_queryset(self):
         """Only return config for staff's hotel"""
@@ -508,7 +524,7 @@ class HotelPublicPageViewSet(viewsets.ModelViewSet):
     Super Staff Admin only.
     """
     serializer_class = HotelPublicPageSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         """Only return public page for staff's hotel"""
@@ -612,7 +628,7 @@ class PublicSectionViewSet(viewsets.ModelViewSet):
     Scoped to staff's hotel.
     """
     serializer_class = PublicSectionStaffSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         """Only return sections for staff's hotel"""
@@ -650,7 +666,7 @@ class PublicElementViewSet(viewsets.ModelViewSet):
     Super Staff Admin only.
     """
     serializer_class = PublicElementStaffSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         """Only return elements for staff's hotel sections"""
@@ -670,7 +686,7 @@ class PublicElementItemViewSet(viewsets.ModelViewSet):
     Super Staff Admin only.
     """
     serializer_class = PublicElementItemStaffSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         """Only return items for staff's hotel sections"""
@@ -694,7 +710,7 @@ class HeroSectionViewSet(viewsets.ModelViewSet):
     Automatically creates Hero data with placeholders when section is created.
     """
     serializer_class = HeroSectionSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -745,7 +761,7 @@ class GalleryContainerViewSet(viewsets.ModelViewSet):
     Each Gallery section can have multiple gallery containers.
     """
     serializer_class = GalleryContainerSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -764,7 +780,7 @@ class GalleryImageViewSet(viewsets.ModelViewSet):
     Supports bulk upload.
     """
     serializer_class = GalleryImageSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -803,7 +819,7 @@ class ListContainerViewSet(viewsets.ModelViewSet):
     Each List section can have multiple list containers.
     """
     serializer_class = ListContainerSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -828,7 +844,7 @@ class CardViewSet(viewsets.ModelViewSet):
     CRUD for Cards within list containers.
     """
     serializer_class = CardSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -869,7 +885,7 @@ class NewsItemViewSet(viewsets.ModelViewSet):
     CRUD for News items.
     """
     serializer_class = NewsItemSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -887,7 +903,7 @@ class ContentBlockViewSet(viewsets.ModelViewSet):
     CRUD for Content blocks (text/image) within news items.
     """
     serializer_class = ContentBlockSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -930,7 +946,7 @@ class RoomsSectionViewSet(viewsets.ModelViewSet):
     Room types are queried live from PMS - no duplication.
     """
     serializer_class = RoomsSectionStaffSerializer
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -962,10 +978,12 @@ class HotelSettingsView(APIView):
     Simple hotel settings endpoint for basic hotel information.
     For theme/colors, use /common/theme/ endpoint instead.
     """
-    permission_classes = [IsAuthenticated]
-    
+
     def get_permissions(self):
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+        base = [IsAuthenticated(), HasAdminSettingsNav(), IsStaffMember(), IsSameHotel()]
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            base.append(CanConfigureHotel())
+        return base
 
     def get(self, request, hotel_slug):
         """Get complete hotel information and theme"""
@@ -1151,7 +1169,7 @@ class StaffBookingsListView(APIView):
     
     Endpoint: GET /api/staff/hotel/{hotel_slug}/room-bookings/
     """
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel]
 
     def get(self, request, hotel_slug):
         try:
@@ -1287,7 +1305,7 @@ class StaffBookingsListView(APIView):
 
 class StaffBookingConfirmView(APIView):
     """Staff endpoint to confirm a booking."""
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1386,7 +1404,7 @@ class StaffBookingConfirmView(APIView):
 
 class StaffBookingCancelView(APIView):
     """Staff endpoint to cancel a booking."""
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1524,7 +1542,7 @@ class StaffBookingCancelView(APIView):
 
 class StaffBookingDetailView(APIView):
     """Staff endpoint to get detailed booking information."""
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel]
 
     def get(self, request, hotel_slug, booking_id):
         try:
@@ -1560,7 +1578,7 @@ class StaffBookingDetailView(APIView):
 
 class StaffBookingMarkSeenView(APIView):
     """Staff endpoint to mark a booking as seen."""
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1617,7 +1635,7 @@ class StaffBookingMarkSeenView(APIView):
 
 class PublicPageBuilderView(APIView):
     """Staff builder endpoint for a hotel's public page."""
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
 
     def get(self, request, hotel_slug):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
@@ -1646,7 +1664,7 @@ class PublicPageBuilderView(APIView):
 
 class HotelStatusCheckView(APIView):
     """Quick endpoint to check hotel's current state."""
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
 
     def get(self, request, hotel_slug):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
@@ -1661,7 +1679,7 @@ class HotelStatusCheckView(APIView):
 
 class PublicPageBootstrapView(APIView):
     """Bootstrap a hotel with default public page sections."""
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
 
     def post(self, request, hotel_slug):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
@@ -1692,7 +1710,7 @@ class PublicPageBootstrapView(APIView):
 
 class SectionCreateView(APIView):
     """Enhanced section creation endpoint."""
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsSuperStaffAdminForHotel]
     
     def post(self, request, hotel_slug):
         hotel = get_object_or_404(Hotel, slug=hotel_slug)
@@ -1850,7 +1868,7 @@ class BookingAssignmentView(APIView):
     POST /api/staff/hotels/{slug}/bookings/{booking_id}/assign-room/
     POST /api/staff/hotels/{slug}/bookings/{booking_id}/checkout/
     """
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
 
     def get_hotel_and_booking(self, hotel_slug, booking_id):
         """Helper to get hotel and booking with validation"""
@@ -2122,7 +2140,12 @@ class BookingPartyManagementView(APIView):
     GET /api/staff/hotels/{slug}/bookings/{booking_id}/party/
     PUT /api/staff/hotels/{slug}/bookings/{booking_id}/party/companions/
     """
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        base = [IsAuthenticated(), HasBookingsNav(), IsStaffMember(), IsSameHotel()]
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            base.append(CanManageBookings())
+        return base
 
     def get_hotel_and_booking(self, hotel_slug, booking_id):
         """Helper to get hotel and booking with validation"""
@@ -2283,7 +2306,7 @@ class BookingPartyManagementView(APIView):
 class AvailableRoomsView(APIView):
     """GET /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/available-rooms/"""
     
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel]
     
     def get(self, request, hotel_slug, booking_id):
         booking = get_object_or_404(RoomBooking, booking_id=booking_id, hotel__slug=hotel_slug)
@@ -2304,7 +2327,7 @@ class AvailableRoomsView(APIView):
 class SafeAssignRoomView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/safe-assign-room/"""
     
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
     
     def post(self, request, hotel_slug, booking_id):
         room_id = request.data.get('room_id')
@@ -2384,7 +2407,7 @@ class SafeAssignRoomView(APIView):
 class UnassignRoomView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/unassign-room/"""
     
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
     
     @transaction.atomic
     def post(self, request, hotel_slug, booking_id):
@@ -2446,7 +2469,7 @@ class MoveRoomInputSerializer(serializers.Serializer):
 class MoveRoomView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/move-room/"""
     
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
     
     def post(self, request, hotel_slug, booking_id):
         serializer = MoveRoomInputSerializer(data=request.data)
@@ -2520,7 +2543,7 @@ class MoveRoomView(APIView):
 class BookingCheckInView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/room-bookings/{booking_id}/check-in/"""
     
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
     
     def _emit_checkin_realtime_events(self, booking, room, primary_guest, party_guest_objects, guest_token=None):
         """Emit realtime events for check-in - called after transaction commit"""
@@ -2683,7 +2706,7 @@ class BookingCheckInView(APIView):
 class BookingCheckOutView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/room-bookings/{booking_id}/check-out/"""
     
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
     
     def _emit_checkout_realtime_events(self, booking, room, hotel):
         """Emit realtime events for check-out - called after transaction commit"""
@@ -2759,7 +2782,7 @@ class BookingCheckOutView(APIView):
 
 class SendPrecheckinLinkView(APIView):
     """Send pre-check-in link to guest via email"""
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel]
 
     def post(self, request, hotel_slug, booking_id):
         """Generate token and send pre-check-in email to guest"""
@@ -2860,7 +2883,7 @@ Best regards,
 
 class HotelPrecheckinConfigView(APIView):
     """Manage hotel-level precheckin field configuration"""
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasAdminSettingsNav, IsSuperStaffAdminForHotel]
     
     def get(self, request, hotel_slug):
         """Get current precheckin configuration for hotel"""
@@ -2933,7 +2956,7 @@ class HotelPrecheckinConfigView(APIView):
 
 class HotelSurveyConfigView(APIView):
     """Manage hotel-level survey field configuration and sending policy"""
-    permission_classes = [IsAuthenticated, IsSuperStaffAdminForHotel]
+    permission_classes = [IsAuthenticated, HasAdminSettingsNav, IsSuperStaffAdminForHotel]
     
     def get(self, request, hotel_slug):
         """Get current survey configuration for hotel"""
@@ -3042,7 +3065,7 @@ class HotelSurveyConfigView(APIView):
 
 class SendSurveyLinkView(APIView):
     """Send survey link to guest via email"""
-    permission_classes = [IsAuthenticated, IsStaffMember]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel]
 
     def post(self, request, hotel_slug, booking_id):
         """Generate token and send survey email to guest"""
@@ -3177,7 +3200,7 @@ class StaffBookingAcceptView(APIView):
     
     Multi-tenant safe: Validates hotel ownership before processing.
     """
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
     
     def post(self, request, hotel_slug, booking_id):
         """Approve a booking and capture the authorized payment."""
@@ -3334,7 +3357,7 @@ class StaffBookingDeclineView(APIView):
     
     Multi-tenant safe: Validates hotel ownership before processing.
     """
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
     
     def post(self, request, hotel_slug, booking_id):
         """Decline a booking and cancel the authorized payment."""

@@ -21,6 +21,7 @@ from django.db import models, transaction
 from django.utils.timezone import now
 from django.utils import timezone
 from staff_chat.permissions import IsStaffMember, IsSameHotel
+from staff.permissions import HasNavPermission, HasRoomsNav, CanManageRooms
 from django.db.models import Count
 from chat.utils import pusher_client
 import logging
@@ -40,7 +41,7 @@ class RoomViewSet(viewsets.ModelViewSet):
     All staff write operations go through StaffRoomViewSet.
     """
     serializer_class = RoomSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel]
     serializer_class = RoomSerializer
     pagination_class = RoomPagination
     lookup_field = 'room_number'
@@ -80,6 +81,17 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ['room_number']
 
+    def get_permissions(self):
+        perms = [
+            IsAuthenticated(),
+            HasNavPermission('rooms'),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        if self.action not in ('list', 'retrieve'):
+            perms.append(CanManageRooms())
+        return perms
+
     def get_queryset(self):
         try:
             staff = self.request.user.staff_profile
@@ -100,7 +112,7 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
 class RoomTypeViewSet(viewsets.ModelViewSet):
     """Legacy ViewSet — kept for internal read usage only, not mounted on any writable route"""
     serializer_class = RoomTypeSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel]
     http_method_names = ['get', 'head', 'options']  # Read-only
     
     def get_queryset(self):
@@ -114,6 +126,8 @@ class RoomTypeViewSet(viewsets.ModelViewSet):
 
 
 class AddGuestToRoomView(APIView):
+    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel, CanManageRooms]
+
     def post(self, request, hotel_identifier, room_number):
         hotel = get_object_or_404(Hotel, slug=hotel_identifier)
         room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
@@ -151,6 +165,8 @@ class AddGuestToRoomView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class RoomByHotelAndNumberView(APIView):
+    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel]
+
     def get(self, request, hotel_identifier, room_number):
         hotel = get_object_or_404(Hotel, slug=hotel_identifier)
         room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
@@ -159,7 +175,7 @@ class RoomByHotelAndNumberView(APIView):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
 def checkout_rooms(request, hotel_slug):
     """
     Bulk room checkout - Non-destructive by default
@@ -169,6 +185,12 @@ def checkout_rooms(request, hotel_slug):
       "destructive": false  // optional, requires admin for true
     }
     """
+    # RBAC: nav visibility + mutation authority
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
+    if not CanManageRooms().has_permission(request, None):
+        return Response({'detail': 'Manage-rooms permission required.'}, status=status.HTTP_403_FORBIDDEN)
+
     from room_bookings.services.checkout import checkout_booking
     from hotel.models import Hotel, RoomBooking
     
@@ -313,8 +335,12 @@ def checkout_rooms(request, hotel_slug):
         "results": results
     }, status=status.HTTP_200_OK) 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
 def checkout_needed(request, hotel_slug):
+    # RBAC: nav visibility
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
+
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     today = now().date()
 
@@ -337,8 +363,8 @@ def checkout_needed(request, hotel_slug):
 def start_cleaning(request, hotel_slug, room_number):
     """Transition room to CLEANING_IN_PROGRESS"""
     # Check canonical navigation permission
-    if not request.user.staff_profile.allowed_navigation_items.filter(slug='rooms').exists():
-        return Response({'error': 'Rooms permission required'}, status=403)
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
@@ -386,8 +412,8 @@ def start_cleaning(request, hotel_slug, room_number):
 def mark_cleaned(request, hotel_slug, room_number):
     """Mark room as cleaned, transition to CLEANED_UNINSPECTED"""
     # Check canonical navigation permission
-    if not request.user.staff_profile.allowed_navigation_items.filter(slug='rooms').exists():
-        return Response({'error': 'Rooms permission required'}, status=403)
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
@@ -435,8 +461,8 @@ def mark_cleaned(request, hotel_slug, room_number):
 def inspect_room(request, hotel_slug, room_number):
     """Inspect room - pass -> READY_FOR_GUEST, fail -> CHECKOUT_DIRTY"""
     # Check canonical navigation permission
-    if not request.user.staff_profile.allowed_navigation_items.filter(slug='rooms').exists():
-        return Response({'error': 'Rooms permission required'}, status=403)
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
@@ -491,8 +517,8 @@ def inspect_room(request, hotel_slug, room_number):
 def mark_maintenance(request, hotel_slug, room_number):
     """Mark room as requiring maintenance - requires maintenance navigation permission"""
     # Check canonical navigation permission
-    if not request.user.staff_profile.allowed_navigation_items.filter(slug='maintenance').exists():
-        return Response({'error': 'Maintenance permission required'}, status=403)
+    if not HasNavPermission('maintenance').has_permission(request, None):
+        return Response({'detail': 'Maintenance navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
@@ -553,8 +579,8 @@ def mark_maintenance(request, hotel_slug, room_number):
 def complete_maintenance(request, hotel_slug, room_number):
     """Mark maintenance as completed - requires maintenance navigation permission"""
     # Check canonical navigation permission
-    if not request.user.staff_profile.allowed_navigation_items.filter(slug='maintenance').exists():
-        return Response({'error': 'Maintenance permission required'}, status=403)
+    if not HasNavPermission('maintenance').has_permission(request, None):
+        return Response({'detail': 'Maintenance navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
     
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
@@ -617,6 +643,10 @@ def complete_maintenance(request, hotel_slug, room_number):
 @permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
 def turnover_rooms(request, hotel_slug):
     """Get rooms grouped by turnover status"""
+    # RBAC: nav visibility
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
+
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
     rooms_by_status = {}
@@ -639,6 +669,10 @@ def turnover_rooms(request, hotel_slug):
 @permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
 def turnover_stats(request, hotel_slug):
     """Get turnover statistics and metrics"""
+    # RBAC: nav visibility
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
+
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
     total_rooms = hotel.rooms.filter(is_active=True).count()
@@ -691,6 +725,12 @@ def bulk_create_rooms(request, hotel_slug, room_type_id):
     1. {"room_numbers": [101, 102, 201]}
     2. {"ranges": [{"start": 101, "end": 110}, {"start": 201, "end": 205}]}
     """
+    # RBAC: nav visibility + mutation authority
+    if not HasNavPermission('rooms').has_permission(request, None):
+        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
+    if not CanManageRooms().has_permission(request, None):
+        return Response({'detail': 'Manage-rooms permission required.'}, status=status.HTTP_403_FORBIDDEN)
+
     from housekeeping.models import RoomStatusEvent
 
     # Resolve hotel and enforce scoping
@@ -821,6 +861,17 @@ class RoomImageViewSet(viewsets.ModelViewSet):
     """
     serializer_class = RoomImageSerializer
     permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        perms = [
+            IsAuthenticated(),
+            HasNavPermission('rooms'),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        if self.action not in ('list', 'retrieve'):
+            perms.append(CanManageRooms())
+        return perms
 
     def get_queryset(self):
         try:

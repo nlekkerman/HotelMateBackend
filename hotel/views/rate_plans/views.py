@@ -8,11 +8,19 @@ from hotel.models import Hotel
 from rooms.models import RatePlan
 from hotel.serializers import RatePlanSerializer, RatePlanListSerializer
 from staff_chat.permissions import IsStaffMember
+from staff.permissions import HasNavPermission, CanManageBookings
 
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsStaffMember])
 def rate_plans_list(request, hotel_slug):
+
+    # RBAC: module visibility
+    if not HasNavPermission('bookings').has_permission(request, None):
+        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
+    # RBAC: mutation authority
+    if request.method == 'POST' and not CanManageBookings().has_permission(request, None):
+        return Response({'detail': CanManageBookings.message}, status=status.HTTP_403_FORBIDDEN)
   
     # Resolve hotel and enforce scoping
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
@@ -43,6 +51,13 @@ def rate_plan_detail(request, hotel_slug, rate_plan_id):
     GET: Retrieve rate plan details
     PUT/PATCH: Update rate plan (no DELETE - soft delete only)
     """
+    # RBAC: module visibility
+    if not HasNavPermission('bookings').has_permission(request, None):
+        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
+    # RBAC: mutation authority
+    if request.method in ('PUT', 'PATCH') and not CanManageBookings().has_permission(request, None):
+        return Response({'detail': CanManageBookings.message}, status=status.HTTP_403_FORBIDDEN)
+
     # Resolve hotel and enforce scoping
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
@@ -79,6 +94,10 @@ def rate_plan_delete(request, hotel_slug, rate_plan_id):
     """
     DELETE: Soft delete rate plan (return 405 to enforce soft delete policy)
     """
+    # RBAC: module visibility
+    if not HasNavPermission('bookings').has_permission(request, None):
+        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
+
     return Response(
         {
             'error': 'Hard delete not allowed for rate plans',

@@ -320,3 +320,30 @@ class CanConfigureHotel(BasePermission):
             return True
         tier = resolve_tier(request.user)
         return _tier_at_least(tier, 'super_staff_admin')
+
+
+# ---------------------------------------------------------------------------
+# Slug-bound HasNavPermission classes for use in static permission_classes
+#
+# DRF's default get_permissions() calls  [P() for P in permission_classes],
+# so HasNavPermission('slug') (an instance) cannot appear in the list.
+# These zero-arg subclasses solve that.
+# ---------------------------------------------------------------------------
+
+class HasRoomsNav(HasNavPermission):
+    def __init__(self): super().__init__('rooms')
+
+class HasBookingsNav(HasNavPermission):
+    def __init__(self): super().__init__('bookings')
+
+class HasHotelInfoNav(HasNavPermission):
+    def __init__(self): super().__init__('hotel_info')
+
+class HasAdminSettingsNav(HasNavPermission):
+    def __init__(self): super().__init__('admin_settings')
+
+class HasAttendanceNav(HasNavPermission):
+    def __init__(self): super().__init__('attendance')
+
+class HasStaffManagementNav(HasNavPermission):
+    def __init__(self): super().__init__('staff_management')

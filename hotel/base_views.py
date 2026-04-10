@@ -15,14 +15,14 @@ from django.shortcuts import get_object_or_404
 
 from .models import Hotel
 from .base_serializers import HotelSerializer
-from staff.permissions import IsAdminTier
+from staff.permissions import IsAdminTier, CanConfigureHotel
 
 
 class HotelViewSet(viewsets.ModelViewSet):
     """Admin/internal hotel management - staff_admin tier and above"""
     queryset = Hotel.objects.all()
     serializer_class = HotelSerializer
-    permission_classes = [IsAdminTier]
+    permission_classes = [IsAuthenticated, IsAdminTier, CanConfigureHotel]
     
     def create(self, request, *args, **kwargs):
         """

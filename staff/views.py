@@ -40,7 +40,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .permissions import IsAdminTier
+from .permissions import (
+    IsAdminTier, HasNavPermission, CanManageStaff,
+    IsSuperStaffAdminOrAbove, IsDjangoSuperUser,
+    resolve_tier, _tier_at_least,
+)
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 20
@@ -49,7 +54,11 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 
 class StaffMetadataView(APIView):
-    permission_classes = [IsAuthenticated]
+    """
+    Retrieve departments/roles metadata for a hotel.
+    Read-only, requires staff_management module access.
+    """
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
     pagination_class = None
 
     def get(self, request, hotel_slug=None):
@@ -77,7 +86,7 @@ class StaffMetadataView(APIView):
 class UserListAPIView(generics.ListAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
 
     def get_queryset(self):
         # Optionally filter or log authenticated user
@@ -259,7 +268,17 @@ class StaffViewSet(viewsets.ModelViewSet):
     serializer_class = StaffSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-    permission_classes = [IsAdminTier]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('staff_management') gates module access.
+        CUD requires CanManageStaff (super_staff_admin+).
+        Read actions open to any tier with staff_management access.
+        """
+        base = [IsAuthenticated(), HasNavPermission('staff_management'), IsStaffMember(), IsSameHotel()]
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            base.append(CanManageStaff())
+        return base
 
     filterset_fields = ['department__slug', 'role__slug', 'hotel__slug']
     ordering_fields = ['user__username', 'department__name', 'role__name', 'hotel__name']
@@ -338,7 +357,7 @@ class StaffViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
-    @action(detail=False, methods=["get"], permission_classes=[permissions.IsAuthenticated], url_path='me')
+    @action(detail=False, methods=["get"], url_path='me')
     def me(self, request, hotel_slug=None):
         # Get staff filtered by request.user and hotel_slug
         try:
@@ -355,7 +374,6 @@ class StaffViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=["get"],
         url_path="by_department",
-        permission_classes=[permissions.IsAuthenticated]
     )
     def by_department(self, request, hotel_slug=None):
         """
@@ -397,7 +415,6 @@ class StaffViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=["get"],
         url_path=r'by_hotel',
-        permission_classes=[permissions.IsAuthenticated],
     )
     def by_hotel(self, request, hotel_slug=None):
         if not hotel_slug:
@@ -416,7 +433,6 @@ class StaffViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=["get"],
         url_path="attendance-summary",
-        permission_classes=[permissions.IsAuthenticated]
     )
     def attendance_summary(self, request, hotel_slug=None):
         """
@@ -681,9 +697,9 @@ class GenerateRegistrationPackageAPIView(APIView):
     """
     Generate or retrieve a registration package for staff onboarding.
     Returns registration code + QR code URL + token.
-    Only authenticated staff with proper permissions can access.
+    Only authenticated staff_admin+ with staff_management access can use.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
 
     def post(self, request):
         """
@@ -926,7 +942,7 @@ class PasswordResetConfirmView(APIView):
 
 class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
     serializer_class = UserSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
 
     def get_queryset(self):
         user = self.request.user
@@ -967,7 +983,7 @@ class PendingRegistrationsAPIView(APIView):
     - super_staff_admin: own hotel only
     - Django is_superuser: all hotels
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
 
     def get(self, request, hotel_slug):
         user = request.user
@@ -1029,7 +1045,7 @@ class CreateStaffFromUserAPIView(APIView):
     - super_staff_admin: can create regular_staff and staff_admin
     - Django is_superuser: can create any access level including super_staff_admin
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
 
     # Defines what each requester access level is allowed to create
     ALLOWED_CREATIONS = {
@@ -1217,9 +1233,13 @@ class DepartmentViewSet(viewsets.ModelViewSet):
     ordering = ['name']
 
     def get_permissions(self):
+        """
+        RBAC: HasNavPermission('staff_management') gates module access.
+        CUD enforced via check_write_permission which requires staff_admin+.
+        """
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated()]
+            return [IsAuthenticated(), HasNavPermission('staff_management')]
+        return [IsAuthenticated(), HasNavPermission('staff_management'), CanManageStaff()]
 
     def check_write_permission(self, hotel):
         """Verify user can write departments for this hotel."""
@@ -1299,8 +1319,8 @@ class RoleViewSet(viewsets.ModelViewSet):
     List, create, retrieve, update, delete roles.
     Filter by department using ?department_slug=<slug>
     Scoped to hotel via URL hotel_slug.
-    Read: any authenticated user.
-    Write: staff_admin / super_staff_admin of the hotel, or superuser.
+    Read: any staff with staff_management access.
+    Write: CanManageStaff (super_staff_admin+).
     """
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
@@ -1317,9 +1337,13 @@ class RoleViewSet(viewsets.ModelViewSet):
     ordering = ['name']
 
     def get_permissions(self):
+        """
+        RBAC: HasNavPermission('staff_management') gates module access.
+        CUD enforced via CanManageStaff + check_write_permission.
+        """
         if self.action in ['list', 'retrieve']:
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated()]
+            return [IsAuthenticated(), HasNavPermission('staff_management')]
+        return [IsAuthenticated(), HasNavPermission('staff_management'), CanManageStaff()]
 
     def check_write_permission(self, hotel):
         """Verify user can write roles for this hotel."""
@@ -1414,9 +1438,17 @@ class NavigationItemViewSet(viewsets.ModelViewSet):
     """
     queryset = NavigationItem.objects.all()
     serializer_class = NavigationItemSerializer
-    permission_classes = [permissions.IsAuthenticated]
     pagination_class = None  # Disable pagination
     lookup_field = 'slug'
+
+    def get_permissions(self):
+        """
+        RBAC: Read open to any authenticated staff.
+        CUD requires IsDjangoSuperUser (platform-level).
+        """
+        if self.action in ['list', 'retrieve']:
+            return [IsAuthenticated()]
+        return [IsAuthenticated(), IsDjangoSuperUser()]
     
     filter_backends = [
         filters.SearchFilter,
@@ -1445,27 +1477,15 @@ class NavigationItemViewSet(viewsets.ModelViewSet):
         return queryset
     
     def perform_create(self, serializer):
-        """Only Django superuser can create navigation items"""
-        if not self.request.user.is_superuser:
-            raise permissions.PermissionDenied(
-                "Only Django superusers can create navigation items."
-            )
+        """Create navigation item (IsDjangoSuperUser enforced at class level)."""
         serializer.save()
     
     def perform_update(self, serializer):
-        """Only Django superuser can update navigation items"""
-        if not self.request.user.is_superuser:
-            raise permissions.PermissionDenied(
-                "Only Django superusers can update navigation items."
-            )
+        """Update navigation item (IsDjangoSuperUser enforced at class level)."""
         serializer.save()
     
     def perform_destroy(self, instance):
-        """Only Django superuser can delete navigation items"""
-        if not self.request.user.is_superuser:
-            raise permissions.PermissionDenied(
-                "Only Django superusers can delete navigation items."
-            )
+        """Delete navigation item (IsDjangoSuperUser enforced at class level)."""
         instance.delete()
 
 
@@ -1480,11 +1500,10 @@ class StaffNavigationPermissionsView(APIView):
     Authorization: super_staff_admin or superuser only
     Hotel scoping: enforced unless requester is superuser
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management'), IsSuperStaffAdminOrAbove]
     
     def get(self, request, staff_id):
         """Get staff member's canonical navigation permissions."""
-        # Import canonical resolver
         from .permissions import resolve_effective_access
         
         # Get target staff member
@@ -1719,7 +1738,7 @@ class EmailRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
     Email an existing registration package to a recipient.
     Does NOT create or mutate the package.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
 
     def post(self, request, pk):
         from .serializers import EmailRegistrationPackageSerializer
@@ -1833,7 +1852,7 @@ class PrintRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
 
     Return structured printable data for an existing registration package.
     """
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
 
     def get(self, request, pk):
         from .services import ensure_package_qr_ready, serialize_package
