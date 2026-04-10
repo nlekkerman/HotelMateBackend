@@ -13,7 +13,7 @@ from rest_framework.permissions import IsAuthenticated
 
 from staff.models import Staff
 from staff.serializers import StaffSerializer
-from staff.permissions import resolve_staff_navigation
+from staff.permissions import resolve_effective_access
 
 
 class StaffMeView(APIView):
@@ -35,7 +35,7 @@ class StaffMeView(APIView):
             staff_data = StaffSerializer(staff).data
             
             # Get canonical permissions payload
-            permissions = resolve_staff_navigation(request.user)
+            permissions = resolve_effective_access(request.user)
             
             # Merge canonical permissions into staff data
             staff_data.update(permissions)
@@ -44,7 +44,7 @@ class StaffMeView(APIView):
             
         except Staff.DoesNotExist:
             # No staff profile - return canonical structure with empty values
-            permissions = resolve_staff_navigation(request.user)
+            permissions = resolve_effective_access(request.user)
             
             return Response(
                 {

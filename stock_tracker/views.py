@@ -11,6 +11,7 @@ import logging
 
 from hotel.models import Hotel
 from hotel.permissions import IsHotelStaff, IsSuperStaffAdminForHotel
+from staff.permissions import HasNavPermission, resolve_tier, IsSuperStaffAdminOrAbove
 from .pusher_utils import (
     broadcast_stocktake_created,
     broadcast_stocktake_status_changed,

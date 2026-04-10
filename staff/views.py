@@ -40,7 +40,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from .permissions_superuser import IsSuperUser
+from .permissions import IsAdminTier
 
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 20
@@ -133,10 +133,10 @@ class CustomAuthToken(ObtainAuthToken):
             profile_image_url = str(staff.profile_image)
         
         # Use canonical permissions resolver for consistent payload
-        from .permissions import resolve_staff_navigation
+        from .permissions import resolve_effective_access
         
         # Get canonical permissions - this handles superuser bypass and hotel scoping
-        permissions_payload = resolve_staff_navigation(user)
+        permissions_payload = resolve_effective_access(user)
         
         # Build login response data with canonical permissions
         data = {
@@ -259,7 +259,7 @@ class StaffViewSet(viewsets.ModelViewSet):
     serializer_class = StaffSerializer
     pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
-    permission_classes = [IsSuperUser]
+    permission_classes = [IsAdminTier]
 
     filterset_fields = ['department__slug', 'role__slug', 'hotel__slug']
     ordering_fields = ['user__username', 'department__name', 'role__name', 'hotel__name']
@@ -1485,7 +1485,7 @@ class StaffNavigationPermissionsView(APIView):
     def get(self, request, staff_id):
         """Get staff member's canonical navigation permissions."""
         # Import canonical resolver
-        from .permissions import resolve_staff_navigation
+        from .permissions import resolve_effective_access
         
         # Get target staff member
         target_staff = get_object_or_404(Staff, id=staff_id)
@@ -1498,7 +1498,7 @@ class StaffNavigationPermissionsView(APIView):
             )
         
         # Return canonical permissions for target staff
-        permissions = resolve_staff_navigation(target_staff.user)
+        permissions = resolve_effective_access(target_staff.user)
         permissions['staff_id'] = target_staff.id
         permissions['staff_name'] = f"{target_staff.first_name} {target_staff.last_name}"
         
@@ -1507,7 +1507,7 @@ class StaffNavigationPermissionsView(APIView):
     def patch(self, request, staff_id):
         """Update staff member's navigation permissions using canonical system."""
         # Import canonical resolver 
-        from .permissions import resolve_staff_navigation
+        from .permissions import resolve_effective_access
         
         # Get target staff member
         target_staff = get_object_or_404(Staff, id=staff_id)
@@ -1582,7 +1582,7 @@ class StaffNavigationPermissionsView(APIView):
                 print(f"Pusher notification failed: {e}")
         
         # Return updated canonical permissions
-        updated_permissions = resolve_staff_navigation(target_staff.user)
+        updated_permissions = resolve_effective_access(target_staff.user)
         updated_permissions['staff_id'] = target_staff.id
         updated_permissions['staff_name'] = f"{target_staff.first_name} {target_staff.last_name}"
         updated_permissions['message'] = 'Navigation permissions updated successfully.'

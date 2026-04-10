@@ -4,6 +4,14 @@ Custom permissions for Staff Chat
 from rest_framework import permissions
 
 
+def is_chat_manager(staff) -> bool:
+    """
+    Centralized check: is this staff member a chat manager?
+    Replaces scattered `role.slug in ['manager', 'admin']` checks.
+    """
+    return bool(staff and staff.role and staff.role.slug in ('manager', 'admin'))
+
+
 class IsStaffMember(permissions.BasePermission):
     """
     Permission check: User must have a staff profile
@@ -101,7 +109,7 @@ class CanManageConversation(permissions.BasePermission):
                 return True
             
             # Managers and admins can manage any conversation
-            if staff.role and staff.role.slug in ['manager', 'admin']:
+            if is_chat_manager(staff):
                 return True
             
             return False
@@ -126,7 +134,7 @@ class CanDeleteMessage(permissions.BasePermission):
             
             if hard_delete:
                 # Only managers/admins can hard delete
-                if staff.role and staff.role.slug in ['manager', 'admin']:
+                if is_chat_manager(staff):
                     return True
                 # Or if it's their own message
                 return obj.sender.id == staff.id

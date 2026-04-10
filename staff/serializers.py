@@ -327,7 +327,7 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     def to_representation(self, instance):
         """Ensure canonical permissions are always included using resolver."""
         # Import here to avoid circular imports
-        from .permissions import resolve_staff_navigation
+        from .permissions import resolve_effective_access
         
         data = super().to_representation(instance)
         
@@ -335,7 +335,7 @@ class StaffLoginOutputSerializer(serializers.Serializer):
         user = instance.get('user')
         if user:
             # Get canonical permissions payload and merge it
-            permissions = resolve_staff_navigation(user)
+            permissions = resolve_effective_access(user)
             data.update(permissions)
             
             # Ensure isAdmin matches is_superuser for legacy compatibility

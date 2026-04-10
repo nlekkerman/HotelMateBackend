@@ -101,6 +101,12 @@ class Role(models.Model):
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=100)
     description = models.TextField(blank=True, null=True)
+    default_navigation_items = models.ManyToManyField(
+        NavigationItem,
+        blank=True,
+        related_name='default_for_roles',
+        help_text="Default navigation items for staff with this role"
+    )
 
     def __str__(self):
         return self.name

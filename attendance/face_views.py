@@ -9,6 +9,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from staff.permissions import HasNavPermission
 
 from hotel.models import Hotel
 from staff.models import Staff
@@ -36,7 +37,14 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
     - Face listing with privacy controls
     - Audit log access for compliance
     """
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        Face operations use additional inline checks via check_staff_permissions.
+        """
+        from staff_chat.permissions import IsStaffMember, IsSameHotel
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel()]
     
     def get_hotel(self):
         """Get hotel from URL parameter."""
@@ -1064,6 +1072,13 @@ def force_clock_in_unrostered(request, hotel_slug):
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
+    # Module access check
+    if not HasNavPermission('attendance').has_permission(request, None):
+        return Response(
+            {'error': 'You do not have access to the attendance module.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
     # Check permissions
     staff = getattr(request.user, 'staff_profile', None)
     if not staff:
@@ -1202,6 +1217,13 @@ def confirm_clock_out_view(request, hotel_slug):
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
+    # Module access check
+    if not HasNavPermission('attendance').has_permission(request, None):
+        return Response(
+            {'error': 'You do not have access to the attendance module.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+    
     # Check permissions
     staff = getattr(request.user, 'staff_profile', None)
     if not staff:
@@ -1323,6 +1345,13 @@ def toggle_break_view(request, hotel_slug):
     POST /api/staff/hotel/{hotel_slug}/attendance/face-management/toggle-break/
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
+    
+    # Module access check
+    if not HasNavPermission('attendance').has_permission(request, None):
+        return Response(
+            {'error': 'You do not have access to the attendance module.'},
+            status=status.HTTP_403_FORBIDDEN
+        )
     
     # Check permissions
     staff = getattr(request.user, 'staff_profile', None)

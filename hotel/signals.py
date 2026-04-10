@@ -43,3 +43,21 @@ def create_hotel_related_objects(sender, instance, created, **kwargs):
 
     # SurveyConfig (uses its own defaults)
     HotelSurveyConfig.get_or_create_default(instance)
+
+    # Canonical NavigationItems — only on hotel creation
+    if created:
+        from staff.nav_catalog import CANONICAL_NAV_ITEMS
+        from staff.models import NavigationItem
+
+        for item in CANONICAL_NAV_ITEMS:
+            NavigationItem.objects.get_or_create(
+                hotel=instance,
+                slug=item['slug'],
+                defaults={
+                    'name': item['name'],
+                    'path': item['path'],
+                    'description': item['description'],
+                    'display_order': item['display_order'],
+                    'is_active': True,
+                },
+            )

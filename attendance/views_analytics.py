@@ -3,6 +3,8 @@ from rest_framework.viewsets import ViewSet
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+from staff_chat.permissions import IsStaffMember, IsSameHotel
+from staff.permissions import HasNavPermission
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from .serializers_analytics import (
@@ -22,7 +24,13 @@ from .analytics_roster import RosterAnalytics
 
 
 class RosterAnalyticsViewSet(ViewSet):
-    permission_classes = [IsAuthenticated]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        All analytics endpoints are read-only.
+        """
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel()]
 
     def _hotel(self, hotel_slug):
         return get_object_or_404(Hotel, slug=hotel_slug)

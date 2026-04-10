@@ -24,6 +24,7 @@ from .business_rules import (
 # Security imports
 from common.mixins import HotelScopedViewSetMixin, AttendanceHotelScopedMixin
 from staff_chat.permissions import IsStaffMember, IsSameHotel
+from staff.permissions import HasNavPermission, CanManageRoster, resolve_tier, _tier_at_least
 from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_plan_grouped_pdf
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
@@ -306,7 +307,21 @@ def find_matching_shift_for_datetime(hotel, staff, current_dt):
 class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     queryset = ClockLog.objects.select_related('staff__department','staff', 'hotel').all()
     serializer_class = ClockLogSerializer
-    # Permissions are inherited from AttendanceHotelScopedMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        Management actions (approve/reject/relink/CRUD) require CanManageRoster (super_staff_admin+).
+        Self-service clock actions (clock-in/out, break, status) allowed for any staff with attendance access.
+        """
+        management_actions = {
+            'create', 'update', 'partial_update', 'destroy',
+            'approve_log', 'reject_log', 'auto_attach_shift', 'relink_day',
+        }
+        base = [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel()]
+        if self.action in management_actions:
+            base.append(CanManageRoster())
+        return base
 
     @action(detail=False, methods=['post'], url_path='register-face')
     def register_face(self, request, hotel_slug=None):
@@ -929,7 +944,13 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
 class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     queryset = RosterPeriod.objects.select_related('hotel', 'created_by').all()
     serializer_class = RosterPeriodSerializer
-    # Permissions are inherited from AttendanceHotelScopedMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        All CUD actions require CanManageRoster (super_staff_admin+).
+        """
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
 
     def perform_create(self, serializer):
         """Create roster period with proper hotel and staff assignment"""
@@ -1345,7 +1366,7 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         
         # Validate period can be finalized
         force = request.data.get('force', False)
-        is_admin = getattr(request.user, 'is_staff', False)
+        is_admin = _tier_at_least(resolve_tier(request.user), 'super_staff_admin')
         
         if not force:
             is_valid, error_message = validate_period_finalization(period)
@@ -1405,13 +1426,8 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         Unfinalize a roster period (admin only).
         """
         period = self.get_object()
-        
-        # Admin check
-        if not getattr(request.user, 'is_staff', False):
-            return Response({
-                "error": "Only administrators can unfinalize periods."
-            }, status=status.HTTP_403_FORBIDDEN)
-        
+        # CanManageRoster (class-level) already enforces super_staff_admin+ for POST
+
         if not period.is_finalized:
             return Response({
                 "error": f"Period '{period.title}' is not finalized."
@@ -1525,7 +1541,13 @@ class StaffRosterViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = StaffRosterFilter
     pagination_class = None
-    # Permissions are inherited from AttendanceHotelScopedMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        All CUD and bulk_save require CanManageRoster (super_staff_admin+).
+        """
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
     
     def get_queryset(self):
         """Get hotel-scoped roster queryset with additional filters"""
@@ -1805,12 +1827,24 @@ class StaffRosterViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
 class ShiftLocationViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = ShiftLocation.objects.all()
     serializer_class = ShiftLocationSerializer
-    # Permissions are inherited from HotelScopedViewSetMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        CUD requires CanManageRoster (super_staff_admin+).
+        """
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
 
 class DailyPlanViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = DailyPlan.objects.all()
     serializer_class = DailyPlanSerializer
-    # Permissions are inherited from HotelScopedViewSetMixin: [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        CUD requires CanManageRoster (super_staff_admin+).
+        """
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
 
     def get_queryset(self):
         """Get hotel-scoped daily plans with optional department filtering"""
@@ -1886,7 +1920,13 @@ class DailyPlanViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
 class DailyPlanEntryViewSet(viewsets.ModelViewSet):
     queryset = DailyPlanEntry.objects.all()
     serializer_class = DailyPlanEntrySerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+
+    def get_permissions(self):
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        CUD requires CanManageRoster (super_staff_admin+).
+        """
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
 
     def get_daily_plan(self):
         """Get daily plan with hotel security validation"""
@@ -1923,9 +1963,11 @@ class CopyRosterViewSet(AttendanceHotelScopedMixin, viewsets.ViewSet):
     MAX_COPIES_PER_HOUR = 10   # Maximum copy operations per user per hour
 
     def get_permissions(self):
-        """Import permissions dynamically to avoid circular imports"""
-        from staff_chat.permissions import IsStaffMember, IsSameHotel
-        return [IsAuthenticated(), IsStaffMember(), IsSameHotel()]
+        """
+        RBAC: HasNavPermission('attendance') gates module access.
+        All copy operations require CanManageRoster (super_staff_admin+).
+        """
+        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
     
     def _check_rate_limit(self, request, hotel_slug):
         """Check if user has exceeded copy operation rate limit"""

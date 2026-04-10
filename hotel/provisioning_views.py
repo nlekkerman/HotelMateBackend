@@ -9,7 +9,6 @@ and optional registration packages in one atomic operation.
 import logging
 
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -18,14 +17,9 @@ from .provisioning_serializers import (
     ProvisionHotelRequestSerializer,
     ProvisionHotelResponseSerializer,
 )
+from staff.permissions import IsDjangoSuperUser
 
 logger = logging.getLogger(__name__)
-
-
-class IsSuperUser(IsAuthenticated):
-    """Only Django superusers."""
-    def has_permission(self, request, view):
-        return super().has_permission(request, view) and request.user.is_superuser
 
 
 class ProvisionHotelView(APIView):
@@ -35,7 +29,7 @@ class ProvisionHotelView(APIView):
     Canonical hotel provisioning endpoint.
     Requires Django superuser.
     """
-    permission_classes = [IsSuperUser]
+    permission_classes = [IsDjangoSuperUser]
 
     def post(self, request):
         serializer = ProvisionHotelRequestSerializer(data=request.data)

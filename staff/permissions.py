@@ -1,145 +1,322 @@
 """
-Canonical permissions system for HotelMate staff navigation.
+Canonical permissions system for HotelMate RBAC.
 
-This module provides the single source of truth for staff navigation permissions,
-ensuring consistent payload structure across all authentication endpoints.
+This module is the SINGLE SOURCE OF TRUTH for:
+- Tier resolution (resolve_tier)
+- Effective access computation (resolve_effective_access)
+- Module visibility enforcement (HasNavPermission)
+- Action authority enforcement (CanManage* classes)
+- Platform/admin tier gates (IsDjangoSuperUser, IsAdminTier, IsSuperStaffAdminOrAbove)
+
+ENFORCEMENT RULES:
+- HasNavPermission controls ONLY module/route visibility — never mutation authority
+- EVERY mutation endpoint MUST use an explicit action-level permission class
+- Tier defaults are minimal: regular_staff sees only home+chat by default
+- Role.default_navigation_items is the primary source of module access for regular_staff
+- Staff.allowed_navigation_items is additive-only override
 """
 from django.contrib.auth import get_user_model
-from django.core.exceptions import PermissionDenied
-from django.http import JsonResponse
-from functools import wraps
 from rest_framework.permissions import BasePermission
 
 from staff.models import Staff, NavigationItem
+from staff.nav_catalog import CANONICAL_NAV_SLUGS
 from staff.serializers import NavigationItemSerializer
 
 User = get_user_model()
 
 
-def resolve_staff_navigation(user: User) -> dict:
+# ---------------------------------------------------------------------------
+# Canonical constants (CANONICAL_NAV_SLUGS imported from staff.nav_catalog)
+# ---------------------------------------------------------------------------
+
+TIER_DEFAULT_NAVS = {
+    'super_staff_admin': {
+        'home', 'rooms', 'bookings', 'chat', 'stock_tracker',
+        'housekeeping', 'attendance', 'staff_management', 'room_services',
+        'maintenance', 'entertainment', 'hotel_info', 'admin_settings',
+    },
+    'staff_admin': {
+        'home', 'rooms', 'bookings', 'chat', 'housekeeping',
+        'attendance', 'maintenance', 'hotel_info',
+    },
+    'regular_staff': {
+        'home', 'chat',
+    },
+}
+
+# Tiers ordered by descending authority
+TIER_HIERARCHY = ('super_user', 'super_staff_admin', 'staff_admin', 'regular_staff')
+
+
+# ---------------------------------------------------------------------------
+# Tier resolver — single source of truth
+# ---------------------------------------------------------------------------
+
+def resolve_tier(user) -> str | None:
     """
-    Single source of truth for staff navigation permissions.
-    Returns consistent payload for all auth endpoints.
-    
-    Returns:
-        dict: Canonical permissions payload with keys:
-            - is_staff: bool
-            - is_superuser: bool  
-            - hotel_slug: str | None
-            - access_level: str | None
-            - allowed_navs: list[str] (slugs only)
-            - navigation_items: list[dict] (full menu structure)
+    Canonical tier resolver. Returns the user's authority tier.
+
+    Returns one of:
+        'super_user'          — Django superuser (platform-level, all hotels)
+        'super_staff_admin'   — Full hotel authority
+        'staff_admin'         — Supervisor / department-lead
+        'regular_staff'       — Operational only
+        None                  — Not authenticated or no staff profile
     """
-    # Default empty payload - contract guarantees these keys always exist
+    if not user or not getattr(user, 'is_authenticated', False):
+        return None
+
+    if user.is_superuser:
+        return 'super_user'
+
+    try:
+        staff = user.staff_profile
+        return staff.access_level  # one of the ACCESS_LEVEL_CHOICES values
+    except (AttributeError, Staff.DoesNotExist):
+        return None
+
+
+def _tier_at_least(tier: str | None, minimum: str) -> bool:
+    """Return True if *tier* is at or above *minimum* in the hierarchy."""
+    if tier is None:
+        return False
+    try:
+        return TIER_HIERARCHY.index(tier) <= TIER_HIERARCHY.index(minimum)
+    except ValueError:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Effective access resolver (replaces resolve_staff_navigation)
+# ---------------------------------------------------------------------------
+
+def resolve_effective_access(user) -> dict:
+    """
+    Canonical source of truth for staff navigation permissions.
+
+    Computation:
+        effective_navs = tier_defaults ∪ role_defaults ∪ staff_overrides
+        (super_user gets ALL active navs for the hotel)
+
+    Returns dict with keys:
+        is_staff, is_superuser, hotel_slug, access_level, tier,
+        allowed_navs (list[str]), navigation_items (list[dict])
+    """
     base_payload = {
         'is_staff': False,
-        'is_superuser': bool(user.is_superuser if user.is_authenticated else False),
+        'is_superuser': bool(getattr(user, 'is_superuser', False)),
         'hotel_slug': None,
         'access_level': None,
+        'tier': None,
         'allowed_navs': [],
-        'navigation_items': []
+        'navigation_items': [],
     }
-    
-    if not user.is_authenticated:
+
+    if not user or not getattr(user, 'is_authenticated', False):
         return base_payload
-        
-    # Check if user has staff profile
+
     try:
         staff = user.staff_profile
     except (AttributeError, Staff.DoesNotExist):
         return base_payload
-    
-    # Update payload with staff info
+
+    tier = resolve_tier(user)
+
     base_payload.update({
         'is_staff': True,
         'hotel_slug': staff.hotel.slug,
-        'access_level': staff.access_level
+        'access_level': staff.access_level,
+        'tier': tier,
     })
-    
-    # Get hotel navigation items (active only, hotel-scoped)
+
+    # All active nav items for this hotel
     hotel_nav_items = NavigationItem.objects.filter(
         hotel=staff.hotel,
-        is_active=True
+        is_active=True,
     ).select_related('hotel').order_by('display_order', 'name')
-    
-    # Determine allowed navigation items based on superuser status
-    if user.is_superuser:
-        # Superusers get ALL active nav items for their hotel
+
+    if tier == 'super_user':
         allowed_nav_items = hotel_nav_items
     else:
-        # Regular staff get only assigned M2M items (filtered to active + same hotel)
-        allowed_nav_items = staff.allowed_navigation_items.filter(
-            hotel=staff.hotel,
-            is_active=True
-        ).select_related('hotel').order_by('display_order', 'name')
-    
-    # Build final payload
+        # Tier defaults
+        tier_navs = set(TIER_DEFAULT_NAVS.get(tier, set()))
+
+        # Role defaults
+        role = staff.role
+        if role and hasattr(role, 'default_navigation_items'):
+            role_navs = set(
+                role.default_navigation_items.filter(
+                    hotel=staff.hotel, is_active=True,
+                ).values_list('slug', flat=True)
+            )
+        else:
+            role_navs = set()
+
+        # Staff overrides (additive only)
+        override_navs = set(
+            staff.allowed_navigation_items.filter(
+                hotel=staff.hotel, is_active=True,
+            ).values_list('slug', flat=True)
+        )
+
+        effective_slugs = tier_navs | role_navs | override_navs
+        allowed_nav_items = hotel_nav_items.filter(slug__in=effective_slugs)
+
     base_payload.update({
         'allowed_navs': list(allowed_nav_items.values_list('slug', flat=True)),
-        'navigation_items': NavigationItemSerializer(allowed_nav_items, many=True).data
+        'navigation_items': NavigationItemSerializer(allowed_nav_items, many=True).data,
     })
-    
+
     return base_payload
 
 
+# ---------------------------------------------------------------------------
+# Module visibility permission
+# ---------------------------------------------------------------------------
+
 class HasNavPermission(BasePermission):
     """
-    Permission class for checking navigation-based permissions.
-    Usage: permission_classes = [IsAuthenticated, HasNavPermission("stock_tracker")]
+    View-level module visibility gate.
+
+    Usage:
+        permission_classes = [IsAuthenticated, HasNavPermission('stock_tracker')]
+
+    This class enforces module VISIBILITY only — it does NOT grant mutation
+    authority.  Every mutation endpoint MUST additionally use an action-level
+    permission class (CanManage*, IsSuperStaffAdminOrAbove, etc.).
     """
-    
+
     def __init__(self, required_slug: str):
         self.required_slug = required_slug
         super().__init__()
-    
+
     def has_permission(self, request, view):
-        """Check if user has permission for the required navigation slug."""
         user = request.user
-        
-        # Superuser bypass
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+
+        # super_user bypasses module visibility
         if user.is_superuser:
             return True
-            
-        # Get canonical permissions
-        permissions = resolve_staff_navigation(user)
-        
-        # Check if user has required navigation permission
-        return self.required_slug in permissions.get('allowed_navs', [])
+
+        perms = resolve_effective_access(user)
+        return self.required_slug in perms.get('allowed_navs', [])
 
 
-def requires_nav_permission(slug: str):
+# ---------------------------------------------------------------------------
+# Tier-based gate permissions
+# ---------------------------------------------------------------------------
+
+class IsDjangoSuperUser(BasePermission):
     """
-    Decorator for view methods that require specific navigation permissions.
-    Usage: @requires_nav_permission("stock_tracker")
+    Platform-level superuser check — user.is_superuser ONLY.
+    Use for: hotel provisioning, NavigationItem CUD, cross-hotel data.
     """
-    def decorator(view_func):
-        @wraps(view_func)
-        def _wrapped_view(request, *args, **kwargs):
-            user = request.user
-            
-            # Superuser bypass
-            if user.is_superuser:
-                return view_func(request, *args, **kwargs)
-                
-            # Get canonical permissions
-            permissions = resolve_staff_navigation(user)
-            
-            # Check if user has required navigation permission
-            if slug not in permissions.get('allowed_navs', []):
-                raise PermissionDenied(f"Navigation permission required: {slug}")
-                
-            return view_func(request, *args, **kwargs)
-        return _wrapped_view
-    return decorator
+
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and request.user.is_superuser
+        )
 
 
-# Factory function for creating HasNavPermission instances
-def create_nav_permission(slug: str):
+class IsAdminTier(BasePermission):
     """
-    Factory function to create HasNavPermission instances.
-    Usage: permission_classes = [IsAuthenticated, create_nav_permission("stock_tracker")]
+    Allows super_user + super_staff_admin + staff_admin.
+    Replaces the old staff/permissions_superuser.py::IsSuperUser.
+    Use for: hotel CRUD by any admin.
     """
-    class NavPermission(HasNavPermission):
-        def __init__(self):
-            super().__init__(slug)
-    return NavPermission
+
+    def has_permission(self, request, view):
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')
+
+
+class IsSuperStaffAdminOrAbove(BasePermission):
+    """
+    Allows super_user + super_staff_admin ONLY.
+    staff_admin does NOT pass.
+    Use for: structural hotel mutations that only top admins should perform.
+    """
+
+    def has_permission(self, request, view):
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'super_staff_admin')
+
+
+# ---------------------------------------------------------------------------
+# Action-level permission classes (Enforcement Rule 3)
+#
+# These are MANDATORY for every mutation endpoint.  HasNavPermission alone
+# is NEVER sufficient for writes.
+# ---------------------------------------------------------------------------
+
+class CanManageRoster(BasePermission):
+    """
+    Gates roster / attendance CUD operations.
+    Required tier: super_staff_admin or above.
+    """
+    message = "You do not have permission to manage the roster."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True  # reads pass through — visibility handled by HasNavPermission
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'super_staff_admin')
+
+
+class CanManageStaff(BasePermission):
+    """
+    Gates staff creation, deletion, nav assignment, department/role CUD.
+    Required tier: super_staff_admin or above.
+    """
+    message = "You do not have permission to manage staff."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'super_staff_admin')
+
+
+class CanManageRooms(BasePermission):
+    """
+    Gates room CUD operations (create, update, bulk checkout, move).
+    Required tier: super_staff_admin or above.
+    """
+    message = "You do not have permission to manage rooms."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'super_staff_admin')
+
+
+class CanManageBookings(BasePermission):
+    """
+    Gates booking CUD operations (create, unseat, delete).
+    Required tier: staff_admin or above (supervisors may manage bookings).
+    """
+    message = "You do not have permission to manage bookings."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')
+
+
+class CanConfigureHotel(BasePermission):
+    """
+    Gates hotel settings, precheckin/survey config, public page builder CUD.
+    Required tier: super_staff_admin or above.
+    """
+    message = "You do not have permission to configure hotel settings."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'super_staff_admin')
