@@ -2410,125 +2410,24 @@ def add_department_to_face_attendance(sender, instance, created, **kwargs):
 # Signal to create default NavigationItems for new hotels
 @receiver(post_save, sender=Hotel)
 def create_default_navigation_items(sender, instance, created, **kwargs):
-    """Create default navigation items when a new hotel is created."""
+    """Create default navigation items when a new hotel is created.
+    Uses the canonical nav catalog as the single source of truth."""
     if created:
         from staff.models import NavigationItem
-        
-        default_nav_items = [
-            {
-                'name': 'Home',
-                'slug': 'home',
-                'path': '/',
-                'display_order': 1,
-                'is_active': True,
-                'description': 'Dashboard and main overview'
-            },
-            {
-                'name': 'Rooms',
-                'slug': 'rooms',
-                'path': '/rooms',
-                'display_order': 2,
-                'is_active': True,
-                'description': 'Room management and housekeeping'
-            },
-            {
-                'name': 'Bookings',
-                'slug': 'bookings',
-                'path': '/bookings',
-                'display_order': 3,
-                'is_active': True,
-                'description': 'Room and service booking management'
-            },
-            {
-                'name': 'Chat',
-                'slug': 'chat', 
-                'path': '/chat',
-                'display_order': 4,
-                'is_active': True,
-                'description': 'Staff communication and messaging'
-            },
-            {
-                'name': 'Stock Tracker',
-                'slug': 'stock_tracker',
-                'path': '/stock',
-                'display_order': 5,
-                'is_active': True,
-                'description': 'Inventory and stock management'
-            },
-            {
-                'name': 'Housekeeping',
-                'slug': 'housekeeping',
-                'path': '/housekeeping',
-                'display_order': 6,
-                'is_active': True,
-                'description': 'Room cleaning and maintenance tasks'
-            },
-            {
-                'name': 'Attendance',
-                'slug': 'attendance',
-                'path': '/attendance',
-                'display_order': 7,
-                'is_active': True,
-                'description': 'Staff attendance and scheduling'
-            },
-            {
-                'name': 'Staff Management',
-                'slug': 'staff_management',
-                'path': '/staff',
-                'display_order': 8,
-                'is_active': True,
-                'description': 'Staff profiles and management'
-            },
-            {
-                'name': 'Room Services',
-                'slug': 'room_services',
-                'path': '/room-services',
-                'display_order': 9,
-                'is_active': False,
-                'description': 'In-room service requests and management'
-            },
-            {
-                'name': 'Maintenance',
-                'slug': 'maintenance',
-                'path': '/maintenance',
-                'display_order': 10,
-                'is_active': False,
-                'description': 'Hotel maintenance and repairs'
-            },
-            {
-                'name': 'Entertainment',
-                'slug': 'entertainment',
-                'path': '/entertainment',
-                'display_order': 11,
-                'is_active': False,
-                'description': 'Hotel entertainment and activities'
-            },
-            {
-                'name': 'Hotel Info',
-                'slug': 'hotel_info',
-                'path': '/info',
-                'display_order': 12,
-                'is_active': False,
-                'description': 'Hotel information and guest guides'
-            },
-            {
-                'name': 'Admin Settings',
-                'slug': 'admin_settings',
-                'path': '/admin',
-                'display_order': 13,
-                'is_active': True,
-                'description': 'Administrative settings and configuration'
-            }
-        ]
-        
-        # Create NavigationItems for the new hotel
-        for item_data in default_nav_items:
+        from staff.nav_catalog import CANONICAL_NAV_ITEMS
+
+        for item_data in CANONICAL_NAV_ITEMS:
             NavigationItem.objects.create(
                 hotel=instance,
-                **item_data
+                name=item_data['name'],
+                slug=item_data['slug'],
+                path=item_data['path'],
+                display_order=item_data['display_order'],
+                description=item_data['description'],
+                is_active=True,
             )
-        
-        print(f"✅ Created {len(default_nav_items)} default navigation items for hotel: {instance.name} ({instance.slug})")
+
+        print(f"✅ Created {len(CANONICAL_NAV_ITEMS)} default navigation items for hotel: {instance.name} ({instance.slug})")
 
 
 class BookingPrecheckinToken(models.Model):
