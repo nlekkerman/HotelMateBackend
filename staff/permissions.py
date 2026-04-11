@@ -31,13 +31,14 @@ User = get_user_model()
 
 TIER_DEFAULT_NAVS = {
     'super_staff_admin': {
-        'home', 'rooms', 'bookings', 'chat', 'stock_tracker',
-        'housekeeping', 'attendance', 'staff_management', 'room_services',
-        'maintenance', 'entertainment', 'hotel_info', 'admin_settings',
+        'home', 'rooms', 'room_bookings', 'restaurant_bookings', 'chat',
+        'stock_tracker', 'housekeeping', 'attendance', 'staff_management',
+        'room_services', 'maintenance', 'entertainment', 'hotel_info',
+        'admin_settings',
     },
     'staff_admin': {
-        'home', 'rooms', 'bookings', 'chat', 'housekeeping',
-        'attendance', 'maintenance', 'hotel_info',
+        'home', 'rooms', 'room_bookings', 'restaurant_bookings', 'chat',
+        'housekeeping', 'attendance', 'maintenance', 'hotel_info',
     },
     'regular_staff': {
         'home', 'chat',
@@ -294,12 +295,26 @@ class CanManageRooms(BasePermission):
         return _tier_at_least(tier, 'super_staff_admin')
 
 
-class CanManageBookings(BasePermission):
+class CanManageRoomBookings(BasePermission):
     """
-    Gates booking CUD operations (create, unseat, delete).
-    Required tier: staff_admin or above (supervisors may manage bookings).
+    Gates room-booking CUD operations (confirm, cancel, assign room, etc.).
+    Required tier: staff_admin or above.
     """
-    message = "You do not have permission to manage bookings."
+    message = "You do not have permission to manage room bookings."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')
+
+
+class CanManageRestaurantBookings(BasePermission):
+    """
+    Gates restaurant-booking CUD operations (create, unseat, delete, assign table).
+    Required tier: staff_admin or above.
+    """
+    message = "You do not have permission to manage restaurant bookings."
 
     def has_permission(self, request, view):
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
@@ -333,8 +348,13 @@ class CanConfigureHotel(BasePermission):
 class HasRoomsNav(HasNavPermission):
     def __init__(self): super().__init__('rooms')
 
-class HasBookingsNav(HasNavPermission):
-    def __init__(self): super().__init__('bookings')
+class HasRoomBookingsNav(HasNavPermission):
+    """Module visibility gate for the room-bookings domain."""
+    def __init__(self): super().__init__('room_bookings')
+
+class HasRestaurantBookingsNav(HasNavPermission):
+    """Module visibility gate for the restaurant-bookings domain."""
+    def __init__(self): super().__init__('restaurant_bookings')
 
 class HasHotelInfoNav(HasNavPermission):
     def __init__(self): super().__init__('hotel_info')

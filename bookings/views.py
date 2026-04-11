@@ -10,7 +10,9 @@ from rest_framework.pagination import PageNumberPagination
 from django.utils.text import slugify
 from staff.models import Staff
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasNavPermission, HasBookingsNav, CanManageBookings
+from staff.permissions import (
+    HasNavPermission, HasRestaurantBookingsNav, CanManageRestaurantBookings,
+)
 from .models import (Booking, BookingCategory, BookingTable,
                      RestaurantBlueprint,
                      Restaurant, BookingSubcategory,
@@ -47,12 +49,12 @@ class BookingViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         perms = [
             IsAuthenticated(),
-            HasNavPermission('bookings'),
+            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
         ]
         if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageBookings())
+            perms.append(CanManageRestaurantBookings())
         return perms
 
 
@@ -66,12 +68,12 @@ class BookingCategoryViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         perms = [
             IsAuthenticated(),
-            HasNavPermission('bookings'),
+            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
         ]
         if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageBookings())
+            perms.append(CanManageRestaurantBookings())
         return perms
 
     def get_queryset(self):
@@ -287,12 +289,12 @@ class RestaurantViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         perms = [
             IsAuthenticated(),
-            HasNavPermission('bookings'),
+            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
         ]
         if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageBookings())
+            perms.append(CanManageRestaurantBookings())
         return perms
 
     def get_queryset(self):
@@ -363,10 +365,10 @@ class RestaurantBlueprintViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [
             IsAuthenticated(),
-            HasNavPermission('bookings'),
+            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
-            CanManageBookings(),
+            CanManageRestaurantBookings(),
         ]
 
     def get_queryset(self):
@@ -410,10 +412,10 @@ class DiningTableViewSet(viewsets.ModelViewSet):
             return [AllowAny()]
         return [
             IsAuthenticated(),
-            HasNavPermission('bookings'),
+            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
-            CanManageBookings(),
+            CanManageRestaurantBookings(),
         ]
 
     def get_queryset(self):
@@ -455,10 +457,10 @@ class BlueprintObjectViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated()]
         return [
             IsAuthenticated(),
-            HasNavPermission('bookings'),
+            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
-            CanManageBookings(),
+            CanManageRestaurantBookings(),
         ]
 
     def get_queryset(self):
@@ -554,8 +556,8 @@ def mark_bookings_seen(request, hotel_slug):
     Frontend calls this when staff clicks the booking icon/button.
     """
     # RBAC: nav visibility
-    if not HasNavPermission('bookings').has_permission(request, None):
-        return Response({'detail': 'Bookings navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
+    if not HasNavPermission('restaurant_bookings').has_permission(request, None):
+        return Response({'detail': 'Restaurant bookings navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
 
     # Filter only unseen dinner bookings
     updated_count = Booking.objects.filter(
@@ -574,7 +576,7 @@ def mark_bookings_seen(request, hotel_slug):
 
 
 class AssignGuestToTableAPIView(APIView):
-    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
+    permission_classes = [IsAuthenticated, HasRestaurantBookingsNav, IsStaffMember, IsSameHotel, CanManageRestaurantBookings]
 
     def post(self, request, hotel_slug, restaurant_slug):
         try:
@@ -610,7 +612,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 class UnseatBookingAPIView(APIView):
-    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
+    permission_classes = [IsAuthenticated, HasRestaurantBookingsNav, IsStaffMember, IsSameHotel, CanManageRestaurantBookings]
 
     def post(self, request, hotel_slug, restaurant_slug):
         booking_id = request.data.get("booking_id")
@@ -645,7 +647,7 @@ class UnseatBookingAPIView(APIView):
 
 
 class DeleteBookingAPIView(APIView):
-    permission_classes = [IsAuthenticated, HasBookingsNav, IsStaffMember, IsSameHotel, CanManageBookings]
+    permission_classes = [IsAuthenticated, HasRestaurantBookingsNav, IsStaffMember, IsSameHotel, CanManageRestaurantBookings]
 
     def delete(self, request, hotel_slug, restaurant_slug, booking_id):
         try:

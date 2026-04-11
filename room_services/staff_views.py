@@ -13,6 +13,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
+from staff.permissions import HasRoomServicesNav
 from notifications.notification_manager import notification_manager
 from .models import RoomServiceItem, BreakfastItem
 from .serializers import RoomServiceItemStaffSerializer, BreakfastItemStaffSerializer
@@ -24,7 +25,7 @@ class StaffRoomServiceItemViewSet(viewsets.ModelViewSet):
     Scoped to staff's hotel only.
     """
     serializer_class = RoomServiceItemStaffSerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasRoomServicesNav, IsStaffMember, IsSameHotel]
     
     def get_queryset(self):
         """Only return room service items for staff's hotel"""
@@ -157,7 +158,7 @@ class StaffBreakfastItemViewSet(viewsets.ModelViewSet):
     Scoped to staff's hotel only.
     """
     serializer_class = BreakfastItemStaffSerializer
-    permission_classes = [IsAuthenticated, IsStaffMember, IsSameHotel]
+    permission_classes = [IsAuthenticated, HasRoomServicesNav, IsStaffMember, IsSameHotel]
     
     def get_queryset(self):
         """Only return breakfast items for staff's hotel"""
