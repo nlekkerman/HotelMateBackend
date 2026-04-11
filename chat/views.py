@@ -54,6 +54,10 @@ def get_active_conversations(request, hotel_slug):
     # RBAC: module visibility
     if not HasNavPermission('chat').has_permission(request, None):
         return Response({'detail': 'You do not have access to the chat module.'}, status=403)
+    # RBAC: hotel scoping
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff or staff.hotel.slug != hotel_slug:
+        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
     conversations = Conversation.objects.filter(
@@ -71,6 +75,10 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
     # RBAC: module visibility
     if not HasNavPermission('chat').has_permission(request, None):
         return Response({'detail': 'You do not have access to the chat module.'}, status=403)
+    # RBAC: hotel scoping
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff or staff.hotel.slug != hotel_slug:
+        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     conversation = get_object_or_404(Conversation, id=conversation_id)
     if conversation.room.hotel.slug != hotel_slug:
         return Response({"error": "Conversation does not belong to this hotel"}, status=400)
@@ -98,6 +106,10 @@ def send_conversation_message(request, hotel_slug, conversation_id):
     # RBAC: module visibility
     if not HasNavPermission('chat').has_permission(request, None):
         return Response({'detail': 'You do not have access to the chat module.'}, status=403)
+    # RBAC: hotel scoping
+    _staff_check = getattr(request.user, 'staff_profile', None)
+    if not _staff_check or _staff_check.hotel.slug != hotel_slug:
+        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
     hotel = room.hotel
@@ -351,6 +363,10 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
     # RBAC: module visibility
     if not HasNavPermission('chat').has_permission(request, None):
         return Response({'detail': 'You do not have access to the chat module.'}, status=403)
+    # RBAC: hotel scoping
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff or staff.hotel.slug != hotel_slug:
+        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
 
@@ -376,6 +392,10 @@ def get_active_rooms(request, hotel_slug):
     # RBAC: module visibility
     if not HasNavPermission('chat').has_permission(request, None):
         return Response({'detail': 'You do not have access to the chat module.'}, status=403)
+    # RBAC: hotel scoping
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff or staff.hotel.slug != hotel_slug:
+        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     conversations = Conversation.objects.filter(room__hotel=hotel).select_related('room').prefetch_related('room__guests', 'messages').order_by('-updated_at')
     serializer = ConversationSerializer(conversations, many=True)
@@ -387,9 +407,10 @@ def get_unread_count(request, hotel_slug):
     # RBAC: module visibility
     if not HasNavPermission('chat').has_permission(request, None):
         return Response({'detail': 'You do not have access to the chat module.'}, status=403)
-    staff = getattr(request.user, "staff_profile", None)
-    if not staff:
-        return Response({"unread_counts": {}})
+    # RBAC: hotel scoping
+    staff = getattr(request.user, 'staff_profile', None)
+    if not staff or staff.hotel.slug != hotel_slug:
+        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
 
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
 

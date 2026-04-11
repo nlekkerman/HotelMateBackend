@@ -460,7 +460,7 @@ class PresetViewSet(viewsets.ReadOnlyModelViewSet):
     Staff can view presets but not create/edit them (managed via admin or seeding).
     """
     serializer_class = PresetSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav]
     queryset = Preset.objects.all()
     
     @action(detail=False, methods=['get'])

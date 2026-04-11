@@ -16,6 +16,7 @@ from .serializers import (
 )
 from hotel.models import Hotel
 from staff.permissions import HasHomeNav
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 
 
 class PostViewSet(viewsets.ModelViewSet):
@@ -24,7 +25,7 @@ class PostViewSet(viewsets.ModelViewSet):
     including their top‐level Comments (each with nested replies).
     """
     serializer_class   = PostSerializer
-    permission_classes = [permissions.IsAuthenticated, HasHomeNav]
+    permission_classes = [permissions.IsAuthenticated, HasHomeNav, IsStaffMember, IsSameHotel]
     parser_classes     = [MultiPartParser, FormParser]
 
     def get_queryset(self):
@@ -77,7 +78,7 @@ class CommentViewSet(viewsets.ModelViewSet):
     list/retrieve/create/update/destroy root-level Comments for a given post.
     """
     serializer_class   = CommentSerializer
-    permission_classes = [permissions.IsAuthenticated, HasHomeNav]
+    permission_classes = [permissions.IsAuthenticated, HasHomeNav, IsStaffMember, IsSameHotel]
     parser_classes     = [MultiPartParser, FormParser]
 
     def get_queryset(self):
@@ -105,7 +106,7 @@ class CommentReplyViewSet(viewsets.ModelViewSet):
     list/retrieve/create/update/destroy replies to a specific comment.
     """
     serializer_class   = CommentReplySerializer
-    permission_classes = [permissions.IsAuthenticated, HasHomeNav]
+    permission_classes = [permissions.IsAuthenticated, HasHomeNav, IsStaffMember, IsSameHotel]
     parser_classes     = [MultiPartParser, FormParser]
 
     def get_queryset(self):
