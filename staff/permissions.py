@@ -179,8 +179,14 @@ class HasNavPermission(BasePermission):
     """
     View-level module visibility gate.
 
-    Usage:
-        permission_classes = [IsAuthenticated, HasNavPermission('stock_tracker')]
+    Usage in get_permissions() (returns instances):
+        return [IsAuthenticated(), HasNavPermission('stock_tracker'), IsStaffMember()]
+
+    Usage in static permission_classes (requires zero-arg subclass):
+        permission_classes = [IsAuthenticated, HasStockTrackerNav]
+
+    Do NOT use HasNavPermission('slug') in permission_classes — DRF expects
+    classes there, not instances.
 
     This class enforces module VISIBILITY only — it does NOT grant mutation
     authority.  Every mutation endpoint MUST additionally use an action-level

@@ -41,7 +41,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from .permissions import (
-    IsAdminTier, HasNavPermission, CanManageStaff,
+    IsAdminTier, HasNavPermission, HasStaffManagementNav, CanManageStaff,
     IsSuperStaffAdminOrAbove, IsDjangoSuperUser,
     resolve_tier, _tier_at_least,
 )
@@ -58,7 +58,7 @@ class StaffMetadataView(APIView):
     Retrieve departments/roles metadata for a hotel.
     Read-only, requires staff_management module access.
     """
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
     pagination_class = None
 
     def get(self, request, hotel_slug=None):
@@ -86,7 +86,7 @@ class StaffMetadataView(APIView):
 class UserListAPIView(generics.ListAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
 
     def get_queryset(self):
         # Optionally filter or log authenticated user
@@ -699,7 +699,7 @@ class GenerateRegistrationPackageAPIView(APIView):
     Returns registration code + QR code URL + token.
     Only authenticated staff_admin+ with staff_management access can use.
     """
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
 
     def post(self, request):
         """
@@ -942,7 +942,7 @@ class PasswordResetConfirmView(APIView):
 
 class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
 
     def get_queryset(self):
         user = self.request.user
@@ -983,7 +983,7 @@ class PendingRegistrationsAPIView(APIView):
     - super_staff_admin: own hotel only
     - Django is_superuser: all hotels
     """
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
 
     def get(self, request, hotel_slug):
         user = request.user
@@ -1045,7 +1045,7 @@ class CreateStaffFromUserAPIView(APIView):
     - super_staff_admin: can create regular_staff and staff_admin
     - Django is_superuser: can create any access level including super_staff_admin
     """
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
 
     # Defines what each requester access level is allowed to create
     ALLOWED_CREATIONS = {
@@ -1500,7 +1500,7 @@ class StaffNavigationPermissionsView(APIView):
     Authorization: super_staff_admin or superuser only
     Hotel scoping: enforced unless requester is superuser
     """
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management'), IsSuperStaffAdminOrAbove]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav, IsSuperStaffAdminOrAbove]
     
     def get(self, request, staff_id):
         """Get staff member's canonical navigation permissions."""
@@ -1738,7 +1738,7 @@ class EmailRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
     Email an existing registration package to a recipient.
     Does NOT create or mutate the package.
     """
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
 
     def post(self, request, pk):
         from .serializers import EmailRegistrationPackageSerializer
@@ -1852,7 +1852,7 @@ class PrintRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
 
     Return structured printable data for an existing registration package.
     """
-    permission_classes = [IsAuthenticated, HasNavPermission('staff_management')]
+    permission_classes = [IsAuthenticated, HasStaffManagementNav]
 
     def get(self, request, pk):
         from .services import ensure_package_qr_ready, serialize_package
