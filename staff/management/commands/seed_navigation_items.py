@@ -1,7 +1,16 @@
 from django.core.management.base import BaseCommand
 from hotel.models import Hotel
 from staff.models import NavigationItem
-from staff.nav_catalog import CANONICAL_NAV_ITEMS
+from staff.nav_catalog import CANONICAL_NAV_ITEMS, CANONICAL_NAV_SLUGS
+
+# Legacy slugs that are no longer part of the canonical nav.
+# These are deactivated (not deleted) so that DB rows already referenced
+# by role/staff overrides don't cause constraint errors.
+LEGACY_SLUGS_TO_DEACTIVATE = {
+    'entertainment', 'stock_tracker', 'reception',
+    'room-bookings', 'room_service', 'breakfast',
+    'menus', 'bookings', 'guests', 'settings',
+}
 
 
 class Command(BaseCommand):
@@ -35,6 +44,7 @@ class Command(BaseCommand):
         for hotel in hotels:
             created_count = 0
             updated_count = 0
+            deactivated_count = 0
 
             for item_data in CANONICAL_NAV_ITEMS:
                 nav_item, created = NavigationItem.objects.update_or_create(
@@ -57,8 +67,17 @@ class Command(BaseCommand):
                 else:
                     updated_count += 1
 
+            # Deactivate any legacy/removed slugs that still exist in the DB
+            deactivated = NavigationItem.objects.filter(
+                hotel=hotel,
+                slug__in=LEGACY_SLUGS_TO_DEACTIVATE,
+                is_active=True,
+            ).update(is_active=False)
+            deactivated_count += deactivated
+
             self.stdout.write(
                 self.style.SUCCESS(
-                    f'{hotel.slug}: {created_count} created, {updated_count} updated'
+                    f'{hotel.slug}: {created_count} created, {updated_count} updated, '
+                    f'{deactivated_count} legacy slugs deactivated'
                 )
             )

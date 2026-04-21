@@ -11,8 +11,8 @@ Do NOT define nav constants elsewhere.
 
 CANONICAL_NAV_SLUGS = frozenset({
     'home', 'rooms', 'room_bookings', 'restaurant_bookings', 'chat',
-    'stock_tracker', 'housekeeping', 'attendance', 'staff_management',
-    'room_services', 'maintenance', 'entertainment', 'hotel_info',
+    'housekeeping', 'attendance', 'staff_management',
+    'room_services', 'maintenance', 'hotel_info',
     'admin_settings',
 })
 
@@ -86,20 +86,6 @@ CANONICAL_NAV_ITEMS = [
         'path': '/room-services',
         'description': 'Room service orders',
         'display_order': 10,
-    },
-    {
-        'slug': 'stock_tracker',
-        'name': 'Stock Tracker',
-        'path': '/stock-tracker',
-        'description': 'Inventory management',
-        'display_order': 11,
-    },
-    {
-        'slug': 'entertainment',
-        'name': 'Entertainment',
-        'path': '/entertainment',
-        'description': 'Entertainment and games',
-        'display_order': 12,
     },
     {
         'slug': 'hotel_info',

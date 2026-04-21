@@ -49,7 +49,6 @@ STAFF_APPS = [
     'attendance',
     'chat',
     'common',
-    'entertainment',
     'guests',
     'home',
     'hotel_info',
@@ -59,7 +58,6 @@ STAFF_APPS = [
     # 'rooms', # Removed - using dedicated rooms.staff_urls instead
     'staff',
     'staff_chat',
-    'stock_tracker',
 ]
 
 # Create router for direct staff endpoints

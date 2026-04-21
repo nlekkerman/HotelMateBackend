@@ -32,8 +32,8 @@ User = get_user_model()
 TIER_DEFAULT_NAVS = {
     'super_staff_admin': {
         'home', 'rooms', 'room_bookings', 'restaurant_bookings', 'chat',
-        'stock_tracker', 'housekeeping', 'attendance', 'staff_management',
-        'room_services', 'maintenance', 'entertainment', 'hotel_info',
+        'housekeeping', 'attendance', 'staff_management',
+        'room_services', 'maintenance', 'hotel_info',
         'admin_settings',
     },
     'staff_admin': {
@@ -407,40 +407,12 @@ class CanManageHousekeeping(BasePermission):
         return _tier_at_least(tier, 'staff_admin')
 
 
-class CanManageStockTracker(BasePermission):
-    """
-    Gates stock tracker CUD operations (period delete, reopen, item CUD).
-    Required tier: super_staff_admin or above.
-    """
-    message = "You do not have permission to manage the stock tracker."
-
-    def has_permission(self, request, view):
-        if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return True
-        tier = resolve_tier(request.user)
-        return _tier_at_least(tier, 'super_staff_admin')
-
-
 class CanManageMaintenance(BasePermission):
     """
     Gates maintenance ticket status changes, assignment, and deletion.
     Required tier: staff_admin or above.
     """
     message = "You do not have permission to manage maintenance tickets."
-
-    def has_permission(self, request, view):
-        if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return True
-        tier = resolve_tier(request.user)
-        return _tier_at_least(tier, 'staff_admin')
-
-
-class CanManageEntertainment(BasePermission):
-    """
-    Gates entertainment admin actions (tournament start/end, game admin, quiz admin).
-    Required tier: staff_admin or above.
-    """
-    message = "You do not have permission to manage entertainment."
 
     def has_permission(self, request, view):
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
@@ -482,14 +454,6 @@ class CanManageStaffChat(BasePermission):
 # Additional slug-bound HasNavPermission subclasses (missing from above)
 # ---------------------------------------------------------------------------
 
-class HasStockTrackerNav(HasNavPermission):
-    """Module visibility gate for the stock-tracker domain."""
-    def __init__(self): super().__init__('stock_tracker')
-
 class HasMaintenanceNav(HasNavPermission):
     """Module visibility gate for the maintenance domain."""
     def __init__(self): super().__init__('maintenance')
-
-class HasEntertainmentNav(HasNavPermission):
-    """Module visibility gate for the entertainment domain."""
-    def __init__(self): super().__init__('entertainment')
