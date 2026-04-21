@@ -21,7 +21,6 @@ from staff.permissions import (
     IsSuperStaffAdminOrAbove,
 )
 
-from hotel.models import Hotel
 from rooms.models import Room
 from .models import HousekeepingTask, RoomStatusEvent
 from .serializers import (
@@ -52,16 +51,7 @@ class HousekeepingDashboardViewSet(viewsets.ViewSet):
         - All open tasks (optional)
         """
         staff = request.user.staff_profile
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        
-        # Validate staff belongs to hotel (defense-in-depth, IsSameHotel handles primary check)
-        if staff.hotel_id != hotel.id:
-            return Response(
-                {'error': 'Access denied to this hotel'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # RBAC: HasHousekeepingNav already gates module access via permission_classes
+        hotel = staff.hotel
         
         # Get room dashboard data
         dashboard_data = get_room_dashboard_data(hotel)
@@ -113,11 +103,7 @@ class HousekeepingTaskViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         """Filter tasks by staff's hotel"""
         staff = self.request.user.staff_profile
-        hotel = get_object_or_404(Hotel, slug=self.kwargs['hotel_slug'])
-        
-        # Validate staff belongs to hotel
-        if staff.hotel_id != hotel.id:
-            return HousekeepingTask.objects.none()
+        hotel = staff.hotel
         
         queryset = HousekeepingTask.objects.filter(
             hotel=hotel
@@ -143,13 +129,7 @@ class HousekeepingTaskViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         """Set hotel and created_by when creating tasks"""
         staff = self.request.user.staff_profile
-        hotel = get_object_or_404(Hotel, slug=self.kwargs['hotel_slug'])
-        
-        # Validate staff belongs to hotel
-        if staff.hotel_id != hotel.id:
-            raise DjangoValidationError("Access denied to this hotel")
-        
-        serializer.save(hotel=hotel, created_by=staff)
+        serializer.save(hotel=staff.hotel, created_by=staff)
     
     @action(detail=True, methods=['post'])
     def assign(self, request, hotel_slug=None, pk=None):
@@ -260,7 +240,11 @@ class RoomStatusViewSet(viewsets.ViewSet):
     """
     Room status management endpoints.
     """
-    permission_classes = [IsAuthenticated, HasHousekeepingNav, IsStaffMember, IsSameHotel]
+    def get_permissions(self):
+        base = [IsAuthenticated(), HasHousekeepingNav(), IsStaffMember(), IsSameHotel()]
+        if self.action == 'manager_override':
+            base.append(CanManageHousekeeping())
+        return base
     
     def update_status(self, request, hotel_slug=None, room_id=None):
         """
@@ -269,14 +253,7 @@ class RoomStatusViewSet(viewsets.ViewSet):
         Update room status using canonical service.
         """
         staff = request.user.staff_profile
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        
-        # Validate staff belongs to hotel
-        if staff.hotel_id != hotel.id:
-            return Response(
-                {'error': 'Access denied to this hotel'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
+        hotel = staff.hotel
         
         # Get room
         room = get_object_or_404(Room, id=room_id, hotel=hotel)
@@ -331,21 +308,7 @@ class RoomStatusViewSet(viewsets.ViewSet):
         Requires staff_admin+ tier (canonical RBAC).
         """
         staff = request.user.staff_profile
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        
-        # Validate staff belongs to hotel
-        if staff.hotel_id != hotel.id:
-            return Response(
-                {'error': 'Access denied to this hotel'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # RBAC: manager override requires staff_admin+ tier
-        if not CanManageHousekeeping().has_permission(request, None):
-            return Response(
-                {'detail': 'Manager privileges required for override'},
-                status=status.HTTP_403_FORBIDDEN
-            )
+        hotel = staff.hotel
         
         # Get room
         room = get_object_or_404(Room, id=room_id, hotel=hotel)
@@ -407,14 +370,7 @@ class RoomStatusViewSet(viewsets.ViewSet):
         Get room status change history.
         """
         staff = request.user.staff_profile
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        
-        # Validate staff belongs to hotel
-        if staff.hotel_id != hotel.id:
-            return Response(
-                {'error': 'Access denied to this hotel'}, 
-                status=status.HTTP_403_FORBIDDEN
-            )
+        hotel = staff.hotel
         
         # Get room
         room = get_object_or_404(Room, id=room_id, hotel=hotel)

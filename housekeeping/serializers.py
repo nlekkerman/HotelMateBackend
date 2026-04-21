@@ -88,11 +88,6 @@ class HousekeepingTaskSerializer(serializers.ModelSerializer):
         staff = request.user.staff_profile
         hotel = staff.hotel
         
-        # For create operations, set hotel and created_by
-        if not self.instance:
-            data['hotel'] = hotel
-            data['created_by'] = staff
-        
         # Validate room belongs to staff's hotel
         room = data.get('room')
         if room and room.hotel_id != hotel.id:
