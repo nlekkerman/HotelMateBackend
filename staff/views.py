@@ -323,7 +323,7 @@ class StaffViewSet(viewsets.ModelViewSet):
 
         # SECURITY: Only super_staff_admin can create other super_staff_admin
         requested_access_level = request.data.get("access_level", "")
-        if requested_access_level == "super_staff_admin" and requesting_staff.access_level != "super_staff_admin":
+        if requested_access_level == "super_staff_admin" and not _tier_at_least(resolve_tier(requesting_staff.user), 'super_staff_admin'):
             return Response(
                 {"detail": "Only super_staff_admin can create other super_staff_admin accounts."},
                 status=status.HTTP_403_FORBIDDEN
@@ -1001,7 +1001,7 @@ class PendingRegistrationsAPIView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
 
-            if requesting_staff.access_level == 'regular_staff':
+            if not _tier_at_least(resolve_tier(requesting_staff.user), 'staff_admin'):
                 return Response(
                     {'error': 'Regular staff cannot view pending registrations.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -1071,7 +1071,7 @@ class CreateStaffFromUserAPIView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
 
-            if requesting_staff.access_level == 'regular_staff':
+            if not _tier_at_least(resolve_tier(requesting_staff.user), 'staff_admin'):
                 return Response(
                     {'error': 'Regular staff cannot create staff profiles.'},
                     status=status.HTTP_403_FORBIDDEN
@@ -1248,9 +1248,7 @@ class DepartmentViewSet(viewsets.ModelViewSet):
             return
         if hasattr(user, 'staff_profile'):
             staff = user.staff_profile
-            if staff.hotel_id == hotel.id and staff.access_level in (
-                'staff_admin', 'super_staff_admin'
-            ):
+            if staff.hotel_id == hotel.id and _tier_at_least(resolve_tier(user), 'staff_admin'):
                 return
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("Only hotel admins can manage departments.")
@@ -1352,9 +1350,7 @@ class RoleViewSet(viewsets.ModelViewSet):
             return
         if hasattr(user, 'staff_profile'):
             staff = user.staff_profile
-            if staff.hotel_id == hotel.id and staff.access_level in (
-                'staff_admin', 'super_staff_admin'
-            ):
+            if staff.hotel_id == hotel.id and _tier_at_least(resolve_tier(user), 'staff_admin'):
                 return
         from rest_framework.exceptions import PermissionDenied
         raise PermissionDenied("Only hotel admins can manage roles.")
@@ -1619,8 +1615,8 @@ class StaffNavigationPermissionsView(APIView):
         except (AttributeError, Staff.DoesNotExist):
             return False
         
-        # Must be super_staff_admin
-        if requester_staff.access_level != 'super_staff_admin':
+        # Must be super_staff_admin (via canonical tier resolution)
+        if not _tier_at_least(resolve_tier(requester_user), 'super_staff_admin'):
             return False
         
         # Hotel scoping (unless superuser)

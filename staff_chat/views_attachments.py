@@ -23,6 +23,7 @@ from .serializers_attachments import (
     AttachmentUploadSerializer
 )
 from .permissions import IsStaffMember, IsSameHotel
+from staff.permissions import HasChatNav
 from notifications.notification_manager import notification_manager
 from .fcm_utils import send_file_attachment_notification
 
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def upload_attachments(request, hotel_slug, conversation_id):
     """
     Upload file attachment(s) to a message
@@ -247,7 +248,7 @@ def upload_attachments(request, hotel_slug, conversation_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def delete_attachment(request, hotel_slug, attachment_id):
     """
     Delete a file attachment
@@ -281,8 +282,8 @@ def delete_attachment(request, hotel_slug, attachment_id):
     
     # Only sender can delete their attachments
     if message.sender.id != staff.id:
-        # Managers can delete any attachment
-        if not (staff.role and staff.role.slug in ['manager', 'admin']):
+        # Chat managers (staff_admin+) can delete any attachment
+        if not is_chat_manager(staff):
             return Response(
                 {'error': 'You can only delete your own attachments'},
                 status=status.HTTP_403_FORBIDDEN
@@ -347,7 +348,7 @@ def delete_attachment(request, hotel_slug, attachment_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def get_attachment_url(request, hotel_slug, attachment_id):
     """
     Get download URL for an attachment

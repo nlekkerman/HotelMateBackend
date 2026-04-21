@@ -6,6 +6,7 @@ from django.db.models import Q, Avg, Count, Max
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
 from django.db import transaction
+from staff.permissions import resolve_tier, _tier_at_least
 from .models import (
     Game, GameHighScore, GameQRCode,
     MemoryGameCard, MemoryGameSession, MemoryGameStats, MemoryGameTournament,
@@ -653,8 +654,8 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         """Start tournament (admin only)"""
         tournament = self.get_object()
         
-        # Check permissions (admin or tournament creator)
-        if not (request.user.is_staff or tournament.created_by == request.user):
+        # Require staff_admin or above via canonical tier resolution
+        if not _tier_at_least(resolve_tier(request.user), 'staff_admin'):
             return Response(
                 {'error': 'Permission denied'},
                 status=status.HTTP_403_FORBIDDEN
@@ -676,8 +677,8 @@ class MemoryGameTournamentViewSet(viewsets.ModelViewSet):
         """End tournament and calculate final rankings"""
         tournament = self.get_object()
         
-        # Check permissions
-        if not (request.user.is_staff or tournament.created_by == request.user):
+        # Require staff_admin or above via canonical tier resolution
+        if not _tier_at_least(resolve_tier(request.user), 'staff_admin'):
             return Response(
                 {'error': 'Permission denied'},
                 status=status.HTTP_403_FORBIDDEN

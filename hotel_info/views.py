@@ -16,9 +16,11 @@ from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from hotel.models import Hotel
 from django_filters.rest_framework import DjangoFilterBackend
+from staff.permissions import HasHotelInfoNav, CanConfigureHotel
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([IsAuthenticated, HasHotelInfoNav, IsStaffMember])
 def download_all_qrs(request):
     hotel_slug = request.query_params.get("hotel_slug")
     if not hotel_slug:
@@ -38,8 +40,13 @@ def download_all_qrs(request):
 
 class HotelInfoViewSet(viewsets.ModelViewSet):
     queryset = HotelInfo.objects.all()
-    # AllowAny for reads (guest-facing hotel info pages); mutations require auth
+    # Guest-facing reads use IsAuthenticatedOrReadOnly; staff mutations require nav + manage
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_permissions(self):
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated(), HasHotelInfoNav(), IsStaffMember(), IsSameHotel(), CanConfigureHotel()]
+        return [permissions.IsAuthenticatedOrReadOnly()]
     pagination_class = None
 
     def get_serializer_class(self):
@@ -92,7 +99,7 @@ class HotelInfoCategoryViewSet(viewsets.ModelViewSet):
 
 class HotelInfoCreateView(generics.CreateAPIView):
     serializer_class = HotelInfoCreateSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated, HasHotelInfoNav, IsStaffMember, IsSameHotel, CanConfigureHotel]
 
     def create(self, request, *args, **kwargs):
         # 1) Run the normal creation
@@ -116,6 +123,7 @@ class HotelInfoCreateView(generics.CreateAPIView):
         return Response(out, status=status.HTTP_201_CREATED)
     
 class CategoryQRView(APIView):
+    # GET: any authenticated staff; POST: requires hotel_info nav + manage
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -137,6 +145,11 @@ class CategoryQRView(APIView):
         return Response({"detail": "QR code URL is missing"}, status=status.HTTP_404_NOT_FOUND)
 
     def post(self, request):
+        # Staff mutation — enforce canonical nav + manage gate
+        for perm in [HasHotelInfoNav(), IsStaffMember(), IsSameHotel(), CanConfigureHotel()]:
+            if not perm.has_permission(request, self):
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied(getattr(perm, 'message', 'Permission denied.'))
         category_slug = request.data.get("category_slug")
         if not category_slug:
             return Response(
@@ -170,6 +183,11 @@ class GoodToKnowEntryViewSet(viewsets.ModelViewSet):
     lookup_url_kwarg = "slug"
     serializer_class = GoodToKnowEntrySerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_permissions(self):
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            return [IsAuthenticated(), HasHotelInfoNav(), IsStaffMember(), IsSameHotel(), CanConfigureHotel()]
+        return [permissions.IsAuthenticatedOrReadOnly()]
 
     def get_queryset(self):
         queryset = GoodToKnowEntry.objects.all()

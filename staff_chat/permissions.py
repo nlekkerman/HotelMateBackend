@@ -2,14 +2,19 @@
 Custom permissions for Staff Chat
 """
 from rest_framework import permissions
+from staff.permissions import resolve_tier, _tier_at_least
 
 
 def is_chat_manager(staff) -> bool:
     """
     Centralized check: is this staff member a chat manager?
-    Replaces scattered `role.slug in ['manager', 'admin']` checks.
+    Uses canonical tier resolution — staff_admin or above qualifies.
+    Does NOT hardcode role slugs.
     """
-    return bool(staff and staff.role and staff.role.slug in ('manager', 'admin'))
+    if not staff:
+        return False
+    tier = resolve_tier(staff.user)
+    return _tier_at_least(tier, 'staff_admin')
 
 
 class IsStaffMember(permissions.BasePermission):

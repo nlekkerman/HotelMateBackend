@@ -405,3 +405,91 @@ class CanManageHousekeeping(BasePermission):
             return True
         tier = resolve_tier(request.user)
         return _tier_at_least(tier, 'staff_admin')
+
+
+class CanManageStockTracker(BasePermission):
+    """
+    Gates stock tracker CUD operations (period delete, reopen, item CUD).
+    Required tier: super_staff_admin or above.
+    """
+    message = "You do not have permission to manage the stock tracker."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'super_staff_admin')
+
+
+class CanManageMaintenance(BasePermission):
+    """
+    Gates maintenance ticket status changes, assignment, and deletion.
+    Required tier: staff_admin or above.
+    """
+    message = "You do not have permission to manage maintenance tickets."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')
+
+
+class CanManageEntertainment(BasePermission):
+    """
+    Gates entertainment admin actions (tournament start/end, game admin, quiz admin).
+    Required tier: staff_admin or above.
+    """
+    message = "You do not have permission to manage entertainment."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')
+
+
+class CanManageRoomServices(BasePermission):
+    """
+    Gates room-service order status updates and item CUD (staff-side mutations).
+    Required tier: staff_admin or above.
+    """
+    message = "You do not have permission to manage room services."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')
+
+
+class CanManageStaffChat(BasePermission):
+    """
+    Gates staff-chat moderation actions (delete others' messages/attachments).
+    Required tier: staff_admin or above.
+    Replaces the old role.slug in ['manager', 'admin'] checks.
+    """
+    message = "You do not have permission to manage staff chat."
+
+    def has_permission(self, request, view):
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+        tier = resolve_tier(request.user)
+        return _tier_at_least(tier, 'staff_admin')
+
+
+# ---------------------------------------------------------------------------
+# Additional slug-bound HasNavPermission subclasses (missing from above)
+# ---------------------------------------------------------------------------
+
+class HasStockTrackerNav(HasNavPermission):
+    """Module visibility gate for the stock-tracker domain."""
+    def __init__(self): super().__init__('stock_tracker')
+
+class HasMaintenanceNav(HasNavPermission):
+    """Module visibility gate for the maintenance domain."""
+    def __init__(self): super().__init__('maintenance')
+
+class HasEntertainmentNav(HasNavPermission):
+    """Module visibility gate for the entertainment domain."""
+    def __init__(self): super().__init__('entertainment')

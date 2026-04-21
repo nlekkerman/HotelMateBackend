@@ -33,6 +33,7 @@ from .permissions import (
     IsSameHotel,
     CanDeleteMessage
 )
+from staff.permissions import HasChatNav
 from notifications.notification_manager import notification_manager
 from .fcm_utils import notify_conversation_participants
 from staff.models import Staff
@@ -41,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def mark_message_as_read(request, hotel_slug, message_id):
     """
     Mark a specific message as read by current user
@@ -110,7 +111,7 @@ def mark_message_as_read(request, hotel_slug, message_id):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def send_message(request, hotel_slug, conversation_id):
     """
     Send a new message in a conversation
@@ -295,7 +296,7 @@ def send_message(request, hotel_slug, conversation_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def get_conversation_messages(request, hotel_slug, conversation_id):
     """
     Get messages for a conversation with pagination
@@ -362,7 +363,7 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 
 
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def edit_message(request, hotel_slug, message_id):
     """
     Edit/update a message
@@ -449,7 +450,7 @@ def edit_message(request, hotel_slug, message_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def delete_message(request, hotel_slug, message_id):
     """
     Delete a message (soft or hard delete)
@@ -478,8 +479,8 @@ def delete_message(request, hotel_slug, message_id):
     
     # Permission check for deletion
     if message.sender.id != staff.id:
-        # Only managers can delete others' messages
-        if not (staff.role and staff.role.slug in ['manager', 'admin']):
+        # Only chat managers (staff_admin+) can delete others' messages
+        if not is_chat_manager(staff):
             return Response(
                 {'error': 'You can only delete your own messages'},
                 status=status.HTTP_403_FORBIDDEN
@@ -488,7 +489,7 @@ def delete_message(request, hotel_slug, message_id):
     # Hard delete permission check
     if hard_delete:
         if message.sender.id != staff.id:
-            if not (staff.role and staff.role.slug in ['manager', 'admin']):
+            if not is_chat_manager(staff):
                 return Response(
                     {
                         'error': 'Only managers can permanently '
@@ -598,7 +599,7 @@ def delete_message(request, hotel_slug, message_id):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def add_reaction(request, hotel_slug, message_id):
     """
     Add an emoji reaction to a message
@@ -720,7 +721,7 @@ def add_reaction(request, hotel_slug, message_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def remove_reaction(request, hotel_slug, message_id, emoji):
     """
     Remove an emoji reaction from a message
@@ -795,7 +796,7 @@ def remove_reaction(request, hotel_slug, message_id, emoji):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
 def forward_message(request, hotel_slug, message_id):
     """
     Forward a message to multiple conversations

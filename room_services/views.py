@@ -93,7 +93,11 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in self._GUEST_ACTIONS:
             return [AllowAny()]
-        # RBAC: staff actions require nav visibility + staff membership
+        # RBAC: staff mutations require manage permission; reads require nav only
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            from staff.permissions import CanManageRoomServices
+            return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel(), CanManageRoomServices()]
+        # RBAC: staff reads require nav visibility + staff membership
         return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel()]
 
     # ------------------------------------------------------------------
@@ -470,7 +474,11 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     def get_permissions(self):
         if self.action in self._GUEST_ACTIONS:
             return [AllowAny()]
-        # RBAC: staff actions require nav visibility + staff membership
+        # RBAC: staff mutations require manage permission; reads require nav only
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            from staff.permissions import CanManageRoomServices
+            return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel(), CanManageRoomServices()]
+        # RBAC: staff reads require nav visibility + staff membership
         return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel()]
 
     def _resolve_guest_context(self, request, hotel):

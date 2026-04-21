@@ -49,25 +49,29 @@ class IsSuperStaffAdminForHotel(BasePermission):
         # User must be authenticated
         if not request.user or not request.user.is_authenticated:
             return False
-        
+
+        # Django superuser bypass — consistent with resolve_tier() 'super_user' behavior
+        if request.user.is_superuser:
+            return True
+
         # Get hotel_slug from URL kwargs (supports both hotel_slug and hotel_identifier)
         hotel_slug = view.kwargs.get('hotel_slug') or view.kwargs.get('hotel_identifier')
         if not hotel_slug:
             return False
-        
+
         try:
             # Check if user has a staff profile
             staff = Staff.objects.get(user=request.user)
-            
+
             # Check if staff is super_staff_admin
             if staff.access_level != 'super_staff_admin':
                 return False
-            
+
             # Check if staff belongs to the hotel
             if staff.hotel.slug != hotel_slug:
                 return False
-            
+
             return True
-            
+
         except Staff.DoesNotExist:
             return False

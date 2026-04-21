@@ -18,16 +18,8 @@ def is_manager(staff):
     """
     if not staff:
         return False
-    
-    # Check Django superuser status
-    if hasattr(staff, 'user') and staff.user and staff.user.is_superuser:
-        return True
-    
-    # Check staff access level
-    if not staff.access_level:
-        return False
-    
-    return staff.access_level in ['staff_admin', 'super_staff_admin']
+    from staff.permissions import resolve_tier, _tier_at_least
+    return _tier_at_least(resolve_tier(staff.user), 'staff_admin')
 
 
 def is_housekeeping(staff):
@@ -44,14 +36,10 @@ def is_housekeeping(staff):
     if not staff:
         return False
     
-    # Check department slug first
+    # Department slug is structural — check it only
+    # Role slugs are not structural and must not be hardcoded
     if staff.department and hasattr(staff.department, 'slug'):
         if staff.department.slug == 'housekeeping':
-            return True
-    
-    # Check role slug second
-    if staff.role and hasattr(staff.role, 'slug'):
-        if staff.role.slug == 'housekeeping':
             return True
     
     return False

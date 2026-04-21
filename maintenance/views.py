@@ -7,13 +7,15 @@ from rest_framework.response import Response
 from rest_framework import status
 from staff.serializers import StaffSerializer
 from hotel.permissions import IsHotelStaff
+from staff.permissions import HasMaintenanceNav, CanManageMaintenance
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 from common.mixins import HotelScopedQuerysetMixin
 
 
 class MaintenanceRequestViewSet(HotelScopedQuerysetMixin, viewsets.ModelViewSet):
     queryset = MaintenanceRequest.objects.all().order_by('-created_at')
     serializer_class = MaintenanceRequestSerializer
-    permission_classes = [IsHotelStaff]
+    permission_classes = [IsAuthenticated, HasMaintenanceNav, IsStaffMember, IsSameHotel]
     reported_by = StaffSerializer(read_only=True)
     accepted_by = StaffSerializer(read_only=True)
 
@@ -44,7 +46,7 @@ class MaintenanceRequestViewSet(HotelScopedQuerysetMixin, viewsets.ModelViewSet)
 class MaintenanceCommentViewSet(viewsets.ModelViewSet):
     queryset = MaintenanceComment.objects.all()
     serializer_class = MaintenanceCommentSerializer
-    permission_classes = [IsHotelStaff]
+    permission_classes = [IsAuthenticated, HasMaintenanceNav, IsStaffMember, IsSameHotel]
 
     def get_queryset(self):
         hotel = self.request.user.staff_profile.hotel
@@ -62,7 +64,7 @@ class MaintenanceCommentViewSet(viewsets.ModelViewSet):
 class MaintenancePhotoViewSet(viewsets.ModelViewSet):
     queryset = MaintenancePhoto.objects.all()
     serializer_class = MaintenancePhotoSerializer
-    permission_classes = [IsHotelStaff]
+    permission_classes = [IsAuthenticated, HasMaintenanceNav, IsStaffMember, IsSameHotel]
 
     def get_queryset(self):
         hotel = self.request.user.staff_profile.hotel
