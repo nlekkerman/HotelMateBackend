@@ -21,6 +21,13 @@ from rest_framework.permissions import BasePermission
 from staff.models import Staff, NavigationItem
 from staff.nav_catalog import CANONICAL_NAV_SLUGS
 from staff.serializers import NavigationItemSerializer
+from staff.capability_catalog import (
+    CANONICAL_CAPABILITIES,
+    DEPARTMENT_PRESET_CAPABILITIES,
+    ROLE_PRESET_CAPABILITIES,
+    TIER_DEFAULT_CAPABILITIES,
+    resolve_capabilities,
+)
 
 User = get_user_model()
 
@@ -101,7 +108,9 @@ def resolve_effective_access(user) -> dict:
 
     Returns dict with keys:
         is_staff, is_superuser, hotel_slug, access_level, tier,
-        allowed_navs (list[str]), navigation_items (list[dict])
+        department_slug, role_slug,
+        allowed_navs (list[str]), navigation_items (list[dict]),
+        allowed_capabilities (list[str])
     """
     base_payload = {
         'is_staff': False,
@@ -109,11 +118,54 @@ def resolve_effective_access(user) -> dict:
         'hotel_slug': None,
         'access_level': None,
         'tier': None,
+        'department_slug': None,
+        'role_slug': None,
         'allowed_navs': [],
         'navigation_items': [],
+        'allowed_capabilities': [],
     }
 
     if not user or not getattr(user, 'is_authenticated', False):
+        return base_payload
+
+    # Django superuser: full access regardless of staff profile.
+    if getattr(user, 'is_superuser', False):
+        try:
+            staff = user.staff_profile
+        except (AttributeError, Staff.DoesNotExist):
+            staff = None
+
+        hotel_nav_items = (
+            NavigationItem.objects.filter(
+                hotel=staff.hotel, is_active=True,
+            ).select_related('hotel').order_by('display_order', 'name')
+            if staff else NavigationItem.objects.none()
+        )
+        base_payload.update({
+            'is_staff': bool(staff),
+            'hotel_slug': staff.hotel.slug if staff else None,
+            'access_level': staff.access_level if staff else None,
+            'tier': 'super_user',
+            'department_slug': (
+                staff.department.slug
+                if staff and staff.department else None
+            ),
+            'role_slug': (
+                staff.role.slug if staff and staff.role else None
+            ),
+            'allowed_navs': list(
+                hotel_nav_items.values_list('slug', flat=True)
+            ),
+            'navigation_items': NavigationItemSerializer(
+                hotel_nav_items, many=True
+            ).data,
+            'allowed_capabilities': resolve_capabilities(
+                tier='super_user',
+                role_slug=None,
+                department_slug=None,
+                is_superuser=True,
+            ),
+        })
         return base_payload
 
     try:
@@ -122,12 +174,16 @@ def resolve_effective_access(user) -> dict:
         return base_payload
 
     tier = resolve_tier(user)
+    department_slug = staff.department.slug if staff.department else None
+    role_slug = staff.role.slug if staff.role else None
 
     base_payload.update({
         'is_staff': True,
         'hotel_slug': staff.hotel.slug,
         'access_level': staff.access_level,
         'tier': tier,
+        'department_slug': department_slug,
+        'role_slug': role_slug,
     })
 
     # All active nav items for this hotel
@@ -166,6 +222,12 @@ def resolve_effective_access(user) -> dict:
     base_payload.update({
         'allowed_navs': list(allowed_nav_items.values_list('slug', flat=True)),
         'navigation_items': NavigationItemSerializer(allowed_nav_items, many=True).data,
+        'allowed_capabilities': resolve_capabilities(
+            tier=tier,
+            role_slug=role_slug,
+            department_slug=department_slug,
+            is_superuser=False,
+        ),
     })
 
     return base_payload
@@ -457,3 +519,142 @@ class CanManageStaffChat(BasePermission):
 class HasMaintenanceNav(HasNavPermission):
     """Module visibility gate for the maintenance domain."""
     def __init__(self): super().__init__('maintenance')
+
+
+# ---------------------------------------------------------------------------
+# Capability-based action permission (Phase 5)
+#
+# This class is the capability-first enforcement primitive required by
+# hotelmates_auth_contract_v1.md §4. Endpoints declare a required capability
+# slug; the resolved `allowed_capabilities` list from
+# resolve_effective_access() is the sole source of truth at runtime.
+#
+# Not wired into endpoints yet — Phase 5b migrates the legacy role-slug and
+# department-slug callsites to this class.
+# ---------------------------------------------------------------------------
+
+class HasCapability(BasePermission):
+    """
+    View-level capability gate.
+
+    Usage in get_permissions() (returns instances):
+        return [IsAuthenticated(), HasCapability('chat.message.moderate')]
+
+    Usage in static permission_classes (requires zero-arg subclass — define
+    one in the consuming app and assign `required_capability`):
+        class CanModerateChat(HasCapability):
+            required_capability = 'chat.message.moderate'
+        permission_classes = [IsAuthenticated, CanModerateChat]
+
+    Behavior:
+    - Safe methods (GET/HEAD/OPTIONS) pass through; capability enforcement
+      is for mutating / non-safe actions (contract §4 rule 14).
+    - Django superusers always pass.
+    - Unauthenticated requests always fail.
+    - Unknown capability slugs always fail closed (the capability must be
+      registered in staff.capability_catalog.CANONICAL_CAPABILITIES).
+    """
+    message = "You do not have the required capability for this action."
+    required_capability: str | None = None
+
+    def __init__(self, required_capability: str | None = None):
+        if required_capability is not None:
+            self.required_capability = required_capability
+        super().__init__()
+
+    def has_permission(self, request, view):
+        capability = self.required_capability
+        if capability is None or capability not in CANONICAL_CAPABILITIES:
+            # Misconfigured endpoint — fail closed.
+            return False
+
+        user = request.user
+        if not user or not getattr(user, 'is_authenticated', False):
+            return False
+
+        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+            return True
+
+        if getattr(user, 'is_superuser', False):
+            return True
+
+        perms = resolve_effective_access(user)
+        return capability in perms.get('allowed_capabilities', [])
+
+
+def has_capability(user, capability: str) -> bool:
+    """
+    Imperative capability check for use inside view bodies, services, and
+    notification routing where a permission class is not appropriate.
+
+    Returns True iff:
+        - `capability` is a canonical capability, AND
+        - the user is authenticated, AND
+        - the user is a Django superuser OR the capability appears in their
+          resolved `allowed_capabilities`.
+
+    Fails closed on unknown capabilities and on missing users.
+    """
+    if not capability or capability not in CANONICAL_CAPABILITIES:
+        return False
+    if not user or not getattr(user, 'is_authenticated', False):
+        return False
+    if getattr(user, 'is_superuser', False):
+        return True
+    perms = resolve_effective_access(user)
+    return capability in perms.get('allowed_capabilities', [])
+
+
+def staff_with_capability(hotel, capability: str):
+    """
+    Return a ``Staff`` queryset scoped to ``hotel`` of every staff member
+    who, per the capability catalog preset maps, currently holds
+    ``capability``.
+
+    Expansion rule (matches ``resolve_capabilities``):
+        A staff row S has capability C iff any of:
+          - S.access_level is a tier whose TIER_DEFAULT_CAPABILITIES includes C
+          - S.role.slug is a key in ROLE_PRESET_CAPABILITIES whose bundle includes C
+          - S.department.slug is a key in DEPARTMENT_PRESET_CAPABILITIES whose bundle includes C
+
+    Django superusers are not expanded here; this helper targets staff
+    routing/eligibility queries (notifications, "who can respond"). Callers
+    that need superuser inclusion should union it explicitly.
+
+    Fail-closed: unknown capability slugs return an empty queryset.
+    Active-only: filters ``is_active=True`` so deactivated rows never match.
+    """
+    from django.db.models import Q
+
+    if not capability or capability not in CANONICAL_CAPABILITIES:
+        return Staff.objects.none()
+
+    tiers = [
+        tier for tier, caps in TIER_DEFAULT_CAPABILITIES.items()
+        if capability in caps
+    ]
+    role_slugs = [
+        slug for slug, caps in ROLE_PRESET_CAPABILITIES.items()
+        if capability in caps
+    ]
+    dept_slugs = [
+        slug for slug, caps in DEPARTMENT_PRESET_CAPABILITIES.items()
+        if capability in caps
+    ]
+
+    q = Q()
+    matched = False
+    if tiers:
+        q |= Q(access_level__in=tiers)
+        matched = True
+    if role_slugs:
+        q |= Q(role__slug__in=role_slugs)
+        matched = True
+    if dept_slugs:
+        q |= Q(department__slug__in=dept_slugs)
+        matched = True
+
+    if not matched:
+        return Staff.objects.none()
+
+    return Staff.objects.filter(hotel=hotel, is_active=True).filter(q).distinct()

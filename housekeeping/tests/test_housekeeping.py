@@ -17,7 +17,7 @@ from staff.models import Staff, Department, Role
 from rooms.models import Room, RoomType
 from housekeeping.models import HousekeepingTask, RoomStatusEvent
 from housekeeping.services import set_room_status
-from housekeeping.policy import is_manager, is_housekeeping, can_change_room_status
+from housekeeping.policy import can_change_room_status
 
 
 class HousekeepingModelTests(TestCase):
@@ -229,20 +229,6 @@ class HousekeepingPolicyTests(TestCase):
         self.room.hotel_id = self.hotel.id
         self.room.room_status = "CHECKOUT_DIRTY"
         self.room.can_transition_to = Mock(return_value=True)
-    
-    def test_is_manager_function(self):
-        """Test manager detection"""
-        self.assertTrue(is_manager(self.manager))
-        self.assertFalse(is_manager(self.housekeeper))
-        self.assertFalse(is_manager(self.front_desk))
-        self.assertFalse(is_manager(None))
-    
-    def test_is_housekeeping_function(self):
-        """Test housekeeping department detection"""
-        self.assertTrue(is_housekeeping(self.housekeeper))
-        self.assertFalse(is_housekeeping(self.front_desk))
-        self.assertFalse(is_housekeeping(self.manager))
-        self.assertFalse(is_housekeeping(None))
     
     def test_manager_can_override_with_note(self):
         """Test manager override permissions"""

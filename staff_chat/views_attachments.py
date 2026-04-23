@@ -23,7 +23,7 @@ from .serializers_attachments import (
     AttachmentUploadSerializer
 )
 from .permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasChatNav
+from staff.permissions import HasChatNav, has_capability
 from notifications.notification_manager import notification_manager
 from .fcm_utils import send_file_attachment_notification
 
@@ -282,8 +282,8 @@ def delete_attachment(request, hotel_slug, attachment_id):
     
     # Only sender can delete their attachments
     if message.sender.id != staff.id:
-        # Chat managers (staff_admin+) can delete any attachment
-        if not is_chat_manager(staff):
+        # Moderation capability holders can delete any attachment
+        if not has_capability(request.user, 'staff_chat.conversation.moderate'):
             return Response(
                 {'error': 'You can only delete your own attachments'},
                 status=status.HTTP_403_FORBIDDEN

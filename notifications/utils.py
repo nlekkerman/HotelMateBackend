@@ -31,13 +31,11 @@ def notify_porters_of_room_service_order(order):
     )
     
     # Send FCM push notifications (when app is closed)
+    from staff.permissions import staff_with_capability
     fcm_count = 0
-    porters = Staff.objects.filter(
-        hotel=order.hotel,
-        role__slug='porter',
-        is_active=True,
-        is_on_duty=True
-    )
+    porters = staff_with_capability(
+        order.hotel, 'room_service.order.fulfill_porter'
+    ).filter(is_on_duty=True)
     
     logger.info(
         f"🔍 Found {porters.count()} on-duty porters for order {order.id}"
@@ -64,16 +62,13 @@ def notify_kitchen_staff_of_room_service_order(order):
     Notify all active, on-duty kitchen staff of a new room service order.
     Sends via FCM push notifications (when app is closed).
     """
-    from staff.models import Staff
-    
+
     # Send FCM push notifications to kitchen staff
+    from staff.permissions import staff_with_capability
     fcm_count = 0
-    kitchen_staff = Staff.objects.filter(
-        hotel=order.hotel,
-        department__slug='kitchen',
-        is_active=True,
-        is_on_duty=True
-    )
+    kitchen_staff = staff_with_capability(
+        order.hotel, 'room_service.order.fulfill_kitchen'
+    ).filter(is_on_duty=True)
     for staff_member in kitchen_staff:
         if send_kitchen_staff_order_notification(staff_member, order):
             fcm_count += 1
@@ -103,13 +98,11 @@ def notify_porters_order_count(hotel):
     pusher_count = notify_porters(hotel, 'order-count-update', count_data)
     
     # Send FCM push notifications
+    from staff.permissions import staff_with_capability
     fcm_count = 0
-    porters = Staff.objects.filter(
-        hotel=hotel,
-        role__slug='porter',
-        is_active=True,
-        is_on_duty=True
-    )
+    porters = staff_with_capability(
+        hotel, 'room_service.order.fulfill_porter'
+    ).filter(is_on_duty=True)
     for porter in porters:
         if send_porter_count_update(porter, pending, "room_service_orders"):
             fcm_count += 1
@@ -143,13 +136,11 @@ def notify_porters_of_breakfast_order(order):
     pusher_count = notify_porters(order.hotel, 'new-breakfast-order', order_data)
     
     # Send FCM push notifications
+    from staff.permissions import staff_with_capability
     fcm_count = 0
-    porters = Staff.objects.filter(
-        hotel=order.hotel,
-        role__slug='porter',
-        is_active=True,
-        is_on_duty=True
-    )
+    porters = staff_with_capability(
+        order.hotel, 'room_service.order.fulfill_porter'
+    ).filter(is_on_duty=True)
     for porter in porters:
         if send_porter_breakfast_notification(porter, order):
             fcm_count += 1
@@ -182,13 +173,11 @@ def notify_porters_breakfast_count(hotel):
     pusher_count = notify_porters(hotel, 'breakfast-count-update', count_data)
     
     # Send FCM push notifications
+    from staff.permissions import staff_with_capability
     fcm_count = 0
-    porters = Staff.objects.filter(
-        hotel=hotel,
-        role__slug='porter',
-        is_active=True,
-        is_on_duty=True
-    )
+    porters = staff_with_capability(
+        hotel, 'room_service.order.fulfill_porter'
+    ).filter(is_on_duty=True)
     for porter in porters:
         if send_porter_count_update(porter, pending, "breakfast_orders"):
             fcm_count += 1

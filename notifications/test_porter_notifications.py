@@ -36,7 +36,7 @@ class PorterNotificationTests(TestCase):
         # Create front office department
         self.department = Department.objects.create(
             name="Front Office",
-            slug="front-office"
+            slug="front_office"
         )
 
         # Create on-duty porter
@@ -360,7 +360,7 @@ class PorterNotificationIntegrationTests(TestCase):
 
         self.department = Department.objects.create(
             name="Front Office",
-            slug="front-office"
+            slug="front_office"
         )
 
         self.porter = Staff.objects.create(

@@ -22,7 +22,7 @@ def notify_staff_by_department(
     
     Args:
         hotel: Hotel instance
-        department_slug: Department slug (e.g., 'kitchen', 'front-office')
+        department_slug: Department slug (e.g., 'kitchen', 'front_office')
         event: Pusher event name (e.g., 'new-order')
         data: Event payload data
         only_on_duty: If True, only notify staff who are on duty
@@ -179,7 +179,7 @@ def notify_fnb_staff(hotel, event: str, data: Dict[str, Any]) -> int:
     """Notify all on-duty Food & Beverage staff."""
     return notify_staff_by_department(
         hotel,
-        'food-and-beverage',
+        'food_beverage',
         event,
         data,
         only_on_duty=True

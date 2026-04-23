@@ -13,7 +13,7 @@ from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
 from notifications.fcm_service import send_fcm_notification
 from notifications.notification_manager import notification_manager
-from staff.permissions import HasNavPermission
+from staff.permissions import HasNavPermission, has_capability, staff_with_capability
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 import json
 from django.core.serializers.json import DjangoJSONEncoder
@@ -273,25 +273,15 @@ def send_conversation_message(request, hotel_slug, conversation_id):
             # No fallback needed - unified architecture manages this automatically
             logger.info(f"Unread count update handled by NotificationManager for room {room.room_number}")
 
-        # Prefer Receptionists, fallback to Front Office
-        reception_staff = Staff.objects.filter(
-            hotel=hotel,
-            role__slug="receptionist"
+        # Target staff carrying the chat.guest.respond capability
+        # (receptionist role + front_office department per preset maps).
+        target_staff = staff_with_capability(hotel, 'chat.guest.respond')
+
+        print(f"🔍 Looking for staff to notify. chat.guest.respond holders: {target_staff.count()}")
+        logger.info(
+            f"Targeting chat.guest.respond capability holders for notifications: "
+            f"count={target_staff.count()}"
         )
-
-        print(f"🔍 Looking for staff to notify. Reception staff count: {reception_staff.count()}")
-
-        if reception_staff.exists():
-            target_staff = reception_staff
-            print(f"✅ Targeting reception staff: {reception_staff.count()}")
-            logger.info(f"Targeting reception staff for notifications: count={reception_staff.count()}")
-        else:
-            target_staff = Staff.objects.filter(
-                hotel=hotel,
-                department__slug="front-office"
-            )
-            print(f"⚠️ No reception staff. Targeting front-office: {target_staff.count()}")
-            logger.info(f"No reception staff found. Targeting front-office staff: count={target_staff.count()}")
 
         print(f"📬 Using NotificationManager for guest message to {target_staff.count()} staff members")
         
@@ -859,12 +849,13 @@ def delete_message(request, message_id):
         if message.sender_type == "staff":
             # Staff deleting a staff message - must be their own
             if message.staff != staff:
-                # Check if staff has admin/manager role for hard delete
-                if hard_delete and not (
-                    staff.role and staff.role.slug in ['manager', 'admin']
+                # Hard-delete on another staff member's message requires the
+                # chat.message.moderate capability.
+                if hard_delete and not has_capability(
+                    request.user, 'chat.message.moderate'
                 ):
                     return Response(
-                        {"error": "Only managers can hard delete other staff messages"},
+                        {"error": "You do not have permission to hard delete other staff messages"},
                         status=403
                     )
                 elif not hard_delete:

@@ -6,7 +6,9 @@ import qrcode
 import secrets
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models import Q
 from cloudinary.models import CloudinaryField
 
 logger = logging.getLogger(__name__)
@@ -78,9 +80,20 @@ class Department(models.Model):
     def __str__(self):
         return self.name
 
+    def clean(self):
+        super().clean()
+        if not (self.slug or '').strip():
+            raise ValidationError({'slug': 'Department slug must not be empty.'})
+
     class Meta:
         ordering = ['name']
         unique_together = [['hotel', 'name'], ['hotel', 'slug']]
+        constraints = [
+            models.CheckConstraint(
+                check=~Q(slug=''),
+                name='department_slug_not_empty',
+            ),
+        ]
 
 
 class Role(models.Model):
@@ -111,9 +124,50 @@ class Role(models.Model):
     def __str__(self):
         return self.name
 
+    def clean(self):
+        super().clean()
+        slug = (self.slug or '').strip()
+        if not slug:
+            raise ValidationError({'slug': 'Role slug must not be empty.'})
+
+        # Phase 5c: role slugs must belong to the canonical role catalog.
+        # Legacy slugs (manager, admin, receptionist, porter, housekeeping)
+        # and any shape that does not match `<department>_<role>` or
+        # `hotel_manager` are rejected here.
+        from staff.role_catalog import (
+            CANONICAL_ROLE_SLUGS,
+            SLUG_PATTERN,
+        )
+        if not SLUG_PATTERN.match(slug):
+            raise ValidationError({
+                'slug': (
+                    f"Role slug '{slug}' does not match the canonical shape "
+                    "'<department>_<role>' or 'hotel_manager'."
+                )
+            })
+        if slug not in CANONICAL_ROLE_SLUGS:
+            raise ValidationError({
+                'slug': (
+                    f"Role slug '{slug}' is not in the canonical role "
+                    "catalog (staff/role_catalog.py::CANONICAL_ROLE_SLUGS)."
+                )
+            })
+
+    def save(self, *args, **kwargs):
+        # Enforce slug policy on every save so code paths that bypass
+        # ModelForm.full_clean() still get protection.
+        self.clean()
+        super().save(*args, **kwargs)
+
     class Meta:
         ordering = ['name']
         unique_together = [['hotel', 'name'], ['hotel', 'slug']]
+        constraints = [
+            models.CheckConstraint(
+                check=~Q(slug=''),
+                name='role_slug_not_empty',
+            ),
+        ]
 
 
 class Staff(models.Model):
@@ -259,6 +313,40 @@ class Staff(models.Model):
         if isinstance(department, Department):
             return cls.objects.filter(department=department, is_active=True)
         return cls.objects.filter(department__slug=department, is_active=True)
+
+    def clean(self):
+        super().clean()
+        # Cross-tenant guard: a role assigned to a staff member must belong
+        # to the same hotel as the staff member (or be hotel-agnostic).
+        if self.role_id and self.hotel_id:
+            role_hotel_id = getattr(self.role, 'hotel_id', None)
+            if role_hotel_id is not None and role_hotel_id != self.hotel_id:
+                raise ValidationError({
+                    'role': (
+                        f'Role "{self.role.slug}" belongs to hotel '
+                        f'{role_hotel_id} but staff belongs to hotel '
+                        f'{self.hotel_id}. Cross-tenant role assignments '
+                        'are not allowed.'
+                    )
+                })
+        # Same guard for department.
+        if self.department_id and self.hotel_id:
+            dept_hotel_id = getattr(self.department, 'hotel_id', None)
+            if dept_hotel_id is not None and dept_hotel_id != self.hotel_id:
+                raise ValidationError({
+                    'department': (
+                        f'Department "{self.department.slug}" belongs to '
+                        f'hotel {dept_hotel_id} but staff belongs to hotel '
+                        f'{self.hotel_id}. Cross-tenant department '
+                        'assignments are not allowed.'
+                    )
+                })
+
+    def save(self, *args, **kwargs):
+        # Enforce the cross-tenant guard at save time as well so code paths
+        # that bypass ModelForm.full_clean() still get protection.
+        self.clean()
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ['department__name', 'last_name']

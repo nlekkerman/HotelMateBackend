@@ -1394,26 +1394,24 @@ class NotificationManager:
         return []
     
     def _notify_room_service_staff_of_new_order(self, order, event_data):
-        """Send FCM + Pusher to porters and kitchen staff for new orders."""
-        # Notify porters
-        from staff.models import Staff
-        porters = Staff.objects.filter(
-            hotel=order.hotel,
-            role__slug='porter',
-            is_active=True
+        """Send FCM + Pusher to room-service fulfillment staff for new orders.
+
+        Routing is capability-driven:
+          - room_service.order.fulfill_porter → porter-style notification
+          - room_service.order.fulfill_kitchen → kitchen-style notification
+        """
+        from staff.permissions import staff_with_capability
+
+        porters = staff_with_capability(
+            order.hotel, 'room_service.order.fulfill_porter'
         )
-        
         for porter in porters:
             if porter.fcm_token:
                 send_porter_order_notification(porter, order)
-        
-        # Notify kitchen staff
-        kitchen_staff = Staff.objects.filter(
-            hotel=order.hotel,
-            department__slug='kitchen',
-            is_active=True
+
+        kitchen_staff = staff_with_capability(
+            order.hotel, 'room_service.order.fulfill_kitchen'
         )
-        
         for staff in kitchen_staff:
             if staff.fcm_token:
                 send_kitchen_staff_order_notification(staff, order)
@@ -1454,37 +1452,30 @@ class NotificationManager:
         Returns:
             int: Number of staff notified
         """
-        from staff.models import Staff
+        from staff.permissions import staff_with_capability
         
-        # Target staff: Reception first, then front office department, then any active staff
-        reception_staff = Staff.objects.filter(
-            hotel=message.room.hotel,
-            role__slug="receptionist",
-            is_active=True
+        # Target staff carrying the chat.guest.respond capability.
+        target_staff = staff_with_capability(
+            message.room.hotel, 'chat.guest.respond'
         )
         
-        if reception_staff.exists():
-            target_staff = reception_staff
-            self.logger.info(f"👥 Targeting reception staff for guest message: {reception_staff.count()} staff")
+        if target_staff.exists():
+            self.logger.info(
+                f"👥 Targeting chat.guest.respond capability holders for guest message: "
+                f"{target_staff.count()} staff"
+            )
         else:
-            # Fallback to front office department
-            front_office_staff = Staff.objects.filter(
+            # No capability holders — final fallback: any active staff so
+            # the hotel is never silently unreachable.
+            from staff.models import Staff
+            target_staff = Staff.objects.filter(
                 hotel=message.room.hotel,
-                department__slug="front-office",
                 is_active=True
             )
-            
-            if front_office_staff.exists():
-                target_staff = front_office_staff
-                self.logger.info(f"👥 Targeting front-office staff for guest message: {front_office_staff.count()} staff")
-            else:
-                # Final fallback: any active staff
-                any_staff = Staff.objects.filter(
-                    hotel=message.room.hotel,
-                    is_active=True
-                )
-                target_staff = any_staff
-                self.logger.info(f"👥 No specific role/department staff found. Targeting any active staff: {any_staff.count()} staff")
+            self.logger.info(
+                f"👥 No chat.guest.respond capability holders. Targeting any active staff: "
+                f"{target_staff.count()} staff"
+            )
         
         # Create staff notification payload
         staff_notification_data = {
@@ -1903,12 +1894,10 @@ class NotificationManager:
             'total_porters': 0
         }
         
-        # Get all active porters for this hotel
-        from staff.models import Staff
-        porters = Staff.objects.filter(
-            hotel=order.hotel,
-            role__slug='porter',
-            is_active=True
+        # Get staff carrying the porter fulfillment capability
+        from staff.permissions import staff_with_capability
+        porters = staff_with_capability(
+            order.hotel, 'room_service.order.fulfill_porter'
         ).select_related('user', 'role')
         
         results['total_porters'] = porters.count()
@@ -1937,14 +1926,11 @@ class NotificationManager:
         
         results = {'fcm_sent': 0, 'fcm_failed': 0, 'pusher_sent': 0}
         
-        # Get kitchen staff
-        from staff.models import Staff
-        kitchen_staff = Staff.objects.filter(
-            hotel=order.hotel,
-            department__slug='kitchen',
-            is_active=True,
-            is_on_duty=True
-        )
+        # Get kitchen fulfillment capability holders, on-duty only
+        from staff.permissions import staff_with_capability
+        kitchen_staff = staff_with_capability(
+            order.hotel, 'room_service.order.fulfill_kitchen'
+        ).filter(is_on_duty=True)
         
         # Send FCM to kitchen staff
         for staff in kitchen_staff:
@@ -1973,11 +1959,9 @@ class NotificationManager:
         
         results = {'fcm_sent': 0, 'fcm_failed': 0, 'pusher_sent': 0}
         
-        from staff.models import Staff
-        porters = Staff.objects.filter(
-            hotel=breakfast_order.hotel,
-            role__slug='porter',
-            is_active=True
+        from staff.permissions import staff_with_capability
+        porters = staff_with_capability(
+            breakfast_order.hotel, 'room_service.order.fulfill_porter'
         )
         
         order_data = {
@@ -2393,6 +2377,7 @@ class NotificationManager:
 
     def get_notification_summary(self):
         """Get summary of notification capabilities and configuration."""
+        from staff.capability_catalog import CANONICAL_CAPABILITIES
         return {
             'fcm_enabled': hasattr(settings, 'FIREBASE_SERVICE_ACCOUNT_JSON') and settings.FIREBASE_SERVICE_ACCOUNT_JSON,
             'pusher_enabled': hasattr(settings, 'PUSHER_APP_ID') and settings.PUSHER_APP_ID,
@@ -2401,8 +2386,7 @@ class NotificationManager:
                 'booking_cancellations', 'guest_messages', 'staff_replies',
                 'attendance_changes', 'department_notifications', 'role_notifications'
             ],
-            'supported_roles': ['porter', 'receptionist', 'kitchen', 'maintenance', 'room_service_waiter'],
-            'supported_departments': ['kitchen', 'front-office', 'maintenance', 'housekeeping', 'food-and-beverage']
+            'supported_capabilities': sorted(CANONICAL_CAPABILITIES),
         }
 
 

@@ -2,19 +2,7 @@
 Custom permissions for Staff Chat
 """
 from rest_framework import permissions
-from staff.permissions import resolve_tier, _tier_at_least
-
-
-def is_chat_manager(staff) -> bool:
-    """
-    Centralized check: is this staff member a chat manager?
-    Uses canonical tier resolution — staff_admin or above qualifies.
-    Does NOT hardcode role slugs.
-    """
-    if not staff:
-        return False
-    tier = resolve_tier(staff.user)
-    return _tier_at_least(tier, 'staff_admin')
+from staff.permissions import has_capability
 
 
 class IsStaffMember(permissions.BasePermission):
@@ -113,8 +101,8 @@ class CanManageConversation(permissions.BasePermission):
             if obj.created_by and obj.created_by.id == staff.id:
                 return True
             
-            # Managers and admins can manage any conversation
-            if is_chat_manager(staff):
+            # Moderation reach is capability-gated.
+            if has_capability(request.user, 'staff_chat.conversation.moderate'):
                 return True
             
             return False
@@ -138,8 +126,8 @@ class CanDeleteMessage(permissions.BasePermission):
             hard_delete = request.query_params.get('hard_delete') == 'true'
             
             if hard_delete:
-                # Only managers/admins can hard delete
-                if is_chat_manager(staff):
+                # Hard delete requires the staff_chat moderation capability.
+                if has_capability(request.user, 'staff_chat.conversation.moderate'):
                     return True
                 # Or if it's their own message
                 return obj.sender.id == staff.id

@@ -33,7 +33,7 @@ from .permissions import (
     IsSameHotel,
     CanDeleteMessage
 )
-from staff.permissions import HasChatNav
+from staff.permissions import HasChatNav, has_capability
 from notifications.notification_manager import notification_manager
 from .fcm_utils import notify_conversation_participants
 from staff.models import Staff
@@ -479,8 +479,8 @@ def delete_message(request, hotel_slug, message_id):
     
     # Permission check for deletion
     if message.sender.id != staff.id:
-        # Only chat managers (staff_admin+) can delete others' messages
-        if not is_chat_manager(staff):
+        # Only holders of staff_chat.conversation.moderate can delete others' messages
+        if not has_capability(request.user, 'staff_chat.conversation.moderate'):
             return Response(
                 {'error': 'You can only delete your own messages'},
                 status=status.HTTP_403_FORBIDDEN
@@ -489,10 +489,10 @@ def delete_message(request, hotel_slug, message_id):
     # Hard delete permission check
     if hard_delete:
         if message.sender.id != staff.id:
-            if not is_chat_manager(staff):
+            if not has_capability(request.user, 'staff_chat.conversation.moderate'):
                 return Response(
                     {
-                        'error': 'Only managers can permanently '
+                        'error': 'Only moderators can permanently '
                                  'delete messages'
                     },
                     status=status.HTTP_403_FORBIDDEN
