@@ -23,46 +23,75 @@ CANONICAL_DEPARTMENTS = [
     {
         'slug': 'front_office',
         'name': 'Front Office',
-        'description': 'Reception, porters, night audit, concierge.',
+        'description': (
+            'Central hub managing arrivals, departures, guest '
+            'communication, reservations, and real-time coordination '
+            'across hotel operations.'
+        ),
     },
     {
         'slug': 'housekeeping',
         'name': 'Housekeeping',
-        'description': 'Room attendants, housekeeping supervisors.',
+        'description': (
+            'Room attendants and housekeeping supervisors responsible '
+            'for room readiness, cleanliness, and housekeeping workflow '
+            'execution.'
+        ),
     },
     {
         'slug': 'food_beverage',
         'name': 'Food & Beverage',
         'description': (
-            'Guest-facing FOH / service side: waiters, bar, restaurant floor.'
+            'Guest-facing food and beverage operations including '
+            'restaurant, bar, room service, and service-floor '
+            'coordination.'
         ),
     },
     {
         'slug': 'kitchen',
         'name': 'Kitchen',
-        'description': 'BOH culinary: chefs, line cooks, kitchen porters.',
+        'description': (
+            'Back-of-house culinary operations including chefs, line '
+            'cooks, prep, and kitchen support staff.'
+        ),
     },
     {
         'slug': 'maintenance',
         'name': 'Maintenance',
-        'description': 'Technical, engineering, repairs.',
+        'description': (
+            'Technical operations, engineering, repairs, inspections, '
+            'and maintenance response workflows.'
+        ),
     },
     {
         'slug': 'guest_relations',
         'name': 'Guest Relations',
-        'description': 'Guest experience, VIP handling, complaints.',
+        'description': (
+            'Guest experience management including VIP handling, '
+            'complaints, special requests, and satisfaction follow-up.'
+        ),
     },
     {
         'slug': 'management',
         'name': 'Management',
-        'description': 'Department managers and GMs.',
+        'description': (
+            'Operational leadership roles responsible for oversight, '
+            'escalation handling, and cross-department coordination.'
+        ),
     },
     {
         'slug': 'administration',
         'name': 'Administration',
-        'description': 'Back office: HR, finance, admin.',
+        'description': (
+            'Back-office administration including HR, finance, '
+            'compliance, and operational support functions.'
+        ),
     },
 ]
+
+# Canonical mapping by slug — convenience lookup for normalization
+# logic. Slug is identity; name and description must converge here.
+CANONICAL_DEPARTMENT_BY_SLUG = {d['slug']: d for d in CANONICAL_DEPARTMENTS}
 
 CANONICAL_DEPARTMENT_SLUGS = frozenset(
     d['slug'] for d in CANONICAL_DEPARTMENTS
