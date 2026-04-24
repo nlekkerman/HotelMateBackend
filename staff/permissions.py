@@ -28,6 +28,7 @@ from staff.capability_catalog import (
     TIER_DEFAULT_CAPABILITIES,
     resolve_capabilities,
 )
+from staff.module_policy import resolve_module_policy
 
 User = get_user_model()
 
@@ -110,7 +111,8 @@ def resolve_effective_access(user) -> dict:
         is_staff, is_superuser, hotel_slug, access_level, tier,
         department_slug, role_slug,
         allowed_navs (list[str]), navigation_items (list[dict]),
-        allowed_capabilities (list[str])
+        allowed_capabilities (list[str]),
+        rbac (dict[module → {visible, read, actions}])  — Phase 6A
     """
     base_payload = {
         'is_staff': False,
@@ -123,6 +125,7 @@ def resolve_effective_access(user) -> dict:
         'allowed_navs': [],
         'navigation_items': [],
         'allowed_capabilities': [],
+        'rbac': resolve_module_policy([]),
     }
 
     if not user or not getattr(user, 'is_authenticated', False):
@@ -166,6 +169,9 @@ def resolve_effective_access(user) -> dict:
                 is_superuser=True,
             ),
         })
+        base_payload['rbac'] = resolve_module_policy(
+            base_payload['allowed_capabilities']
+        )
         return base_payload
 
     try:
@@ -229,6 +235,9 @@ def resolve_effective_access(user) -> dict:
             is_superuser=False,
         ),
     })
+    base_payload['rbac'] = resolve_module_policy(
+        base_payload['allowed_capabilities']
+    )
 
     return base_payload
 
@@ -547,8 +556,11 @@ class HasCapability(BasePermission):
         permission_classes = [IsAuthenticated, CanModerateChat]
 
     Behavior:
-    - Safe methods (GET/HEAD/OPTIONS) pass through; capability enforcement
-      is for mutating / non-safe actions (contract §4 rule 14).
+    - Safe methods (GET/HEAD/OPTIONS) pass through by default; capability
+      enforcement is for mutating / non-safe actions (contract §4 rule 14).
+      Set ``safe_methods_bypass = False`` on a subclass to enforce the
+      capability on reads as well (e.g. module visibility / read gates
+      whose whole purpose is to gate GET).
     - Django superusers always pass.
     - Unauthenticated requests always fail.
     - Unknown capability slugs always fail closed (the capability must be
@@ -556,6 +568,7 @@ class HasCapability(BasePermission):
     """
     message = "You do not have the required capability for this action."
     required_capability: str | None = None
+    safe_methods_bypass: bool = True
 
     def __init__(self, required_capability: str | None = None):
         if required_capability is not None:
@@ -572,10 +585,13 @@ class HasCapability(BasePermission):
         if not user or not getattr(user, 'is_authenticated', False):
             return False
 
-        if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        if getattr(user, 'is_superuser', False):
             return True
 
-        if getattr(user, 'is_superuser', False):
+        if (
+            self.safe_methods_bypass
+            and request.method in ('GET', 'HEAD', 'OPTIONS')
+        ):
             return True
 
         perms = resolve_effective_access(user)
@@ -658,3 +674,90 @@ def staff_with_capability(hotel, capability: str):
         return Staff.objects.none()
 
     return Staff.objects.filter(hotel=hotel, is_active=True).filter(q).distinct()
+
+
+# ---------------------------------------------------------------------------
+# Bookings capability permission classes (Phase 6A)
+#
+# These are the single source of truth for endpoint enforcement in the
+# bookings module. They must stay in lock-step with
+# staff.module_policy.BOOKINGS_ACTIONS so the frontend rbac object and the
+# backend enforcement derive from the same capability slugs.
+#
+# Read/visibility gates (CanViewBookings, CanReadBookings) set
+# safe_methods_bypass = False so GETs are actually gated. Mutation gates
+# inherit the default (pass GET, enforce non-safe methods) — chain them
+# with a read/view gate when the endpoint also serves GET.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402  (keep import grouped)
+    BOOKING_CONFIG_MANAGE,
+    BOOKING_GUEST_COMMUNICATE,
+    BOOKING_MODULE_VIEW,
+    BOOKING_OVERRIDE_SUPERVISE,
+    BOOKING_RECORD_CANCEL,
+    BOOKING_RECORD_READ,
+    BOOKING_RECORD_UPDATE,
+    BOOKING_ROOM_ASSIGN,
+    BOOKING_STAY_CHECKIN,
+    BOOKING_STAY_CHECKOUT,
+)
+
+
+class CanViewBookings(HasCapability):
+    """Module visibility gate for the bookings module (all methods)."""
+    required_capability = BOOKING_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the bookings module."
+
+
+class CanReadBookings(HasCapability):
+    """Read access gate for booking records (all methods)."""
+    required_capability = BOOKING_RECORD_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read bookings."
+
+
+class CanUpdateBooking(HasCapability):
+    required_capability = BOOKING_RECORD_UPDATE
+    message = "You do not have permission to update bookings."
+
+
+class CanCancelBooking(HasCapability):
+    required_capability = BOOKING_RECORD_CANCEL
+    message = "You do not have permission to cancel bookings."
+
+
+class CanAssignBookingRoom(HasCapability):
+    required_capability = BOOKING_ROOM_ASSIGN
+    message = "You do not have permission to assign booking rooms."
+
+
+class CanCheckInBooking(HasCapability):
+    required_capability = BOOKING_STAY_CHECKIN
+    message = "You do not have permission to check bookings in."
+
+
+class CanCheckOutBooking(HasCapability):
+    required_capability = BOOKING_STAY_CHECKOUT
+    message = "You do not have permission to check bookings out."
+
+
+class CanCommunicateWithBookingGuest(HasCapability):
+    required_capability = BOOKING_GUEST_COMMUNICATE
+    message = (
+        "You do not have permission to send guest booking communications."
+    )
+
+
+class CanSuperviseBooking(HasCapability):
+    """Supervisor overrides (acknowledge overstay, force checkin/checkout,
+    override conflicts, modify locked bookings)."""
+    required_capability = BOOKING_OVERRIDE_SUPERVISE
+    message = "You do not have permission to override bookings."
+
+
+class CanManageBookingConfig(HasCapability):
+    required_capability = BOOKING_CONFIG_MANAGE
+    message = "You do not have permission to manage booking configuration."
+

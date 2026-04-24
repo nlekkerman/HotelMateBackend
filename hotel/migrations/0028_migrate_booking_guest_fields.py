@@ -45,12 +45,28 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # Drop old index that references guest_email to avoid SQLite issues
-        migrations.RunSQL(
-            "DROP INDEX IF EXISTS hotel_roomb_guest_e_d67049_idx;",
-            "-- No reverse SQL needed"
+        # Drop the old index that references guest_email BOTH at the DB
+        # level and in Django's model state. Without the state-level
+        # removal, SQLite's table rebuild performed later by RemoveField
+        # tries to preserve an index referencing a column that no longer
+        # exists, yielding "error in index hotel_roomb_guest_e_d67049_idx
+        # after drop column: no such column: guest_email" on fresh DBs
+        # (e.g. the in-memory test DB).
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunSQL(
+                    "DROP INDEX IF EXISTS hotel_roomb_guest_e_d67049_idx;",
+                    "-- No reverse SQL needed",
+                ),
+            ],
+            state_operations=[
+                migrations.RemoveIndex(
+                    model_name='roombooking',
+                    name='hotel_roomb_guest_e_d67049_idx',
+                ),
+            ],
         ),
-        
+
         # Add new fields with temporary defaults
         migrations.AddField(
             model_name='roombooking',

@@ -14,7 +14,11 @@ from rest_framework.response import Response
 from hotel.models import Hotel, RoomBooking, OverstayIncident
 from hotel.permissions import IsHotelStaff
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasRoomBookingsNav, CanManageRoomBookings
+from staff.permissions import (
+    CanViewBookings,
+    CanReadBookings,
+    CanSuperviseBooking,
+)
 from rest_framework.permissions import IsAuthenticated
 from room_bookings.services.overstay import (
     acknowledge_overstay, extend_overstay, ConflictError,
@@ -30,7 +34,14 @@ class OverstayAcknowledgeView(APIView):
     
     Staff acknowledges awareness of overstay.
     """
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanSuperviseBooking,
+    ]
     
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -97,7 +108,14 @@ class OverstayExtendView(APIView):
     
     Staff approves additional nights for overstaying guest.
     """
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanSuperviseBooking,
+    ]
     
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -218,7 +236,13 @@ class OverstayStatusView(APIView):
     
     Retrieve current overstay status for booking.
     """
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+    ]
 
     def get(self, request, hotel_slug, booking_id):
         try:

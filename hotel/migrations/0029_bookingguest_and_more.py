@@ -27,10 +27,12 @@ class Migration(migrations.Migration):
                 'ordering': ['role', 'created_at'],
             },
         ),
-        migrations.RemoveIndex(
-            model_name='roombooking',
-            name='hotel_roomb_guest_e_d67049_idx',
-        ),
+        # NOTE: RemoveIndex for hotel_roomb_guest_e_d67049_idx is handled
+        # in hotel/migrations/0028 via SeparateDatabaseAndState so that
+        # SQLite's table rebuild on RemoveField(guest_email) does not try
+        # to preserve an index that references the dropped column. Leaving
+        # the old operation here would crash with "No index named ..." on
+        # fresh DBs because the index is no longer in model state.
         migrations.RemoveIndex(
             model_name='roombooking',
             name='hotel_roomboo_hotel_i_a58e61_idx',

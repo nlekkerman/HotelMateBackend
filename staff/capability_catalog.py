@@ -100,6 +100,48 @@ ROOM_SERVICE_ORDER_FULFILL_KITCHEN = 'room_service.order.fulfill_kitchen'
 Historically carried by staff in the `kitchen` department.
 """
 
+# --- Room bookings (Phase 6A) ---
+# Module policy shape for bookings (see staff/module_policy.py):
+#   visible  → BOOKING_MODULE_VIEW
+#   read     → BOOKING_RECORD_READ
+#   actions  → the remaining slugs below, grouped into operate / supervise /
+#              manage buckets.
+#
+# Granularity rule (Phase 6A): read does not imply operate, operate does not
+# imply supervise, supervise does not imply manage. Each bucket is an
+# additive escalation expressed through preset maps.
+
+BOOKING_MODULE_VIEW = 'booking.module.view'
+"""See the room-bookings module (navigation + module-level reads)."""
+
+BOOKING_RECORD_READ = 'booking.record.read'
+"""Read booking records (list/detail/available-rooms/overstay status)."""
+
+BOOKING_RECORD_UPDATE = 'booking.record.update'
+"""Update booking records (mark seen, confirm, party/guest-facing info)."""
+
+BOOKING_RECORD_CANCEL = 'booking.record.cancel'
+"""Cancel / decline bookings."""
+
+BOOKING_ROOM_ASSIGN = 'booking.room.assign'
+"""Assign, unassign, and move rooms on a booking."""
+
+BOOKING_STAY_CHECKIN = 'booking.stay.checkin'
+"""Check a booking in (arrival flow)."""
+
+BOOKING_STAY_CHECKOUT = 'booking.stay.checkout'
+"""Check a booking out (departure flow)."""
+
+BOOKING_GUEST_COMMUNICATE = 'booking.guest.communicate'
+"""Trigger guest-facing communications (pre-check-in link, survey link)."""
+
+BOOKING_OVERRIDE_SUPERVISE = 'booking.override.supervise'
+"""Supervisor overrides: acknowledge overstay, force check-in / check-out,
+override conflicts, modify locked bookings."""
+
+BOOKING_CONFIG_MANAGE = 'booking.config.manage'
+"""Manage booking rules / hotel-level booking configuration."""
+
 
 CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
@@ -111,6 +153,48 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     HOUSEKEEPING_TASK_ASSIGN,
     ROOM_SERVICE_ORDER_FULFILL_PORTER,
     ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
+    # Bookings (Phase 6A)
+    BOOKING_MODULE_VIEW,
+    BOOKING_RECORD_READ,
+    BOOKING_RECORD_UPDATE,
+    BOOKING_RECORD_CANCEL,
+    BOOKING_ROOM_ASSIGN,
+    BOOKING_STAY_CHECKIN,
+    BOOKING_STAY_CHECKOUT,
+    BOOKING_GUEST_COMMUNICATE,
+    BOOKING_OVERRIDE_SUPERVISE,
+    BOOKING_CONFIG_MANAGE,
+})
+
+
+# ---------------------------------------------------------------------------
+# Booking preset bundles (Phase 6A)
+# ---------------------------------------------------------------------------
+
+# Read bucket — visibility + read, nothing more.
+_BOOKING_READ: frozenset[str] = frozenset({
+    BOOKING_MODULE_VIEW,
+    BOOKING_RECORD_READ,
+})
+
+# Operate bucket — day-to-day front-desk work.
+_BOOKING_OPERATE: frozenset[str] = _BOOKING_READ | frozenset({
+    BOOKING_RECORD_UPDATE,
+    BOOKING_RECORD_CANCEL,
+    BOOKING_ROOM_ASSIGN,
+    BOOKING_STAY_CHECKIN,
+    BOOKING_STAY_CHECKOUT,
+    BOOKING_GUEST_COMMUNICATE,
+})
+
+# Supervise bucket — adds override authority on top of operate.
+_BOOKING_SUPERVISE: frozenset[str] = _BOOKING_OPERATE | frozenset({
+    BOOKING_OVERRIDE_SUPERVISE,
+})
+
+# Manage bucket — full booking authority including config.
+_BOOKING_MANAGE: frozenset[str] = _BOOKING_SUPERVISE | frozenset({
+    BOOKING_CONFIG_MANAGE,
 })
 
 
@@ -134,7 +218,13 @@ _SUPERVISOR_AUTHORITY: frozenset[str] = frozenset({
 })
 
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
-    'super_staff_admin': _SUPERVISOR_AUTHORITY,
+    # Phase 6A.2: tier carries only cross-cutting supervisor authority.
+    # Booking operate/manage live on department/role presets so tier is
+    # NOT the permission engine.
+    #   super_staff_admin → supervisor authority + booking supervise (overrides)
+    #   staff_admin       → supervisor authority only (no booking caps)
+    #   regular_staff     → no tier-level caps (role/dept presets only)
+    'super_staff_admin': _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE,
     'staff_admin': _SUPERVISOR_AUTHORITY,
     'regular_staff': frozenset(),
 }
@@ -162,7 +252,16 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
 # ---------------------------------------------------------------------------
 
 ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
-    'operations_admin': _SUPERVISOR_AUTHORITY,
+    # operations_admin replaces the legacy `admin` role: full supervisor
+    # authority regardless of tier, plus booking supervise (overrides).
+    # Phase 6A.2: downgraded from MANAGE → SUPERVISE; config manage is
+    # reserved for hotel_manager / front_office_manager role presets.
+    'operations_admin': _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE,
+    # Phase 6A.2: manage-bucket role presets. Tier no longer grants
+    # BOOKING_CONFIG_MANAGE, so managing rate plans / cancellation
+    # policies / precheckin / survey config requires one of these roles.
+    'hotel_manager': _BOOKING_MANAGE,
+    'front_office_manager': _BOOKING_MANAGE,
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
     }),
@@ -180,10 +279,13 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
 # ---------------------------------------------------------------------------
 
 DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
+    # Phase 6A.2: front_office department carries booking READ + OPERATE.
+    # This is the fix for "front_office regular_staff cannot operate
+    # bookings" — operate authority lives on department, not on tier.
     'front_office': frozenset({
         CHAT_GUEST_RESPOND,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
-    }),
+    }) | _BOOKING_READ | _BOOKING_OPERATE,
     'housekeeping': frozenset({
         HOUSEKEEPING_ROOM_STATUS_TRANSITION,
     }),

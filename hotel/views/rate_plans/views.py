@@ -8,19 +8,35 @@ from hotel.models import Hotel
 from rooms.models import RatePlan
 from hotel.serializers import RatePlanSerializer, RatePlanListSerializer
 from staff_chat.permissions import IsStaffMember
-from staff.permissions import HasNavPermission, CanManageRoomBookings
+from staff.permissions import (
+    CanViewBookings,
+    CanReadBookings,
+    CanManageBookingConfig,
+)
 
 
 @api_view(['GET', 'POST'])
 @permission_classes([IsAuthenticated, IsStaffMember])
 def rate_plans_list(request, hotel_slug):
 
-    # RBAC: module visibility
-    if not HasNavPermission('room_bookings').has_permission(request, None):
-        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
-    # RBAC: mutation authority
-    if request.method == 'POST' and not CanManageRoomBookings().has_permission(request, None):
-        return Response({'detail': CanManageRoomBookings.message}, status=status.HTTP_403_FORBIDDEN)
+    # RBAC: module visibility (capability-first)
+    if not CanViewBookings().has_permission(request, None):
+        return Response(
+            {'detail': CanViewBookings.message},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # RBAC: read access
+    if not CanReadBookings().has_permission(request, None):
+        return Response(
+            {'detail': CanReadBookings.message},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # RBAC: config mutation authority
+    if request.method == 'POST' and not CanManageBookingConfig().has_permission(request, None):
+        return Response(
+            {'detail': CanManageBookingConfig.message},
+            status=status.HTTP_403_FORBIDDEN,
+        )
   
     # Resolve hotel and enforce scoping
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
@@ -51,12 +67,24 @@ def rate_plan_detail(request, hotel_slug, rate_plan_id):
     GET: Retrieve rate plan details
     PUT/PATCH: Update rate plan (no DELETE - soft delete only)
     """
-    # RBAC: module visibility
-    if not HasNavPermission('room_bookings').has_permission(request, None):
-        return Response({'detail': 'Not authorized.'}, status=status.HTTP_403_FORBIDDEN)
-    # RBAC: mutation authority
-    if request.method in ('PUT', 'PATCH') and not CanManageRoomBookings().has_permission(request, None):
-        return Response({'detail': CanManageRoomBookings.message}, status=status.HTTP_403_FORBIDDEN)
+    # RBAC: module visibility (capability-first)
+    if not CanViewBookings().has_permission(request, None):
+        return Response(
+            {'detail': CanViewBookings.message},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # RBAC: read access
+    if not CanReadBookings().has_permission(request, None):
+        return Response(
+            {'detail': CanReadBookings.message},
+            status=status.HTTP_403_FORBIDDEN,
+        )
+    # RBAC: config mutation authority
+    if request.method in ('PUT', 'PATCH') and not CanManageBookingConfig().has_permission(request, None):
+        return Response(
+            {'detail': CanManageBookingConfig.message},
+            status=status.HTTP_403_FORBIDDEN,
+        )
 
     # Resolve hotel and enforce scoping
     hotel = get_object_or_404(Hotel, slug=hotel_slug)

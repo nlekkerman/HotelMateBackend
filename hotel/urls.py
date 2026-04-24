@@ -54,8 +54,6 @@ from .staff_views import (
     HotelStatusCheckView,
     PublicPageBootstrapView,
     SectionCreateView,
-    # Phase 2: Booking Assignment
-    BookingAssignmentView,
     # Phase 3: Booking Party Management
     BookingPartyManagementView,
 )

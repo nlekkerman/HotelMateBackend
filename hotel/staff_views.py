@@ -1,4 +1,4 @@
-"""
+﻿"""
 Staff CRUD Views for Hotel Content Management
 Provides staff-only CRUD operations for:
 - Room Types (marketing)
@@ -94,7 +94,14 @@ from .permissions import IsSuperStaffAdminForHotel
 from staff.permissions import (
     HasNavPermission, HasHotelInfoNav, HasAdminSettingsNav, HasRoomsNav,
     CanManageRooms, CanConfigureHotel,
-    HasRoomBookingsNav, CanManageRoomBookings,
+    # Phase 6A â€” bookings module capability gates
+    CanViewBookings, CanReadBookings,
+    CanUpdateBooking, CanCancelBooking,
+    CanAssignBookingRoom,
+    CanCheckInBooking, CanCheckOutBooking,
+    CanCommunicateWithBookingGuest,
+    CanSuperviseBooking,
+    CanManageBookingConfig,
 )
 
 # Additional imports moved from inline locations
@@ -409,10 +416,10 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
             }
             
             pusher_client.trigger(staff_channel, "access-config-updated", notification_data)
-            logger.info(f"✅ Access config update broadcasted to {staff_channel}")
+            logger.info(f"âœ… Access config update broadcasted to {staff_channel}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to broadcast access config update: {e}")
+            logger.error(f"âŒ Failed to broadcast access config update: {e}")
         
         return Response(serializer.data)
 
@@ -445,10 +452,10 @@ class StaffAccessConfigViewSet(viewsets.ModelViewSet):
             }
             
             pusher_client.trigger(staff_channel, "access-config-updated", notification_data)
-            logger.info(f"✅ Access config update broadcasted to {staff_channel}")
+            logger.info(f"âœ… Access config update broadcasted to {staff_channel}")
             
         except Exception as e:
-            logger.error(f"❌ Failed to broadcast access config update: {e}")
+            logger.error(f"âŒ Failed to broadcast access config update: {e}")
         
         return Response(serializer.data)
 
@@ -1173,7 +1180,13 @@ class StaffBookingsListView(APIView):
     
     Endpoint: GET /api/staff/hotel/{hotel_slug}/room-bookings/
     """
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+    ]
 
     def get(self, request, hotel_slug):
         try:
@@ -1309,7 +1322,14 @@ class StaffBookingsListView(APIView):
 
 class StaffBookingConfirmView(APIView):
     """Staff endpoint to confirm a booking."""
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanUpdateBooking,
+    ]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1325,7 +1345,7 @@ class StaffBookingConfirmView(APIView):
         except RoomBooking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        # 🚨 CRITICAL: Block Stripe bookings from using old confirm endpoint
+        # ðŸš¨ CRITICAL: Block Stripe bookings from using old confirm endpoint
         if (booking.payment_provider == "stripe" or 
             booking.payment_intent_id or 
             booking.payment_authorized_at):
@@ -1343,7 +1363,7 @@ class StaffBookingConfirmView(APIView):
         if booking.status == 'CONFIRMED':
             return Response({'message': 'Booking is already confirmed'}, status=status.HTTP_200_OK)
         
-        # 🚨 CRITICAL: Enforce status transitions - only allow from valid states
+        # ðŸš¨ CRITICAL: Enforce status transitions - only allow from valid states
         if booking.status == 'PENDING_PAYMENT':
             return Response({
                 'error': 'Cannot confirm booking still pending payment. Guest must complete payment first.',
@@ -1408,7 +1428,14 @@ class StaffBookingConfirmView(APIView):
 
 class StaffBookingCancelView(APIView):
     """Staff endpoint to cancel a booking."""
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanCancelBooking,
+    ]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1424,7 +1451,7 @@ class StaffBookingCancelView(APIView):
         except RoomBooking.DoesNotExist:
             return Response({'error': 'Booking not found'}, status=status.HTTP_404_NOT_FOUND)
 
-        # 🚨 CRITICAL: Block Stripe bookings from using old cancel endpoint
+        # ðŸš¨ CRITICAL: Block Stripe bookings from using old cancel endpoint
         if (booking.payment_provider == "stripe" or 
             booking.payment_intent_id or 
             booking.payment_authorized_at):
@@ -1443,7 +1470,7 @@ class StaffBookingCancelView(APIView):
         if booking.status == 'COMPLETED':
             return Response({'error': 'Cannot cancel a completed booking'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # 🚨 CRITICAL: Block cancellation of payments with active Stripe authorization
+        # ðŸš¨ CRITICAL: Block cancellation of payments with active Stripe authorization
         if booking.status == 'PENDING_APPROVAL':
             return Response({
                 'error': 'Cannot cancel booking with pending payment authorization. Use decline endpoint to cancel authorization.',
@@ -1546,7 +1573,13 @@ class StaffBookingCancelView(APIView):
 
 class StaffBookingDetailView(APIView):
     """Staff endpoint to get detailed booking information."""
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+    ]
 
     def get(self, request, hotel_slug, booking_id):
         try:
@@ -1582,7 +1615,13 @@ class StaffBookingDetailView(APIView):
 
 class StaffBookingMarkSeenView(APIView):
     """Staff endpoint to mark a booking as seen."""
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+    ]
 
     def post(self, request, hotel_slug, booking_id):
         try:
@@ -1862,278 +1901,6 @@ class SectionCreateView(APIView):
 
 
 # ============================================================================
-# PHASE 2: BOOKING ASSIGNMENT ENDPOINTS
-# ============================================================================
-
-class BookingAssignmentView(APIView):
-    """
-    Staff endpoints for booking room assignment (check-in) and checkout.
-    
-    POST /api/staff/hotels/{slug}/bookings/{booking_id}/assign-room/
-    POST /api/staff/hotels/{slug}/bookings/{booking_id}/checkout/
-    """
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
-
-    def get_hotel_and_booking(self, hotel_slug, booking_id):
-        """Helper to get hotel and booking with validation"""
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)
-        booking = get_object_or_404(RoomBooking, hotel=hotel, booking_id=booking_id)
-        return hotel, booking
-
-    def _emit_assignment_realtime_events(self, booking, room, primary_guest, party_guest_objects):
-        """Emit realtime events for room assignment - called after transaction commit"""
-        try:
-            # Staff events
-            notification_manager.realtime_booking_checked_in(booking, room, primary_guest, party_guest_objects)
-            notification_manager.realtime_room_occupancy_updated(room)
-            
-            # Guest event - notify guest their room has been assigned
-            notification_manager.realtime_guest_booking_room_assigned(
-                booking=booking,
-                room_number=room.room_number
-            )
-        except Exception as e:
-            logger.error(f"Failed to emit assignment realtime events for booking {booking.booking_id}: {e}")
-    
-    def _emit_checkout_realtime_events_assignment(self, booking, room, hotel):
-        """Emit realtime events for checkout from assignment view - called after transaction commit"""
-        try:
-            notification_manager.realtime_booking_checked_out(booking, room.room_number)
-            notification_manager.realtime_room_occupancy_updated(room)
-            
-            # Room status notification handled by canonical service
-        except Exception as e:
-            logger.error(f"Failed to emit checkout realtime events for booking {booking.booking_id}: {e}")
-
-    def post(self, request, hotel_slug, booking_id, action=None):
-        """Route to specific action"""
-        if action == 'assign-room':
-            return self.assign_room(request, hotel_slug, booking_id)
-        elif action == 'checkout':
-            return self.checkout_booking(request, hotel_slug, booking_id)
-        else:
-            return Response(
-                {"error": "Invalid action. Use 'assign-room' or 'checkout'"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-    def assign_room(self, request, hotel_slug, booking_id):
-        """
-        Assign room to booking (check-in process).
-        
-        POST /api/staff/hotels/{slug}/bookings/{booking_id}/assign-room/
-        Body: { "room_number": 203 }
-        """
-        try:
-            hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
-            
-            # Validate booking status
-            if booking.status != 'CONFIRMED':
-                return Response(
-                    {"error": f"Booking must be CONFIRMED to assign room. Current status: {booking.status}"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Validate primary guest exists
-            if not booking.primary_first_name or not booking.primary_last_name:
-                return Response(
-                    {"error": "Booking must have primary guest name to check-in"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Get room number from request
-            room_number = request.data.get('room_number')
-            if not room_number:
-                return Response(
-                    {"error": "room_number is required"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Find and validate room
-            try:
-                room = Room.objects.get(hotel=hotel, room_number=room_number)
-            except Room.DoesNotExist:
-                return Response(
-                    {"error": f"Room {room_number} not found in {hotel.name}"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-            
-            # Validate room state
-            if not room.is_active:
-                return Response(
-                    {"error": f"Room {room_number} is not active"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if room.is_out_of_order:
-                return Response(
-                    {"error": f"Room {room_number} is out of order"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if room.is_occupied:
-                return Response(
-                    {"error": f"Room {room_number} is already occupied"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Capacity validation
-            if room.room_type and hasattr(room.room_type, 'max_occupancy') and room.room_type.max_occupancy:
-                party_total_count = booking.party.count()
-                if party_total_count > room.room_type.max_occupancy:
-                    return Response(
-                        {
-                            "error": "capacity_exceeded",
-                            "message": f"Party size ({party_total_count}) exceeds room capacity ({room.room_type.max_occupancy})",
-                            "party_total_count": party_total_count,
-                            "max_occupancy": room.room_type.max_occupancy
-                        },
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-            
-            # Perform assignment atomically
-            with transaction.atomic():
-                # Update booking
-                booking.assigned_room = room
-                if not booking.checked_in_at:
-                    booking.checked_in_at = timezone.now()
-                booking.status = 'IN_HOUSE'  # Update status to IN_HOUSE when checked in
-                booking.save()
-                
-                # Get all booking party members
-                booking_guests = booking.party.all().select_related()
-                
-                # Convert all party members to in-house Guests
-                primary_guest = None
-                party_guest_objects = []
-                
-                for booking_guest in booking_guests:
-                    # Create/update Guest record idempotently using booking_guest FK
-                    guest, created = Guest.objects.get_or_create(
-                        booking_guest=booking_guest,
-                        defaults={
-                            'hotel': hotel,
-                            'first_name': booking_guest.first_name,
-                            'last_name': booking_guest.last_name,
-                            'room': room,
-                            'check_in_date': booking.check_in,
-                            'check_out_date': booking.check_out,
-                            'days_booked': (booking.check_out - booking.check_in).days,
-                            'guest_type': booking_guest.role,
-                            'primary_guest': None,  # Will be set after we find primary
-                            'booking': booking,
-                        }
-                    )
-                    
-                    if not created:
-                        # Update existing guest
-                        guest.hotel = hotel
-                        guest.first_name = booking_guest.first_name
-                        guest.last_name = booking_guest.last_name
-                        guest.room = room
-                        guest.check_in_date = booking.check_in
-                        guest.check_out_date = booking.check_out
-                        guest.days_booked = (booking.check_out - booking.check_in).days
-                        guest.guest_type = booking_guest.role
-                        guest.booking = booking
-                        guest.save()
-                    
-                    party_guest_objects.append(guest)
-                    
-                    # Track primary guest
-                    if booking_guest.role == 'PRIMARY':
-                        primary_guest = guest
-                
-                # Update companion references to point to primary guest
-                if primary_guest:
-                    for guest in party_guest_objects:
-                        if guest.guest_type == 'COMPANION':
-                            guest.primary_guest = primary_guest
-                            guest.save()
-                
-                # Update room occupancy - Room Turnover Workflow
-                room.is_occupied = True
-                room.save(update_fields=['is_occupied'])
-                
-                # Use canonical housekeeping service for room status
-                from housekeeping.services import set_room_status
-                staff = getattr(request.user, 'staff_profile', None)
-                
-                try:
-                    set_room_status(
-                        room=room,
-                        to_status='OCCUPIED',
-                        staff=staff,
-                        source='FRONT_DESK',
-                        note='Guest checked in'
-                    )
-                except ValidationError as e:
-                    logger.error(f"CRITICAL: Failed to set room status during check-in for room {room.room_number}: {e}")
-                    raise ValueError(f"Check-in failed - could not update room status: {e}")
-                
-                # Trigger realtime notifications - ONLY AFTER DB COMMIT
-                transaction.on_commit(
-                    lambda: self._emit_assignment_realtime_events(booking, room, primary_guest, party_guest_objects)
-                )
-            
-            # Return success response with canonical serializer
-            
-            # Refresh booking with related data for serializer
-            booking.refresh_from_db()
-            
-            return Response({
-                "message": f"Successfully assigned room {room_number} to booking {booking_id}",
-                **StaffRoomBookingDetailSerializer(booking).data
-            }, status=status.HTTP_200_OK)
-            
-        except Exception as e:
-            logger.error(f"Error assigning room to booking {booking_id}: {str(e)}")
-            return Response(
-                {"error": "Internal server error during room assignment"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    def checkout_booking(self, request, hotel_slug, booking_id):
-        """
-        Checkout booking (detach guests from room).
-        
-        POST /api/staff/hotels/{slug}/bookings/{booking_id}/checkout/
-        """
-        try:
-            from room_bookings.services.checkout import checkout_booking
-            
-            hotel, booking = self.get_hotel_and_booking(hotel_slug, booking_id)
-            staff_user = request.user.staff_profile
-            
-            # Use centralized checkout service
-            checkout_booking(
-                booking=booking,
-                performed_by=staff_user,
-                source="booking_assignment_view",
-            )
-            
-            # Refresh booking with updated data
-            booking.refresh_from_db()
-            
-            return Response({
-                "message": f"Successfully checked out booking {booking_id} from room {booking.assigned_room.room_number}",
-                **StaffRoomBookingDetailSerializer(booking).data
-            }, status=status.HTTP_200_OK)
-            
-        except ValueError as e:
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            logger.error(f"Error checking out booking {booking_id}: {str(e)}")
-            return Response(
-                {"error": "Internal server error during checkout"},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-
-# ============================================================================
 # PHASE 3: BOOKING PARTY MANAGEMENT ENDPOINTS
 # ============================================================================
 
@@ -2146,9 +1913,15 @@ class BookingPartyManagementView(APIView):
     """
 
     def get_permissions(self):
-        base = [IsAuthenticated(), HasRoomBookingsNav(), IsStaffMember(), IsSameHotel()]
+        base = [
+            IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewBookings(),
+            CanReadBookings(),
+        ]
         if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
-            base.append(CanManageRoomBookings())
+            base.append(CanUpdateBooking())
         return base
 
     def get_hotel_and_booking(self, hotel_slug, booking_id):
@@ -2309,8 +2082,14 @@ class BookingPartyManagementView(APIView):
 
 class AvailableRoomsView(APIView):
     """GET /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/available-rooms/"""
-    
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel]
+
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+    ]
     
     def get(self, request, hotel_slug, booking_id):
         booking = get_object_or_404(RoomBooking, booking_id=booking_id, hotel__slug=hotel_slug)
@@ -2330,8 +2109,15 @@ class AvailableRoomsView(APIView):
 
 class SafeAssignRoomView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/safe-assign-room/"""
-    
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanAssignBookingRoom,
+    ]
     
     def post(self, request, hotel_slug, booking_id):
         room_id = request.data.get('room_id')
@@ -2410,8 +2196,15 @@ class SafeAssignRoomView(APIView):
 
 class UnassignRoomView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/unassign-room/"""
-    
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanAssignBookingRoom,
+    ]
     
     @transaction.atomic
     def post(self, request, hotel_slug, booking_id):
@@ -2472,8 +2265,15 @@ class MoveRoomInputSerializer(serializers.Serializer):
 
 class MoveRoomView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/bookings/{booking_id}/move-room/"""
-    
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanAssignBookingRoom,
+    ]
     
     def post(self, request, hotel_slug, booking_id):
         serializer = MoveRoomInputSerializer(data=request.data)
@@ -2546,8 +2346,15 @@ class MoveRoomView(APIView):
 
 class BookingCheckInView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/room-bookings/{booking_id}/check-in/"""
-    
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanCheckInBooking,
+    ]
     
     def _emit_checkin_realtime_events(self, booking, room, primary_guest, party_guest_objects, guest_token=None):
         """Emit realtime events for check-in - called after transaction commit"""
@@ -2557,17 +2364,17 @@ class BookingCheckInView(APIView):
             notification_manager.realtime_room_occupancy_updated(room)
             
             # Guest event - notify guest their booking is checked in with fresh token
-            print(f"🔄 Emitting guest check-in event for booking {booking.booking_id}, room {room.room_number}")
+            print(f"ðŸ”„ Emitting guest check-in event for booking {booking.booking_id}, room {room.room_number}")
             guest_event_result = notification_manager.realtime_guest_booking_checked_in(
                 booking=booking,
                 room_number=room.room_number,
                 guest_token=guest_token  # None unless first-time creation at check-in
             )
-            print(f"✅ Guest check-in event sent: {guest_event_result}")
+            print(f"âœ… Guest check-in event sent: {guest_event_result}")
             
         except Exception as e:
             logger.error(f"Failed to emit check-in realtime events for booking {booking.booking_id}: {e}")
-            print(f"❌ Error emitting guest check-in event: {e}")
+            print(f"âŒ Error emitting guest check-in event: {e}")
     
     def post(self, request, hotel_slug, booking_id):
         # Get booking with hotel validation
@@ -2667,7 +2474,7 @@ class BookingCheckInView(APIView):
                         guest.primary_guest = primary_guest
                         guest.save()
             
-            # Retrieve existing guest identity token — NEVER rotate at check-in.
+            # Retrieve existing guest identity token â€” NEVER rotate at check-in.
             # The GBT issued at booking creation is the permanent identity key.
             # raw_token will be None (plaintext is unrecoverable), which is correct.
             from hotel.services.guest_token import get_or_create_guest_token
@@ -2709,8 +2516,15 @@ class BookingCheckInView(APIView):
 
 class BookingCheckOutView(APIView):
     """POST /api/staff/hotels/{hotel_slug}/room-bookings/{booking_id}/check-out/"""
-    
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanCheckOutBooking,
+    ]
     
     def _emit_checkout_realtime_events(self, booking, room, hotel):
         """Emit realtime events for check-out - called after transaction commit"""
@@ -2786,7 +2600,14 @@ class BookingCheckOutView(APIView):
 
 class SendPrecheckinLinkView(APIView):
     """Send pre-check-in link to guest via email"""
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanCommunicateWithBookingGuest,
+    ]
 
     def post(self, request, hotel_slug, booking_id):
         """Generate token and send pre-check-in email to guest"""
@@ -2886,8 +2707,24 @@ Best regards,
 
 
 class HotelPrecheckinConfigView(APIView):
-    """Manage hotel-level precheckin field configuration"""
-    permission_classes = [IsAuthenticated, HasAdminSettingsNav, IsSuperStaffAdminForHotel]
+    """Manage hotel-level precheckin field configuration.
+
+    Phase 6A.2: capability-gated via booking.config.manage. GET requires
+    booking.module.view + booking.record.read; POST additionally requires
+    booking.config.manage. Tenant isolation via IsSameHotel.
+    """
+
+    def get_permissions(self):
+        base = [
+            IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewBookings(),
+            CanReadBookings(),
+        ]
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            base.append(CanManageBookingConfig())
+        return base
     
     def get(self, request, hotel_slug):
         """Get current precheckin configuration for hotel"""
@@ -2959,8 +2796,24 @@ class HotelPrecheckinConfigView(APIView):
 
 
 class HotelSurveyConfigView(APIView):
-    """Manage hotel-level survey field configuration and sending policy"""
-    permission_classes = [IsAuthenticated, HasAdminSettingsNav, IsSuperStaffAdminForHotel]
+    """Manage hotel-level survey field configuration and sending policy.
+
+    Phase 6A.2: capability-gated via booking.config.manage. GET requires
+    booking.module.view + booking.record.read; POST additionally requires
+    booking.config.manage. Tenant isolation via IsSameHotel.
+    """
+
+    def get_permissions(self):
+        base = [
+            IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewBookings(),
+            CanReadBookings(),
+        ]
+        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            base.append(CanManageBookingConfig())
+        return base
     
     def get(self, request, hotel_slug):
         """Get current survey configuration for hotel"""
@@ -3069,7 +2922,14 @@ class HotelSurveyConfigView(APIView):
 
 class SendSurveyLinkView(APIView):
     """Send survey link to guest via email"""
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanCommunicateWithBookingGuest,
+    ]
 
     def post(self, request, hotel_slug, booking_id):
         """Generate token and send survey email to guest"""
@@ -3204,7 +3064,14 @@ class StaffBookingAcceptView(APIView):
     
     Multi-tenant safe: Validates hotel ownership before processing.
     """
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanSuperviseBooking,
+    ]
     
     def post(self, request, hotel_slug, booking_id):
         """Approve a booking and capture the authorized payment."""
@@ -3231,7 +3098,7 @@ class StaffBookingAcceptView(APIView):
                     booking_id=booking_id, 
                     hotel=hotel
                 )
-                print(f"🔍 Found booking {booking_id} with status: {booking.status}, payment_intent: {booking.payment_intent_id}")
+                print(f"ðŸ” Found booking {booking_id} with status: {booking.status}, payment_intent: {booking.payment_intent_id}")
             except RoomBooking.DoesNotExist:
                 return Response(
                     {'error': 'Booking not found'}, 
@@ -3288,23 +3155,23 @@ class StaffBookingAcceptView(APIView):
                 'status', 'decision_by', 'decision_at', 'paid_at'
             ])
             
-            print(f"✅ Booking {booking_id} approved successfully")
+            print(f"âœ… Booking {booking_id} approved successfully")
         
         # Send confirmation notifications - CRITICAL for guest communication
         confirmation_email_sent = False
         try:
             send_booking_confirmation_email(booking)
             confirmation_email_sent = True
-            logger.info(f"✅ BOOKING CONFIRMATION email sent for approved booking {booking_id}")
+            logger.info(f"âœ… BOOKING CONFIRMATION email sent for approved booking {booking_id}")
         except ImportError:
-            logger.error(f"❌ Email service not available for booking confirmation {booking_id}")
+            logger.error(f"âŒ Email service not available for booking confirmation {booking_id}")
         except Exception as e:
-            logger.error(f"❌ CRITICAL: Failed to send confirmation email for booking {booking_id}: {e}")
+            logger.error(f"âŒ CRITICAL: Failed to send confirmation email for booking {booking_id}: {e}")
             # Don't fail the approval, but log prominently
-            print(f"🚨 CONFIRMATION EMAIL FAILED for {booking_id}: {e}")
+            print(f"ðŸš¨ CONFIRMATION EMAIL FAILED for {booking_id}: {e}")
         
         if not confirmation_email_sent:
-            print(f"⚠️ WARNING: Booking {booking_id} approved but confirmation email NOT sent!")
+            print(f"âš ï¸ WARNING: Booking {booking_id} approved but confirmation email NOT sent!")
         
         try:
             # Try to get FCM token if guest is checked in
@@ -3361,7 +3228,14 @@ class StaffBookingDeclineView(APIView):
     
     Multi-tenant safe: Validates hotel ownership before processing.
     """
-    permission_classes = [IsAuthenticated, HasRoomBookingsNav, IsStaffMember, IsSameHotel, CanManageRoomBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewBookings,
+        CanReadBookings,
+        CanSuperviseBooking,
+    ]
     
     def post(self, request, hotel_slug, booking_id):
         """Decline a booking and cancel the authorized payment."""
@@ -3437,7 +3311,7 @@ class StaffBookingDeclineView(APIView):
                     # Import refund helper function
                     from hotel.payment_views import process_booking_refund
                     
-                    print(f"🔄 Processing refund for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
+                    print(f"ðŸ”„ Processing refund for booking {booking_id}, PaymentIntent: {booking.payment_intent_id}")
                     
                     success, refund_reference = process_booking_refund(
                         booking, 
@@ -3450,7 +3324,7 @@ class StaffBookingDeclineView(APIView):
                             status=status.HTTP_502_BAD_GATEWAY
                         )
                     
-                    print(f"✅ Refund processed successfully: {refund_reference}")
+                    print(f"âœ… Refund processed successfully: {refund_reference}")
                     
                 except Exception as e:
                     logger.error(f"Unexpected error during refund for booking {booking_id}: {e}")
@@ -3459,9 +3333,9 @@ class StaffBookingDeclineView(APIView):
                         status=status.HTTP_502_BAD_GATEWAY
                     )
             elif booking.paid_at:
-                print(f"⚠️ Booking {booking_id} is paid but no PaymentIntent - manual refund may be required")
+                print(f"âš ï¸ Booking {booking_id} is paid but no PaymentIntent - manual refund may be required")
             else:
-                print(f"ℹ️ Booking {booking_id} not paid - no refund needed")
+                print(f"â„¹ï¸ Booking {booking_id} not paid - no refund needed")
             
             # Update booking to DECLINED state
             booking.status = 'DECLINED'
@@ -3475,7 +3349,7 @@ class StaffBookingDeclineView(APIView):
                 'decline_reason_code', 'decline_reason_note'
             ])
             
-            print(f"✅ Booking {booking_id} declined by staff {staff.id} - Reason: {reason_code}")
+            print(f"âœ… Booking {booking_id} declined by staff {staff.id} - Reason: {reason_code}")
         
         # Send decline notifications
         try:
