@@ -17,9 +17,20 @@ from django.utils import timezone
 # Import existing permission classes
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from staff.permissions import (
-    HasNavPermission, HasHousekeepingNav, CanManageHousekeeping,
-    IsSuperStaffAdminOrAbove,
+    CanAssignHousekeepingTask,
+    CanCancelHousekeepingTask,
+    CanCreateHousekeepingTask,
+    CanDeleteHousekeepingTask,
+    CanExecuteHousekeepingTask,
+    CanOverrideHousekeepingRoomStatus,
+    CanReadHousekeepingDashboard,
+    CanReadHousekeepingStatusHistory,
+    CanReadHousekeepingTasks,
+    CanUpdateHousekeepingTask,
+    CanViewHousekeepingModule,
+    has_capability,
 )
+from staff.capability_catalog import HOUSEKEEPING_TASK_ASSIGN
 
 from rooms.models import Room
 from .models import HousekeepingTask, RoomStatusEvent
@@ -34,53 +45,71 @@ from .serializers import (
 from .services import set_room_status, get_room_dashboard_data
 
 
-class HousekeepingDashboardViewSet(viewsets.ViewSet):
+# Writable fields on HousekeepingTaskSerializer (excluding `hotel`,
+# `created_by`, `started_at`, `completed_at` which are read-only after the
+# Phase 6C serializer fix). Used by `_required_task_update_caps` to decide
+# which capability/-ies a PATCH/PUT body actually requires.
+_TASK_ACTION_FIELDS = {
+    'assigned_to': 'assign',
+    'status': 'status',
+}
+_TASK_GENERIC_UPDATE_FIELDS = {
+    'room', 'booking', 'task_type', 'priority', 'note',
+}
+
+
+def _required_task_update_caps(request):
     """
-    Housekeeping dashboard with room status overview and task summary.
+    Phase 6C PATCH/PUT split (mirrors Phase 6B.2 rooms split).
+
+    Inspect the parsed request body and return the set of capability
+    permission classes required for it. Pure inspection \u2014 no side
+    effects.
     """
-    permission_classes = [IsAuthenticated, HasHousekeepingNav, IsStaffMember, IsSameHotel]
-    
-    def list(self, request, hotel_slug=None):
-        """
-        GET /api/staff/hotel/{hotel_slug}/housekeeping/dashboard/
-        
-        Returns:
-        - Room counts by status
-        - Rooms grouped by status
-        - Tasks assigned to requesting staff
-        - All open tasks (optional)
-        """
-        staff = request.user.staff_profile
-        hotel = staff.hotel
-        
-        # Get room dashboard data
-        dashboard_data = get_room_dashboard_data(hotel)
-        
-        # Get staff's assigned tasks
-        my_tasks = HousekeepingTask.objects.filter(
-            hotel=hotel,
-            assigned_to=staff,
-            status__in=['OPEN', 'IN_PROGRESS']
-        ).select_related('room', 'room__room_type', 'assigned_to', 'created_by')
-        
-        # Get all open tasks (for managers)
-        open_tasks = []
-        if staff.access_level in ['staff_admin', 'super_staff_admin']:
-            open_tasks = HousekeepingTask.objects.filter(
-                hotel=hotel,
-                status='OPEN'
-            ).select_related('room', 'room__room_type', 'assigned_to', 'created_by')[:20]
-        
-        # Serialize data
-        response_data = {
-            'counts': dashboard_data['counts'],
-            'rooms_by_status': dashboard_data['rooms_by_status'],
-            'my_open_tasks': HousekeepingTaskSerializer(my_tasks, many=True).data,
-            'open_tasks': HousekeepingTaskSerializer(open_tasks, many=True).data,
-            'total_rooms': dashboard_data['total_rooms']
-        }
-        
-        return Response(response_data)
+    from staff.permissions import (
+        CanAssignHousekeepingTask as _Assign,
+        CanCancelHousekeepingTask as _Cancel,
+        CanExecuteHousekeepingTask as _Execute,
+        CanUpdateHousekeepingTask as _Update,
+    )
+
+    data = getattr(request, 'data', {}) or {}
+    # Form noise that should never trigger a capability requirement.
+    keys = {k for k in data.keys() if k != 'csrfmiddlewaretoken'}
+
+    classes = []
+
+    if 'assigned_to' in keys:
+        classes.append(_Assign)
+
+    if 'status' in keys:
+        new_status = data.get('status')
+        if new_status == 'CANCELLED':
+            classes.append(_Cancel)
+        elif new_status in ('IN_PROGRESS', 'DONE'):
+            classes.append(_Execute)
+        else:
+            # OPEN or anything unknown \u2014 treat as a generic edit so
+            # task.update is required at minimum.
+            classes.append(_Update)
+
+    # Any other writable field falls under the generic update capability.
+    if keys & _TASK_GENERIC_UPDATE_FIELDS:
+        classes.append(_Update)
+
+    # If body is empty or contains only ignored keys, still require the
+    # generic update capability so an empty PATCH cannot bypass auth.
+    if not classes:
+        classes.append(_Update)
+
+    # De-duplicate while preserving order.
+    seen = set()
+    unique = []
+    for cls in classes:
+        if cls not in seen:
+            seen.add(cls)
+            unique.append(cls)
+    return unique
 
 
 class HousekeepingTaskViewSet(viewsets.ModelViewSet):
@@ -90,14 +119,37 @@ class HousekeepingTaskViewSet(viewsets.ModelViewSet):
     serializer_class = HousekeepingTaskSerializer
 
     def get_permissions(self):
-        # RBAC: nav visibility for all actions
-        base = [IsAuthenticated(), HasNavPermission('housekeeping'), IsStaffMember(), IsSameHotel()]
-        # Self-service: assigned staff can start/complete their own tasks
-        self_service_actions = {'start', 'complete'}
-        # Management: create, update, delete, assign require CanManageHousekeeping (staff_admin+)
-        management_actions = {'create', 'update', 'partial_update', 'destroy', 'assign'}
-        if self.action in management_actions:
-            base.append(CanManageHousekeeping())
+        # Phase 6C: capability-only enforcement. Module visibility is
+        # CanViewHousekeepingModule; the per-action class is added on
+        # top. PATCH/PUT routes through a payload-aware split so the
+        # generic task.update capability cannot mutate action fields
+        # (assigned_to / status) without the corresponding capability.
+        base = [
+            IsAuthenticated(), IsStaffMember(), IsSameHotel(),
+            CanViewHousekeepingModule(),
+        ]
+
+        action = self.action
+        if action in ('list', 'retrieve'):
+            base.append(CanReadHousekeepingTasks())
+        elif action == 'create':
+            base.append(CanReadHousekeepingTasks())
+            base.append(CanCreateHousekeepingTask())
+        elif action in ('update', 'partial_update'):
+            base.append(CanReadHousekeepingTasks())
+            for cls in _required_task_update_caps(self.request):
+                base.append(cls())
+        elif action == 'destroy':
+            base.append(CanDeleteHousekeepingTask())
+        elif action == 'assign':
+            base.append(CanReadHousekeepingTasks())
+            base.append(CanAssignHousekeepingTask())
+        elif action in ('start', 'complete'):
+            base.append(CanReadHousekeepingTasks())
+            base.append(CanExecuteHousekeepingTask())
+        else:
+            # Unknown action — read gate only; subclasses must opt in.
+            base.append(CanReadHousekeepingTasks())
         return base
     
     def get_queryset(self):
@@ -145,15 +197,16 @@ class HousekeepingTaskViewSet(viewsets.ModelViewSet):
         )
         
         if serializer.is_valid():
-            # Get assigned staff member
             from staff.models import Staff
-            assigned_staff = Staff.objects.get(id=serializer.validated_data['assigned_to_id'])
-            
-            # Update task
+            requesting_staff = request.user.staff_profile
+            # Hotel-scoped lookup mirrors the serializer fix; safe because
+            # the serializer already validated same-hotel existence.
+            assigned_staff = Staff.objects.get(
+                id=serializer.validated_data['assigned_to_id'],
+                hotel_id=requesting_staff.hotel_id,
+            )
+
             task.assigned_to = assigned_staff
-            if task.status == 'OPEN':
-                # Optionally keep status as OPEN, or change to IN_PROGRESS
-                pass
             task.save(update_fields=['assigned_to'])
             
             # Return updated task
@@ -236,14 +289,71 @@ class HousekeepingTaskViewSet(viewsets.ModelViewSet):
         })
 
 
+class HousekeepingDashboardViewSet(viewsets.ViewSet):
+    """
+    Housekeeping dashboard with room status overview and task summary.
+
+    Phase 6C: capability-gated end-to-end. Tier no longer affects the
+    payload — callers who hold housekeeping.task.assign see the
+    hotel-wide open task queue; everyone else only sees their own.
+    """
+    permission_classes = [
+        IsAuthenticated, IsStaffMember, IsSameHotel,
+        CanViewHousekeepingModule, CanReadHousekeepingDashboard,
+    ]
+
+    def list(self, request, hotel_slug=None):
+        staff = request.user.staff_profile
+        hotel = staff.hotel
+
+        dashboard_data = get_room_dashboard_data(hotel)
+
+        my_tasks = HousekeepingTask.objects.filter(
+            hotel=hotel,
+            assigned_to=staff,
+            status__in=['OPEN', 'IN_PROGRESS']
+        ).select_related('room', 'room__room_type', 'assigned_to', 'created_by')
+
+        open_tasks = []
+        if has_capability(request.user, HOUSEKEEPING_TASK_ASSIGN):
+            open_tasks = HousekeepingTask.objects.filter(
+                hotel=hotel,
+                status='OPEN'
+            ).select_related('room', 'room__room_type', 'assigned_to', 'created_by')[:20]
+
+        return Response({
+            'counts': dashboard_data['counts'],
+            'rooms_by_status': dashboard_data['rooms_by_status'],
+            'my_open_tasks': HousekeepingTaskSerializer(my_tasks, many=True).data,
+            'open_tasks': HousekeepingTaskSerializer(open_tasks, many=True).data,
+            'total_rooms': dashboard_data['total_rooms'],
+        })
+
+
 class RoomStatusViewSet(viewsets.ViewSet):
     """
     Room status management endpoints.
+
+    Phase 6C: module visibility is capability-based
+    (CanViewHousekeepingModule). update_status delegates the per-action
+    capability check to ``housekeeping.policy.can_change_room_status``
+    (one of the three room_status capabilities). manager_override is
+    additionally gated by HOUSEKEEPING_ROOM_STATUS_OVERRIDE; tier no
+    longer participates. status_history requires
+    HOUSEKEEPING_ROOM_STATUS_HISTORY_READ.
     """
     def get_permissions(self):
-        base = [IsAuthenticated(), HasHousekeepingNav(), IsStaffMember(), IsSameHotel()]
+        base = [
+            IsAuthenticated(), IsStaffMember(), IsSameHotel(),
+            CanViewHousekeepingModule(),
+        ]
         if self.action == 'manager_override':
-            base.append(CanManageHousekeeping())
+            base.append(CanOverrideHousekeepingRoomStatus())
+        elif self.action == 'status_history':
+            base.append(CanReadHousekeepingStatusHistory())
+        # update_status: capability check happens inside
+        # policy.can_change_room_status (one of transition / front_desk /
+        # override). Module visibility above is the only class-level gate.
         return base
     
     def update_status(self, request, hotel_slug=None, room_id=None):

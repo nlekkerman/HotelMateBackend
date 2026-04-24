@@ -68,7 +68,37 @@ STAFF_CHAT_CONVERSATION_MODERATE = 'staff_chat.conversation.moderate'
 """Moderate staff-chat conversations (hard-delete others' messages and
 attachments, manage any conversation as non-creator)."""
 
-# --- Housekeeping ---
+# --- Housekeeping (Phase 6C) ---
+HOUSEKEEPING_MODULE_VIEW = 'housekeeping.module.view'
+"""See the housekeeping module (navigation + module-level visibility)."""
+
+HOUSEKEEPING_DASHBOARD_READ = 'housekeeping.dashboard.read'
+"""Read the housekeeping dashboard payload (counts, rooms-by-status,
+self-assigned tasks, and — when also holding task.assign — hotel-wide
+open tasks)."""
+
+HOUSEKEEPING_TASK_READ = 'housekeeping.task.read'
+"""List / retrieve housekeeping tasks scoped to the current hotel."""
+
+HOUSEKEEPING_TASK_CREATE = 'housekeeping.task.create'
+"""Create a housekeeping task."""
+
+HOUSEKEEPING_TASK_UPDATE = 'housekeeping.task.update'
+"""Update non-action fields of a housekeeping task (note, priority,
+type, room, booking). Does NOT cover assignment, execution, or
+cancellation — each of those has a dedicated capability."""
+
+HOUSEKEEPING_TASK_DELETE = 'housekeeping.task.delete'
+"""Delete a housekeeping task row."""
+
+HOUSEKEEPING_TASK_EXECUTE = 'housekeeping.task.execute'
+"""Start / complete a housekeeping task assigned to self (or grab an
+unassigned task by starting it). Self-ownership remains an inline
+business rule on top of this capability."""
+
+HOUSEKEEPING_TASK_CANCEL = 'housekeeping.task.cancel'
+"""Transition a housekeeping task to CANCELLED."""
+
 HOUSEKEEPING_ROOM_STATUS_TRANSITION = 'housekeeping.room_status.transition'
 """Perform normal housekeeping-workflow room status transitions
 (CHECKOUT_DIRTY → CLEANING_IN_PROGRESS → CLEANED_UNINSPECTED → READY_FOR_GUEST,
@@ -81,6 +111,11 @@ HOUSEKEEPING_ROOM_STATUS_OVERRIDE = 'housekeeping.room_status.override'
 HOUSEKEEPING_ROOM_STATUS_FRONT_DESK = 'housekeeping.room_status.front_desk'
 """Perform the limited set of front-desk-permitted room status changes
 (e.g. OCCUPIED → CHECKOUT_DIRTY, any → MAINTENANCE_REQUIRED)."""
+
+HOUSEKEEPING_ROOM_STATUS_HISTORY_READ = (
+    'housekeeping.room_status.history.read'
+)
+"""Read the per-room RoomStatusEvent audit log."""
 
 HOUSEKEEPING_TASK_ASSIGN = 'housekeeping.task.assign'
 """Assign housekeeping tasks to staff members."""
@@ -204,9 +239,19 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
     CHAT_GUEST_RESPOND,
     STAFF_CHAT_CONVERSATION_MODERATE,
+    # Housekeeping (Phase 6C)
+    HOUSEKEEPING_MODULE_VIEW,
+    HOUSEKEEPING_DASHBOARD_READ,
+    HOUSEKEEPING_TASK_READ,
+    HOUSEKEEPING_TASK_CREATE,
+    HOUSEKEEPING_TASK_UPDATE,
+    HOUSEKEEPING_TASK_DELETE,
+    HOUSEKEEPING_TASK_EXECUTE,
+    HOUSEKEEPING_TASK_CANCEL,
     HOUSEKEEPING_ROOM_STATUS_TRANSITION,
     HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
     HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
+    HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
     HOUSEKEEPING_TASK_ASSIGN,
     ROOM_SERVICE_ORDER_FULFILL_PORTER,
     ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
@@ -322,12 +367,44 @@ _ROOM_MANAGE: frozenset[str] = _ROOM_SUPERVISE | frozenset({
 # and receives every capability.
 # ---------------------------------------------------------------------------
 
+# Phase 6C: housekeeping caps removed from the cross-cutting tier bundle.
+# Housekeeping authority is granted exclusively via role / department
+# presets so tier never doubles as the housekeeping permission engine.
 _SUPERVISOR_AUTHORITY: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
     STAFF_CHAT_CONVERSATION_MODERATE,
-    HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
+})
+
+
+# ---------------------------------------------------------------------------
+# Housekeeping preset bundles (Phase 6C)
+#
+# Mirrors bookings/rooms shape: manage ⊃ supervise ⊃ operate ⊃ base.
+# Tier intentionally never carries any of these — see the rule above.
+# ---------------------------------------------------------------------------
+
+_HOUSEKEEPING_BASE: frozenset[str] = frozenset({
+    HOUSEKEEPING_MODULE_VIEW,
+    HOUSEKEEPING_DASHBOARD_READ,
+    HOUSEKEEPING_TASK_READ,
+    HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
+})
+
+_HOUSEKEEPING_OPERATE: frozenset[str] = _HOUSEKEEPING_BASE | frozenset({
+    HOUSEKEEPING_TASK_EXECUTE,
     HOUSEKEEPING_ROOM_STATUS_TRANSITION,
+})
+
+_HOUSEKEEPING_SUPERVISE: frozenset[str] = _HOUSEKEEPING_OPERATE | frozenset({
+    HOUSEKEEPING_TASK_CREATE,
+    HOUSEKEEPING_TASK_UPDATE,
     HOUSEKEEPING_TASK_ASSIGN,
+    HOUSEKEEPING_TASK_CANCEL,
+    HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
+})
+
+_HOUSEKEEPING_MANAGE: frozenset[str] = _HOUSEKEEPING_SUPERVISE | frozenset({
+    HOUSEKEEPING_TASK_DELETE,
 })
 
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
@@ -374,27 +451,31 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         _SUPERVISOR_AUTHORITY
         | _BOOKING_SUPERVISE
         | _ROOM_SUPERVISE
+        | _HOUSEKEEPING_SUPERVISE
         | frozenset({ROOM_OUT_OF_ORDER_SET, ROOM_CHECKOUT_DESTRUCTIVE})
     ),
     # Phase 6A.2: manage-bucket role presets. Tier no longer grants
     # BOOKING_CONFIG_MANAGE, so managing rate plans / cancellation
     # policies / precheckin / survey config requires one of these roles.
     # Phase 6B.1: hotel_manager carries the full rooms manage bundle.
-    'hotel_manager': _BOOKING_MANAGE | _ROOM_MANAGE,
-    'front_office_manager': _BOOKING_MANAGE | _ROOM_SUPERVISE,
+    # Phase 6C: hotel_manager carries the full housekeeping manage bundle.
+    'hotel_manager': _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE,
+    'front_office_manager': (
+        _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
+    ),
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
     }),
-    # Phase 6B.1: housekeeping authority roles. Supervisor/manager must
-    # carry HOUSEKEEPING_ROOM_STATUS_OVERRIDE so complete_maintenance
-    # (MAINTENANCE_REQUIRED → CHECKOUT_DIRTY / READY_FOR_GUEST) succeeds
-    # at the housekeeping state-machine layer.
-    'housekeeping_supervisor': _ROOM_SUPERVISE | frozenset({
-        HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }),
-    'housekeeping_manager': _ROOM_SUPERVISE | frozenset({
-        HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }),
+    # Phase 6B.1 / 6C: housekeeping authority roles. Supervisor and
+    # manager bundles include HOUSEKEEPING_ROOM_STATUS_OVERRIDE which is
+    # also required by the state-machine layer so complete_maintenance
+    # (MAINTENANCE_REQUIRED → CHECKOUT_DIRTY / READY_FOR_GUEST) succeeds.
+    'housekeeping_supervisor': (
+        _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
+    ),
+    'housekeeping_manager': (
+        _ROOM_SUPERVISE | _HOUSEKEEPING_MANAGE
+    ),
     # Phase 6B.1: maintenance authority roles carry clear-only (and,
     # for maintenance_manager, out-of-order) on top of the dept preset.
     # OVERRIDE is required so complete_maintenance can flip the room out
@@ -429,12 +510,14 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # NOT operate the turnover state machine.
     'front_office': frozenset({
         CHAT_GUEST_RESPOND,
+        HOUSEKEEPING_MODULE_VIEW,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
+        HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
     }) | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ,
-    # Phase 6B.1: housekeeping department gets full room OPERATE.
-    'housekeeping': frozenset({
-        HOUSEKEEPING_ROOM_STATUS_TRANSITION,
-    }) | _ROOM_OPERATE,
+    # Phase 6B.1 / 6C: housekeeping department gets full room OPERATE
+    # plus the housekeeping operate bundle (read + execute + transition
+    # + history read).
+    'housekeeping': _ROOM_OPERATE | _HOUSEKEEPING_OPERATE,
     'kitchen': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
     }),

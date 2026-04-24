@@ -875,3 +875,112 @@ class CanDestructiveCheckoutRooms(HasCapability):
         "You do not have permission to perform destructive room checkout."
     )
 
+
+# ---------------------------------------------------------------------------
+# Housekeeping capability permission classes (Phase 6C)
+#
+# Single source of truth for endpoint enforcement in the housekeeping
+# module. Stays in lock-step with MODULE_POLICY['housekeeping'] so the
+# frontend rbac.housekeeping object and backend enforcement derive from
+# the same capability slugs.
+#
+# Read/visibility gates set safe_methods_bypass = False so GETs are
+# gated. Mutation gates inherit the default (pass GET, enforce non-safe
+# methods) and are chained on top of CanViewHousekeepingModule by the
+# views.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    HOUSEKEEPING_DASHBOARD_READ,
+    HOUSEKEEPING_MODULE_VIEW,
+    HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
+    HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
+    HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
+    HOUSEKEEPING_ROOM_STATUS_TRANSITION,
+    HOUSEKEEPING_TASK_ASSIGN,
+    HOUSEKEEPING_TASK_CANCEL,
+    HOUSEKEEPING_TASK_CREATE,
+    HOUSEKEEPING_TASK_DELETE,
+    HOUSEKEEPING_TASK_EXECUTE,
+    HOUSEKEEPING_TASK_READ,
+    HOUSEKEEPING_TASK_UPDATE,
+)
+
+
+class CanViewHousekeepingModule(HasCapability):
+    """Module visibility gate for the housekeeping module (all methods)."""
+    required_capability = HOUSEKEEPING_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the housekeeping module."
+
+
+class CanReadHousekeepingDashboard(HasCapability):
+    required_capability = HOUSEKEEPING_DASHBOARD_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read the housekeeping dashboard."
+
+
+class CanReadHousekeepingTasks(HasCapability):
+    required_capability = HOUSEKEEPING_TASK_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read housekeeping tasks."
+
+
+class CanCreateHousekeepingTask(HasCapability):
+    required_capability = HOUSEKEEPING_TASK_CREATE
+    message = "You do not have permission to create housekeeping tasks."
+
+
+class CanUpdateHousekeepingTask(HasCapability):
+    required_capability = HOUSEKEEPING_TASK_UPDATE
+    message = "You do not have permission to update housekeeping tasks."
+
+
+class CanDeleteHousekeepingTask(HasCapability):
+    required_capability = HOUSEKEEPING_TASK_DELETE
+    message = "You do not have permission to delete housekeeping tasks."
+
+
+class CanAssignHousekeepingTask(HasCapability):
+    required_capability = HOUSEKEEPING_TASK_ASSIGN
+    message = "You do not have permission to assign housekeeping tasks."
+
+
+class CanExecuteHousekeepingTask(HasCapability):
+    required_capability = HOUSEKEEPING_TASK_EXECUTE
+    message = "You do not have permission to execute housekeeping tasks."
+
+
+class CanCancelHousekeepingTask(HasCapability):
+    required_capability = HOUSEKEEPING_TASK_CANCEL
+    message = "You do not have permission to cancel housekeeping tasks."
+
+
+class CanTransitionHousekeepingRoomStatus(HasCapability):
+    required_capability = HOUSEKEEPING_ROOM_STATUS_TRANSITION
+    message = (
+        "You do not have permission to transition housekeeping room status."
+    )
+
+
+class CanFrontDeskHousekeepingRoomStatus(HasCapability):
+    required_capability = HOUSEKEEPING_ROOM_STATUS_FRONT_DESK
+    message = (
+        "You do not have permission to perform front-desk room status changes."
+    )
+
+
+class CanOverrideHousekeepingRoomStatus(HasCapability):
+    required_capability = HOUSEKEEPING_ROOM_STATUS_OVERRIDE
+    message = (
+        "You do not have permission to override housekeeping room status."
+    )
+
+
+class CanReadHousekeepingStatusHistory(HasCapability):
+    required_capability = HOUSEKEEPING_ROOM_STATUS_HISTORY_READ
+    safe_methods_bypass = False
+    message = (
+        "You do not have permission to read housekeeping room status history."
+    )
+

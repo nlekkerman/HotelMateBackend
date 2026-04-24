@@ -76,7 +76,8 @@ class HousekeepingTaskSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'hotel', 'hotel_name', 'room_number', 'room_type_name',
             'booking_id', 'task_type_display', 'status_display', 'priority_display',
-            'assigned_to_name', 'created_by_name', 'created_at', 'is_overdue'
+            'assigned_to_name', 'created_by', 'created_by_name', 'created_at',
+            'started_at', 'completed_at', 'is_overdue',
         ]
     
     def validate(self, data):
@@ -126,24 +127,27 @@ class HousekeepingTaskAssignSerializer(serializers.Serializer):
     )
     
     def validate_assigned_to_id(self, value):
-        """Validate assigned staff member"""
+        """Validate assigned staff member.
+
+        Phase 6C: hotel-scope the lookup. Both "missing" and
+        "wrong-hotel" produce the same generic error so the API does
+        not leak the existence of staff in other hotels.
+        """
         from staff.models import Staff
-        
-        try:
-            staff = Staff.objects.get(id=value)
-        except Staff.DoesNotExist:
-            raise serializers.ValidationError("Staff member not found.")
-        
+
         request = self.context.get('request')
-        if request and hasattr(request.user, 'staff_profile'):
-            requesting_staff = request.user.staff_profile
-            
-            # Validate staff belongs to same hotel
-            if staff.hotel_id != requesting_staff.hotel_id:
-                raise serializers.ValidationError(
-                    "Can only assign tasks to staff members in your hotel."
-                )
-        
+        if not request or not hasattr(request.user, 'staff_profile'):
+            raise serializers.ValidationError("Staff member not found.")
+
+        requesting_staff = request.user.staff_profile
+
+        try:
+            Staff.objects.get(id=value, hotel_id=requesting_staff.hotel_id)
+        except Staff.DoesNotExist:
+            # Single, undifferentiated error message: do NOT distinguish
+            # "does not exist" from "exists but in another hotel".
+            raise serializers.ValidationError("Staff member not found.")
+
         return value
     
     def validate(self, data):
