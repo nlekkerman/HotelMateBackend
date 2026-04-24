@@ -235,6 +235,65 @@ ROOM_CHECKOUT_DESTRUCTIVE = 'room.checkout.destructive'
 """Destructive bulk checkout (deletes guests, conversations, orders)."""
 
 
+# --- Maintenance (Phase 6D.1) ---
+# Module policy shape (see staff/module_policy.py):
+#   visible  → MAINTENANCE_MODULE_VIEW
+#   read     → MAINTENANCE_REQUEST_READ
+#   actions  → the slugs below.
+#
+# These slugs are deliberately distinct from the `room.maintenance.*`
+# namespace (which lives in the rooms module and gates Room.maintenance_*
+# fields). The Maintenance app does NOT mutate Room state.
+
+MAINTENANCE_MODULE_VIEW = 'maintenance.module.view'
+"""See the maintenance module (navigation + module-level visibility)."""
+
+MAINTENANCE_REQUEST_READ = 'maintenance.request.read'
+"""List / retrieve maintenance requests, comments and photos scoped to
+the current hotel."""
+
+MAINTENANCE_REQUEST_CREATE = 'maintenance.request.create'
+"""File a new maintenance request."""
+
+MAINTENANCE_REQUEST_ACCEPT = 'maintenance.request.accept'
+"""Self-claim an open request: status open → in_progress and stamp
+accepted_by to the requesting staff."""
+
+MAINTENANCE_REQUEST_RESOLVE = 'maintenance.request.resolve'
+"""Mark an in-progress request resolved."""
+
+MAINTENANCE_REQUEST_UPDATE = 'maintenance.request.update'
+"""Edit metadata fields of a maintenance request (room, location_note,
+title, description). Does NOT cover status changes or accepted_by
+reassignment — each of those has its own capability."""
+
+MAINTENANCE_REQUEST_REASSIGN = 'maintenance.request.reassign'
+"""Set or change the accepted_by technician on a maintenance request
+to a same-hotel staff member."""
+
+MAINTENANCE_REQUEST_REOPEN = 'maintenance.request.reopen'
+"""Move a resolved/closed request back to open (clears accepted_by)."""
+
+MAINTENANCE_REQUEST_CLOSE = 'maintenance.request.close'
+"""Close out a resolved/in-progress request (status → closed)."""
+
+MAINTENANCE_REQUEST_DELETE = 'maintenance.request.delete'
+"""Delete a maintenance request (cascades to comments and photos)."""
+
+MAINTENANCE_COMMENT_CREATE = 'maintenance.comment.create'
+"""Add a comment to a same-hotel maintenance request. Authors may also
+edit / delete their OWN comment with this capability."""
+
+MAINTENANCE_COMMENT_MODERATE = 'maintenance.comment.moderate'
+"""Edit or delete comments authored by another staff member."""
+
+MAINTENANCE_PHOTO_UPLOAD = 'maintenance.photo.upload'
+"""Upload one or more photos onto a same-hotel maintenance request."""
+
+MAINTENANCE_PHOTO_DELETE = 'maintenance.photo.delete'
+"""Delete a maintenance photo (also gates PUT/PATCH on photo rows)."""
+
+
 CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
     CHAT_GUEST_RESPOND,
@@ -284,6 +343,21 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     ROOM_OUT_OF_ORDER_SET,
     ROOM_CHECKOUT_BULK,
     ROOM_CHECKOUT_DESTRUCTIVE,
+    # Maintenance (Phase 6D.1)
+    MAINTENANCE_MODULE_VIEW,
+    MAINTENANCE_REQUEST_READ,
+    MAINTENANCE_REQUEST_CREATE,
+    MAINTENANCE_REQUEST_ACCEPT,
+    MAINTENANCE_REQUEST_RESOLVE,
+    MAINTENANCE_REQUEST_UPDATE,
+    MAINTENANCE_REQUEST_REASSIGN,
+    MAINTENANCE_REQUEST_REOPEN,
+    MAINTENANCE_REQUEST_CLOSE,
+    MAINTENANCE_REQUEST_DELETE,
+    MAINTENANCE_COMMENT_CREATE,
+    MAINTENANCE_COMMENT_MODERATE,
+    MAINTENANCE_PHOTO_UPLOAD,
+    MAINTENANCE_PHOTO_DELETE,
 })
 
 
@@ -407,6 +481,57 @@ _HOUSEKEEPING_MANAGE: frozenset[str] = _HOUSEKEEPING_SUPERVISE | frozenset({
     HOUSEKEEPING_TASK_DELETE,
 })
 
+
+# ---------------------------------------------------------------------------
+# Maintenance preset bundles (Phase 6D.1)
+#
+# Mirrors bookings/rooms/housekeeping shape: manage ⊃ supervise ⊃ operate
+# ⊃ base ⊃ reporter. Tier intentionally never carries any of these — see
+# the rule above.
+#
+# The `maintenance.*` namespace is strictly disjoint from the
+# `room.maintenance.*` namespace (rooms module). Maintenance does not
+# mutate Room state; cross-module authority must be granted explicitly
+# via the rooms / housekeeping presets, not smuggled in here.
+# ---------------------------------------------------------------------------
+
+# Reporter bucket — non-maintenance staff who only need to file tickets.
+_MAINTENANCE_REPORTER: frozenset[str] = frozenset({
+    MAINTENANCE_MODULE_VIEW,
+    MAINTENANCE_REQUEST_READ,
+    MAINTENANCE_REQUEST_CREATE,
+})
+
+# Base read bundle (visibility + read), no write authority.
+_MAINTENANCE_READ: frozenset[str] = frozenset({
+    MAINTENANCE_MODULE_VIEW,
+    MAINTENANCE_REQUEST_READ,
+})
+
+# Operate bucket — line technician self-service.
+_MAINTENANCE_OPERATE: frozenset[str] = _MAINTENANCE_READ | frozenset({
+    MAINTENANCE_REQUEST_CREATE,
+    MAINTENANCE_REQUEST_ACCEPT,
+    MAINTENANCE_REQUEST_RESOLVE,
+    MAINTENANCE_COMMENT_CREATE,
+    MAINTENANCE_PHOTO_UPLOAD,
+})
+
+# Supervise bucket — shift lead authority.
+_MAINTENANCE_SUPERVISE: frozenset[str] = _MAINTENANCE_OPERATE | frozenset({
+    MAINTENANCE_REQUEST_UPDATE,
+    MAINTENANCE_REQUEST_REASSIGN,
+    MAINTENANCE_REQUEST_REOPEN,
+    MAINTENANCE_COMMENT_MODERATE,
+    MAINTENANCE_PHOTO_DELETE,
+})
+
+# Manage bucket — destructive lifecycle authority.
+_MAINTENANCE_MANAGE: frozenset[str] = _MAINTENANCE_SUPERVISE | frozenset({
+    MAINTENANCE_REQUEST_CLOSE,
+    MAINTENANCE_REQUEST_DELETE,
+})
+
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6A.2: tier carries only cross-cutting supervisor authority.
     # Booking operate/manage live on department/role presets so tier is
@@ -452,6 +577,7 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         | _BOOKING_SUPERVISE
         | _ROOM_SUPERVISE
         | _HOUSEKEEPING_SUPERVISE
+        | _MAINTENANCE_MANAGE
         | frozenset({ROOM_OUT_OF_ORDER_SET, ROOM_CHECKOUT_DESTRUCTIVE})
     ),
     # Phase 6A.2: manage-bucket role presets. Tier no longer grants
@@ -459,13 +585,18 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # policies / precheckin / survey config requires one of these roles.
     # Phase 6B.1: hotel_manager carries the full rooms manage bundle.
     # Phase 6C: hotel_manager carries the full housekeeping manage bundle.
-    'hotel_manager': _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE,
+    # Phase 6D.1: hotel_manager carries the full maintenance manage bundle.
+    'hotel_manager': (
+        _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE
+        | _MAINTENANCE_MANAGE
+    ),
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
+        | _MAINTENANCE_REPORTER
     ),
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
-    }),
+    }) | _MAINTENANCE_REPORTER,
     # Phase 6B.1 / 6C: housekeeping authority roles. Supervisor and
     # manager bundles include HOUSEKEEPING_ROOM_STATUS_OVERRIDE which is
     # also required by the state-machine layer so complete_maintenance
@@ -483,12 +614,12 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     'maintenance_supervisor': frozenset({
         ROOM_MAINTENANCE_CLEAR,
         HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }),
+    }) | _MAINTENANCE_SUPERVISE,
     'maintenance_manager': frozenset({
         ROOM_MAINTENANCE_CLEAR,
         ROOM_OUT_OF_ORDER_SET,
         HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }),
+    }) | _MAINTENANCE_MANAGE,
 }
 
 
@@ -513,11 +644,16 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         HOUSEKEEPING_MODULE_VIEW,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
         HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
-    }) | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ,
+    }) | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ
+      | _MAINTENANCE_REPORTER,
     # Phase 6B.1 / 6C: housekeeping department gets full room OPERATE
     # plus the housekeeping operate bundle (read + execute + transition
     # + history read).
-    'housekeeping': _ROOM_OPERATE | _HOUSEKEEPING_OPERATE,
+    # Phase 6D.1: housekeepers can file maintenance tickets they discover
+    # mid-turnover (reporter bundle only — they cannot action tickets).
+    'housekeeping': (
+        _ROOM_OPERATE | _HOUSEKEEPING_OPERATE | _MAINTENANCE_REPORTER
+    ),
     'kitchen': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
     }),
@@ -525,10 +661,14 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # HOUSEKEEPING_ROOM_STATUS_TRANSITION is required so mark_maintenance
     # can actually flip the room to MAINTENANCE_REQUIRED via the canonical
     # housekeeping service (which gates on that capability).
+    # Phase 6D.1: maintenance department carries the full operate bundle
+    # for the maintenance.* namespace (read + create + accept + resolve
+    # + comment.create + photo.upload). Supervise / manage authority
+    # remain role-gated.
     'maintenance': _ROOM_READ | frozenset({
         ROOM_MAINTENANCE_FLAG,
         HOUSEKEEPING_ROOM_STATUS_TRANSITION,
-    }),
+    }) | _MAINTENANCE_OPERATE,
 }
 
 

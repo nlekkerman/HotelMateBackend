@@ -984,3 +984,108 @@ class CanReadHousekeepingStatusHistory(HasCapability):
         "You do not have permission to read housekeeping room status history."
     )
 
+
+
+# ---------------------------------------------------------------------------
+# Maintenance capability permission classes (Phase 6D.1)
+#
+# Single source of truth for endpoint enforcement in the maintenance
+# module. Stays in lock-step with MODULE_POLICY['maintenance'] so the
+# frontend rbac.maintenance object and backend enforcement derive from
+# the same capability slugs.
+#
+# Read/visibility gates set safe_methods_bypass = False so GETs are
+# gated. Mutation gates inherit the default (pass GET, enforce non-safe
+# methods) and are chained on top of CanViewMaintenanceModule by the
+# views.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    MAINTENANCE_COMMENT_CREATE,
+    MAINTENANCE_COMMENT_MODERATE,
+    MAINTENANCE_MODULE_VIEW,
+    MAINTENANCE_PHOTO_DELETE,
+    MAINTENANCE_PHOTO_UPLOAD,
+    MAINTENANCE_REQUEST_ACCEPT,
+    MAINTENANCE_REQUEST_CLOSE,
+    MAINTENANCE_REQUEST_CREATE,
+    MAINTENANCE_REQUEST_DELETE,
+    MAINTENANCE_REQUEST_READ,
+    MAINTENANCE_REQUEST_REASSIGN,
+    MAINTENANCE_REQUEST_REOPEN,
+    MAINTENANCE_REQUEST_RESOLVE,
+    MAINTENANCE_REQUEST_UPDATE,
+)
+
+
+class CanViewMaintenanceModule(HasCapability):
+    """Module visibility gate for the maintenance module (all methods)."""
+    required_capability = MAINTENANCE_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the maintenance module."
+
+
+class CanReadMaintenanceRequests(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read maintenance requests."
+
+
+class CanCreateMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_CREATE
+    message = "You do not have permission to create maintenance requests."
+
+
+class CanAcceptMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_ACCEPT
+    message = "You do not have permission to accept maintenance requests."
+
+
+class CanResolveMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_RESOLVE
+    message = "You do not have permission to resolve maintenance requests."
+
+
+class CanUpdateMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_UPDATE
+    message = "You do not have permission to update maintenance requests."
+
+
+class CanReassignMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_REASSIGN
+    message = "You do not have permission to reassign maintenance requests."
+
+
+class CanReopenMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_REOPEN
+    message = "You do not have permission to reopen maintenance requests."
+
+
+class CanCloseMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_CLOSE
+    message = "You do not have permission to close maintenance requests."
+
+
+class CanDeleteMaintenanceRequest(HasCapability):
+    required_capability = MAINTENANCE_REQUEST_DELETE
+    message = "You do not have permission to delete maintenance requests."
+
+
+class CanCreateMaintenanceComment(HasCapability):
+    required_capability = MAINTENANCE_COMMENT_CREATE
+    message = "You do not have permission to create maintenance comments."
+
+
+class CanModerateMaintenanceComment(HasCapability):
+    required_capability = MAINTENANCE_COMMENT_MODERATE
+    message = "You do not have permission to moderate maintenance comments."
+
+
+class CanUploadMaintenancePhoto(HasCapability):
+    required_capability = MAINTENANCE_PHOTO_UPLOAD
+    message = "You do not have permission to upload maintenance photos."
+
+
+class CanDeleteMaintenancePhoto(HasCapability):
+    required_capability = MAINTENANCE_PHOTO_DELETE
+    message = "You do not have permission to delete maintenance photos."
