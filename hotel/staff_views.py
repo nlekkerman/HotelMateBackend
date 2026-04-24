@@ -89,7 +89,6 @@ from .serializers import (
     RoomsSectionStaffSerializer,
     PublicSectionDetailSerializer,
 )
-from rooms.serializers import RoomStaffSerializer
 from .permissions import IsSuperStaffAdminForHotel
 from staff.permissions import (
     HasNavPermission, HasHotelInfoNav, HasAdminSettingsNav, HasRoomsNav,
@@ -275,79 +274,6 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
             return Response({
                 'error': f'Request failed: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-class StaffRoomViewSet(viewsets.ModelViewSet):
-    """
-    Staff CRUD for rooms (physical inventory).
-    Scoped to staff's hotel only.
-    Includes actions for PIN and QR code generation.
-    """
-    serializer_class = RoomStaffSerializer
-
-    def get_permissions(self):
-        base = [IsAuthenticated(), HasNavPermission('rooms'), IsStaffMember(), IsSameHotel()]
-        if self.action not in ('list', 'retrieve'):
-            base.append(CanManageRooms())
-        return base
-    
-    def get_queryset(self):
-        """Only return rooms for staff's hotel"""
-        try:
-            staff = self.request.user.staff_profile
-            return Room.objects.filter(
-                hotel=staff.hotel
-            ).order_by('room_number')
-        except AttributeError:
-            return Room.objects.none()
-    
-    def perform_create(self, serializer):
-        """Automatically set hotel from staff profile"""
-        staff = self.request.user.staff_profile
-        serializer.save(hotel=staff.hotel)
-    
-    @action(detail=True, methods=['post'])
-    def generate_pin(self, request, pk=None):
-        """Generate new guest PIN for room - DEPRECATED: PINs are now managed at Guest level"""
-        return Response({
-            'error': 'PIN generation is now handled at the Guest level during check-in',
-            'message': 'Room-level PIN generation has been deprecated'
-        }, status=400)
-    
-    @action(detail=True, methods=['post'])
-    def generate_qr(self, request, pk=None):
-        """Generate QR codes for room"""
-        room = self.get_object()
-        qr_type = request.data.get('type', 'room_service')
-        
-        if qr_type == 'room_service':
-            room.generate_qr_code('room_service')
-        elif qr_type == 'breakfast':
-            room.generate_qr_code('in_room_breakfast')
-        elif qr_type == 'chat_pin':
-            room.generate_chat_pin_qr_code()
-        elif qr_type == 'restaurant':
-            # Need restaurant slug
-            restaurant_slug = request.data.get('restaurant_slug')
-            if not restaurant_slug:
-                return Response(
-                    {'error': 'restaurant_slug required for restaurant QR'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            restaurant = get_object_or_404(
-                Restaurant,
-                hotel=room.hotel,
-                slug=restaurant_slug
-            )
-            room.generate_booking_qr_for_restaurant(restaurant)
-        else:
-            return Response(
-                {'error': f'Invalid QR type: {qr_type}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        serializer = self.get_serializer(room)
-        return Response(serializer.data)
 
 
 class StaffAccessConfigViewSet(viewsets.ModelViewSet):

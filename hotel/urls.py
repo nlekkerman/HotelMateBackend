@@ -32,8 +32,6 @@ from .guest_portal_views import (
 # Staff CRUD views and management views
 from .staff_views import (
     # ViewSets
-    StaffRoomTypeViewSet,
-    StaffRoomViewSet,
     StaffAccessConfigViewSet,
     PublicSectionViewSet,
     PublicElementViewSet,
@@ -71,16 +69,6 @@ router.register(r'hotels', HotelViewSet)
 
 # Staff router for CRUD views
 staff_router = DefaultRouter()
-staff_router.register(
-    r'room-types',
-    StaffRoomTypeViewSet,
-    basename='staff-room-types'
-)
-staff_router.register(
-    r'rooms',
-    StaffRoomViewSet,
-    basename='staff-rooms'
-)
 staff_router.register(
     r'access-config',
     StaffAccessConfigViewSet,

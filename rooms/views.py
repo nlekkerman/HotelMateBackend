@@ -1,19 +1,14 @@
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework import viewsets, filters, status
-from rest_framework.views import APIView
 from .models import Room, RoomType, RoomImage
-from .serializers import RoomSerializer, RoomTypeSerializer, RoomStaffSerializer, RoomImageSerializer, BulkRoomImageUploadSerializer, RoomImageReorderSerializer
-from guests.serializers import GuestSerializer
+from .serializers import RoomSerializer, RoomStaffSerializer, RoomImageSerializer, BulkRoomImageUploadSerializer, RoomImageReorderSerializer
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import ValidationError
 from hotel.models import Hotel
 from guests.models import Guest
-from datetime import timedelta
-from datetime import datetime
 from room_services.models import Order, BreakfastOrder
 from chat.models import Conversation, RoomMessage
 from rest_framework.decorators import api_view, permission_classes
@@ -33,40 +28,6 @@ class RoomPagination(PageNumberPagination):
     page_size = 10  # items per page
     page_size_query_param = 'page_size'  # allow client to set page size with ?page_size=xx
     max_page_size = 100
-
-
-class RoomViewSet(viewsets.ModelViewSet):
-    """
-    Read-only room data used by internal serializers (e.g. booking views).
-    All staff write operations go through StaffRoomViewSet.
-    """
-    serializer_class = RoomSerializer
-    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel]
-    serializer_class = RoomSerializer
-    pagination_class = RoomPagination
-    lookup_field = 'room_number'
-    filter_backends = [filters.SearchFilter]
-    search_fields = ['room_number', 'is_occupied']
-    http_method_names = ['get', 'head', 'options']  # Read-only
-
-    def get_queryset(self):
-        user = self.request.user
-        staff = getattr(user, 'staff_profile', None)
-
-        queryset = Room.objects.none()
-
-        if staff and staff.hotel:
-            queryset = Room.objects.filter(hotel=staff.hotel)
-
-        hotel_id = self.request.query_params.get('hotel_id')
-        if hotel_id:
-            queryset = queryset.filter(hotel_id=hotel_id)
-
-        search = self.request.query_params.get('search')
-        if search:
-            queryset = queryset.filter(room_number__icontains=search)
-
-        return queryset.order_by('room_number')
 
 
 class StaffRoomViewSet(viewsets.ModelViewSet):
@@ -107,71 +68,6 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
-
-
-class RoomTypeViewSet(viewsets.ModelViewSet):
-    """Legacy ViewSet — kept for internal read usage only, not mounted on any writable route"""
-    serializer_class = RoomTypeSerializer
-    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel]
-    http_method_names = ['get', 'head', 'options']  # Read-only
-    
-    def get_queryset(self):
-        user = self.request.user
-        staff = getattr(user, 'staff_profile', None)
-        
-        if staff and staff.hotel:
-            return RoomType.objects.filter(hotel=staff.hotel).order_by('sort_order', 'name')
-        
-        return RoomType.objects.none()
-
-
-class AddGuestToRoomView(APIView):
-    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel, CanManageRooms]
-
-    def post(self, request, hotel_identifier, room_number):
-        hotel = get_object_or_404(Hotel, slug=hotel_identifier)
-        room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
-
-        guest_data = request.data.copy()
-        guest_data['hotel'] = hotel.id
-        guest_data['room'] = room.id
-
-        # Auto-calculate check_out_date if not provided
-        if (
-            guest_data.get('check_in_date') and
-            guest_data.get('days_booked') and
-            not guest_data.get('check_out_date')
-        ):
-            try:
-                check_in = datetime.strptime(guest_data['check_in_date'], '%Y-%m-%d').date()
-                days = int(guest_data['days_booked'])
-                check_out = check_in + timedelta(days=days)
-                guest_data['check_out_date'] = check_out.isoformat()
-            except Exception:
-                return Response(
-                    {"error": "Invalid check_in_date or days_booked for date calculation."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-
-
-        serializer = GuestSerializer(data=guest_data)
-        if serializer.is_valid():
-            guest = serializer.save(room=room)  # Set room directly on guest
-            room.is_occupied = True
-            room.save()
-            return Response(GuestSerializer(guest).data, status=status.HTTP_201_CREATED)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class RoomByHotelAndNumberView(APIView):
-    permission_classes = [IsAuthenticated, HasRoomsNav, IsStaffMember, IsSameHotel]
-
-    def get(self, request, hotel_identifier, room_number):
-        hotel = get_object_or_404(Hotel, slug=hotel_identifier)
-        room = get_object_or_404(Room, hotel=hotel, room_number=room_number)
-        serializer = RoomSerializer(room)
-        return Response(serializer.data)
 
 
 @api_view(['POST'])
@@ -333,25 +229,7 @@ def checkout_rooms(request, hotel_slug):
     return Response({
         "detail": f"Processed {rooms.count()} room(s) in hotel '{hotel_slug}'",
         "results": results
-    }, status=status.HTTP_200_OK) 
-@api_view(['GET'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
-def checkout_needed(request, hotel_slug):
-    # RBAC: nav visibility
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-
-    hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    today = now().date()
-
-    rooms = Room.objects.filter(
-        hotel=hotel,
-        is_occupied=True,
-        guests__check_out_date__lt=today
-    ).distinct()
-
-    serializer = RoomSerializer(rooms, many=True)
-    return Response(serializer.data)
+    }, status=status.HTTP_200_OK)
 
 
 # ============================================================================
