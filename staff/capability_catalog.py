@@ -143,6 +143,63 @@ BOOKING_CONFIG_MANAGE = 'booking.config.manage'
 """Manage booking rules / hotel-level booking configuration."""
 
 
+# --- Rooms (Phase 6B.1) ---
+# Every capability below is backed by at least one currently live endpoint
+# mounted under /api/staff/hotel/{slug}/. `room.qr.generate` is NOT modelled
+# because no rooms QR-generation endpoint exists after Phase 6B.0 cleanup.
+
+ROOM_MODULE_VIEW = 'room.module.view'
+"""See the rooms module (navigation + module-level visibility)."""
+
+ROOM_INVENTORY_READ = 'room.inventory.read'
+"""Read room inventory (list/detail of Room rows)."""
+
+ROOM_INVENTORY_CREATE = 'room.inventory.create'
+"""Create room inventory rows (single + bulk)."""
+
+ROOM_INVENTORY_UPDATE = 'room.inventory.update'
+"""Update room inventory rows (non out-of-order fields)."""
+
+ROOM_INVENTORY_DELETE = 'room.inventory.delete'
+"""Delete room inventory rows."""
+
+ROOM_TYPE_READ = 'room.type.read'
+"""Read room-type rows (marketing / pricing surface)."""
+
+ROOM_TYPE_MANAGE = 'room.type.manage'
+"""Create / update / delete room types and upload room-type media."""
+
+ROOM_MEDIA_READ = 'room.media.read'
+"""Read the room-image gallery."""
+
+ROOM_MEDIA_MANAGE = 'room.media.manage'
+"""Create / update / delete / reorder / set-cover room-image gallery rows."""
+
+ROOM_STATUS_READ = 'room.status.read'
+"""Read turnover dashboard rooms and stats."""
+
+ROOM_STATUS_TRANSITION = 'room.status.transition'
+"""Perform day-to-day turnover transitions (start cleaning, mark cleaned)."""
+
+ROOM_INSPECTION_PERFORM = 'room.inspection.perform'
+"""Perform an inspection pass/fail decision after cleaning."""
+
+ROOM_MAINTENANCE_FLAG = 'room.maintenance.flag'
+"""Flag a room as MAINTENANCE_REQUIRED."""
+
+ROOM_MAINTENANCE_CLEAR = 'room.maintenance.clear'
+"""Clear a MAINTENANCE_REQUIRED flag (back to dirty or ready)."""
+
+ROOM_OUT_OF_ORDER_SET = 'room.out_of_order.set'
+"""Set or clear the `is_out_of_order` override flag on a room."""
+
+ROOM_CHECKOUT_BULK = 'room.checkout.bulk'
+"""Bulk non-destructive checkout across multiple rooms."""
+
+ROOM_CHECKOUT_DESTRUCTIVE = 'room.checkout.destructive'
+"""Destructive bulk checkout (deletes guests, conversations, orders)."""
+
+
 CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
     CHAT_GUEST_RESPOND,
@@ -164,6 +221,24 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     BOOKING_GUEST_COMMUNICATE,
     BOOKING_OVERRIDE_SUPERVISE,
     BOOKING_CONFIG_MANAGE,
+    # Rooms (Phase 6B.1)
+    ROOM_MODULE_VIEW,
+    ROOM_INVENTORY_READ,
+    ROOM_INVENTORY_CREATE,
+    ROOM_INVENTORY_UPDATE,
+    ROOM_INVENTORY_DELETE,
+    ROOM_TYPE_READ,
+    ROOM_TYPE_MANAGE,
+    ROOM_MEDIA_READ,
+    ROOM_MEDIA_MANAGE,
+    ROOM_STATUS_READ,
+    ROOM_STATUS_TRANSITION,
+    ROOM_INSPECTION_PERFORM,
+    ROOM_MAINTENANCE_FLAG,
+    ROOM_MAINTENANCE_CLEAR,
+    ROOM_OUT_OF_ORDER_SET,
+    ROOM_CHECKOUT_BULK,
+    ROOM_CHECKOUT_DESTRUCTIVE,
 })
 
 
@@ -195,6 +270,44 @@ _BOOKING_SUPERVISE: frozenset[str] = _BOOKING_OPERATE | frozenset({
 # Manage bucket — full booking authority including config.
 _BOOKING_MANAGE: frozenset[str] = _BOOKING_SUPERVISE | frozenset({
     BOOKING_CONFIG_MANAGE,
+})
+
+
+# ---------------------------------------------------------------------------
+# Room preset bundles (Phase 6B.1)
+#
+# Nested buckets (mirrors bookings model): manage ⊃ supervise ⊃ operate ⊃ read.
+# Nesting is a preset convenience; registry tests verify bucket escalation
+# matches the endpoint enforcement chain.
+# ---------------------------------------------------------------------------
+
+_ROOM_READ: frozenset[str] = frozenset({
+    ROOM_MODULE_VIEW,
+    ROOM_INVENTORY_READ,
+    ROOM_TYPE_READ,
+    ROOM_MEDIA_READ,
+    ROOM_STATUS_READ,
+})
+
+_ROOM_OPERATE: frozenset[str] = _ROOM_READ | frozenset({
+    ROOM_STATUS_TRANSITION,
+    ROOM_MAINTENANCE_FLAG,
+})
+
+_ROOM_SUPERVISE: frozenset[str] = _ROOM_OPERATE | frozenset({
+    ROOM_INSPECTION_PERFORM,
+    ROOM_MAINTENANCE_CLEAR,
+    ROOM_CHECKOUT_BULK,
+})
+
+_ROOM_MANAGE: frozenset[str] = _ROOM_SUPERVISE | frozenset({
+    ROOM_INVENTORY_CREATE,
+    ROOM_INVENTORY_UPDATE,
+    ROOM_INVENTORY_DELETE,
+    ROOM_TYPE_MANAGE,
+    ROOM_MEDIA_MANAGE,
+    ROOM_OUT_OF_ORDER_SET,
+    ROOM_CHECKOUT_DESTRUCTIVE,
 })
 
 
@@ -256,14 +369,44 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # authority regardless of tier, plus booking supervise (overrides).
     # Phase 6A.2: downgraded from MANAGE → SUPERVISE; config manage is
     # reserved for hotel_manager / front_office_manager role presets.
-    'operations_admin': _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE,
+    # Phase 6B.1: adds room supervise + out-of-order + destructive checkout.
+    'operations_admin': (
+        _SUPERVISOR_AUTHORITY
+        | _BOOKING_SUPERVISE
+        | _ROOM_SUPERVISE
+        | frozenset({ROOM_OUT_OF_ORDER_SET, ROOM_CHECKOUT_DESTRUCTIVE})
+    ),
     # Phase 6A.2: manage-bucket role presets. Tier no longer grants
     # BOOKING_CONFIG_MANAGE, so managing rate plans / cancellation
     # policies / precheckin / survey config requires one of these roles.
-    'hotel_manager': _BOOKING_MANAGE,
-    'front_office_manager': _BOOKING_MANAGE,
+    # Phase 6B.1: hotel_manager carries the full rooms manage bundle.
+    'hotel_manager': _BOOKING_MANAGE | _ROOM_MANAGE,
+    'front_office_manager': _BOOKING_MANAGE | _ROOM_SUPERVISE,
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
+    }),
+    # Phase 6B.1: housekeeping authority roles. Supervisor/manager must
+    # carry HOUSEKEEPING_ROOM_STATUS_OVERRIDE so complete_maintenance
+    # (MAINTENANCE_REQUIRED → CHECKOUT_DIRTY / READY_FOR_GUEST) succeeds
+    # at the housekeeping state-machine layer.
+    'housekeeping_supervisor': _ROOM_SUPERVISE | frozenset({
+        HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
+    }),
+    'housekeeping_manager': _ROOM_SUPERVISE | frozenset({
+        HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
+    }),
+    # Phase 6B.1: maintenance authority roles carry clear-only (and,
+    # for maintenance_manager, out-of-order) on top of the dept preset.
+    # OVERRIDE is required so complete_maintenance can flip the room out
+    # of MAINTENANCE_REQUIRED via the canonical housekeeping service.
+    'maintenance_supervisor': frozenset({
+        ROOM_MAINTENANCE_CLEAR,
+        HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
+    }),
+    'maintenance_manager': frozenset({
+        ROOM_MAINTENANCE_CLEAR,
+        ROOM_OUT_OF_ORDER_SET,
+        HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
     }),
 }
 
@@ -282,15 +425,26 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6A.2: front_office department carries booking READ + OPERATE.
     # This is the fix for "front_office regular_staff cannot operate
     # bookings" — operate authority lives on department, not on tier.
+    # Phase 6B.1: front_office carries room READ only. Front-desk does
+    # NOT operate the turnover state machine.
     'front_office': frozenset({
         CHAT_GUEST_RESPOND,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
-    }) | _BOOKING_READ | _BOOKING_OPERATE,
+    }) | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ,
+    # Phase 6B.1: housekeeping department gets full room OPERATE.
     'housekeeping': frozenset({
         HOUSEKEEPING_ROOM_STATUS_TRANSITION,
-    }),
+    }) | _ROOM_OPERATE,
     'kitchen': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
+    }),
+    # Phase 6B.1: maintenance department gets room READ + flag.
+    # HOUSEKEEPING_ROOM_STATUS_TRANSITION is required so mark_maintenance
+    # can actually flip the room to MAINTENANCE_REQUIRED via the canonical
+    # housekeeping service (which gates on that capability).
+    'maintenance': _ROOM_READ | frozenset({
+        ROOM_MAINTENANCE_FLAG,
+        HOUSEKEEPING_ROOM_STATUS_TRANSITION,
     }),
 }
 

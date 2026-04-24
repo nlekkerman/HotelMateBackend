@@ -92,7 +92,7 @@ from .serializers import (
 from .permissions import IsSuperStaffAdminForHotel
 from staff.permissions import (
     HasNavPermission, HasHotelInfoNav, HasAdminSettingsNav, HasRoomsNav,
-    CanManageRooms, CanConfigureHotel,
+    CanConfigureHotel,
     # Phase 6A â€” bookings module capability gates
     CanViewBookings, CanReadBookings,
     CanUpdateBooking, CanCancelBooking,
@@ -101,6 +101,10 @@ from staff.permissions import (
     CanCommunicateWithBookingGuest,
     CanSuperviseBooking,
     CanManageBookingConfig,
+    # Phase 6B.1 â€” rooms module capability gates
+    CanViewRooms,
+    CanReadRoomTypes,
+    CanManageRoomTypes,
 )
 
 # Additional imports moved from inline locations
@@ -157,9 +161,11 @@ class StaffRoomTypeViewSet(viewsets.ModelViewSet):
     serializer_class = RoomTypeStaffSerializer
 
     def get_permissions(self):
-        base = [IsAuthenticated(), HasNavPermission('rooms'), IsStaffMember(), IsSameHotel()]
-        if self.action not in ('list', 'retrieve'):
-            base.append(CanManageRooms())
+        base = [IsAuthenticated(), IsStaffMember(), IsSameHotel(), CanViewRooms()]
+        if self.action in ('list', 'retrieve'):
+            base.append(CanReadRoomTypes())
+        else:
+            base.append(CanManageRoomTypes())
         return base
     
     def get_queryset(self):

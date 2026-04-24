@@ -16,12 +16,68 @@ from django.db import models, transaction
 from django.utils.timezone import now
 from django.utils import timezone
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasNavPermission, HasRoomsNav, CanManageRooms
+from staff.permissions import (
+    CanViewRooms,
+    CanReadRoomInventory,
+    CanCreateRoomInventory,
+    CanUpdateRoomInventory,
+    CanDeleteRoomInventory,
+    CanReadRoomMedia,
+    CanManageRoomMedia,
+    CanReadRoomStatus,
+    CanTransitionRoomStatus,
+    CanInspectRoom,
+    CanFlagRoomMaintenance,
+    CanClearRoomMaintenance,
+    CanSetRoomOutOfOrder,
+    CanBulkCheckoutRooms,
+    CanDestructiveCheckoutRooms,
+)
 from django.db.models import Count
 from chat.utils import pusher_client
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _payload_changes_out_of_order(request) -> bool:
+    """
+    Return True if the incoming write request mutates the
+    ``is_out_of_order`` flag on a Room row.
+
+    Used to escalate inventory-update to the room.out_of_order.set
+    capability without forcing every inventory patch through the
+    out-of-order gate.
+    """
+    if request is None:
+        return False
+    if request.method not in ('POST', 'PUT', 'PATCH'):
+        return False
+    data = getattr(request, 'data', None) or {}
+    return 'is_out_of_order' in data
+
+
+def _payload_changes_only_out_of_order(request) -> bool:
+    """
+    Return True iff the incoming PATCH/PUT body targets
+    ``is_out_of_order`` and nothing else writable on the Room row.
+
+    Used to permit ``room.out_of_order.set``-holding roles
+    (e.g. operations_admin) to flip OOO without also holding
+    ``room.inventory.update``. When other fields are present, the
+    inventory-update capability is required.
+    """
+    if request is None:
+        return False
+    if request.method not in ('PUT', 'PATCH'):
+        return False
+    data = getattr(request, 'data', None) or {}
+    if 'is_out_of_order' not in data:
+        return False
+    # Keys treated as no-op metadata (not real Room fields).
+    ignorable = {'csrfmiddlewaretoken'}
+    payload_keys = {k for k in data.keys() if k not in ignorable}
+    return payload_keys == {'is_out_of_order'}
 
 
 class RoomPagination(PageNumberPagination):
@@ -45,12 +101,35 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         perms = [
             IsAuthenticated(),
-            HasNavPermission('rooms'),
             IsStaffMember(),
             IsSameHotel(),
+            CanViewRooms(),
         ]
-        if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageRooms())
+        if self.action in ('list', 'retrieve'):
+            perms.append(CanReadRoomInventory())
+        elif self.action == 'create':
+            perms.append(CanCreateRoomInventory())
+        elif self.action in ('update', 'partial_update'):
+            # Phase 6B.2 — drift fix for room.out_of_order.set.
+            # A payload that ONLY toggles is_out_of_order requires
+            # CanReadRoomInventory + CanSetRoomOutOfOrder (no
+            # inventory-update), so roles like operations_admin whose
+            # manage-bucket leak is limited to OOO can actually use it.
+            # Any other field in the payload keeps the classic
+            # CanUpdateRoomInventory requirement; a mixed payload
+            # requires BOTH caps.
+            if _payload_changes_only_out_of_order(self.request):
+                perms.append(CanReadRoomInventory())
+                perms.append(CanSetRoomOutOfOrder())
+            elif _payload_changes_out_of_order(self.request):
+                perms.append(CanUpdateRoomInventory())
+                perms.append(CanSetRoomOutOfOrder())
+            else:
+                perms.append(CanUpdateRoomInventory())
+        elif self.action == 'destroy':
+            perms.append(CanDeleteRoomInventory())
+        else:
+            perms.append(CanUpdateRoomInventory())
         return perms
 
     def get_queryset(self):
@@ -71,38 +150,35 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanBulkCheckoutRooms,
+])
 def checkout_rooms(request, hotel_slug):
     """
     Bulk room checkout - Non-destructive by default
     POST /api/staff/hotel/{hotel_slug}/rooms/checkout/
     {
       "room_ids": [3, 7, 11],
-      "destructive": false  // optional, requires admin for true
+      "destructive": false  // true requires room.checkout.destructive capability
     }
     """
-    # RBAC: nav visibility + mutation authority
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-    if not CanManageRooms().has_permission(request, None):
-        return Response({'detail': 'Manage-rooms permission required.'}, status=status.HTTP_403_FORBIDDEN)
-
     from room_bookings.services.checkout import checkout_booking
     from hotel.models import Hotel, RoomBooking
-    
+
     room_ids = request.data.get('room_ids')
     destructive = request.data.get('destructive', False)
-    
+
     if not isinstance(room_ids, list) or not room_ids:
         return Response(
             {"detail": "`room_ids` must be a non-empty list."},
             status=status.HTTP_400_BAD_REQUEST
         )
-    
-    # Destructive mode requires admin permissions
-    if destructive and not request.user.is_superuser:
+
+    # Destructive mode requires an additional capability.
+    if destructive and not CanDestructiveCheckoutRooms().has_permission(request, None):
         return Response(
-            {"detail": "Destructive checkout requires admin permissions."},
+            {"detail": "Destructive checkout requires the room.checkout.destructive capability."},
             status=status.HTTP_403_FORBIDDEN
         )
     
@@ -237,13 +313,12 @@ def checkout_rooms(request, hotel_slug):
 # ============================================================================
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanTransitionRoomStatus,
+])
 def start_cleaning(request, hotel_slug, room_number):
     """Transition room to CLEANING_IN_PROGRESS"""
-    # Check canonical navigation permission
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-    
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
     if not room.can_transition_to('CLEANING_IN_PROGRESS'):
@@ -286,13 +361,12 @@ def start_cleaning(request, hotel_slug, room_number):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanTransitionRoomStatus,
+])
 def mark_cleaned(request, hotel_slug, room_number):
     """Mark room as cleaned, transition to CLEANED_UNINSPECTED"""
-    # Check canonical navigation permission
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-    
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
     if not room.can_transition_to('CLEANED_UNINSPECTED'):
@@ -335,13 +409,12 @@ def mark_cleaned(request, hotel_slug, room_number):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanInspectRoom,
+])
 def inspect_room(request, hotel_slug, room_number):
     """Inspect room - pass -> READY_FOR_GUEST, fail -> CHECKOUT_DIRTY"""
-    # Check canonical navigation permission
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-    
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
     if room.room_status != 'CLEANED_UNINSPECTED':
@@ -391,13 +464,12 @@ def inspect_room(request, hotel_slug, room_number):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanFlagRoomMaintenance,
+])
 def mark_maintenance(request, hotel_slug, room_number):
-    """Mark room as requiring maintenance - requires maintenance navigation permission"""
-    # Check canonical navigation permission
-    if not HasNavPermission('maintenance').has_permission(request, None):
-        return Response({'detail': 'Maintenance navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-    
+    """Mark room as requiring maintenance."""
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
     if not room.can_transition_to('MAINTENANCE_REQUIRED'):
@@ -453,13 +525,12 @@ def mark_maintenance(request, hotel_slug, room_number):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanClearRoomMaintenance,
+])
 def complete_maintenance(request, hotel_slug, room_number):
-    """Mark maintenance as completed - requires maintenance navigation permission"""
-    # Check canonical navigation permission
-    if not HasNavPermission('maintenance').has_permission(request, None):
-        return Response({'detail': 'Maintenance navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-    
+    """Mark maintenance as completed."""
     room = get_object_or_404(Room, hotel__slug=hotel_slug, room_number=room_number)
     
     if room.room_status != 'MAINTENANCE_REQUIRED':
@@ -518,13 +589,12 @@ def complete_maintenance(request, hotel_slug, room_number):
 # ============================================================================
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanReadRoomStatus,
+])
 def turnover_rooms(request, hotel_slug):
     """Get rooms grouped by turnover status"""
-    # RBAC: nav visibility
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
     rooms_by_status = {}
@@ -544,13 +614,12 @@ def turnover_rooms(request, hotel_slug):
 
 
 @api_view(['GET']) 
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanReadRoomStatus,
+])
 def turnover_stats(request, hotel_slug):
     """Get turnover statistics and metrics"""
-    # RBAC: nav visibility
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
     total_rooms = hotel.rooms.filter(is_active=True).count()
@@ -594,7 +663,10 @@ def turnover_stats(request, hotel_slug):
 # ============================================================================
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewRooms, CanCreateRoomInventory,
+])
 def bulk_create_rooms(request, hotel_slug, room_type_id):
     """
     POST: Bulk create Room instances for a room type
@@ -603,12 +675,6 @@ def bulk_create_rooms(request, hotel_slug, room_type_id):
     1. {"room_numbers": [101, 102, 201]}
     2. {"ranges": [{"start": 101, "end": 110}, {"start": 201, "end": 205}]}
     """
-    # RBAC: nav visibility + mutation authority
-    if not HasNavPermission('rooms').has_permission(request, None):
-        return Response({'detail': 'Rooms navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-    if not CanManageRooms().has_permission(request, None):
-        return Response({'detail': 'Manage-rooms permission required.'}, status=status.HTTP_403_FORBIDDEN)
-
     from housekeeping.models import RoomStatusEvent
 
     # Resolve hotel and enforce scoping
@@ -743,12 +809,14 @@ class RoomImageViewSet(viewsets.ModelViewSet):
     def get_permissions(self):
         perms = [
             IsAuthenticated(),
-            HasNavPermission('rooms'),
             IsStaffMember(),
             IsSameHotel(),
+            CanViewRooms(),
         ]
-        if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageRooms())
+        if self.action in ('list', 'retrieve'):
+            perms.append(CanReadRoomMedia())
+        else:
+            perms.append(CanManageRoomMedia())
         return perms
 
     def get_queryset(self):

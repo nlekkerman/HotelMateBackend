@@ -358,20 +358,6 @@ class CanManageStaff(BasePermission):
         return _tier_at_least(tier, 'super_staff_admin')
 
 
-class CanManageRooms(BasePermission):
-    """
-    Gates room CUD operations (create, update, bulk checkout, move).
-    Required tier: super_staff_admin or above.
-    """
-    message = "You do not have permission to manage rooms."
-
-    def has_permission(self, request, view):
-        if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return True
-        tier = resolve_tier(request.user)
-        return _tier_at_least(tier, 'super_staff_admin')
-
-
 class CanManageRoomBookings(BasePermission):
     """
     Gates room-booking CUD operations (confirm, cancel, assign room, etc.).
@@ -760,4 +746,132 @@ class CanSuperviseBooking(HasCapability):
 class CanManageBookingConfig(HasCapability):
     required_capability = BOOKING_CONFIG_MANAGE
     message = "You do not have permission to manage booking configuration."
+
+
+# ---------------------------------------------------------------------------
+# Rooms capability permission classes (Phase 6B.1)
+#
+# Single source of truth for endpoint enforcement in the rooms module.
+# Must stay in lock-step with staff.module_policy MODULE_POLICY['rooms']
+# so the frontend rbac.rooms object and backend enforcement derive from
+# the same capability slugs.
+#
+# Read/visibility gates (CanViewRooms, CanRead*) set safe_methods_bypass =
+# False so GETs are gated. Mutation gates inherit the default (pass GET,
+# enforce non-safe methods) and are always chained with CanViewRooms plus
+# the relevant read gate when the endpoint also serves GET.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    ROOM_CHECKOUT_BULK,
+    ROOM_CHECKOUT_DESTRUCTIVE,
+    ROOM_INSPECTION_PERFORM,
+    ROOM_INVENTORY_CREATE,
+    ROOM_INVENTORY_DELETE,
+    ROOM_INVENTORY_READ,
+    ROOM_INVENTORY_UPDATE,
+    ROOM_MAINTENANCE_CLEAR,
+    ROOM_MAINTENANCE_FLAG,
+    ROOM_MEDIA_MANAGE,
+    ROOM_MEDIA_READ,
+    ROOM_MODULE_VIEW,
+    ROOM_OUT_OF_ORDER_SET,
+    ROOM_STATUS_READ,
+    ROOM_STATUS_TRANSITION,
+    ROOM_TYPE_MANAGE,
+    ROOM_TYPE_READ,
+)
+
+
+class CanViewRooms(HasCapability):
+    """Module visibility gate for the rooms module (all methods)."""
+    required_capability = ROOM_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the rooms module."
+
+
+class CanReadRoomInventory(HasCapability):
+    required_capability = ROOM_INVENTORY_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read room inventory."
+
+
+class CanCreateRoomInventory(HasCapability):
+    required_capability = ROOM_INVENTORY_CREATE
+    message = "You do not have permission to create rooms."
+
+
+class CanUpdateRoomInventory(HasCapability):
+    required_capability = ROOM_INVENTORY_UPDATE
+    message = "You do not have permission to update rooms."
+
+
+class CanDeleteRoomInventory(HasCapability):
+    required_capability = ROOM_INVENTORY_DELETE
+    message = "You do not have permission to delete rooms."
+
+
+class CanReadRoomTypes(HasCapability):
+    required_capability = ROOM_TYPE_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read room types."
+
+
+class CanManageRoomTypes(HasCapability):
+    required_capability = ROOM_TYPE_MANAGE
+    message = "You do not have permission to manage room types."
+
+
+class CanReadRoomMedia(HasCapability):
+    required_capability = ROOM_MEDIA_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read room media."
+
+
+class CanManageRoomMedia(HasCapability):
+    required_capability = ROOM_MEDIA_MANAGE
+    message = "You do not have permission to manage room media."
+
+
+class CanReadRoomStatus(HasCapability):
+    required_capability = ROOM_STATUS_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read room status."
+
+
+class CanTransitionRoomStatus(HasCapability):
+    required_capability = ROOM_STATUS_TRANSITION
+    message = "You do not have permission to transition room status."
+
+
+class CanInspectRoom(HasCapability):
+    required_capability = ROOM_INSPECTION_PERFORM
+    message = "You do not have permission to inspect rooms."
+
+
+class CanFlagRoomMaintenance(HasCapability):
+    required_capability = ROOM_MAINTENANCE_FLAG
+    message = "You do not have permission to flag room maintenance."
+
+
+class CanClearRoomMaintenance(HasCapability):
+    required_capability = ROOM_MAINTENANCE_CLEAR
+    message = "You do not have permission to clear room maintenance."
+
+
+class CanSetRoomOutOfOrder(HasCapability):
+    required_capability = ROOM_OUT_OF_ORDER_SET
+    message = "You do not have permission to set a room out of order."
+
+
+class CanBulkCheckoutRooms(HasCapability):
+    required_capability = ROOM_CHECKOUT_BULK
+    message = "You do not have permission to bulk-check-out rooms."
+
+
+class CanDestructiveCheckoutRooms(HasCapability):
+    required_capability = ROOM_CHECKOUT_DESTRUCTIVE
+    message = (
+        "You do not have permission to perform destructive room checkout."
+    )
 

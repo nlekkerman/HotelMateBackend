@@ -41,6 +41,21 @@ from staff.capability_catalog import (
     BOOKING_STAY_CHECKIN,
     BOOKING_STAY_CHECKOUT,
     CANONICAL_CAPABILITIES,
+    ROOM_CHECKOUT_BULK,
+    ROOM_CHECKOUT_DESTRUCTIVE,
+    ROOM_INSPECTION_PERFORM,
+    ROOM_INVENTORY_CREATE,
+    ROOM_INVENTORY_DELETE,
+    ROOM_INVENTORY_UPDATE,
+    ROOM_MAINTENANCE_CLEAR,
+    ROOM_MAINTENANCE_FLAG,
+    ROOM_MEDIA_MANAGE,
+    ROOM_MODULE_VIEW,
+    ROOM_OUT_OF_ORDER_SET,
+    ROOM_INVENTORY_READ,
+    ROOM_STATUS_READ,
+    ROOM_STATUS_TRANSITION,
+    ROOM_TYPE_MANAGE,
 )
 
 
@@ -72,6 +87,27 @@ MODULE_POLICY: dict[str, dict] = {
         'view_capability': BOOKING_MODULE_VIEW,
         'read_capability': BOOKING_RECORD_READ,
         'actions': BOOKINGS_ACTIONS,
+    },
+    'rooms': {
+        'view_capability': ROOM_MODULE_VIEW,
+        'read_capability': ROOM_INVENTORY_READ,
+        'actions': {
+            # Manage bucket
+            'inventory_create': ROOM_INVENTORY_CREATE,
+            'inventory_update': ROOM_INVENTORY_UPDATE,
+            'inventory_delete': ROOM_INVENTORY_DELETE,
+            'type_manage': ROOM_TYPE_MANAGE,
+            'media_manage': ROOM_MEDIA_MANAGE,
+            'out_of_order_set': ROOM_OUT_OF_ORDER_SET,
+            'checkout_destructive': ROOM_CHECKOUT_DESTRUCTIVE,
+            # Operate bucket
+            'status_transition': ROOM_STATUS_TRANSITION,
+            'maintenance_flag': ROOM_MAINTENANCE_FLAG,
+            # Supervise bucket
+            'inspect': ROOM_INSPECTION_PERFORM,
+            'maintenance_clear': ROOM_MAINTENANCE_CLEAR,
+            'checkout_bulk': ROOM_CHECKOUT_BULK,
+        },
     },
 }
 
