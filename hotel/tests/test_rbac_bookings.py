@@ -199,21 +199,6 @@ class BookingPolicyResolutionTest(TestCase):
         self.assertFalse(pol['visible'])
         self.assertFalse(pol['read'])
 
-    def test_operations_admin_role_carries_booking_supervise(self):
-        """Phase 6A.2: operations_admin role grants supervise (not manage).
-        Manage is reserved for hotel_manager / front_office_manager.
-        """
-        caps = resolve_capabilities(
-            'regular_staff', 'operations_admin', None,
-        )
-        pol = resolve_module_policy(caps)['bookings']
-        self.assertTrue(pol['visible'])
-        self.assertTrue(pol['read'])
-        self.assertTrue(pol['actions']['checkin'])
-        self.assertTrue(pol['actions']['resolve_overstay'])
-        # Downgraded: no longer carries manage.
-        self.assertFalse(pol['actions']['manage_rules'])
-
     def test_hotel_manager_role_carries_booking_manage(self):
         caps = resolve_capabilities(
             'regular_staff', 'hotel_manager', None,
@@ -324,12 +309,6 @@ class BookingEndpointEnforcementTest(TestCase):
             access_level="regular_staff",
             department_slug="front_office",
         )
-        cls.ops_admin = _make_staff(
-            cls.hotel,
-            username="ops_admin",
-            access_level="regular_staff",
-            role_slug="operations_admin",
-        )
         cls.hotel_manager = _make_staff(
             cls.hotel,
             username="hotel_mgr",
@@ -408,17 +387,6 @@ class BookingEndpointEnforcementTest(TestCase):
         # Not 403 — capability check passes. Business logic may still
         # return 400/409 because the booking is not overstaying, but that
         # is past the RBAC layer and not what this test asserts.
-        self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_overstay_acknowledge_allowed_for_operations_admin(self):
-        """operations_admin role grants supervise via role preset."""
-        c = _authed_client(self.ops_admin.user)
-        url = (
-            f"/api/staff/hotel/{self.hotel.slug}"
-            f"/room-bookings/{self.booking.booking_id}"
-            f"/overstay/acknowledge/"
-        )
-        resp = c.post(url, data={}, format='json')
         self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_overstay_extend_forbidden_for_front_office_staff_admin(self):

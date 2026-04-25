@@ -237,17 +237,6 @@ class HousekeepingPolicyPersonaTest(TestCase):
                 continue
             self.assertTrue(pol['actions'][action], action)
 
-    def test_operations_admin_supervises(self):
-        pol = self._policy('regular_staff', 'operations_admin',
-                           'administration')
-        self.assertTrue(pol['actions']['task_create'])
-        self.assertTrue(pol['actions']['task_update'])
-        self.assertTrue(pol['actions']['task_assign'])
-        self.assertTrue(pol['actions']['task_cancel'])
-        self.assertTrue(pol['actions']['status_override'])
-        # Manage still denied
-        self.assertFalse(pol['actions']['task_delete'])
-
     def test_front_office_manager_supervises(self):
         pol = self._policy('regular_staff', 'front_office_manager',
                            'front_office')
@@ -321,11 +310,6 @@ class HousekeepingEndpointEnforcementTest(TestCase):
         cls.hotel_manager = _make_staff(
             cls.hotel, username='hmgr6c', access_level='regular_staff',
             role_slug='hotel_manager', department_slug='management',
-        )
-        cls.ops_admin = _make_staff(
-            cls.hotel, username='ops6c', access_level='regular_staff',
-            role_slug='operations_admin',
-            department_slug='administration',
         )
         cls.tier_only_super = _make_staff(
             cls.hotel, username='sa6c',

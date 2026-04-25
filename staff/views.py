@@ -15,7 +15,12 @@ from .serializers import (
     StaffLoginOutputSerializer, StaffLoginInputSerializer,
     RegisterStaffSerializer, DepartmentSerializer, RoleSerializer,
     NavigationItemSerializer, RegistrationCodeSerializer,
-    StaffAttendanceSummarySerializer
+    StaffAttendanceSummarySerializer,
+    # Phase 6E.1 split serializers
+    StaffProfileUpdateSerializer,
+    StaffAuthorityRoleSerializer, StaffAuthorityDepartmentSerializer,
+    StaffAuthorityAccessLevelSerializer, StaffAuthorityNavigationSerializer,
+    StaffDeactivateSerializer,
 )
 from rest_framework.decorators import action
 from .pusher_utils import (
@@ -44,6 +49,24 @@ from .permissions import (
     IsAdminTier, HasNavPermission, HasStaffManagementNav, CanManageStaff,
     IsSuperStaffAdminOrAbove, IsDjangoSuperUser,
     resolve_tier, _tier_at_least,
+    # Phase 6E.1 — capability-based staff-management gates
+    CanViewStaffManagementModule,
+    CanReadStaff, CanReadStaffUsers, CanReadPendingRegistrations,
+    CanCreateStaff, CanUpdateStaffProfile,
+    CanDeactivateStaff, CanDeleteStaff,
+    CanViewStaffAuthority,
+    CanAssignStaffRole, CanAssignStaffDepartment,
+    CanAssignStaffAccessLevel, CanAssignStaffNavigation,
+    CanReadStaffRoles, CanManageStaffRoles,
+    CanReadStaffDepartments, CanManageStaffDepartments,
+    CanReadRegistrationPackages, CanCreateRegistrationPackages,
+    CanEmailRegistrationPackages, CanPrintRegistrationPackages,
+    # Anti-escalation helpers
+    assert_not_self_authority, assert_same_hotel,
+    assert_access_level_allowed, assert_nav_subset,
+    assert_role_department_ceiling,
+    # Effective-access helpers
+    resolve_effective_access,
 )
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 
@@ -56,9 +79,9 @@ class StandardResultsSetPagination(PageNumberPagination):
 class StaffMetadataView(APIView):
     """
     Retrieve departments/roles metadata for a hotel.
-    Read-only, requires staff_management module access.
+    Read-only, requires capability: staff_management.module.view.
     """
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
+    permission_classes = [IsAuthenticated, CanViewStaffManagementModule]
     pagination_class = None
 
     def get(self, request, hotel_slug=None):
@@ -84,13 +107,44 @@ class StaffMetadataView(APIView):
         return Response(data)
 
 class UserListAPIView(generics.ListAPIView):
+    """List User accounts scoped to a specific hotel.
+
+    Phase 6E.1: Requires `staff_management.user.read` capability and the
+    `hotel_slug` query parameter (or URL kwarg). Django superusers bypass
+    hotel scoping. Cross-hotel user enumeration is no longer allowed.
+    """
     queryset = User.objects.all()
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
+    permission_classes = [
+        IsAuthenticated, CanViewStaffManagementModule, CanReadStaffUsers,
+    ]
 
     def get_queryset(self):
-        # Optionally filter or log authenticated user
-        return super().get_queryset()
+        user = self.request.user
+        hotel_slug = (
+            self.kwargs.get('hotel_slug')
+            or self.request.query_params.get('hotel_slug')
+        )
+
+        # Django superusers may enumerate globally, but still must pick
+        # a hotel when one is provided — no silent cross-hotel leak.
+        if user.is_superuser:
+            if hotel_slug:
+                return User.objects.filter(
+                    profile__registration_code__hotel_slug=hotel_slug
+                ).distinct()
+            return User.objects.all()
+
+        # Non-superusers must supply hotel_slug scoped to their own hotel.
+        requester_staff = getattr(user, 'staff_profile', None)
+        if requester_staff is None:
+            return User.objects.none()
+        effective_slug = hotel_slug or requester_staff.hotel.slug
+        if effective_slug != requester_staff.hotel.slug:
+            return User.objects.none()
+        return User.objects.filter(
+            profile__registration_code__hotel_slug=effective_slug,
+        ).distinct()
 
 
 class CustomAuthToken(ObtainAuthToken):
@@ -207,77 +261,127 @@ class CustomAuthToken(ObtainAuthToken):
 
 
 class StaffViewSet(viewsets.ModelViewSet):
+    """Staff CRUD ViewSet.
+
+    Phase 6E.1 rewire:
+      - Generic update/partial_update use StaffProfileUpdateSerializer
+        and require staff_management.staff.update_profile. They never
+        mutate authority or identity (hotel/access_level/role/department/
+        is_active/has_registered_face).
+      - Dedicated @action endpoints mutate authority fields one at a time,
+        each gated by a specific capability and composed with the
+        anti-escalation helpers.
+      - destroy requires staff_management.staff.delete and rejects self.
+      - deactivate @action provides soft-deactivate (is_active=False).
+    """
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
-        if not instance.user or instance.user != request.user:
-            return Response(
-                {"detail": "You can only update your own staff profile."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        response = super().update(request, *args, **kwargs)
-        
-        # Trigger Pusher event for staff profile update
+        # Hotel scoping (non-superuser)
+        err = assert_same_hotel(request.user, instance)
+        if err and not request.user.is_superuser:
+            return Response({"detail": err}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = StaffProfileUpdateSerializer(
+            instance, data=request.data, partial=False,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
         instance.refresh_from_db()
         trigger_staff_profile_update(
-            instance.hotel.slug,
-            instance,
-            action='updated'
+            instance.hotel.slug, instance, action='updated',
         )
-        
-        return response
+        return Response(StaffSerializer(instance).data)
 
     def partial_update(self, request, *args, **kwargs):
         instance = self.get_object()
-        if not instance.user or instance.user != request.user:
-            return Response(
-                {"detail": "You can only update your own staff profile."},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        response = super().partial_update(request, *args, **kwargs)
-        
-        # Trigger Pusher event for staff profile update
+        err = assert_same_hotel(request.user, instance)
+        if err and not request.user.is_superuser:
+            return Response({"detail": err}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = StaffProfileUpdateSerializer(
+            instance, data=request.data, partial=True,
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
         instance.refresh_from_db()
         trigger_staff_profile_update(
-            instance.hotel.slug,
-            instance,
-            action='updated'
+            instance.hotel.slug, instance, action='updated',
         )
-        
-        return response
-    
+        return Response(StaffSerializer(instance).data)
+
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        # Reject self-deletion (belt-and-braces; matches authority rule)
+        err = assert_not_self_authority(request.user, instance)
+        if err:
+            return Response(
+                {"detail": "You cannot delete your own staff profile."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        err = assert_same_hotel(request.user, instance)
+        if err and not request.user.is_superuser:
+            return Response({"detail": err}, status=status.HTTP_403_FORBIDDEN)
+
         hotel_slug = instance.hotel.slug
         staff_id = instance.id
-        
+        first_name = instance.first_name
+        last_name = instance.last_name
+
         response = super().destroy(request, *args, **kwargs)
-        
-        # Trigger Pusher event for staff deletion
+
         trigger_staff_profile_update(
             hotel_slug,
             {
                 'id': staff_id,
-                'first_name': instance.first_name,
-                'last_name': instance.last_name,
+                'first_name': first_name,
+                'last_name': last_name,
             },
-            action='deleted'
+            action='deleted',
         )
-        
         return response
 
     serializer_class = StaffSerializer
     pagination_class = StandardResultsSetPagination
-    filter_backends = [DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter]
+    filter_backends = [
+        DjangoFilterBackend, filters.OrderingFilter, filters.SearchFilter,
+    ]
 
     def get_permissions(self):
+        """Phase 6E.1: capability-gated per action.
+
+        - list/retrieve: CanReadStaff
+        - create: CanCreateStaff (kept for POST to the collection; note
+          the preferred creation flow is CreateStaffFromUserAPIView).
+        - update/partial_update: CanUpdateStaffProfile
+        - destroy: CanDeleteStaff
+        - assign_* authority actions: per-field capability
+        - deactivate: CanDeactivateStaff
         """
-        RBAC: HasNavPermission('staff_management') gates module access.
-        CUD requires CanManageStaff (super_staff_admin+).
-        Read actions open to any tier with staff_management access.
-        """
-        base = [IsAuthenticated(), HasNavPermission('staff_management'), IsStaffMember(), IsSameHotel()]
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
-            base.append(CanManageStaff())
+        base = [
+            IsAuthenticated(),
+            CanViewStaffManagementModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action_map = {
+            'create': CanCreateStaff,
+            'update': CanUpdateStaffProfile,
+            'partial_update': CanUpdateStaffProfile,
+            'destroy': CanDeleteStaff,
+            'deactivate': CanDeactivateStaff,
+            'assign_role': CanAssignStaffRole,
+            'assign_department': CanAssignStaffDepartment,
+            'assign_access_level': CanAssignStaffAccessLevel,
+            'assign_navigation': CanAssignStaffNavigation,
+            'authority': CanViewStaffAuthority,
+        }
+        cap_cls = action_map.get(self.action)
+        if cap_cls is not None:
+            base.append(cap_cls())
+        else:
+            base.append(CanReadStaff())
         return base
 
     filterset_fields = ['department__slug', 'role__slug', 'hotel__slug']
@@ -298,64 +402,306 @@ class StaffViewSet(viewsets.ModelViewSet):
         return qs
 
     def create(self, request, *args, **kwargs):
-        hotel_slug = kwargs.get("hotel_slug")  # get hotel slug from URL
-        hotel = get_object_or_404(Hotel, slug=hotel_slug)  # fetch hotel instance
+        """Phase 6E.1: capability-gated + anti-escalation.
 
-        # Only allow authenticated users who belong to this hotel
+        Note: The preferred staff-creation flow is
+        CreateStaffFromUserAPIView (per-hotel URL, richer validation).
+        This endpoint remains as the ViewSet POST for API symmetry and
+        is hardened to the same anti-escalation rules.
+        """
+        hotel_slug = kwargs.get("hotel_slug") or self.kwargs.get("hotel_slug")
+        if not hotel_slug:
+            return Response(
+                {"detail": "hotel_slug is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        hotel = get_object_or_404(Hotel, slug=hotel_slug)
+
         user = request.user
         if not user.is_authenticated:
             return Response(
                 {"detail": "Authentication required."},
-                status=status.HTTP_401_UNAUTHORIZED
+                status=status.HTTP_401_UNAUTHORIZED,
             )
-        try:
-            requesting_staff = Staff.objects.get(user=user, hotel=hotel)
-        except Staff.DoesNotExist:
-            return Response(
-                {
-                    "detail": (
+        if not user.is_superuser:
+            try:
+                Staff.objects.get(user=user, hotel=hotel)
+            except Staff.DoesNotExist:
+                return Response(
+                    {"detail": (
                         "You must be a staff member of this hotel to "
                         "create staff."
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
+                    )},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
 
-        # SECURITY: Only super_staff_admin can create other super_staff_admin
-        requested_access_level = request.data.get("access_level", "")
-        if requested_access_level == "super_staff_admin" and not _tier_at_least(resolve_tier(requesting_staff.user), 'super_staff_admin'):
+        # --- Anti-escalation: access-level guard ---
+        requester_effective = resolve_effective_access(user)
+        requester_caps = requester_effective.get('allowed_capabilities', [])
+        requester_access_level = requester_effective.get('access_level')
+        requested_access_level = request.data.get(
+            "access_level", "regular_staff",
+        )
+        err = assert_access_level_allowed(
+            user, requester_caps,
+            requester_access_level, requested_access_level,
+        )
+        if err:
             return Response(
-                {"detail": "Only super_staff_admin can create other super_staff_admin accounts."},
-                status=status.HTTP_403_FORBIDDEN
+                {"detail": err},
+                status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Pass hotel to serializer if needed
         serializer = RegisterStaffSerializer(
             data=request.data,
-            context={"request": request}
+            context={"request": request, "hotel": hotel},
         )
         serializer.is_valid(raise_exception=True)
+        staff = serializer.save()
 
-        # Save staff with hotel assigned
-        staff = serializer.save(hotel=hotel)
+        # --- Anti-escalation: role/department ceiling ---
+        err = assert_role_department_ceiling(
+            user,
+            requester_caps,
+            staff.role.slug if staff.role else None,
+            staff.department.slug if staff.department else None,
+        )
+        if err:
+            # Roll back staff creation if ceiling violated.
+            staff_user = staff.user
+            staff.delete()
+            return Response(
+                {"detail": err},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
-        # AUTOMATICALLY set user flags for all staff
-        user = staff.user
-        
-        # All staff members should have is_staff=True (Django admin flag)
-        user.is_staff = True
-        
-        # SECURITY: is_superuser is NEVER set via API — only via Django admin / CLI
-        # super_staff_admin is an app-level role, NOT a Django superuser
-        user.is_superuser = False
-            
-        user.save()
-        logger.info(f"Set User flags for {user.username}: is_staff=True, is_superuser=False")
+        # Set user flags for any new staff
+        created_user = staff.user
+        created_user.is_staff = True
+        # is_superuser is NEVER set via API
+        created_user.is_superuser = False
+        created_user.save()
+        logger.info(
+            "Set User flags for %s: is_staff=True, is_superuser=False",
+            created_user.username,
+        )
 
         return Response(
             self.get_serializer(staff).data,
-            status=status.HTTP_201_CREATED
+            status=status.HTTP_201_CREATED,
         )
+
+    # -----------------------------------------------------------------
+    # Phase 6E.1 — Authority-mutation @actions
+    #
+    # Each action writes exactly ONE authority field. Permission is
+    # enforced via get_permissions above (per-action capability class).
+    # Anti-escalation helpers are applied in the correct order inside
+    # each handler: not-self → same-hotel → field-specific guard.
+    # -----------------------------------------------------------------
+
+    def _apply_authority_guards(
+        self, request, target_staff,
+        check_access_level=False, new_access_level=None,
+        check_navs=False, requested_navs=None,
+        check_role_dept=False,
+        target_role_slug=None, target_department_slug=None,
+    ):
+        """Run the standard authority-mutation guard sequence.
+
+        Returns a Response on failure, or None on success.
+        """
+        # 1) Never mutate authority on self.
+        err = assert_not_self_authority(request.user, target_staff)
+        if err:
+            return Response(
+                {"detail": err}, status=status.HTTP_403_FORBIDDEN,
+            )
+        # 2) Same hotel (superusers bypass).
+        err = assert_same_hotel(request.user, target_staff)
+        if err:
+            return Response(
+                {"detail": err}, status=status.HTTP_403_FORBIDDEN,
+            )
+
+        requester_effective = resolve_effective_access(request.user)
+        requester_caps = requester_effective.get('allowed_capabilities', [])
+        requester_access_level = requester_effective.get('access_level')
+        requester_navs = requester_effective.get('allowed_navs', [])
+
+        if check_access_level:
+            err = assert_access_level_allowed(
+                request.user, requester_caps,
+                requester_access_level, new_access_level,
+            )
+            if err:
+                return Response(
+                    {"detail": err}, status=status.HTTP_403_FORBIDDEN,
+                )
+        if check_navs:
+            err = assert_nav_subset(
+                request.user, requester_caps,
+                requester_navs, requested_navs,
+            )
+            if err:
+                return Response(
+                    {"detail": err}, status=status.HTTP_403_FORBIDDEN,
+                )
+        if check_role_dept:
+            err = assert_role_department_ceiling(
+                request.user, requester_caps,
+                target_role_slug, target_department_slug,
+            )
+            if err:
+                return Response(
+                    {"detail": err}, status=status.HTTP_403_FORBIDDEN,
+                )
+        return None
+
+    @action(detail=True, methods=["get"], url_path="authority")
+    def authority(self, request, pk=None, hotel_slug=None):
+        """Read-only authority view for a staff row."""
+        target = self.get_object()
+        return Response({
+            "staff_id": target.id,
+            "hotel_slug": target.hotel.slug,
+            "access_level": target.access_level,
+            "role": target.role.slug if target.role else None,
+            "department": (
+                target.department.slug if target.department else None
+            ),
+            "allowed_navs": [
+                n.slug for n in target.allowed_navigation_items.filter(
+                    is_active=True,
+                )
+            ],
+            "is_active": target.is_active,
+            "has_registered_face": target.has_registered_face,
+        })
+
+    @action(detail=True, methods=["patch"], url_path="assign-role")
+    def assign_role(self, request, pk=None, hotel_slug=None):
+        target = self.get_object()
+        serializer = StaffAuthorityRoleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_role = serializer.validated_data.get('role')
+        guard = self._apply_authority_guards(
+            request, target,
+            check_role_dept=True,
+            target_role_slug=new_role.slug if new_role else None,
+            target_department_slug=(
+                target.department.slug if target.department else None
+            ),
+        )
+        if guard is not None:
+            return guard
+        target.role = new_role
+        target.save(update_fields=['role'])
+        trigger_staff_profile_update(
+            target.hotel.slug, target, action='authority_role_updated',
+        )
+        return Response(StaffSerializer(target).data)
+
+    @action(detail=True, methods=["patch"], url_path="assign-department")
+    def assign_department(self, request, pk=None, hotel_slug=None):
+        target = self.get_object()
+        serializer = StaffAuthorityDepartmentSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_dept = serializer.validated_data.get('department')
+        guard = self._apply_authority_guards(
+            request, target,
+            check_role_dept=True,
+            target_role_slug=target.role.slug if target.role else None,
+            target_department_slug=(
+                new_dept.slug if new_dept else None
+            ),
+        )
+        if guard is not None:
+            return guard
+        target.department = new_dept
+        target.save(update_fields=['department'])
+        trigger_staff_profile_update(
+            target.hotel.slug, target,
+            action='authority_department_updated',
+        )
+        return Response(StaffSerializer(target).data)
+
+    @action(detail=True, methods=["patch"], url_path="assign-access-level")
+    def assign_access_level(self, request, pk=None, hotel_slug=None):
+        target = self.get_object()
+        serializer = StaffAuthorityAccessLevelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_level = serializer.validated_data['access_level']
+        guard = self._apply_authority_guards(
+            request, target,
+            check_access_level=True, new_access_level=new_level,
+        )
+        if guard is not None:
+            return guard
+        target.access_level = new_level
+        target.save(update_fields=['access_level'])
+        trigger_staff_profile_update(
+            target.hotel.slug, target,
+            action='authority_access_level_updated',
+        )
+        return Response(StaffSerializer(target).data)
+
+    @action(detail=True, methods=["patch"], url_path="assign-navigation")
+    def assign_navigation(self, request, pk=None, hotel_slug=None):
+        target = self.get_object()
+        serializer = StaffAuthorityNavigationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        requested_slugs = list(serializer.validated_data['slugs'])
+        # Resolve to hotel-scoped active NavigationItems
+        nav_items = NavigationItem.objects.filter(
+            hotel=target.hotel, is_active=True,
+            slug__in=requested_slugs,
+        )
+        valid_slugs = set(nav_items.values_list('slug', flat=True))
+        invalid = set(requested_slugs) - valid_slugs
+        if invalid:
+            return Response(
+                {"detail": f"Invalid navigation slugs: {sorted(invalid)}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        guard = self._apply_authority_guards(
+            request, target,
+            check_navs=True, requested_navs=sorted(valid_slugs),
+        )
+        if guard is not None:
+            return guard
+        target.allowed_navigation_items.set(nav_items)
+        try:
+            trigger_navigation_permission_update(
+                target.hotel.slug, target.id, sorted(valid_slugs),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Pusher nav update failed: %s", exc)
+        return Response(StaffSerializer(target).data)
+
+    @action(detail=True, methods=["post"], url_path="deactivate")
+    def deactivate(self, request, pk=None, hotel_slug=None):
+        """Soft deactivation: sets is_active=False. Rejects self."""
+        target = self.get_object()
+        err = assert_not_self_authority(request.user, target)
+        if err:
+            return Response(
+                {"detail": "You cannot deactivate your own staff profile."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        err = assert_same_hotel(request.user, target)
+        if err:
+            return Response(
+                {"detail": err}, status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = StaffDeactivateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        target.is_active = False
+        target.save(update_fields=['is_active'])
+        trigger_staff_profile_update(
+            target.hotel.slug, target, action='deactivated',
+        )
+        return Response(StaffSerializer(target).data)
 
     @action(detail=False, methods=["get"], url_path='me')
     def me(self, request, hotel_slug=None):
@@ -697,9 +1043,22 @@ class GenerateRegistrationPackageAPIView(APIView):
     """
     Generate or retrieve a registration package for staff onboarding.
     Returns registration code + QR code URL + token.
-    Only authenticated staff_admin+ with staff_management access can use.
+
+    Phase 6E.1:
+      - GET requires staff_management.registration_package.read
+      - POST requires staff_management.registration_package.create
+      - Superusers without staff_profile no longer 500; they must
+        supply hotel_slug and are resolved via URL/body directly.
     """
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
+    permission_classes = [IsAuthenticated, CanViewStaffManagementModule]
+
+    def get_permissions(self):
+        base = [IsAuthenticated(), CanViewStaffManagementModule()]
+        if self.request.method == 'POST':
+            base.append(CanCreateRegistrationPackages())
+        else:
+            base.append(CanReadRegistrationPackages())
+        return base
 
     def post(self, request):
         """
@@ -723,37 +1082,21 @@ class GenerateRegistrationPackageAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        # Check permissions: user must be staff of this hotel
-        try:
-            staff = request.user.staff_profile
+        # Hotel scoping: non-superuser must be a staff member of this hotel.
+        # Superuser without staff_profile no longer 500s (Phase 6E.1 bugfix).
+        user = request.user
+        if not user.is_superuser:
+            staff = getattr(user, 'staff_profile', None)
+            if staff is None:
+                return Response(
+                    {'error': 'Only staff members can generate registration codes.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             if staff.hotel.slug != hotel_slug:
                 return Response(
                     {'error': 'You can only create codes for your hotel.'},
-                    status=status.HTTP_403_FORBIDDEN
+                    status=status.HTTP_403_FORBIDDEN,
                 )
-            # Only staff_admin and super_staff_admin can create codes
-            if staff.access_level not in [
-                'staff_admin', 'super_staff_admin'
-            ]:
-                return Response(
-                    {
-                        'error': (
-                            'You do not have permission '
-                            'to generate registration codes.'
-                        )
-                    },
-                    status=status.HTTP_403_FORBIDDEN
-                )
-        except Staff.DoesNotExist:
-            return Response(
-                {
-                    'error': (
-                        'Only staff members can '
-                        'generate registration codes.'
-                    )
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
 
         # Determine how many packages to create (default 1, max 50)
         try:
@@ -838,18 +1181,14 @@ class GenerateRegistrationPackageAPIView(APIView):
 
         try:
             staff = request.user.staff_profile
-        except Staff.DoesNotExist:
+        except (Staff.DoesNotExist, AttributeError):
             return Response(
                 {'error': 'Only staff members can view registration codes.'},
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        if staff.access_level not in ('staff_admin', 'super_staff_admin'):
-            return Response(
-                {'error': 'You do not have permission to view registration codes.'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
+        # Phase 6E.1: capability gate handles authority; we only
+        # enforce hotel scoping here.
         hotel = staff.hotel
         codes = RegistrationCode.objects.filter(
             hotel_slug=hotel.slug
@@ -942,7 +1281,9 @@ class PasswordResetConfirmView(APIView):
 
 class UsersByHotelRegistrationCodeAPIView(generics.ListAPIView):
     serializer_class = UserSerializer
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
+    permission_classes = [
+        IsAuthenticated, CanViewStaffManagementModule, CanReadStaffUsers,
+    ]
 
     def get_queryset(self):
         user = self.request.user
@@ -983,7 +1324,11 @@ class PendingRegistrationsAPIView(APIView):
     - super_staff_admin: own hotel only
     - Django is_superuser: all hotels
     """
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
+    permission_classes = [
+        IsAuthenticated,
+        CanViewStaffManagementModule,
+        CanReadPendingRegistrations,
+    ]
 
     def get(self, request, hotel_slug):
         user = request.user
@@ -992,22 +1337,24 @@ class PendingRegistrationsAPIView(APIView):
         if user.is_superuser:
             pass  # no further permission check needed
         else:
-            # Must be a staff member of this hotel with sufficient access
+            # Capability-gated: must be a staff member of this hotel.
+            # Capability check already enforced by permission_classes;
+            # here we just hotel-scope.
             try:
-                requesting_staff = Staff.objects.get(user=user, hotel__slug=hotel_slug)
+                requesting_staff = Staff.objects.get(
+                    user=user, hotel__slug=hotel_slug,
+                )
             except Staff.DoesNotExist:
                 return Response(
                     {'error': 'You are not a staff member of this hotel.'},
-                    status=status.HTTP_403_FORBIDDEN
+                    status=status.HTTP_403_FORBIDDEN,
                 )
-
-            if not _tier_at_least(resolve_tier(requesting_staff.user), 'staff_admin'):
+            # Keep a defensive same-hotel assertion for clarity.
+            if requesting_staff.hotel.slug != hotel_slug:
                 return Response(
-                    {'error': 'Regular staff cannot view pending registrations.'},
-                    status=status.HTTP_403_FORBIDDEN
+                    {'error': 'Cross-hotel access denied.'},
+                    status=status.HTTP_403_FORBIDDEN,
                 )
-
-            # staff_admin and super_staff_admin may proceed for their own hotel
 
         # Get all used registration codes for this hotel
         used_codes = RegistrationCode.objects.filter(
@@ -1039,58 +1386,63 @@ class CreateStaffFromUserAPIView(APIView):
     POST endpoint to create a Staff profile for a registered user.
     Deletes the registration code after successful staff creation.
 
-    Permission matrix:
-    - regular_staff: 403 (cannot create staff)
-    - staff_admin: can create regular_staff only
-    - super_staff_admin: can create regular_staff and staff_admin
-    - Django is_superuser: can create any access level including super_staff_admin
+    Phase 6E.1: Capability-gated via staff_management.staff.create.
+    Authority-escalation is prevented by anti-escalation helpers:
+      - same hotel (unless superuser)
+      - strict-less-than access level (unless authority.supervise)
+      - role/department capability ceiling (unless authority.supervise)
     """
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
-
-    # Defines what each requester access level is allowed to create
-    ALLOWED_CREATIONS = {
-        'staff_admin': {'regular_staff'},
-        'super_staff_admin': {'regular_staff', 'staff_admin', 'super_staff_admin'},
-    }
+    permission_classes = [
+        IsAuthenticated, CanViewStaffManagementModule, CanCreateStaff,
+    ]
 
     def post(self, request, hotel_slug):
         user = request.user
-        requested_access_level = request.data.get('access_level', 'regular_staff')
+        requested_access_level = request.data.get(
+            'access_level', 'regular_staff',
+        )
 
-        # --- Permission enforcement ---
-        if user.is_superuser:
-            # Django superusers can create any access level
-            pass
-        else:
-            # Must be a staff member of THIS hotel
+        # --- Load hotel ---
+        try:
+            hotel = Hotel.objects.get(slug=hotel_slug)
+        except Hotel.DoesNotExist:
+            return Response(
+                {'error': 'Hotel not found.'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # --- Resolve requester capabilities + access level ---
+        requester_effective = resolve_effective_access(user)
+        requester_caps = requester_effective.get('allowed_capabilities', [])
+        requester_access_level = requester_effective.get('access_level')
+        requester_navs = requester_effective.get('allowed_navs', [])
+
+        # --- Same-hotel enforcement (superusers bypass) ---
+        if not user.is_superuser:
             try:
-                requesting_staff = Staff.objects.get(user=user, hotel__slug=hotel_slug)
+                requesting_staff = Staff.objects.get(
+                    user=user, hotel=hotel,
+                )
             except Staff.DoesNotExist:
                 return Response(
                     {'error': 'You are not a staff member of this hotel.'},
-                    status=status.HTTP_403_FORBIDDEN
+                    status=status.HTTP_403_FORBIDDEN,
                 )
 
-            if not _tier_at_least(resolve_tier(requesting_staff.user), 'staff_admin'):
+            # --- Access-level escalation guard ---
+            err = assert_access_level_allowed(
+                user,
+                requester_caps,
+                requester_access_level,
+                requested_access_level,
+            )
+            if err:
                 return Response(
-                    {'error': 'Regular staff cannot create staff profiles.'},
-                    status=status.HTTP_403_FORBIDDEN
+                    {'error': err},
+                    status=status.HTTP_403_FORBIDDEN,
                 )
 
-            allowed = self.ALLOWED_CREATIONS.get(requesting_staff.access_level, set())
-            if requested_access_level not in allowed:
-                return Response(
-                    {
-                        'error': (
-                            f'{requesting_staff.get_access_level_display()} '
-                            f'cannot create staff with access level '
-                            f'"{requested_access_level}".'
-                        )
-                    },
-                    status=status.HTTP_403_FORBIDDEN
-                )
-
-        # --- Validate target user ---
+        # --- Resolve target user ---
         user_id = request.data.get('user_id')
         first_name = request.data.get('first_name', '')
         last_name = request.data.get('last_name', '')
@@ -1102,63 +1454,68 @@ class CreateStaffFromUserAPIView(APIView):
         if not user_id:
             return Response(
                 {'error': 'user_id is required.'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get the target user
         try:
             target_user = User.objects.get(id=user_id)
         except User.DoesNotExist:
             return Response(
                 {'error': 'User not found.'},
-                status=status.HTTP_404_NOT_FOUND
+                status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Enforce target user belongs to this hotel's registration flow
-        if not RegistrationCode.objects.filter(hotel_slug=hotel_slug, used_by=target_user).exists():
+        if not RegistrationCode.objects.filter(
+            hotel_slug=hotel_slug, used_by=target_user,
+        ).exists():
             return Response(
                 {'error': 'This user did not register through this hotel.'},
-                status=status.HTTP_403_FORBIDDEN
+                status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Check if staff already exists
         if hasattr(target_user, 'staff_profile'):
             return Response(
                 {'error': 'Staff profile already exists for this user.'},
-                status=status.HTTP_400_BAD_REQUEST
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Get hotel
-        try:
-            hotel = Hotel.objects.get(slug=hotel_slug)
-        except Hotel.DoesNotExist:
-            return Response(
-                {'error': 'Hotel not found.'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        # Get department and role if provided
+        # --- Resolve dept/role if provided ---
         department = None
         role = None
         if department_id:
             try:
-                department = Department.objects.get(id=department_id, hotel=hotel)
+                department = Department.objects.get(
+                    id=department_id, hotel=hotel,
+                )
             except Department.DoesNotExist:
                 return Response(
                     {'error': 'Department not found.'},
-                    status=status.HTTP_404_NOT_FOUND
+                    status=status.HTTP_404_NOT_FOUND,
                 )
-
         if role_id:
             try:
                 role = Role.objects.get(id=role_id, hotel=hotel)
             except Role.DoesNotExist:
                 return Response(
                     {'error': 'Role not found.'},
-                    status=status.HTTP_404_NOT_FOUND
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
-        # Create the staff profile
+        # --- Role/department capability-ceiling guard (non-superuser) ---
+        if not user.is_superuser:
+            err = assert_role_department_ceiling(
+                user,
+                requester_caps,
+                role.slug if role else None,
+                department.slug if department else None,
+            )
+            if err:
+                return Response(
+                    {'error': err},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+        # --- Create staff ---
         staff = Staff.objects.create(
             user=target_user,
             hotel=hotel,
@@ -1169,30 +1526,31 @@ class CreateStaffFromUserAPIView(APIView):
             role=role,
             access_level=requested_access_level,
             is_active=is_active,
-            is_on_duty=False
+            is_on_duty=False,
         )
 
         # UPDATE USER FLAGS
         target_user.is_staff = True
         target_user.is_superuser = False
         target_user.save()
-        logger.info(f"Set User flags for {target_user.username}: is_staff=True, is_superuser=False")
+        logger.info(
+            "Set User flags for %s: is_staff=True, is_superuser=False",
+            target_user.username,
+        )
 
-        # Find and DELETE the registration code
+        # --- Delete the registration code ---
         try:
             reg_code = RegistrationCode.objects.get(
                 hotel_slug=hotel_slug,
-                used_by=target_user
+                used_by=target_user,
             )
             deleted_code = reg_code.code
             reg_code.delete()
         except RegistrationCode.DoesNotExist:
             deleted_code = None
 
-        # Serialize the created staff
         serializer = StaffSerializer(staff)
 
-        # Trigger Pusher event for new staff profile
         trigger_staff_profile_update(hotel_slug, staff, action='created')
         trigger_registration_update(
             hotel_slug,
@@ -1202,7 +1560,7 @@ class CreateStaffFromUserAPIView(APIView):
                 'staff_id': staff.id,
                 'registration_code': deleted_code,
             },
-            action='approved'
+            action='approved',
         )
 
         return Response({
@@ -1234,24 +1592,39 @@ class DepartmentViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('staff_management') gates module access.
-        CUD enforced via check_write_permission which requires staff_admin+.
+        Phase 6E.1: capability-gated.
+        - Read: CanReadStaffDepartments
+        - Write: CanManageStaffDepartments
         """
         if self.action in ['list', 'retrieve']:
-            return [IsAuthenticated(), HasNavPermission('staff_management')]
-        return [IsAuthenticated(), HasNavPermission('staff_management'), CanManageStaff()]
+            return [
+                IsAuthenticated(),
+                CanViewStaffManagementModule(),
+                CanReadStaffDepartments(),
+            ]
+        return [
+            IsAuthenticated(),
+            CanViewStaffManagementModule(),
+            CanManageStaffDepartments(),
+        ]
 
     def check_write_permission(self, hotel):
-        """Verify user can write departments for this hotel."""
+        """Verify user can write departments for this hotel.
+
+        Capability gate is applied in get_permissions. Here we only
+        enforce hotel scoping (write restricted to the requester's own
+        hotel; superusers bypass).
+        """
         user = self.request.user
         if user.is_superuser:
             return
-        if hasattr(user, 'staff_profile'):
-            staff = user.staff_profile
-            if staff.hotel_id == hotel.id and _tier_at_least(resolve_tier(user), 'staff_admin'):
-                return
+        staff = getattr(user, 'staff_profile', None)
+        if staff is not None and staff.hotel_id == hotel.id:
+            return
         from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("Only hotel admins can manage departments.")
+        raise PermissionDenied(
+            "You can only manage departments for your own hotel."
+        )
 
     def _get_hotel(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -1336,24 +1709,38 @@ class RoleViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('staff_management') gates module access.
-        CUD enforced via CanManageStaff + check_write_permission.
+        Phase 6E.1: capability-gated.
+        - Read: CanReadStaffRoles
+        - Write: CanManageStaffRoles
         """
         if self.action in ['list', 'retrieve']:
-            return [IsAuthenticated(), HasNavPermission('staff_management')]
-        return [IsAuthenticated(), HasNavPermission('staff_management'), CanManageStaff()]
+            return [
+                IsAuthenticated(),
+                CanViewStaffManagementModule(),
+                CanReadStaffRoles(),
+            ]
+        return [
+            IsAuthenticated(),
+            CanViewStaffManagementModule(),
+            CanManageStaffRoles(),
+        ]
 
     def check_write_permission(self, hotel):
-        """Verify user can write roles for this hotel."""
+        """Verify user can write roles for this hotel.
+
+        Capability gate handles authority; hotel scoping is enforced
+        here. Superusers bypass.
+        """
         user = self.request.user
         if user.is_superuser:
             return
-        if hasattr(user, 'staff_profile'):
-            staff = user.staff_profile
-            if staff.hotel_id == hotel.id and _tier_at_least(resolve_tier(user), 'staff_admin'):
-                return
+        staff = getattr(user, 'staff_profile', None)
+        if staff is not None and staff.hotel_id == hotel.id:
+            return
         from rest_framework.exceptions import PermissionDenied
-        raise PermissionDenied("Only hotel admins can manage roles.")
+        raise PermissionDenied(
+            "You can only manage roles for your own hotel."
+        )
 
     def _get_hotel(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -1489,155 +1876,161 @@ class StaffNavigationPermissionsView(APIView):
     """
     Canonical staff navigation permissions management.
     Implements the contract-compliant permission editor endpoints.
-    
+
     GET /api/staff/{staff_id}/navigation-permissions/
     PATCH /api/staff/{staff_id}/navigation-permissions/
-    
-    Authorization: super_staff_admin or superuser only
-    Hotel scoping: enforced unless requester is superuser
+
+    Phase 6E.1:
+      - GET requires staff_management.authority.view.
+      - PATCH requires staff_management.authority.access_level.assign
+        AND/OR staff_management.authority.nav.assign depending on the
+        fields the requester actually mutates; both are required when
+        both fields are present.
+      - Anti-escalation: no self-mutation, same-hotel, access-level
+        strict-less-than (unless supervise), nav-subset (unless
+        supervise).
     """
-    permission_classes = [IsAuthenticated, HasStaffManagementNav, IsSuperStaffAdminOrAbove]
-    
+
+    def get_permissions(self):
+        base = [IsAuthenticated(), CanViewStaffManagementModule()]
+        if self.request.method == 'PATCH':
+            # Require both assignment caps for PATCH; handlers use the
+            # caps they actually need — frontend may be restricted to a
+            # subset but we enforce the union defensively.
+            base.extend([
+                CanAssignStaffAccessLevel(),
+                CanAssignStaffNavigation(),
+            ])
+        else:
+            base.append(CanViewStaffAuthority())
+        return base
+
     def get(self, request, staff_id):
         """Get staff member's canonical navigation permissions."""
-        from .permissions import resolve_effective_access
-        
-        # Get target staff member
         target_staff = get_object_or_404(Staff, id=staff_id)
-        
-        # Authorization check
-        if not self._check_authorization(request.user, target_staff):
+
+        # Hotel scoping (capability already checked)
+        err = assert_same_hotel(request.user, target_staff)
+        if err:
             return Response(
-                {"error": "Permission denied. Requires super_staff_admin or superuser access."},
-                status=status.HTTP_403_FORBIDDEN
+                {"error": err}, status=status.HTTP_403_FORBIDDEN,
             )
-        
-        # Return canonical permissions for target staff
+
         permissions = resolve_effective_access(target_staff.user)
         permissions['staff_id'] = target_staff.id
-        permissions['staff_name'] = f"{target_staff.first_name} {target_staff.last_name}"
-        
+        permissions['staff_name'] = (
+            f"{target_staff.first_name} {target_staff.last_name}"
+        )
         return Response(permissions)
-    
+
     def patch(self, request, staff_id):
-        """Update staff member's navigation permissions using canonical system."""
-        # Import canonical resolver 
-        from .permissions import resolve_effective_access
-        
-        # Get target staff member
+        """Update staff member's nav permissions + access level.
+
+        Phase 6E.1 anti-escalation stack:
+          1. Not-self
+          2. Same-hotel
+          3. Access-level strict-less-than (unless supervise)
+          4. Nav subset (unless supervise)
+        """
         target_staff = get_object_or_404(Staff, id=staff_id)
-        
-        # Authorization check
-        if not self._check_authorization(request.user, target_staff):
+
+        err = assert_not_self_authority(request.user, target_staff)
+        if err:
             return Response(
-                {"error": "Permission denied. Requires super_staff_admin or superuser access."},
-                status=status.HTTP_403_FORBIDDEN
+                {"error": err}, status=status.HTTP_403_FORBIDDEN,
             )
-        
-        # Get request data
+        err = assert_same_hotel(request.user, target_staff)
+        if err:
+            return Response(
+                {"error": err}, status=status.HTTP_403_FORBIDDEN,
+            )
+
         allowed_navs = request.data.get('allowed_navs', [])
         new_access_level = request.data.get('access_level')
-        
-        # Validate access level if provided
-        if new_access_level and new_access_level not in ['regular_staff', 'staff_admin', 'super_staff_admin']:
+
+        if new_access_level and new_access_level not in (
+            'regular_staff', 'staff_admin', 'super_staff_admin',
+        ):
             return Response(
-                {"error": "Invalid access_level. Must be one of: regular_staff, staff_admin, super_staff_admin"},
-                status=status.HTTP_400_BAD_REQUEST
+                {"error": (
+                    "Invalid access_level. Must be one of: "
+                    "regular_staff, staff_admin, super_staff_admin"
+                )},
+                status=status.HTTP_400_BAD_REQUEST,
             )
-        
+
         # Validate navigation slugs (hotel-scoped)
+        valid_slugs: list[str] = []
         if allowed_navs:
-            # Check that all slugs exist as active NavigationItems in target staff's hotel
             valid_nav_items = NavigationItem.objects.filter(
                 hotel=target_staff.hotel,
                 is_active=True,
-                slug__in=allowed_navs
+                slug__in=allowed_navs,
             )
-            
-            valid_slugs = set(valid_nav_items.values_list('slug', flat=True))
-            requested_slugs = set(allowed_navs)
-            invalid_slugs = requested_slugs - valid_slugs
-            
+            valid_slugs = list(valid_nav_items.values_list('slug', flat=True))
+            invalid_slugs = set(allowed_navs) - set(valid_slugs)
             if invalid_slugs:
                 return Response(
-                    {"error": f"Invalid navigation slugs for this hotel: {list(invalid_slugs)}"},
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"error": (
+                        f"Invalid navigation slugs for this hotel: "
+                        f"{list(invalid_slugs)}"
+                    )},
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-        
-        # Safety check: prevent self-lockout for permission management
-        if self._is_self_lockout_attempt(request.user, target_staff, allowed_navs):
-            return Response(
-                {"error": "Cannot remove your own permission management access. Use another admin account."},
-                status=status.HTTP_400_BAD_REQUEST
+
+        # Anti-escalation checks
+        requester_effective = resolve_effective_access(request.user)
+        requester_caps = requester_effective.get('allowed_capabilities', [])
+        requester_access_level = requester_effective.get('access_level')
+        requester_navs = requester_effective.get('allowed_navs', [])
+
+        if new_access_level:
+            err = assert_access_level_allowed(
+                request.user, requester_caps,
+                requester_access_level, new_access_level,
             )
-        
-        # Update access level if provided
+            if err:
+                return Response(
+                    {"error": err}, status=status.HTTP_403_FORBIDDEN,
+                )
+        if allowed_navs is not None:
+            err = assert_nav_subset(
+                request.user, requester_caps,
+                requester_navs, valid_slugs or [],
+            )
+            if err:
+                return Response(
+                    {"error": err}, status=status.HTTP_403_FORBIDDEN,
+                )
+
+        # Apply changes
         if new_access_level:
             target_staff.access_level = new_access_level
             target_staff.save()
-        
-        # Update M2M navigation permissions (replace existing set)
-        if allowed_navs is not None:  # Allow empty list to clear all permissions
+
+        if allowed_navs is not None:  # Allow empty list to clear
             nav_items = NavigationItem.objects.filter(
                 hotel=target_staff.hotel,
                 is_active=True,
-                slug__in=allowed_navs
+                slug__in=valid_slugs,
             )
             target_staff.allowed_navigation_items.set(nav_items)
-            
-            # Trigger Pusher event for navigation permission update
             try:
                 trigger_navigation_permission_update(
                     target_staff.hotel.slug,
                     target_staff.id,
-                    allowed_navs
+                    sorted(valid_slugs),
                 )
-            except Exception as e:
-                # Don't fail the request if Pusher fails
-                print(f"Pusher notification failed: {e}")
-        
-        # Return updated canonical permissions
-        updated_permissions = resolve_effective_access(target_staff.user)
-        updated_permissions['staff_id'] = target_staff.id
-        updated_permissions['staff_name'] = f"{target_staff.first_name} {target_staff.last_name}"
-        updated_permissions['message'] = 'Navigation permissions updated successfully.'
-        
-        return Response(updated_permissions)
-    
-    def _check_authorization(self, requester_user, target_staff):
-        """Check if requester can manage permissions for target staff."""
-        # Superuser bypass
-        if requester_user.is_superuser:
-            return True
-        
-        try:
-            requester_staff = requester_user.staff_profile
-        except (AttributeError, Staff.DoesNotExist):
-            return False
-        
-        # Must be super_staff_admin (via canonical tier resolution)
-        if not _tier_at_least(resolve_tier(requester_user), 'super_staff_admin'):
-            return False
-        
-        # Hotel scoping (unless superuser)
-        if requester_staff.hotel != target_staff.hotel:
-            return False
-        
-        return True
-    
-    def _is_self_lockout_attempt(self, requester_user, target_staff, allowed_navs):
-        """Check if requester is trying to remove their own permission management access."""
-        if target_staff.user != requester_user:
-            return False
-        
-        # Check if removing permission management access from self
-        current_nav_slugs = set(target_staff.allowed_navigation_items.values_list('slug', flat=True))
-        permission_management_slugs = {'staff_management', 'admin_settings'}  # Adjust as needed
-        
-        current_has_perm_mgmt = bool(current_nav_slugs.intersection(permission_management_slugs))
-        new_has_perm_mgmt = bool(set(allowed_navs).intersection(permission_management_slugs))
-        
-        return current_has_perm_mgmt and not new_has_perm_mgmt
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Pusher notification failed: %s", exc)
+
+        updated = resolve_effective_access(target_staff.user)
+        updated['staff_id'] = target_staff.id
+        updated['staff_name'] = (
+            f"{target_staff.first_name} {target_staff.last_name}"
+        )
+        updated['message'] = 'Navigation permissions updated successfully.'
+        return Response(updated)
 
 
 class SaveFCMTokenView(APIView):
@@ -1734,7 +2127,11 @@ class EmailRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
     Email an existing registration package to a recipient.
     Does NOT create or mutate the package.
     """
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
+    permission_classes = [
+        IsAuthenticated,
+        CanViewStaffManagementModule,
+        CanEmailRegistrationPackages,
+    ]
 
     def post(self, request, pk):
         from .serializers import EmailRegistrationPackageSerializer
@@ -1848,7 +2245,11 @@ class PrintRegistrationPackageAPIView(_RegistrationPackageDeliveryMixin, APIView
 
     Return structured printable data for an existing registration package.
     """
-    permission_classes = [IsAuthenticated, HasStaffManagementNav]
+    permission_classes = [
+        IsAuthenticated,
+        CanViewStaffManagementModule,
+        CanPrintRegistrationPackages,
+    ]
 
     def get(self, request, pk):
         from .services import ensure_package_qr_ready, serialize_package

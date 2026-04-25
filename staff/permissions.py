@@ -1089,3 +1089,310 @@ class CanUploadMaintenancePhoto(HasCapability):
 class CanDeleteMaintenancePhoto(HasCapability):
     required_capability = MAINTENANCE_PHOTO_DELETE
     message = "You do not have permission to delete maintenance photos."
+
+# ---------------------------------------------------------------------------
+# Staff Management capability permission classes (Phase 6E.1)
+#
+# Single source of truth for endpoint enforcement in the staff-management
+# module. Stays in lock-step with MODULE_POLICY['staff_management'] so the
+# frontend rbac.staff_management object and backend enforcement derive
+# from the same capability slugs.
+#
+# Read/visibility gates set safe_methods_bypass = False so GETs are
+# gated. Mutation gates inherit the default (pass GET, enforce non-safe
+# methods) and are chained on top of CanViewStaffManagementModule by the
+# views.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    STAFF_MANAGEMENT_AUTHORITY_ACCESS_LEVEL_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_DEPARTMENT_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_NAV_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_ROLE_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_SUPERVISE,
+    STAFF_MANAGEMENT_AUTHORITY_VIEW,
+    STAFF_MANAGEMENT_DEPARTMENT_MANAGE,
+    STAFF_MANAGEMENT_DEPARTMENT_READ,
+    STAFF_MANAGEMENT_MODULE_VIEW,
+    STAFF_MANAGEMENT_PENDING_REGISTRATION_READ,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_READ,
+    STAFF_MANAGEMENT_ROLE_MANAGE,
+    STAFF_MANAGEMENT_ROLE_READ,
+    STAFF_MANAGEMENT_STAFF_CREATE,
+    STAFF_MANAGEMENT_STAFF_DEACTIVATE,
+    STAFF_MANAGEMENT_STAFF_DELETE,
+    STAFF_MANAGEMENT_STAFF_READ,
+    STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE,
+    STAFF_MANAGEMENT_USER_READ,
+)
+
+
+class CanViewStaffManagementModule(HasCapability):
+    """Module visibility gate for the staff-management module
+    (all methods)."""
+    required_capability = STAFF_MANAGEMENT_MODULE_VIEW
+    safe_methods_bypass = False
+    message = (
+        "You do not have permission to view the staff management module."
+    )
+
+
+class CanReadStaff(HasCapability):
+    required_capability = STAFF_MANAGEMENT_STAFF_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read staff."
+
+
+class CanReadStaffUsers(HasCapability):
+    required_capability = STAFF_MANAGEMENT_USER_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read users."
+
+
+class CanReadPendingRegistrations(HasCapability):
+    required_capability = STAFF_MANAGEMENT_PENDING_REGISTRATION_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read pending registrations."
+
+
+class CanCreateStaff(HasCapability):
+    required_capability = STAFF_MANAGEMENT_STAFF_CREATE
+    message = "You do not have permission to create staff."
+
+
+class CanUpdateStaffProfile(HasCapability):
+    required_capability = STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE
+    message = "You do not have permission to update staff profiles."
+
+
+class CanDeactivateStaff(HasCapability):
+    required_capability = STAFF_MANAGEMENT_STAFF_DEACTIVATE
+    message = "You do not have permission to deactivate staff."
+
+
+class CanDeleteStaff(HasCapability):
+    required_capability = STAFF_MANAGEMENT_STAFF_DELETE
+    message = "You do not have permission to delete staff."
+
+
+class CanViewStaffAuthority(HasCapability):
+    required_capability = STAFF_MANAGEMENT_AUTHORITY_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view staff authority."
+
+
+class CanAssignStaffRole(HasCapability):
+    required_capability = STAFF_MANAGEMENT_AUTHORITY_ROLE_ASSIGN
+    message = "You do not have permission to assign staff roles."
+
+
+class CanAssignStaffDepartment(HasCapability):
+    required_capability = STAFF_MANAGEMENT_AUTHORITY_DEPARTMENT_ASSIGN
+    message = "You do not have permission to assign staff departments."
+
+
+class CanAssignStaffAccessLevel(HasCapability):
+    required_capability = STAFF_MANAGEMENT_AUTHORITY_ACCESS_LEVEL_ASSIGN
+    message = "You do not have permission to assign staff access levels."
+
+
+class CanAssignStaffNavigation(HasCapability):
+    required_capability = STAFF_MANAGEMENT_AUTHORITY_NAV_ASSIGN
+    message = "You do not have permission to assign staff navigation."
+
+
+class CanSuperviseStaffAuthority(HasCapability):
+    required_capability = STAFF_MANAGEMENT_AUTHORITY_SUPERVISE
+    message = "You do not have permission to supervise staff authority."
+
+
+class CanReadStaffRoles(HasCapability):
+    required_capability = STAFF_MANAGEMENT_ROLE_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read staff roles."
+
+
+class CanManageStaffRoles(HasCapability):
+    required_capability = STAFF_MANAGEMENT_ROLE_MANAGE
+    message = "You do not have permission to manage staff roles."
+
+
+class CanReadStaffDepartments(HasCapability):
+    required_capability = STAFF_MANAGEMENT_DEPARTMENT_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read staff departments."
+
+
+class CanManageStaffDepartments(HasCapability):
+    required_capability = STAFF_MANAGEMENT_DEPARTMENT_MANAGE
+    message = "You do not have permission to manage staff departments."
+
+
+class CanReadRegistrationPackages(HasCapability):
+    required_capability = STAFF_MANAGEMENT_REGISTRATION_PACKAGE_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read registration packages."
+
+
+class CanCreateRegistrationPackages(HasCapability):
+    required_capability = STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE
+    message = "You do not have permission to create registration packages."
+
+
+class CanEmailRegistrationPackages(HasCapability):
+    required_capability = STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL
+    message = "You do not have permission to email registration packages."
+
+
+class CanPrintRegistrationPackages(HasCapability):
+    required_capability = STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT
+    message = "You do not have permission to print registration packages."
+
+
+# ---------------------------------------------------------------------------
+# Staff-management anti-escalation helpers (Phase 6E.1)
+#
+# Every authority-mutating endpoint composes these helpers in this
+# order (see views.py for call sites):
+#
+#   1. assert_not_self_authority    — requester != target (authority fields)
+#   2. assert_same_hotel             — requester.hotel == target.hotel
+#   3. assert_access_level_allowed   — supervise OR strict less-than
+#   4. assert_nav_subset             — supervise OR requested ⊆ requester
+#   5. assert_role_department_ceiling — supervise OR role∪dept caps ⊆ requester
+#
+# Django superusers bypass every helper (platform-admin contract).
+# ---------------------------------------------------------------------------
+
+# Access-level strict-less-than ordering (lower index = higher authority).
+# super_user > super_staff_admin > staff_admin > regular_staff.
+_ACCESS_LEVEL_ORDER: tuple[str, ...] = (
+    'super_user',
+    'super_staff_admin',
+    'staff_admin',
+    'regular_staff',
+)
+
+
+def _access_level_rank(access_level: str | None) -> int:
+    """Lower rank = higher authority. Unknown → max (lowest authority)."""
+    try:
+        return _ACCESS_LEVEL_ORDER.index(access_level)
+    except (ValueError, TypeError):
+        return len(_ACCESS_LEVEL_ORDER)
+
+
+def assert_not_self_authority(requester_user, target_staff) -> str | None:
+    """Rule 1 — requester may never mutate authority on their own row."""
+    if getattr(requester_user, 'is_superuser', False):
+        return None
+    target_user = getattr(target_staff, 'user', None)
+    if target_user is not None and target_user == requester_user:
+        return "You cannot change authority fields on your own profile."
+    return None
+
+
+def assert_same_hotel(requester_user, target_staff) -> str | None:
+    """Rule 3 — cross-hotel authority assignment is forbidden except for
+    platform superusers."""
+    if getattr(requester_user, 'is_superuser', False):
+        return None
+    requester_staff = getattr(requester_user, 'staff_profile', None)
+    if requester_staff is None:
+        return "You must be a staff member of this hotel."
+    if getattr(target_staff, 'hotel_id', None) != requester_staff.hotel_id:
+        return "Cannot mutate authority for a staff member in another hotel."
+    return None
+
+
+def _has_supervise(capabilities) -> bool:
+    return STAFF_MANAGEMENT_AUTHORITY_SUPERVISE in (capabilities or ())
+
+
+def assert_access_level_allowed(
+    requester_user,
+    requester_capabilities,
+    requester_access_level: str | None,
+    target_access_level: str | None,
+) -> str | None:
+    """Rule 4 — without supervise, requester may only assign strictly
+    below their own access level."""
+    if getattr(requester_user, 'is_superuser', False):
+        return None
+    if _has_supervise(requester_capabilities):
+        return None
+    requester_rank = _access_level_rank(requester_access_level)
+    target_rank = _access_level_rank(target_access_level)
+    # "strictly below" → target has a higher rank number than requester.
+    if target_rank <= requester_rank:
+        return (
+            "You cannot assign an equal or higher access level without "
+            "the supervise capability."
+        )
+    return None
+
+
+def assert_nav_subset(
+    requester_user,
+    requester_capabilities,
+    requester_navs,
+    requested_navs,
+) -> str | None:
+    """Rule 5 — without supervise, assigned nav slugs must be a subset of
+    requester's own effective navs."""
+    if getattr(requester_user, 'is_superuser', False):
+        return None
+    if _has_supervise(requester_capabilities):
+        return None
+    requester_set = set(requester_navs or [])
+    requested_set = set(requested_navs or [])
+    extras = requested_set - requester_set
+    if extras:
+        return (
+            "You cannot assign navigation slugs beyond your own "
+            "effective set without the supervise capability."
+        )
+    return None
+
+
+def _caps_for_role_slug(role_slug: str | None) -> set[str]:
+    if not role_slug:
+        return set()
+    return set(ROLE_PRESET_CAPABILITIES.get(role_slug, frozenset()))
+
+
+def _caps_for_department_slug(department_slug: str | None) -> set[str]:
+    if not department_slug:
+        return set()
+    return set(DEPARTMENT_PRESET_CAPABILITIES.get(department_slug, frozenset()))
+
+
+def assert_role_department_ceiling(
+    requester_user,
+    requester_capabilities,
+    target_role_slug: str | None,
+    target_department_slug: str | None,
+) -> str | None:
+    """Rule 6 — without supervise, the union of capabilities granted by
+    the target role + department presets must not exceed the requester's
+    own resolved capability set."""
+    if getattr(requester_user, 'is_superuser', False):
+        return None
+    if _has_supervise(requester_capabilities):
+        return None
+    granted = (
+        _caps_for_role_slug(target_role_slug)
+        | _caps_for_department_slug(target_department_slug)
+    )
+    requester_set = set(requester_capabilities or ())
+    overshoot = granted - requester_set
+    if overshoot:
+        return (
+            "You cannot assign a role/department whose preset grants "
+            "capabilities beyond your own without the supervise capability."
+        )
+    return None
+

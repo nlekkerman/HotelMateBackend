@@ -96,11 +96,6 @@ mgr = Staff.objects.filter(access_level='super_staff_admin', is_active=True).sel
 if mgr:
     targets.append(('super_staff_admin (manager tier)', mgr))
 
-# operations_admin
-ops = Staff.objects.filter(role__slug='operations_admin', is_active=True).select_related('user','role','department','hotel').first()
-if ops:
-    targets.append(('operations_admin role', ops))
-
 # porter (should have ZERO booking caps)
 porter = Staff.objects.filter(role__slug='porter', is_active=True).select_related('user','role','department','hotel').first()
 if porter:

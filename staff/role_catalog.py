@@ -101,10 +101,25 @@ CANONICAL_ROLES: list[dict[str, str]] = [
      'department_slug': 'management',
      'description': 'Hotel general manager.'},
 
-    # Administration
-    {'slug': 'operations_admin', 'name': 'Operations Admin',
+    # Staff Management (Phase 6E.1) — role-based authority for the staff
+    # management module. Disjoint from the Staff.access_level tier
+    # choices of the same name: these role slugs grant the
+    # staff_management.* capability bundle via preset, while the tier
+    # names carry no module authority.
+    {'slug': 'staff_admin', 'name': 'Staff Admin (Role)',
      'department_slug': 'administration',
-     'description': 'Back office operations administrator.'},
+     'description': (
+         'Basic staff-management authority: create / update / deactivate '
+         'staff and mint registration packages. Cannot assign role, '
+         'department, access level, or navigation, nor delete staff.'
+     )},
+    {'slug': 'super_staff_admin', 'name': 'Super Staff Admin (Role)',
+     'department_slug': 'administration',
+     'description': (
+         'Full staff-management authority including role / department / '
+         'access-level / navigation assignment and staff delete. Anti-'
+         'escalation rules still apply — grants no authority supervise.'
+     )},
 ]
 
 CANONICAL_ROLE_SLUGS: frozenset[str] = frozenset(
@@ -156,7 +171,7 @@ LEGACY_ROLE_SLUGS: frozenset[str] = frozenset({
 
 # Flat 1:1 remaps (department-independent).
 LEGACY_ROLE_REMAP: dict[str, str] = {
-    'admin': 'operations_admin',
+    'admin': 'hotel_manager',
     'receptionist': 'front_desk_agent',
     'porter': 'front_desk_agent',
     'housekeeping': 'housekeeper',
@@ -171,7 +186,7 @@ _MANAGER_BY_DEPT: dict[str, str] = {
     'maintenance': 'maintenance_manager',
     'guest_relations': 'guest_relations_manager',
     'management': 'hotel_manager',
-    'administration': 'operations_admin',
+    'administration': 'hotel_manager',
 }
 
 

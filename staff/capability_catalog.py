@@ -294,6 +294,126 @@ MAINTENANCE_PHOTO_DELETE = 'maintenance.photo.delete'
 """Delete a maintenance photo (also gates PUT/PATCH on photo rows)."""
 
 
+# --- Staff Management (Phase 6E.1) ---
+# Module policy shape (see staff/module_policy.py):
+#   visible  → STAFF_MANAGEMENT_MODULE_VIEW
+#   read     → STAFF_MANAGEMENT_STAFF_READ
+#   actions  → the slugs below.
+#
+# Tier intentionally never carries any staff_management.* capability —
+# staff-management authority is granted exclusively via role presets so
+# tier never doubles as the permission engine (same contract as
+# Bookings / Rooms / Housekeeping / Maintenance).
+
+STAFF_MANAGEMENT_MODULE_VIEW = 'staff_management.module.view'
+"""See the staff management module (navigation + module-level visibility)."""
+
+STAFF_MANAGEMENT_STAFF_READ = 'staff_management.staff.read'
+"""List / retrieve Staff rows (module `/me`, metadata, by_department,
+by_hotel, attendance-summary) scoped to the current hotel."""
+
+STAFF_MANAGEMENT_USER_READ = 'staff_management.user.read'
+"""List / retrieve User rows tied to the requester's hotel registration
+codes. Dangerous cross-hotel surface — granted only to supervise-level
+personas."""
+
+STAFF_MANAGEMENT_PENDING_REGISTRATION_READ = (
+    'staff_management.pending_registration.read'
+)
+"""Read pending staff registrations (users who consumed a code but have
+no Staff row yet)."""
+
+STAFF_MANAGEMENT_STAFF_CREATE = 'staff_management.staff.create'
+"""Create a Staff row (from a user who has consumed a registration code
+for the URL hotel). Authority-field assignments remain subject to
+anti-escalation rules."""
+
+STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE = 'staff_management.staff.update_profile'
+"""Update non-authority profile fields on a Staff row
+(first_name / last_name / email / phone_number / profile_image /
+duty_status / is_on_duty). Never covers access_level / role /
+department / hotel / is_active / allowed_navigation_items /
+has_registered_face."""
+
+STAFF_MANAGEMENT_STAFF_DEACTIVATE = 'staff_management.staff.deactivate'
+"""Flip Staff.is_active = False via the dedicated deactivate action.
+Self-deactivation is always rejected at the view layer."""
+
+STAFF_MANAGEMENT_STAFF_DELETE = 'staff_management.staff.delete'
+"""Hard-delete a Staff row. Self-delete is always rejected at the view
+layer."""
+
+STAFF_MANAGEMENT_AUTHORITY_VIEW = 'staff_management.authority.view'
+"""Read the canonical navigation-permissions view for another staff
+member (GET /<staff_id>/permissions/)."""
+
+STAFF_MANAGEMENT_AUTHORITY_ROLE_ASSIGN = (
+    'staff_management.authority.role.assign'
+)
+"""Assign Staff.role. Role queryset is scoped to the URL hotel and
+role-preset-capability ceiling is enforced unless the requester holds
+STAFF_MANAGEMENT_AUTHORITY_SUPERVISE."""
+
+STAFF_MANAGEMENT_AUTHORITY_DEPARTMENT_ASSIGN = (
+    'staff_management.authority.department.assign'
+)
+"""Assign Staff.department. Department queryset is scoped to the URL
+hotel and department-preset-capability ceiling is enforced unless the
+requester holds STAFF_MANAGEMENT_AUTHORITY_SUPERVISE."""
+
+STAFF_MANAGEMENT_AUTHORITY_ACCESS_LEVEL_ASSIGN = (
+    'staff_management.authority.access_level.assign'
+)
+"""Assign Staff.access_level. Without
+STAFF_MANAGEMENT_AUTHORITY_SUPERVISE, the assigned level must be
+strictly below the requester's own level."""
+
+STAFF_MANAGEMENT_AUTHORITY_NAV_ASSIGN = (
+    'staff_management.authority.nav.assign'
+)
+"""Assign Staff.allowed_navigation_items. Without
+STAFF_MANAGEMENT_AUTHORITY_SUPERVISE, assigned slugs must be a subset of
+the requester's own effective navs."""
+
+STAFF_MANAGEMENT_AUTHORITY_SUPERVISE = 'staff_management.authority.supervise'
+"""Meta-capability lifting the anti-escalation ceilings on role /
+department / access-level / nav assignment. Reserved for the
+hotel_manager role preset."""
+
+STAFF_MANAGEMENT_ROLE_READ = 'staff_management.role.read'
+"""List / retrieve Role rows scoped to the current hotel."""
+
+STAFF_MANAGEMENT_ROLE_MANAGE = 'staff_management.role.manage'
+"""Create / update / delete Role rows scoped to the current hotel."""
+
+STAFF_MANAGEMENT_DEPARTMENT_READ = 'staff_management.department.read'
+"""List / retrieve Department rows scoped to the current hotel."""
+
+STAFF_MANAGEMENT_DEPARTMENT_MANAGE = 'staff_management.department.manage'
+"""Create / update / delete Department rows scoped to the current hotel."""
+
+STAFF_MANAGEMENT_REGISTRATION_PACKAGE_READ = (
+    'staff_management.registration_package.read'
+)
+"""List registration packages for the current hotel."""
+
+STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE = (
+    'staff_management.registration_package.create'
+)
+"""Mint new registration packages for the current hotel."""
+
+STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL = (
+    'staff_management.registration_package.email'
+)
+"""Email an existing registration package to a recipient."""
+
+STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT = (
+    'staff_management.registration_package.print'
+)
+"""Render the printable / QR payload for an existing registration
+package."""
+
+
 CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
     CHAT_GUEST_RESPOND,
@@ -358,6 +478,29 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     MAINTENANCE_COMMENT_MODERATE,
     MAINTENANCE_PHOTO_UPLOAD,
     MAINTENANCE_PHOTO_DELETE,
+    # Staff Management (Phase 6E.1)
+    STAFF_MANAGEMENT_MODULE_VIEW,
+    STAFF_MANAGEMENT_STAFF_READ,
+    STAFF_MANAGEMENT_USER_READ,
+    STAFF_MANAGEMENT_PENDING_REGISTRATION_READ,
+    STAFF_MANAGEMENT_STAFF_CREATE,
+    STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE,
+    STAFF_MANAGEMENT_STAFF_DEACTIVATE,
+    STAFF_MANAGEMENT_STAFF_DELETE,
+    STAFF_MANAGEMENT_AUTHORITY_VIEW,
+    STAFF_MANAGEMENT_AUTHORITY_ROLE_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_DEPARTMENT_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_ACCESS_LEVEL_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_NAV_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_SUPERVISE,
+    STAFF_MANAGEMENT_ROLE_READ,
+    STAFF_MANAGEMENT_ROLE_MANAGE,
+    STAFF_MANAGEMENT_DEPARTMENT_READ,
+    STAFF_MANAGEMENT_DEPARTMENT_MANAGE,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_READ,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT,
 })
 
 
@@ -532,6 +675,63 @@ _MAINTENANCE_MANAGE: frozenset[str] = _MAINTENANCE_SUPERVISE | frozenset({
     MAINTENANCE_REQUEST_DELETE,
 })
 
+
+# ---------------------------------------------------------------------------
+# Staff Management preset bundles (Phase 6E.1)
+#
+# Three escalating bundles:
+#   BASIC   — module.view + read surfaces + basic staff CRUD + registration
+#             packages + role/department read. No authority assignment,
+#             no delete, no supervise. This is the "staff_admin role"
+#             persona.
+#   FULL    — BASIC + authority.view + authority.{role,department,
+#             access_level,nav}.assign + role/department.manage +
+#             staff.delete. This is the "super_staff_admin role" persona;
+#             anti-escalation rules still apply because the supervise
+#             capability is NOT included.
+#   MANAGER — FULL + authority.supervise. Lifts anti-escalation ceilings
+#             within the same hotel. Reserved for the hotel_manager
+#             role preset.
+#
+# Tier intentionally never carries any staff_management.* capability
+# (see the contract rule at the top of this file and the preset
+# distribution tests).
+# ---------------------------------------------------------------------------
+
+_STAFF_MANAGEMENT_BASIC: frozenset[str] = frozenset({
+    STAFF_MANAGEMENT_MODULE_VIEW,
+    STAFF_MANAGEMENT_STAFF_READ,
+    STAFF_MANAGEMENT_PENDING_REGISTRATION_READ,
+    STAFF_MANAGEMENT_STAFF_CREATE,
+    STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE,
+    STAFF_MANAGEMENT_STAFF_DEACTIVATE,
+    STAFF_MANAGEMENT_ROLE_READ,
+    STAFF_MANAGEMENT_DEPARTMENT_READ,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_READ,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT,
+})
+
+_STAFF_MANAGEMENT_FULL: frozenset[str] = _STAFF_MANAGEMENT_BASIC | frozenset({
+    STAFF_MANAGEMENT_USER_READ,
+    STAFF_MANAGEMENT_AUTHORITY_VIEW,
+    STAFF_MANAGEMENT_AUTHORITY_ROLE_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_DEPARTMENT_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_ACCESS_LEVEL_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_NAV_ASSIGN,
+    STAFF_MANAGEMENT_ROLE_MANAGE,
+    STAFF_MANAGEMENT_DEPARTMENT_MANAGE,
+    STAFF_MANAGEMENT_STAFF_DELETE,
+})
+
+_STAFF_MANAGEMENT_MANAGER: frozenset[str] = (
+    _STAFF_MANAGEMENT_FULL | frozenset({
+        STAFF_MANAGEMENT_AUTHORITY_SUPERVISE,
+    })
+)
+
+
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6A.2: tier carries only cross-cutting supervisor authority.
     # Booking operate/manage live on department/role presets so tier is
@@ -556,9 +756,6 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
 #     fnb_manager, …) are expected to run on super_staff_admin tier, which
 #     already carries the full supervisor authority bundle via tier preset.
 #     Role presets for them would be redundant.
-#   - operations_admin is the only non-management role that inherits the
-#     full supervisor authority bundle regardless of tier — it replaces the
-#     legacy `admin` role.
 #   - front_desk_agent carries the porter-routing capability so the room
 #     service porter notifications target front desk staff. The broader
 #     CHAT_GUEST_RESPOND + HOUSEKEEPING_ROOM_STATUS_FRONT_DESK capabilities
@@ -567,28 +764,23 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
 # ---------------------------------------------------------------------------
 
 ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
-    # operations_admin replaces the legacy `admin` role: full supervisor
-    # authority regardless of tier, plus booking supervise (overrides).
-    # Phase 6A.2: downgraded from MANAGE → SUPERVISE; config manage is
-    # reserved for hotel_manager / front_office_manager role presets.
-    # Phase 6B.1: adds room supervise + out-of-order + destructive checkout.
-    'operations_admin': (
-        _SUPERVISOR_AUTHORITY
-        | _BOOKING_SUPERVISE
-        | _ROOM_SUPERVISE
-        | _HOUSEKEEPING_SUPERVISE
-        | _MAINTENANCE_MANAGE
-        | frozenset({ROOM_OUT_OF_ORDER_SET, ROOM_CHECKOUT_DESTRUCTIVE})
-    ),
+    # Phase 6E.1: staff-management-only role personas. They carry the
+    # staff_management.* bundle and nothing else — the canonical way for
+    # a hotel to grant "staff_admin role" / "super_staff_admin role"
+    # authority without tier leakage. Not to be confused with the
+    # Staff.access_level tier choices of the same name.
+    'staff_admin': _STAFF_MANAGEMENT_BASIC,
+    'super_staff_admin': _STAFF_MANAGEMENT_FULL,
     # Phase 6A.2: manage-bucket role presets. Tier no longer grants
     # BOOKING_CONFIG_MANAGE, so managing rate plans / cancellation
     # policies / precheckin / survey config requires one of these roles.
     # Phase 6B.1: hotel_manager carries the full rooms manage bundle.
     # Phase 6C: hotel_manager carries the full housekeeping manage bundle.
     # Phase 6D.1: hotel_manager carries the full maintenance manage bundle.
+    # Phase 6E.1: carries full staff-management manager bundle (supervise).
     'hotel_manager': (
         _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE
-        | _MAINTENANCE_MANAGE
+        | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_MANAGER
     ),
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
@@ -644,8 +836,7 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         HOUSEKEEPING_MODULE_VIEW,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
         HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
-    }) | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ
-      | _MAINTENANCE_REPORTER,
+    }) | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ | _MAINTENANCE_REPORTER,
     # Phase 6B.1 / 6C: housekeeping department gets full room OPERATE
     # plus the housekeeping operate bundle (read + execute + transition
     # + history read).

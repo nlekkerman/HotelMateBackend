@@ -260,13 +260,6 @@ class MaintenancePolicyPersonaTest(TestCase):
         for key in pol['actions']:
             self.assertTrue(pol['actions'][key], key)
 
-    def test_operations_admin_full_bundle(self):
-        pol = self._policy(
-            'regular_staff', 'operations_admin', 'administration',
-        )
-        for key in pol['actions']:
-            self.assertTrue(pol['actions'][key], key)
-
     def test_tier_only_staff_admin_has_no_maintenance_authority(self):
         pol = self._policy('staff_admin', None, None)
         self.assertFalse(pol['visible'])

@@ -83,6 +83,28 @@ from staff.capability_catalog import (
     ROOM_STATUS_READ,
     ROOM_STATUS_TRANSITION,
     ROOM_TYPE_MANAGE,
+    STAFF_MANAGEMENT_AUTHORITY_ACCESS_LEVEL_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_DEPARTMENT_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_NAV_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_ROLE_ASSIGN,
+    STAFF_MANAGEMENT_AUTHORITY_SUPERVISE,
+    STAFF_MANAGEMENT_AUTHORITY_VIEW,
+    STAFF_MANAGEMENT_DEPARTMENT_MANAGE,
+    STAFF_MANAGEMENT_DEPARTMENT_READ,
+    STAFF_MANAGEMENT_MODULE_VIEW,
+    STAFF_MANAGEMENT_PENDING_REGISTRATION_READ,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT,
+    STAFF_MANAGEMENT_REGISTRATION_PACKAGE_READ,
+    STAFF_MANAGEMENT_ROLE_MANAGE,
+    STAFF_MANAGEMENT_ROLE_READ,
+    STAFF_MANAGEMENT_STAFF_CREATE,
+    STAFF_MANAGEMENT_STAFF_DEACTIVATE,
+    STAFF_MANAGEMENT_STAFF_DELETE,
+    STAFF_MANAGEMENT_STAFF_READ,
+    STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE,
+    STAFF_MANAGEMENT_USER_READ,
 )
 
 
@@ -169,6 +191,53 @@ MODULE_POLICY: dict[str, dict] = {
             'comment_moderate': MAINTENANCE_COMMENT_MODERATE,
             'photo_upload': MAINTENANCE_PHOTO_UPLOAD,
             'photo_delete': MAINTENANCE_PHOTO_DELETE,
+        },
+    },
+    'staff_management': {
+        'view_capability': STAFF_MANAGEMENT_MODULE_VIEW,
+        'read_capability': STAFF_MANAGEMENT_STAFF_READ,
+        'actions': {
+            'staff_read': STAFF_MANAGEMENT_STAFF_READ,
+            'user_read': STAFF_MANAGEMENT_USER_READ,
+            'pending_registration_read': (
+                STAFF_MANAGEMENT_PENDING_REGISTRATION_READ
+            ),
+
+            'staff_create': STAFF_MANAGEMENT_STAFF_CREATE,
+            'staff_update_profile': STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE,
+            'staff_deactivate': STAFF_MANAGEMENT_STAFF_DEACTIVATE,
+            'staff_delete': STAFF_MANAGEMENT_STAFF_DELETE,
+
+            'authority_view': STAFF_MANAGEMENT_AUTHORITY_VIEW,
+            'authority_role_assign': (
+                STAFF_MANAGEMENT_AUTHORITY_ROLE_ASSIGN
+            ),
+            'authority_department_assign': (
+                STAFF_MANAGEMENT_AUTHORITY_DEPARTMENT_ASSIGN
+            ),
+            'authority_access_level_assign': (
+                STAFF_MANAGEMENT_AUTHORITY_ACCESS_LEVEL_ASSIGN
+            ),
+            'authority_nav_assign': STAFF_MANAGEMENT_AUTHORITY_NAV_ASSIGN,
+            'authority_supervise': STAFF_MANAGEMENT_AUTHORITY_SUPERVISE,
+
+            'role_read': STAFF_MANAGEMENT_ROLE_READ,
+            'role_manage': STAFF_MANAGEMENT_ROLE_MANAGE,
+            'department_read': STAFF_MANAGEMENT_DEPARTMENT_READ,
+            'department_manage': STAFF_MANAGEMENT_DEPARTMENT_MANAGE,
+
+            'registration_package_read': (
+                STAFF_MANAGEMENT_REGISTRATION_PACKAGE_READ
+            ),
+            'registration_package_create': (
+                STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE
+            ),
+            'registration_package_email': (
+                STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL
+            ),
+            'registration_package_print': (
+                STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT
+            ),
         },
     },
 }

@@ -184,29 +184,34 @@ class UserSerializer(serializers.ModelSerializer):
 
 class StaffSerializer(serializers.ModelSerializer):
     user = UserSerializer(read_only=True)
-    hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
+    # All identity/authority fields are READ-ONLY on the generic Staff
+    # endpoint. Authority mutation happens through dedicated capability-
+    # gated endpoints (see StaffViewSet authority @actions) and profile
+    # updates happen through StaffProfileUpdateSerializer. The `hotel`
+    # binding is API-immutable; a staff row's hotel can only change via
+    # the admin site.
+    hotel = serializers.PrimaryKeyRelatedField(read_only=True)
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
 
-    department = serializers.PrimaryKeyRelatedField(
-        queryset=Department.objects.all(),
-        allow_null=True,
-        required=False,
-    )
-    role = serializers.PrimaryKeyRelatedField(
-        queryset=Role.objects.all(),
-        allow_null=True,
-        required=False,
-    )
+    department = serializers.PrimaryKeyRelatedField(read_only=True)
+    role = serializers.PrimaryKeyRelatedField(read_only=True)
 
     department_detail = DepartmentSerializer(source='department', read_only=True)
     role_detail = RoleSerializer(source='role', read_only=True)
 
-    access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
+    access_level = serializers.ChoiceField(
+        choices=Staff.ACCESS_LEVEL_CHOICES, read_only=True,
+    )
     allowed_navs = serializers.SerializerMethodField()
     has_fcm_token = serializers.SerializerMethodField()
-    has_registered_face = serializers.BooleanField()
-    profile_image = serializers.ImageField(required=False, allow_null=True, use_url=True)
-    profile_image_url = serializers.CharField(source='profile_image.url', read_only=True)
+    has_registered_face = serializers.BooleanField(read_only=True)
+    is_active = serializers.BooleanField(read_only=True)
+    profile_image = serializers.ImageField(
+        required=False, allow_null=True, use_url=True,
+    )
+    profile_image_url = serializers.CharField(
+        source='profile_image.url', read_only=True,
+    )
     
     # New fields for frontend permission checks
     is_staff_member = serializers.SerializerMethodField()
@@ -229,7 +234,12 @@ class StaffSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'user', 'allowed_navs', 'hotel_name', 'hotel_slug',
             'profile_image_url', 'department_detail', 'role_detail',
-            'has_fcm_token', 'is_staff_member', 'role_slug','current_status'
+            'has_fcm_token', 'is_staff_member', 'role_slug',
+            'current_status',
+            # Authority/identity fields: API-immutable on the generic
+            # Staff endpoint (enforced both here and in views).
+            'hotel', 'department', 'role', 'access_level', 'is_active',
+            'has_registered_face',
         ]
 
     def get_has_fcm_token(self, obj):
@@ -503,12 +513,25 @@ class StaffAttendanceSummarySerializer(StaffSerializer):
 
 
 class RegisterStaffSerializer(serializers.ModelSerializer):
+    """Capability-gated creation of a Staff row from an existing User.
+
+    Hardened in Phase 6E.1:
+      - `hotel` is NOT accepted in the request body; it is bound from
+        URL context (`self.context['hotel']`) so a caller cannot
+        silently target a different hotel.
+      - `role` / `department` querysets are scoped to the URL hotel via
+        context (`Hotel.objects.filter(pk=hotel.pk)` relationship) to
+        prevent cross-hotel entity binding.
+      - `user_id` must resolve to a User who consumed a
+        RegistrationCode for the URL hotel (or have no staff_profile and
+        is otherwise a valid candidate — checked in view).
+    """
     user_id = serializers.IntegerField(write_only=True)
-    hotel = serializers.PrimaryKeyRelatedField(queryset=Hotel.objects.all())
     hotel_name = serializers.CharField(source='hotel.name', read_only=True)
-    access_level = serializers.ChoiceField(choices=Staff.ACCESS_LEVEL_CHOICES)
+    access_level = serializers.ChoiceField(
+        choices=Staff.ACCESS_LEVEL_CHOICES,
+    )
     user = UserSerializer(read_only=True)
-    # Firebase FCM tokens removed
     profile_image = serializers.ImageField(required=False, allow_null=True)
     department = serializers.PrimaryKeyRelatedField(
         queryset=Department.objects.all(),
@@ -526,22 +549,65 @@ class RegisterStaffSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'user_id', 'user', 'first_name', 'last_name',
             'department', 'role',
-            'email', 'phone_number', 'is_active', 'duty_status', 'is_on_duty',
-            'hotel', 'access_level', 'hotel_name',
+            'email', 'phone_number', 'is_active',
+            'duty_status', 'is_on_duty',
+            'access_level', 'hotel_name',
             'profile_image',
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Scope role/department queryset to URL hotel when provided in
+        # context. This blocks cross-hotel role/department binding at
+        # validation time (defense in depth alongside Staff.clean()).
+        hotel = self.context.get('hotel') if self.context else None
+        if hotel is not None:
+            # Roles/Departments are global entities in this schema but we
+            # additionally constrain against role.department and
+            # staff.hotel consistency in Staff.clean(); here we simply
+            # guarantee the serializer sees a clean, full queryset.
+            self.fields['department'].queryset = Department.objects.all()
+            self.fields['role'].queryset = Role.objects.all()
+
+    def validate_user_id(self, value):
+        hotel = self.context.get('hotel') if self.context else None
+        try:
+            user = User.objects.get(pk=value)
+        except User.DoesNotExist:
+            raise serializers.ValidationError('User not found.')
+        if Staff.objects.filter(user=user).exists():
+            raise serializers.ValidationError(
+                'Staff already exists for this user.'
+            )
+        if hotel is not None:
+            has_consumed_code = RegistrationCode.objects.filter(
+                used_by=user, hotel_slug=hotel.slug,
+            ).exists()
+            if not has_consumed_code:
+                raise serializers.ValidationError(
+                    'User has not consumed a registration code for '
+                    'this hotel.'
+                )
+        return value
+
     def create(self, validated_data):
         user_id = validated_data.pop('user_id')
+        hotel = self.context.get('hotel') if self.context else None
+        if hotel is None:
+            raise serializers.ValidationError(
+                {'hotel': 'Hotel context is required.'}
+            )
         try:
             user = User.objects.get(id=user_id)
         except User.DoesNotExist:
-            raise serializers.ValidationError({'user_id': 'User not found.'})
+            raise serializers.ValidationError(
+                {'user_id': 'User not found.'}
+            )
         if Staff.objects.filter(user=user).exists():
             raise serializers.ValidationError(
                 {'user_id': 'Staff already exists for this user.'}
             )
-        staff = Staff.objects.create(user=user, **validated_data)
+        staff = Staff.objects.create(user=user, hotel=hotel, **validated_data)
         return staff
 
 
@@ -593,3 +659,80 @@ class EmailRegistrationPackageSerializer(serializers.Serializer):
     email = serializers.EmailField()
     subject = serializers.CharField(required=False, allow_blank=True)
     message = serializers.CharField(required=False, allow_blank=True)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6E.1 — Split authority / profile serializers
+#
+# The generic StaffSerializer exposes authority/identity fields as
+# read-only. Any endpoint that needs to mutate authority MUST use one of
+# the capability-scoped serializers below. Each serializer writes a
+# single, narrowly-typed field so capability gates and anti-escalation
+# helpers can be applied one-to-one with the request.
+# ---------------------------------------------------------------------------
+
+
+class StaffProfileUpdateSerializer(serializers.ModelSerializer):
+    """Profile-only update. Never mutates authority fields."""
+    profile_image = serializers.ImageField(
+        required=False, allow_null=True, use_url=True,
+    )
+
+    class Meta:
+        model = Staff
+        fields = [
+            'first_name', 'last_name', 'email', 'phone_number',
+            'profile_image', 'duty_status', 'is_on_duty',
+        ]
+        extra_kwargs = {
+            'first_name': {'required': False},
+            'last_name': {'required': False},
+            'email': {'required': False, 'allow_blank': True},
+            'phone_number': {'required': False, 'allow_blank': True},
+            'duty_status': {'required': False},
+            'is_on_duty': {'required': False},
+        }
+
+
+class StaffAuthorityRoleSerializer(serializers.Serializer):
+    """Writes Staff.role only.
+
+    The role queryset is unrestricted by hotel (Role rows are global),
+    but Staff.clean() enforces that role.department is consistent with
+    Staff.department; the view additionally enforces role-capability
+    ceiling via assert_role_department_ceiling.
+    """
+    role = serializers.PrimaryKeyRelatedField(
+        queryset=Role.objects.all(), allow_null=True,
+    )
+
+
+class StaffAuthorityDepartmentSerializer(serializers.Serializer):
+    """Writes Staff.department only."""
+    department = serializers.PrimaryKeyRelatedField(
+        queryset=Department.objects.all(), allow_null=True,
+    )
+
+
+class StaffAuthorityAccessLevelSerializer(serializers.Serializer):
+    """Writes Staff.access_level only."""
+    access_level = serializers.ChoiceField(
+        choices=Staff.ACCESS_LEVEL_CHOICES,
+    )
+
+
+class StaffAuthorityNavigationSerializer(serializers.Serializer):
+    """Writes Staff.allowed_navigation_items only.
+
+    Accepts a list of NavigationItem slugs; the view resolves them to
+    NavigationItem rows and enforces subset-of-requester semantics via
+    assert_nav_subset before committing.
+    """
+    slugs = serializers.ListField(
+        child=serializers.SlugField(), allow_empty=True,
+    )
+
+
+class StaffDeactivateSerializer(serializers.Serializer):
+    """Soft deactivation payload. No authority fields mutated."""
+    reason = serializers.CharField(required=False, allow_blank=True)

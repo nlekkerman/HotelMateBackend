@@ -283,23 +283,6 @@ class RoomPolicyPersonaTest(TestCase):
         for action in pol['actions']:
             self.assertTrue(pol['actions'][action], action)
 
-    def test_operations_admin_role_supervises_plus_manage_leaks(self):
-        pol = self._policy('regular_staff', 'operations_admin',
-                           'administration')
-        # Supervise bucket
-        self.assertTrue(pol['actions']['inspect'])
-        self.assertTrue(pol['actions']['maintenance_clear'])
-        self.assertTrue(pol['actions']['checkout_bulk'])
-        # Targeted manage entries
-        self.assertTrue(pol['actions']['out_of_order_set'])
-        self.assertTrue(pol['actions']['checkout_destructive'])
-        # Inventory / types / media — denied (reserved for hotel_manager)
-        self.assertFalse(pol['actions']['inventory_create'])
-        self.assertFalse(pol['actions']['inventory_update'])
-        self.assertFalse(pol['actions']['inventory_delete'])
-        self.assertFalse(pol['actions']['type_manage'])
-        self.assertFalse(pol['actions']['media_manage'])
-
     def test_front_office_manager_role_supervises(self):
         pol = self._policy('regular_staff', 'front_office_manager',
                            'front_office')
@@ -369,10 +352,10 @@ class RoomEndpointEnforcementTest(TestCase):
             cls.hotel, username='hmgr', access_level='regular_staff',
             role_slug='hotel_manager', department_slug='management',
         )
-        cls.ops_admin = _make_staff(
-            cls.hotel, username='ops', access_level='regular_staff',
-            role_slug='operations_admin',
-            department_slug='administration',
+        cls.ooo_setter = _make_staff(
+            cls.hotel, username='ooo_setter', access_level='regular_staff',
+            role_slug='maintenance_manager',
+            department_slug='maintenance',
         )
         cls.super_staff_admin = _make_staff(
             cls.hotel, username='sa',
@@ -462,8 +445,9 @@ class RoomEndpointEnforcementTest(TestCase):
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_patch_normal_field_does_not_require_out_of_order_cap(self):
-        # Operations_admin has CanSetRoomOutOfOrder but not inventory_update,
-        # so the correct persona here is hotel_manager (manage bucket).
+        # A persona that holds inventory.update (hotel_manager carries
+        # _ROOM_MANAGE) must be able to patch unrelated writable fields
+        # without also holding room.out_of_order.set.
         c = _authed_client(self.hotel_manager.user)
         resp = c.patch(
             f'/api/staff/hotel/{self.hotel.slug}'
@@ -473,11 +457,11 @@ class RoomEndpointEnforcementTest(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    def test_patch_is_out_of_order_only_allowed_for_ops_admin(self):
-        """Phase 6B.2 drift fix: operations_admin holds
+    def test_patch_is_out_of_order_only_allowed_for_ooo_setter(self):
+        """Phase 6B.2 drift fix: maintenance_manager holds
         room.out_of_order.set but not room.inventory.update. A PATCH
         whose body ONLY toggles is_out_of_order must succeed."""
-        c = _authed_client(self.ops_admin.user)
+        c = _authed_client(self.ooo_setter.user)
         resp = c.patch(
             f'/api/staff/hotel/{self.hotel.slug}'
             f'/room-management/{self.room.room_number}/',
@@ -488,10 +472,10 @@ class RoomEndpointEnforcementTest(TestCase):
         self.room.refresh_from_db()
         self.assertTrue(self.room.is_out_of_order)
 
-    def test_ops_admin_cannot_patch_non_ooo_fields(self):
-        """operations_admin lacks inventory.update; touching any other
-        writable field must still 403."""
-        c = _authed_client(self.ops_admin.user)
+    def test_ooo_setter_cannot_patch_non_ooo_fields(self):
+        """maintenance_manager lacks inventory.update; touching any
+        other writable field must still 403."""
+        c = _authed_client(self.ooo_setter.user)
         resp = c.patch(
             f'/api/staff/hotel/{self.hotel.slug}'
             f'/room-management/{self.room.room_number}/',
@@ -500,10 +484,11 @@ class RoomEndpointEnforcementTest(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_ops_admin_mixed_payload_requires_inventory_update(self):
+    def test_ooo_setter_mixed_payload_requires_inventory_update(self):
         """Mixed payload (is_out_of_order + other fields) must require
-        BOTH capabilities — ops_admin lacks inventory.update → 403."""
-        c = _authed_client(self.ops_admin.user)
+        BOTH capabilities — maintenance_manager lacks inventory.update
+        → 403."""
+        c = _authed_client(self.ooo_setter.user)
         resp = c.patch(
             f'/api/staff/hotel/{self.hotel.slug}'
             f'/room-management/{self.room.room_number}/',
@@ -691,8 +676,8 @@ class RoomEndpointEnforcementTest(TestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_ops_admin_can_destructive_checkout(self):
-        c = _authed_client(self.ops_admin.user)
+    def test_hotel_manager_can_destructive_checkout(self):
+        c = _authed_client(self.hotel_manager.user)
         resp = c.post(
             f'/api/staff/hotel/{self.hotel.slug}/rooms/checkout/',
             data={'room_ids': [self.room.id], 'destructive': True},

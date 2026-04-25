@@ -63,7 +63,7 @@ def _payload_changes_only_out_of_order(request) -> bool:
     ``is_out_of_order`` and nothing else writable on the Room row.
 
     Used to permit ``room.out_of_order.set``-holding roles
-    (e.g. operations_admin) to flip OOO without also holding
+    (e.g. maintenance_manager) to flip OOO without also holding
     ``room.inventory.update``. When other fields are present, the
     inventory-update capability is required.
     """
@@ -113,8 +113,8 @@ class StaffRoomViewSet(viewsets.ModelViewSet):
             # Phase 6B.2 — drift fix for room.out_of_order.set.
             # A payload that ONLY toggles is_out_of_order requires
             # CanReadRoomInventory + CanSetRoomOutOfOrder (no
-            # inventory-update), so roles like operations_admin whose
-            # manage-bucket leak is limited to OOO can actually use it.
+            # inventory-update), so roles like maintenance_manager whose
+            # only manage-bucket leak is OOO can actually use it.
             # Any other field in the payload keeps the classic
             # CanUpdateRoomInventory requirement; a mixed payload
             # requires BOTH caps.
