@@ -109,13 +109,11 @@ class HotelInfoCreateSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 class HotelInfoUpdateSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(write_only=True, required=False)
-    hotel_slug = serializers.SlugField(write_only=True, required=False)
     image = serializers.ImageField(required=False)
 
     class Meta:
         model = HotelInfo
         fields = [
-            "hotel_slug",
             "category_name",
             "title",
             "description",
@@ -138,15 +136,13 @@ class HotelInfoUpdateSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         category_name = validated_data.pop("category_name", None)
-        hotel_slug = validated_data.pop("hotel_slug", None)
 
         if category_name:
-            category, created = HotelInfoCategory.objects.get_or_create(name=category_name)
+            category, _ = HotelInfoCategory.objects.get_or_create(name=category_name)
             instance.category = category
 
-        if hotel_slug:
-            hotel = Hotel.objects.get(slug=hotel_slug)
-            instance.hotel = hotel
+        # Hotel re-parenting is intentionally not supported here. A hotel-info
+        # entry must never move across hotels via the update endpoint.
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)

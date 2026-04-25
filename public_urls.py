@@ -26,6 +26,13 @@ from hotel.payment_views import (
     StripeWebhookView,
 )
 
+# Public hotel-info (read-only)
+from hotel_info.public_views import (
+    PublicHotelInfoListView,
+    PublicHotelInfoCategoryListView,
+    PublicCategoryQRView,
+)
+
 app_name = "public"
 
 urlpatterns = [
@@ -134,6 +141,28 @@ urlpatterns = [
         name="public-hotel-cancellation-policy"
     ),
     
+    # Public hotel-info read endpoints (QR-poster targets)
+    path(
+        "hotel/<str:hotel_slug>/hotel-info/",
+        PublicHotelInfoListView.as_view(),
+        name="public-hotel-info-list",
+    ),
+    path(
+        "hotel/<str:hotel_slug>/hotel-info/categories/",
+        PublicHotelInfoCategoryListView.as_view(),
+        name="public-hotel-info-categories",
+    ),
+    path(
+        "hotel/<str:hotel_slug>/hotel-info/categories/<slug:category_slug>/",
+        PublicHotelInfoListView.as_view(),
+        name="public-hotel-info-by-category",
+    ),
+    path(
+        "hotel/<str:hotel_slug>/hotel-info/categories/<slug:category_slug>/qr/",
+        PublicCategoryQRView.as_view(),
+        name="public-hotel-info-qr",
+    ),
+
     # Include hotel public URLs (pre-check-in endpoints)
     path("", include("hotel.public_urls")),
 ]

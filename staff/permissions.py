@@ -1396,3 +1396,89 @@ def assert_role_department_ceiling(
         )
     return None
 
+
+# ---------------------------------------------------------------------------
+# Guests capability permission classes (Wave 1)
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    GUEST_RECORD_READ,
+    GUEST_RECORD_UPDATE,
+    HOTEL_INFO_CATEGORY_MANAGE,
+    HOTEL_INFO_CATEGORY_READ,
+    HOTEL_INFO_ENTRY_CREATE,
+    HOTEL_INFO_ENTRY_DELETE,
+    HOTEL_INFO_ENTRY_READ,
+    HOTEL_INFO_ENTRY_UPDATE,
+    HOTEL_INFO_MODULE_VIEW,
+    HOTEL_INFO_QR_GENERATE,
+    HOTEL_INFO_QR_READ,
+)
+
+
+class CanReadGuests(HasCapability):
+    required_capability = GUEST_RECORD_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read guest records."
+
+
+class CanUpdateGuests(HasCapability):
+    required_capability = GUEST_RECORD_UPDATE
+    message = "You do not have permission to update guest records."
+
+
+# ---------------------------------------------------------------------------
+# Hotel Info capability permission classes (Wave 1)
+# ---------------------------------------------------------------------------
+
+class CanViewHotelInfoModule(HasCapability):
+    required_capability = HOTEL_INFO_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the hotel info module."
+
+
+class CanReadHotelInfo(HasCapability):
+    required_capability = HOTEL_INFO_ENTRY_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read hotel info entries."
+
+
+class CanCreateHotelInfo(HasCapability):
+    required_capability = HOTEL_INFO_ENTRY_CREATE
+    message = "You do not have permission to create hotel info entries."
+
+
+class CanUpdateHotelInfo(HasCapability):
+    required_capability = HOTEL_INFO_ENTRY_UPDATE
+    message = "You do not have permission to update hotel info entries."
+
+
+class CanDeleteHotelInfo(HasCapability):
+    required_capability = HOTEL_INFO_ENTRY_DELETE
+    message = "You do not have permission to delete hotel info entries."
+
+
+class CanReadHotelInfoCategory(HasCapability):
+    required_capability = HOTEL_INFO_CATEGORY_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read hotel info categories."
+
+
+class CanManageHotelInfoCategory(HasCapability):
+    required_capability = HOTEL_INFO_CATEGORY_MANAGE
+    message = "You do not have permission to manage hotel info categories."
+
+
+class CanReadHotelInfoQR(HasCapability):
+    required_capability = HOTEL_INFO_QR_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read hotel info QR codes."
+
+
+class CanGenerateHotelInfoQR(HasCapability):
+    required_capability = HOTEL_INFO_QR_GENERATE
+    message = "You do not have permission to generate hotel info QR codes."
+
+
+
+

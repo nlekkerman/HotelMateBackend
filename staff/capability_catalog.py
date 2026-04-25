@@ -414,6 +414,43 @@ STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT = (
 package."""
 
 
+# --- Guests (Wave 1) ---
+GUEST_RECORD_READ = 'guest.record.read'
+"""Read in-house guest records scoped to the current hotel."""
+
+GUEST_RECORD_UPDATE = 'guest.record.update'
+"""Update in-house guest records scoped to the current hotel."""
+
+
+# --- Hotel Info (Wave 1) ---
+HOTEL_INFO_MODULE_VIEW = 'hotel_info.module.view'
+"""See the hotel-info module (navigation + module-level visibility)."""
+
+HOTEL_INFO_ENTRY_READ = 'hotel_info.entry.read'
+"""Read hotel-info entries scoped to the current hotel."""
+
+HOTEL_INFO_ENTRY_CREATE = 'hotel_info.entry.create'
+"""Create hotel-info entries for the current hotel."""
+
+HOTEL_INFO_ENTRY_UPDATE = 'hotel_info.entry.update'
+"""Update hotel-info entries scoped to the current hotel."""
+
+HOTEL_INFO_ENTRY_DELETE = 'hotel_info.entry.delete'
+"""Delete hotel-info entries scoped to the current hotel."""
+
+HOTEL_INFO_CATEGORY_READ = 'hotel_info.category.read'
+"""Read global HotelInfoCategory rows."""
+
+HOTEL_INFO_CATEGORY_MANAGE = 'hotel_info.category.manage'
+"""Mutate global HotelInfoCategory rows. Platform/superuser-only."""
+
+HOTEL_INFO_QR_READ = 'hotel_info.qr.read'
+"""Read CategoryQRCode records scoped to the current hotel."""
+
+HOTEL_INFO_QR_GENERATE = 'hotel_info.qr.generate'
+"""Generate / regenerate CategoryQRCode records for the current hotel."""
+
+
 CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
     CHAT_GUEST_RESPOND,
@@ -501,6 +538,19 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     STAFF_MANAGEMENT_REGISTRATION_PACKAGE_CREATE,
     STAFF_MANAGEMENT_REGISTRATION_PACKAGE_EMAIL,
     STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT,
+    # Guests (Wave 1)
+    GUEST_RECORD_READ,
+    GUEST_RECORD_UPDATE,
+    # Hotel Info (Wave 1)
+    HOTEL_INFO_MODULE_VIEW,
+    HOTEL_INFO_ENTRY_READ,
+    HOTEL_INFO_ENTRY_CREATE,
+    HOTEL_INFO_ENTRY_UPDATE,
+    HOTEL_INFO_ENTRY_DELETE,
+    HOTEL_INFO_CATEGORY_READ,
+    HOTEL_INFO_CATEGORY_MANAGE,
+    HOTEL_INFO_QR_READ,
+    HOTEL_INFO_QR_GENERATE,
 })
 
 
@@ -732,6 +782,47 @@ _STAFF_MANAGEMENT_MANAGER: frozenset[str] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Guests preset bundles (Wave 1)
+#
+# Read+update kept tight to front-office personas (reception-style roles
+# manage in-house guest records). hotel_manager picks up the same bundle
+# via role preset. category.manage is intentionally excluded from every
+# preset for the hotel_info module (platform/superuser only).
+# ---------------------------------------------------------------------------
+
+_GUESTS_READ: frozenset[str] = frozenset({
+    GUEST_RECORD_READ,
+})
+
+_GUESTS_OPERATE: frozenset[str] = _GUESTS_READ | frozenset({
+    GUEST_RECORD_UPDATE,
+})
+
+
+# ---------------------------------------------------------------------------
+# Hotel Info preset bundles (Wave 1)
+#
+# manage ⊃ read. category.manage is NOT included — that capability is
+# platform/superuser-only and is granted exclusively via the
+# Django-superuser all-capabilities path in resolve_capabilities.
+# ---------------------------------------------------------------------------
+
+_HOTEL_INFO_READ: frozenset[str] = frozenset({
+    HOTEL_INFO_MODULE_VIEW,
+    HOTEL_INFO_ENTRY_READ,
+    HOTEL_INFO_CATEGORY_READ,
+    HOTEL_INFO_QR_READ,
+})
+
+_HOTEL_INFO_MANAGE: frozenset[str] = _HOTEL_INFO_READ | frozenset({
+    HOTEL_INFO_ENTRY_CREATE,
+    HOTEL_INFO_ENTRY_UPDATE,
+    HOTEL_INFO_ENTRY_DELETE,
+    HOTEL_INFO_QR_GENERATE,
+})
+
+
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6A.2: tier carries only cross-cutting supervisor authority.
     # Booking operate/manage live on department/role presets so tier is
@@ -781,14 +872,15 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     'hotel_manager': (
         _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE
         | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_MANAGER
+        | _GUESTS_OPERATE | _HOTEL_INFO_MANAGE
     ),
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
-        | _MAINTENANCE_REPORTER
+        | _MAINTENANCE_REPORTER | _GUESTS_OPERATE | _HOTEL_INFO_READ
     ),
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
-    }) | _MAINTENANCE_REPORTER,
+    }) | _MAINTENANCE_REPORTER | _GUESTS_OPERATE | _HOTEL_INFO_READ,
     # Phase 6B.1 / 6C: housekeeping authority roles. Supervisor and
     # manager bundles include HOUSEKEEPING_ROOM_STATUS_OVERRIDE which is
     # also required by the state-machine layer so complete_maintenance

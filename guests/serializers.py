@@ -42,5 +42,16 @@ class GuestSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'hotel_slug', 'hotel_name',
             'room_number', 'room_label',
-            'in_house', 'full_name'
+            'in_house', 'full_name',
+            # Guests must never be moved across hotels via this serializer,
+            # and booking linkage is owned by the room-bookings flow.
+            'hotel',
+            'booking',
+            'primary_guest',
+            # Room reassignment is owned by the room-bookings flow; the
+            # guest update endpoint never moves a guest between rooms.
+            'room',
+            # guest_type is set at creation time; it is not changed via
+            # the staff guest update endpoint.
+            'guest_type',
         ]

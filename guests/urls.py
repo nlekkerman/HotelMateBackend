@@ -5,8 +5,10 @@ from .views import GuestViewSet
 guest_list = GuestViewSet.as_view({'get': 'list'})
 guest_detail = GuestViewSet.as_view({'get': 'retrieve', 'put': 'update'})
 
+# Mounted under /api/staff/hotel/<hotel_slug>/guests/ via staff_urls.py.
+# The outer wrapper provides the hotel_slug URL kwarg — do NOT add another
+# one here (keeps a single canonical /api/staff/hotel/<slug>/guests/ shape).
 urlpatterns = [
-    path('<str:hotel_slug>/guests/', guest_list, name='guests-by-hotel'),
-    path('<str:hotel_slug>/guests/<int:pk>/', guest_detail, name='guest-detail'),
-   
-    ]
+    path('', guest_list, name='guests-by-hotel'),
+    path('<int:pk>/', guest_detail, name='guest-detail'),
+]
