@@ -162,6 +162,14 @@ def provision_hotel(validated_data: dict) -> dict:
         admin_user.is_superuser = False
         admin_user.save()
 
+        # Default the primary admin's role to the seeded `hotel_manager`
+        # role for this hotel when no explicit role_id was provided.
+        # Without this, the admin lands with `super_staff_admin` tier but
+        # no role preset, which under canonical RBAC carries no module
+        # `_MANAGE` capabilities.
+        if role is None:
+            role = Role.objects.filter(hotel=hotel, slug='hotel_manager').first()
+
         staff = Staff.objects.create(
             user=admin_user,
             hotel=hotel,

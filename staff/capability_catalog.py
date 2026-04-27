@@ -457,6 +457,140 @@ STAFF_MANAGEMENT_REGISTRATION_PACKAGE_PRINT = (
 package."""
 
 
+# --- Attendance ---
+# Module policy shape (see staff/module_policy.py):
+#   visible  → ATTENDANCE_MODULE_VIEW
+#   read     → ATTENDANCE_LOG_READ_SELF (every active staff can see their
+#              own attendance; hotel-wide reads gate on log.read_all /
+#              analytics.read)
+#   actions  → the slugs below.
+#
+# Self-service slugs (clock in/out, break toggle, own logs / roster /
+# face) are granted to every tier so any active same-hotel staff can
+# punch the clock and see their own data. Management slugs (read-all,
+# CRUD on logs / periods / shifts / daily plans, approve / reject /
+# relink, analytics, face register-other / revoke / audit) are
+# role-gated through the manage bundle below.
+
+ATTENDANCE_MODULE_VIEW = 'attendance.module.view'
+"""See the attendance module (navigation + module-level visibility)."""
+
+ATTENDANCE_CLOCK_IN_OUT = 'attendance.clock.in_out'
+"""Clock self in / out (face clock-in, current status, detect, status
+endpoints). Self-ownership is enforced at the view layer; this
+capability says 'allowed to operate the kiosk for one's own record'."""
+
+ATTENDANCE_BREAK_TOGGLE = 'attendance.break.toggle'
+"""Start / end one's own break."""
+
+ATTENDANCE_LOG_READ_SELF = 'attendance.log.read_self'
+"""Read one's own ClockLog rows."""
+
+ATTENDANCE_ROSTER_READ_SELF = 'attendance.roster.read_self'
+"""Read one's own StaffRoster shifts."""
+
+ATTENDANCE_FACE_REGISTER_SELF = 'attendance.face.register_self'
+"""Register / re-register one's own face descriptor."""
+
+ATTENDANCE_LOG_READ_ALL = 'attendance.log.read_all'
+"""Read hotel-wide ClockLog rows (list/retrieve, currently-clocked-in,
+department-logs, department-status)."""
+
+ATTENDANCE_LOG_CREATE = 'attendance.log.create'
+"""Create ClockLog rows (manager backfill, unrostered-confirm on
+behalf of another staff)."""
+
+ATTENDANCE_LOG_UPDATE = 'attendance.log.update'
+"""Update ClockLog rows (corrections, force action on another staff's
+log such as force_clock_out / stay_clocked_in)."""
+
+ATTENDANCE_LOG_DELETE = 'attendance.log.delete'
+"""Delete ClockLog rows."""
+
+ATTENDANCE_LOG_APPROVE = 'attendance.log.approve'
+"""Approve an unrostered ClockLog."""
+
+ATTENDANCE_LOG_REJECT = 'attendance.log.reject'
+"""Reject an unrostered ClockLog."""
+
+ATTENDANCE_LOG_RELINK = 'attendance.log.relink'
+"""Auto-attach / relink ClockLog rows to roster shifts."""
+
+ATTENDANCE_ANALYTICS_READ = 'attendance.analytics.read'
+"""Read hotel-wide attendance analytics (KPIs, daily/weekly totals,
+department/staff summaries)."""
+
+ATTENDANCE_PERIOD_READ = 'attendance.period.read'
+"""List / retrieve RosterPeriod rows."""
+
+ATTENDANCE_PERIOD_CREATE = 'attendance.period.create'
+"""Create RosterPeriod rows (incl. create-for-week, custom, duplicate)."""
+
+ATTENDANCE_PERIOD_UPDATE = 'attendance.period.update'
+"""Update RosterPeriod rows."""
+
+ATTENDANCE_PERIOD_DELETE = 'attendance.period.delete'
+"""Delete RosterPeriod rows."""
+
+ATTENDANCE_PERIOD_FINALIZE = 'attendance.period.finalize'
+"""Finalize a RosterPeriod (lock it for editing)."""
+
+ATTENDANCE_PERIOD_UNFINALIZE = 'attendance.period.unfinalize'
+"""Unfinalize a previously-finalized RosterPeriod."""
+
+ATTENDANCE_PERIOD_FORCE_FINALIZE = 'attendance.period.force_finalize'
+"""Force finalize despite outstanding unrostered logs (admin override)."""
+
+ATTENDANCE_SHIFT_READ = 'attendance.shift.read'
+"""List / retrieve StaffRoster (shift) rows."""
+
+ATTENDANCE_SHIFT_CREATE = 'attendance.shift.create'
+"""Create StaffRoster shift rows (single, add-shift action,
+department-roster scaffolding)."""
+
+ATTENDANCE_SHIFT_UPDATE = 'attendance.shift.update'
+"""Update StaffRoster shift rows."""
+
+ATTENDANCE_SHIFT_DELETE = 'attendance.shift.delete'
+"""Delete StaffRoster shift rows."""
+
+ATTENDANCE_SHIFT_BULK_WRITE = 'attendance.shift.bulk_write'
+"""Bulk save / write StaffRoster shift rows (bulk-save endpoint)."""
+
+ATTENDANCE_SHIFT_COPY = 'attendance.shift.copy'
+"""Copy StaffRoster shifts (day, week, staff, entire period)."""
+
+ATTENDANCE_SHIFT_EXPORT_PDF = 'attendance.shift.export_pdf'
+"""Export StaffRoster / RosterPeriod PDFs."""
+
+ATTENDANCE_SHIFT_LOCATION_READ = 'attendance.shift_location.read'
+"""List / retrieve ShiftLocation rows."""
+
+ATTENDANCE_SHIFT_LOCATION_MANAGE = 'attendance.shift_location.manage'
+"""Create / update / delete ShiftLocation rows."""
+
+ATTENDANCE_DAILY_PLAN_READ = 'attendance.daily_plan.read'
+"""List / retrieve DailyPlan rows (incl. PDF download, prepare)."""
+
+ATTENDANCE_DAILY_PLAN_MANAGE = 'attendance.daily_plan.manage'
+"""Create / update / delete DailyPlan rows."""
+
+ATTENDANCE_DAILY_PLAN_ENTRY_MANAGE = 'attendance.daily_plan.entry_manage'
+"""Create / update / delete DailyPlanEntry rows."""
+
+ATTENDANCE_FACE_READ = 'attendance.face.read'
+"""List / retrieve other staff face registrations (privacy-aware)."""
+
+ATTENDANCE_FACE_REGISTER_OTHER = 'attendance.face.register_other'
+"""Register / re-register another staff member's face descriptor."""
+
+ATTENDANCE_FACE_REVOKE = 'attendance.face.revoke'
+"""Revoke a staff member's face descriptor."""
+
+ATTENDANCE_FACE_AUDIT_READ = 'attendance.face.audit_read'
+"""Read FaceAuditLog rows."""
+
+
 # --- Guests (Wave 1) ---
 GUEST_RECORD_READ = 'guest.record.read'
 """Read in-house guest records scoped to the current hotel."""
@@ -598,6 +732,44 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     # Guests (Wave 1)
     GUEST_RECORD_READ,
     GUEST_RECORD_UPDATE,
+    # Attendance
+    ATTENDANCE_MODULE_VIEW,
+    ATTENDANCE_CLOCK_IN_OUT,
+    ATTENDANCE_BREAK_TOGGLE,
+    ATTENDANCE_LOG_READ_SELF,
+    ATTENDANCE_ROSTER_READ_SELF,
+    ATTENDANCE_FACE_REGISTER_SELF,
+    ATTENDANCE_LOG_READ_ALL,
+    ATTENDANCE_LOG_CREATE,
+    ATTENDANCE_LOG_UPDATE,
+    ATTENDANCE_LOG_DELETE,
+    ATTENDANCE_LOG_APPROVE,
+    ATTENDANCE_LOG_REJECT,
+    ATTENDANCE_LOG_RELINK,
+    ATTENDANCE_ANALYTICS_READ,
+    ATTENDANCE_PERIOD_READ,
+    ATTENDANCE_PERIOD_CREATE,
+    ATTENDANCE_PERIOD_UPDATE,
+    ATTENDANCE_PERIOD_DELETE,
+    ATTENDANCE_PERIOD_FINALIZE,
+    ATTENDANCE_PERIOD_UNFINALIZE,
+    ATTENDANCE_PERIOD_FORCE_FINALIZE,
+    ATTENDANCE_SHIFT_READ,
+    ATTENDANCE_SHIFT_CREATE,
+    ATTENDANCE_SHIFT_UPDATE,
+    ATTENDANCE_SHIFT_DELETE,
+    ATTENDANCE_SHIFT_BULK_WRITE,
+    ATTENDANCE_SHIFT_COPY,
+    ATTENDANCE_SHIFT_EXPORT_PDF,
+    ATTENDANCE_SHIFT_LOCATION_READ,
+    ATTENDANCE_SHIFT_LOCATION_MANAGE,
+    ATTENDANCE_DAILY_PLAN_READ,
+    ATTENDANCE_DAILY_PLAN_MANAGE,
+    ATTENDANCE_DAILY_PLAN_ENTRY_MANAGE,
+    ATTENDANCE_FACE_READ,
+    ATTENDANCE_FACE_REGISTER_OTHER,
+    ATTENDANCE_FACE_REVOKE,
+    ATTENDANCE_FACE_AUDIT_READ,
     # Hotel Info (Wave 1)
     HOTEL_INFO_MODULE_VIEW,
     HOTEL_INFO_ENTRY_READ,
@@ -924,6 +1096,61 @@ _HOTEL_INFO_MANAGE: frozenset[str] = _HOTEL_INFO_READ | frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# Attendance preset bundles
+#
+# Self-service bundle is granted across every tier so any active
+# same-hotel staff can clock in/out, take breaks, see their own logs /
+# roster, and register / use their own face. Manage bundle is granted
+# exclusively via the hotel_manager role preset (mirrors the
+# bookings / rooms / housekeeping / maintenance / staff_management
+# pattern: tier never doubles as the attendance permission engine).
+# ---------------------------------------------------------------------------
+
+_ATTENDANCE_SELF_SERVICE: frozenset[str] = frozenset({
+    ATTENDANCE_MODULE_VIEW,
+    ATTENDANCE_CLOCK_IN_OUT,
+    ATTENDANCE_BREAK_TOGGLE,
+    ATTENDANCE_LOG_READ_SELF,
+    ATTENDANCE_ROSTER_READ_SELF,
+    ATTENDANCE_FACE_REGISTER_SELF,
+})
+
+_ATTENDANCE_MANAGE: frozenset[str] = _ATTENDANCE_SELF_SERVICE | frozenset({
+    ATTENDANCE_LOG_READ_ALL,
+    ATTENDANCE_LOG_CREATE,
+    ATTENDANCE_LOG_UPDATE,
+    ATTENDANCE_LOG_DELETE,
+    ATTENDANCE_LOG_APPROVE,
+    ATTENDANCE_LOG_REJECT,
+    ATTENDANCE_LOG_RELINK,
+    ATTENDANCE_ANALYTICS_READ,
+    ATTENDANCE_PERIOD_READ,
+    ATTENDANCE_PERIOD_CREATE,
+    ATTENDANCE_PERIOD_UPDATE,
+    ATTENDANCE_PERIOD_DELETE,
+    ATTENDANCE_PERIOD_FINALIZE,
+    ATTENDANCE_PERIOD_UNFINALIZE,
+    ATTENDANCE_PERIOD_FORCE_FINALIZE,
+    ATTENDANCE_SHIFT_READ,
+    ATTENDANCE_SHIFT_CREATE,
+    ATTENDANCE_SHIFT_UPDATE,
+    ATTENDANCE_SHIFT_DELETE,
+    ATTENDANCE_SHIFT_BULK_WRITE,
+    ATTENDANCE_SHIFT_COPY,
+    ATTENDANCE_SHIFT_EXPORT_PDF,
+    ATTENDANCE_SHIFT_LOCATION_READ,
+    ATTENDANCE_SHIFT_LOCATION_MANAGE,
+    ATTENDANCE_DAILY_PLAN_READ,
+    ATTENDANCE_DAILY_PLAN_MANAGE,
+    ATTENDANCE_DAILY_PLAN_ENTRY_MANAGE,
+    ATTENDANCE_FACE_READ,
+    ATTENDANCE_FACE_REGISTER_OTHER,
+    ATTENDANCE_FACE_REVOKE,
+    ATTENDANCE_FACE_AUDIT_READ,
+})
+
+
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6A.2: tier carries only cross-cutting supervisor authority.
     # Booking operate/manage live on department/role presets so tier is
@@ -935,10 +1162,15 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # authenticated same-hotel staff can use guest chat.
     'super_staff_admin': (
         _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE
-        | _CHAT_BASE | _STAFF_CHAT_BASE
+        | _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
     ),
-    'staff_admin': _SUPERVISOR_AUTHORITY | _CHAT_BASE | _STAFF_CHAT_BASE,
-    'regular_staff': _CHAT_BASE | _STAFF_CHAT_BASE,
+    'staff_admin': (
+        _SUPERVISOR_AUTHORITY | _CHAT_BASE | _STAFF_CHAT_BASE
+        | _ATTENDANCE_SELF_SERVICE
+    ),
+    'regular_staff': (
+        _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
+    ),
 }
 
 
@@ -978,7 +1210,7 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     'hotel_manager': (
         _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE
         | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_MANAGER
-        | _GUESTS_OPERATE | _HOTEL_INFO_MANAGE
+        | _GUESTS_OPERATE | _HOTEL_INFO_MANAGE | _ATTENDANCE_MANAGE
     ),
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE

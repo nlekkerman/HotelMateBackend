@@ -9,7 +9,21 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from staff.permissions import HasNavPermission
+from staff.permissions import (
+    has_capability,
+    CanViewAttendanceModule,
+    CanClockInOut,
+    CanToggleAttendanceBreak,
+    CanReadAttendanceFace,
+    CanRegisterOwnAttendanceFace,
+    CanRegisterOtherAttendanceFace,
+    CanRevokeAttendanceFace,
+    CanReadAttendanceFaceAudit,
+)
+from staff.capability_catalog import (
+    ATTENDANCE_FACE_REGISTER_OTHER,
+)
+from staff_chat.permissions import IsStaffMember, IsSameHotel
 
 from hotel.models import Hotel
 from staff.models import Staff
@@ -40,11 +54,35 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        Face operations use additional inline checks via check_staff_permissions.
+        Canonical capability-based RBAC for face-management endpoints.
+
+        Per-action capability mapping. register_face is gated at
+        face.register_self by default; if the request targets another
+        staff member, the action body enforces face.register_other via
+        has_capability().
         """
-        from staff_chat.permissions import IsStaffMember, IsSameHotel
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel()]
+        base = [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action_caps = {
+            'register_face': CanRegisterOwnAttendanceFace(),
+            'revoke_face': CanRevokeAttendanceFace(),
+            'list_faces': CanReadAttendanceFace(),
+            'face_clock_in': CanClockInOut(),
+            'detect_staff_with_status': CanClockInOut(),
+            'audit_logs': CanReadAttendanceFaceAudit(),
+            'face_status': CanRegisterOwnAttendanceFace(),
+            'force_clock_in_unrostered': CanClockInOut(),
+            'confirm_clock_out': CanClockInOut(),
+            'toggle_break': CanToggleAttendanceBreak(),
+        }
+        action = getattr(self, 'action', None)
+        if action in action_caps:
+            base.append(action_caps[action])
+        return base
     
     def get_hotel(self):
         """Get hotel from URL parameter."""
@@ -84,6 +122,29 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
                 {'error': error_message}, 
                 status=status.HTTP_403_FORBIDDEN
             )
+
+        # Ownership / manager-override gate: registering a face for
+        # another staff member requires ATTENDANCE_FACE_REGISTER_OTHER.
+        target_staff_id = request.data.get('staff_id')
+        own_staff_id = getattr(
+            getattr(request.user, 'staff_profile', None), 'id', None
+        )
+        if target_staff_id is not None:
+            try:
+                target_staff_id_int = int(target_staff_id)
+            except (TypeError, ValueError):
+                target_staff_id_int = None
+            if (
+                target_staff_id_int is not None
+                and target_staff_id_int != own_staff_id
+                and not has_capability(
+                    request.user, ATTENDANCE_FACE_REGISTER_OTHER
+                )
+            ):
+                return Response(
+                    {'error': 'You can only register your own face.'},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
         
         # Serialize and validate request data
         serializer = FaceRegistrationSerializer(
@@ -1056,7 +1117,13 @@ class FaceManagementViewSet(AttendanceHotelScopedMixin, viewsets.GenericViewSet)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated,
+    CanViewAttendanceModule,
+    IsStaffMember,
+    IsSameHotel,
+    CanClockInOut,
+])
 def force_clock_in_unrostered(request, hotel_slug):
     """
     Independent endpoint for force clock-in of unrostered staff.
@@ -1071,13 +1138,6 @@ def force_clock_in_unrostered(request, hotel_slug):
     }
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    
-    # Module access check
-    if not HasNavPermission('attendance').has_permission(request, None):
-        return Response(
-            {'error': 'You do not have access to the attendance module.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
     
     # Check permissions
     staff = getattr(request.user, 'staff_profile', None)
@@ -1208,7 +1268,13 @@ def force_clock_in_unrostered(request, hotel_slug):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated,
+    CanViewAttendanceModule,
+    IsStaffMember,
+    IsSameHotel,
+    CanClockInOut,
+])
 def confirm_clock_out_view(request, hotel_slug):
     """
     Independent endpoint for clock-out confirmation.
@@ -1216,13 +1282,6 @@ def confirm_clock_out_view(request, hotel_slug):
     POST /api/staff/hotel/{hotel_slug}/attendance/face-management/confirm-clock-out/
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    
-    # Module access check
-    if not HasNavPermission('attendance').has_permission(request, None):
-        return Response(
-            {'error': 'You do not have access to the attendance module.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
     
     # Check permissions
     staff = getattr(request.user, 'staff_profile', None)
@@ -1337,7 +1396,13 @@ def confirm_clock_out_view(request, hotel_slug):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated,
+    CanViewAttendanceModule,
+    IsStaffMember,
+    IsSameHotel,
+    CanToggleAttendanceBreak,
+])
 def toggle_break_view(request, hotel_slug):
     """
     Independent endpoint for break toggle.
@@ -1345,13 +1410,6 @@ def toggle_break_view(request, hotel_slug):
     POST /api/staff/hotel/{hotel_slug}/attendance/face-management/toggle-break/
     """
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
-    
-    # Module access check
-    if not HasNavPermission('attendance').has_permission(request, None):
-        return Response(
-            {'error': 'You do not have access to the attendance module.'},
-            status=status.HTTP_403_FORBIDDEN
-        )
     
     # Check permissions
     staff = getattr(request.user, 'staff_profile', None)

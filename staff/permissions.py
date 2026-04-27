@@ -1611,3 +1611,258 @@ class CanUploadStaffChatAttachment(HasCapability):
 class CanManageStaffChatReaction(HasCapability):
     required_capability = STAFF_CHAT_REACTION_MANAGE
     message = "You do not have permission to manage staff chat reactions."
+
+# ---------------------------------------------------------------------------
+# Attendance capability permission classes
+#
+# Single source of truth for endpoint enforcement in the attendance
+# module. Stays in lock-step with MODULE_POLICY['attendance'] so the
+# frontend rbac.attendance object and backend enforcement derive from
+# the same capability slugs.
+#
+# Read/visibility gates set safe_methods_bypass = False so GETs are
+# gated. Mutation gates inherit the default (pass GET, enforce non-safe
+# methods) and are chained on top of CanViewAttendanceModule by the
+# views.
+# ---------------------------------------------------------------------------
+
+
+from staff.capability_catalog import (  # noqa: E402
+    ATTENDANCE_ANALYTICS_READ,
+    ATTENDANCE_BREAK_TOGGLE,
+    ATTENDANCE_CLOCK_IN_OUT,
+    ATTENDANCE_DAILY_PLAN_ENTRY_MANAGE,
+    ATTENDANCE_DAILY_PLAN_MANAGE,
+    ATTENDANCE_DAILY_PLAN_READ,
+    ATTENDANCE_FACE_AUDIT_READ,
+    ATTENDANCE_FACE_READ,
+    ATTENDANCE_FACE_REGISTER_OTHER,
+    ATTENDANCE_FACE_REGISTER_SELF,
+    ATTENDANCE_FACE_REVOKE,
+    ATTENDANCE_LOG_APPROVE,
+    ATTENDANCE_LOG_CREATE,
+    ATTENDANCE_LOG_DELETE,
+    ATTENDANCE_LOG_READ_ALL,
+    ATTENDANCE_LOG_READ_SELF,
+    ATTENDANCE_LOG_REJECT,
+    ATTENDANCE_LOG_RELINK,
+    ATTENDANCE_LOG_UPDATE,
+    ATTENDANCE_MODULE_VIEW,
+    ATTENDANCE_PERIOD_CREATE,
+    ATTENDANCE_PERIOD_DELETE,
+    ATTENDANCE_PERIOD_FINALIZE,
+    ATTENDANCE_PERIOD_FORCE_FINALIZE,
+    ATTENDANCE_PERIOD_READ,
+    ATTENDANCE_PERIOD_UNFINALIZE,
+    ATTENDANCE_PERIOD_UPDATE,
+    ATTENDANCE_ROSTER_READ_SELF,
+    ATTENDANCE_SHIFT_BULK_WRITE,
+    ATTENDANCE_SHIFT_COPY,
+    ATTENDANCE_SHIFT_CREATE,
+    ATTENDANCE_SHIFT_DELETE,
+    ATTENDANCE_SHIFT_EXPORT_PDF,
+    ATTENDANCE_SHIFT_LOCATION_MANAGE,
+    ATTENDANCE_SHIFT_LOCATION_READ,
+    ATTENDANCE_SHIFT_READ,
+    ATTENDANCE_SHIFT_UPDATE,
+)
+
+
+class CanViewAttendanceModule(HasCapability):
+    """Module visibility gate for the attendance module (all methods)."""
+    required_capability = ATTENDANCE_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the attendance module."
+
+
+class CanClockInOut(HasCapability):
+    required_capability = ATTENDANCE_CLOCK_IN_OUT
+    safe_methods_bypass = False
+    message = "You do not have permission to use clock in/out."
+
+
+class CanToggleAttendanceBreak(HasCapability):
+    required_capability = ATTENDANCE_BREAK_TOGGLE
+    safe_methods_bypass = False
+    message = "You do not have permission to toggle attendance breaks."
+
+
+class CanReadOwnAttendanceLog(HasCapability):
+    required_capability = ATTENDANCE_LOG_READ_SELF
+    safe_methods_bypass = False
+    message = "You do not have permission to read your attendance log."
+
+
+class CanReadAllAttendanceLogs(HasCapability):
+    required_capability = ATTENDANCE_LOG_READ_ALL
+    safe_methods_bypass = False
+    message = "You do not have permission to read hotel attendance logs."
+
+
+class CanReadOwnRoster(HasCapability):
+    required_capability = ATTENDANCE_ROSTER_READ_SELF
+    safe_methods_bypass = False
+    message = "You do not have permission to read your roster."
+
+
+class CanCreateAttendanceLog(HasCapability):
+    required_capability = ATTENDANCE_LOG_CREATE
+    message = "You do not have permission to create attendance logs."
+
+
+class CanUpdateAttendanceLog(HasCapability):
+    required_capability = ATTENDANCE_LOG_UPDATE
+    message = "You do not have permission to update attendance logs."
+
+
+class CanDeleteAttendanceLog(HasCapability):
+    required_capability = ATTENDANCE_LOG_DELETE
+    message = "You do not have permission to delete attendance logs."
+
+
+class CanApproveAttendanceLog(HasCapability):
+    required_capability = ATTENDANCE_LOG_APPROVE
+    message = "You do not have permission to approve attendance logs."
+
+
+class CanRejectAttendanceLog(HasCapability):
+    required_capability = ATTENDANCE_LOG_REJECT
+    message = "You do not have permission to reject attendance logs."
+
+
+class CanRelinkAttendanceLog(HasCapability):
+    required_capability = ATTENDANCE_LOG_RELINK
+    message = "You do not have permission to relink attendance logs."
+
+
+class CanReadAttendanceAnalytics(HasCapability):
+    required_capability = ATTENDANCE_ANALYTICS_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read attendance analytics."
+
+
+class CanReadAttendancePeriod(HasCapability):
+    required_capability = ATTENDANCE_PERIOD_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read roster periods."
+
+
+class CanCreateAttendancePeriod(HasCapability):
+    required_capability = ATTENDANCE_PERIOD_CREATE
+    message = "You do not have permission to create roster periods."
+
+
+class CanUpdateAttendancePeriod(HasCapability):
+    required_capability = ATTENDANCE_PERIOD_UPDATE
+    message = "You do not have permission to update roster periods."
+
+
+class CanDeleteAttendancePeriod(HasCapability):
+    required_capability = ATTENDANCE_PERIOD_DELETE
+    message = "You do not have permission to delete roster periods."
+
+
+class CanFinalizeAttendancePeriod(HasCapability):
+    required_capability = ATTENDANCE_PERIOD_FINALIZE
+    message = "You do not have permission to finalize roster periods."
+
+
+class CanUnfinalizeAttendancePeriod(HasCapability):
+    required_capability = ATTENDANCE_PERIOD_UNFINALIZE
+    message = "You do not have permission to unfinalize roster periods."
+
+
+class CanForceFinalizeAttendancePeriod(HasCapability):
+    required_capability = ATTENDANCE_PERIOD_FORCE_FINALIZE
+    message = "You do not have permission to force finalize roster periods."
+
+
+class CanReadAttendanceShift(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read shifts."
+
+
+class CanCreateAttendanceShift(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_CREATE
+    message = "You do not have permission to create shifts."
+
+
+class CanUpdateAttendanceShift(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_UPDATE
+    message = "You do not have permission to update shifts."
+
+
+class CanDeleteAttendanceShift(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_DELETE
+    message = "You do not have permission to delete shifts."
+
+
+class CanBulkWriteAttendanceShift(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_BULK_WRITE
+    message = "You do not have permission to bulk-write shifts."
+
+
+class CanCopyAttendanceShift(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_COPY
+    message = "You do not have permission to copy shifts."
+
+
+class CanExportAttendanceShiftPdf(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_EXPORT_PDF
+    safe_methods_bypass = False
+    message = "You do not have permission to export shift PDFs."
+
+
+class CanReadShiftLocation(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_LOCATION_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read shift locations."
+
+
+class CanManageShiftLocation(HasCapability):
+    required_capability = ATTENDANCE_SHIFT_LOCATION_MANAGE
+    message = "You do not have permission to manage shift locations."
+
+
+class CanReadDailyPlan(HasCapability):
+    required_capability = ATTENDANCE_DAILY_PLAN_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read daily plans."
+
+
+class CanManageDailyPlan(HasCapability):
+    required_capability = ATTENDANCE_DAILY_PLAN_MANAGE
+    message = "You do not have permission to manage daily plans."
+
+
+class CanManageDailyPlanEntry(HasCapability):
+    required_capability = ATTENDANCE_DAILY_PLAN_ENTRY_MANAGE
+    message = "You do not have permission to manage daily plan entries."
+
+
+class CanReadAttendanceFace(HasCapability):
+    required_capability = ATTENDANCE_FACE_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read attendance face data."
+
+
+class CanRegisterOwnAttendanceFace(HasCapability):
+    required_capability = ATTENDANCE_FACE_REGISTER_SELF
+    message = "You do not have permission to register your face."
+
+
+class CanRegisterOtherAttendanceFace(HasCapability):
+    required_capability = ATTENDANCE_FACE_REGISTER_OTHER
+    message = "You do not have permission to register other staff faces."
+
+
+class CanRevokeAttendanceFace(HasCapability):
+    required_capability = ATTENDANCE_FACE_REVOKE
+    message = "You do not have permission to revoke attendance faces."
+
+
+class CanReadAttendanceFaceAudit(HasCapability):
+    required_capability = ATTENDANCE_FACE_AUDIT_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read attendance face audit logs."

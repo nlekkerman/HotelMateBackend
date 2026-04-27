@@ -24,7 +24,44 @@ from .business_rules import (
 # Security imports
 from common.mixins import HotelScopedViewSetMixin, AttendanceHotelScopedMixin
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasNavPermission, CanManageRoster, resolve_tier, _tier_at_least
+from staff.capability_catalog import (
+    ATTENDANCE_LOG_CREATE,
+    ATTENDANCE_LOG_READ_ALL,
+    ATTENDANCE_LOG_UPDATE,
+    ATTENDANCE_PERIOD_FORCE_FINALIZE,
+)
+from staff.permissions import (
+    has_capability,
+    CanViewAttendanceModule,
+    CanClockInOut,
+    CanReadOwnAttendanceLog,
+    CanReadAllAttendanceLogs,
+    CanCreateAttendanceLog,
+    CanUpdateAttendanceLog,
+    CanDeleteAttendanceLog,
+    CanApproveAttendanceLog,
+    CanRejectAttendanceLog,
+    CanRelinkAttendanceLog,
+    CanRegisterOwnAttendanceFace,
+    CanReadAttendancePeriod,
+    CanCreateAttendancePeriod,
+    CanUpdateAttendancePeriod,
+    CanDeleteAttendancePeriod,
+    CanFinalizeAttendancePeriod,
+    CanUnfinalizeAttendancePeriod,
+    CanReadAttendanceShift,
+    CanCreateAttendanceShift,
+    CanUpdateAttendanceShift,
+    CanDeleteAttendanceShift,
+    CanBulkWriteAttendanceShift,
+    CanCopyAttendanceShift,
+    CanExportAttendanceShiftPdf,
+    CanReadShiftLocation,
+    CanManageShiftLocation,
+    CanReadDailyPlan,
+    CanManageDailyPlan,
+    CanManageDailyPlanEntry,
+)
 from .pdf_report import build_roster_pdf, build_weekly_roster_pdf, build_daily_plan_grouped_pdf
 from django_filters.rest_framework import DjangoFilterBackend
 from collections import defaultdict
@@ -310,18 +347,72 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        Management actions (approve/reject/relink/CRUD) require CanManageRoster (super_staff_admin+).
-        Self-service clock actions (clock-in/out, break, status) allowed for any staff with attendance access.
+        Canonical capability-based RBAC for attendance ClockLog endpoints.
+
+        Every chain begins with the module visibility gate
+        (CanViewAttendanceModule) plus hotel-scope (IsStaffMember,
+        IsSameHotel). The action-specific capability is appended on top.
+
+        Ownership-protected mutations (stay_clocked_in, force_clock_out,
+        unrostered_confirm) gate at read_self here and enforce the
+        owner-or-manager check inline inside the action body using
+        has_capability().
         """
-        management_actions = {
-            'create', 'update', 'partial_update', 'destroy',
-            'approve_log', 'reject_log', 'auto_attach_shift', 'relink_day',
+        base = [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action_caps = {
+            # self-service / kiosk
+            'register_face': CanRegisterOwnAttendanceFace(),
+            'face_clock_in': CanClockInOut(),
+            'current_status': CanClockInOut(),
+            'detect_face_only': CanClockInOut(),
+            # ownership-protected mutations (manager fallback enforced inline)
+            'stay_clocked_in': CanReadOwnAttendanceLog(),
+            'force_clock_out': CanReadOwnAttendanceLog(),
+            'unrostered_confirm': CanReadOwnAttendanceLog(),
+            # hotel-wide reads
+            'currently_clocked_in': CanReadAllAttendanceLogs(),
+            'department_logs': CanReadAllAttendanceLogs(),
+            'department_status': CanReadAllAttendanceLogs(),
+            # management mutations
+            'create': CanCreateAttendanceLog(),
+            'update': CanUpdateAttendanceLog(),
+            'partial_update': CanUpdateAttendanceLog(),
+            'destroy': CanDeleteAttendanceLog(),
+            'approve_log': CanApproveAttendanceLog(),
+            'reject_log': CanRejectAttendanceLog(),
+            'auto_attach_shift': CanRelinkAttendanceLog(),
+            'relink_day': CanRelinkAttendanceLog(),
         }
-        base = [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel()]
-        if self.action in management_actions:
-            base.append(CanManageRoster())
+        action = getattr(self, 'action', None)
+        if action in action_caps:
+            base.append(action_caps[action])
+        else:
+            # default list/retrieve: own-log read; queryset is scoped
+            # in get_queryset for users who lack log.read_all.
+            base.append(CanReadOwnAttendanceLog())
         return base
+
+    def get_queryset(self):
+        """Hotel-scoped queryset; further scoped to own logs for users
+        without ATTENDANCE_LOG_READ_ALL on list/retrieve. Detail actions
+        with explicit per-action capabilities are not narrowed here.
+        """
+        qs = super().get_queryset()
+        action = getattr(self, 'action', None)
+        if action in ('list', 'retrieve'):
+            user = self.request.user
+            if not has_capability(user, ATTENDANCE_LOG_READ_ALL):
+                staff = getattr(user, 'staff_profile', None)
+                if staff is not None:
+                    qs = qs.filter(staff_id=staff.id)
+                else:
+                    qs = qs.none()
+        return qs
 
     @action(detail=False, methods=['post'], url_path='register-face')
     def register_face(self, request, hotel_slug=None):
@@ -706,6 +797,10 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         """
         Confirm unrostered clock-in when staff wants to proceed without a scheduled shift.
         Creates a ClockLog with is_unrostered=True and is_approved=False (pending manager approval).
+
+        Ownership rule: caller may confirm an unrostered clock-in for
+        themselves; confirming for another staff member requires
+        ATTENDANCE_LOG_CREATE (manager-creates-log-on-behalf).
         """
         from .utils import send_unrostered_request_notification
         
@@ -720,6 +815,20 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         if not request_staff or request_staff.hotel.slug != hotel_slug:
             return Response({"error": "You don't have access to this hotel."},
                             status=status.HTTP_403_FORBIDDEN)
+
+        # Ownership / manager-override gate
+        try:
+            target_staff_id_int = int(staff_id)
+        except (TypeError, ValueError):
+            target_staff_id_int = None
+        if (
+            target_staff_id_int != request_staff.id
+            and not has_capability(request.user, ATTENDANCE_LOG_CREATE)
+        ):
+            return Response(
+                {"error": "You can only confirm unrostered clock-in for yourself."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         
         # Get the staff member to clock in (could be same as request_staff or different)
         from staff.models import Staff
@@ -870,9 +979,22 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     def stay_clocked_in(self, request, hotel_slug=None, pk=None):
         """
         Staff acknowledges hard limit warning and chooses to stay clocked in.
+
+        Ownership rule: caller must own the log OR have
+        ATTENDANCE_LOG_UPDATE (manager override).
         """
         log = self.get_object()
-        
+
+        owner = getattr(request.user, 'staff_profile', None)
+        if (
+            log.staff_id != getattr(owner, 'id', None)
+            and not has_capability(request.user, ATTENDANCE_LOG_UPDATE)
+        ):
+            return Response(
+                {"detail": "You can only acknowledge your own clock log."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if log.time_out is not None:
             return Response({"detail": "Log is already closed."}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -902,9 +1024,22 @@ class ClockLogViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
     def force_clock_out(self, request, hotel_slug=None, pk=None):
         """
         Staff acknowledges hard limit warning and chooses to clock out immediately.
+
+        Ownership rule: caller must own the log OR have
+        ATTENDANCE_LOG_UPDATE (manager override).
         """
         log = self.get_object()
-        
+
+        owner = getattr(request.user, 'staff_profile', None)
+        if (
+            log.staff_id != getattr(owner, 'id', None)
+            and not has_capability(request.user, ATTENDANCE_LOG_UPDATE)
+        ):
+            return Response(
+                {"detail": "You can only force-clock-out your own clock log."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         if log.time_out is not None:
             return Response({"detail": "Log is already closed."}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -947,10 +1082,35 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        All CUD actions require CanManageRoster (super_staff_admin+).
+        Canonical capability-based RBAC for roster period endpoints.
         """
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
+        base = [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action_caps = {
+            'list': CanReadAttendancePeriod(),
+            'retrieve': CanReadAttendancePeriod(),
+            'finalization_status': CanReadAttendancePeriod(),
+            'finalized_rosters_by_department': CanReadAttendancePeriod(),
+            'create': CanCreateAttendancePeriod(),
+            'create_for_week': CanCreateAttendancePeriod(),
+            'create_custom_period': CanCreateAttendancePeriod(),
+            'duplicate_period': CanCreateAttendancePeriod(),
+            'add_shift': CanCreateAttendancePeriod(),
+            'create_department_roster': CanCreateAttendancePeriod(),
+            'update': CanUpdateAttendancePeriod(),
+            'partial_update': CanUpdateAttendancePeriod(),
+            'destroy': CanDeleteAttendancePeriod(),
+            'finalize_period': CanFinalizeAttendancePeriod(),
+            'unfinalize_period': CanUnfinalizeAttendancePeriod(),
+            'export_pdf': CanExportAttendanceShiftPdf(),
+        }
+        action = getattr(self, 'action', None)
+        base.append(action_caps.get(action, CanReadAttendancePeriod()))
+        return base
 
     def perform_create(self, serializer):
         """Create roster period with proper hotel and staff assignment"""
@@ -1366,7 +1526,7 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         
         # Validate period can be finalized
         force = request.data.get('force', False)
-        is_admin = _tier_at_least(resolve_tier(request.user), 'super_staff_admin')
+        is_admin = has_capability(request.user, ATTENDANCE_PERIOD_FORCE_FINALIZE)
         
         if not force:
             is_valid, error_message = validate_period_finalization(period)
@@ -1426,7 +1586,8 @@ class RosterPeriodViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
         Unfinalize a roster period (admin only).
         """
         period = self.get_object()
-        # CanManageRoster (class-level) already enforces super_staff_admin+ for POST
+        # Capability gating handled by get_permissions →
+        # CanUnfinalizeAttendancePeriod (ATTENDANCE_PERIOD_UNFINALIZE).
 
         if not period.is_finalized:
             return Response({
@@ -1544,10 +1705,28 @@ class StaffRosterViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        All CUD and bulk_save require CanManageRoster (super_staff_admin+).
+        Canonical capability-based RBAC for staff roster (shift) endpoints.
         """
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
+        base = [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action_caps = {
+            'list': CanReadAttendanceShift(),
+            'retrieve': CanReadAttendanceShift(),
+            'create': CanCreateAttendanceShift(),
+            'update': CanUpdateAttendanceShift(),
+            'partial_update': CanUpdateAttendanceShift(),
+            'destroy': CanDeleteAttendanceShift(),
+            'bulk_save': CanBulkWriteAttendanceShift(),
+            'daily_pdf': CanExportAttendanceShiftPdf(),
+            'staff_pdf': CanExportAttendanceShiftPdf(),
+        }
+        action = getattr(self, 'action', None)
+        base.append(action_caps.get(action, CanReadAttendanceShift()))
+        return base
     
     def get_queryset(self):
         """Get hotel-scoped roster queryset with additional filters"""
@@ -1830,10 +2009,20 @@ class ShiftLocationViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        CUD requires CanManageRoster (super_staff_admin+).
+        Canonical capability-based RBAC for shift-location endpoints.
         """
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
+        base = [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action = getattr(self, 'action', None)
+        if action in ('list', 'retrieve'):
+            base.append(CanReadShiftLocation())
+        else:
+            base.append(CanManageShiftLocation())
+        return base
 
 class DailyPlanViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
     queryset = DailyPlan.objects.all()
@@ -1841,10 +2030,20 @@ class DailyPlanViewSet(HotelScopedViewSetMixin, viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        CUD requires CanManageRoster (super_staff_admin+).
+        Canonical capability-based RBAC for daily-plan endpoints.
         """
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
+        base = [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action = getattr(self, 'action', None)
+        if action in ('list', 'retrieve', 'prepare_daily_plan', 'download_pdf'):
+            base.append(CanReadDailyPlan())
+        else:
+            base.append(CanManageDailyPlan())
+        return base
 
     def get_queryset(self):
         """Get hotel-scoped daily plans with optional department filtering"""
@@ -1923,10 +2122,20 @@ class DailyPlanEntryViewSet(viewsets.ModelViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        CUD requires CanManageRoster (super_staff_admin+).
+        Canonical capability-based RBAC for daily-plan-entry endpoints.
         """
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
+        base = [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+        ]
+        action = getattr(self, 'action', None)
+        if action in ('list', 'retrieve'):
+            base.append(CanReadDailyPlan())
+        else:
+            base.append(CanManageDailyPlanEntry())
+        return base
 
     def get_daily_plan(self):
         """Get daily plan with hotel security validation"""
@@ -1964,10 +2173,16 @@ class CopyRosterViewSet(AttendanceHotelScopedMixin, viewsets.ViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        All copy operations require CanManageRoster (super_staff_admin+).
+        Canonical capability-based RBAC for roster copy operations.
+        All actions require ATTENDANCE_SHIFT_COPY.
         """
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel(), CanManageRoster()]
+        return [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanCopyAttendanceShift(),
+        ]
     
     def _check_rate_limit(self, request, hotel_slug):
         """Check if user has exceeded copy operation rate limit"""

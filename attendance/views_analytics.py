@@ -4,7 +4,10 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasNavPermission
+from staff.permissions import (
+    CanViewAttendanceModule,
+    CanReadAttendanceAnalytics,
+)
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from .serializers_analytics import (
@@ -27,10 +30,17 @@ class RosterAnalyticsViewSet(ViewSet):
 
     def get_permissions(self):
         """
-        RBAC: HasNavPermission('attendance') gates module access.
-        All analytics endpoints are read-only.
+        Canonical capability-based RBAC for roster analytics endpoints.
+        All analytics endpoints are read-only and require
+        ATTENDANCE_ANALYTICS_READ.
         """
-        return [IsAuthenticated(), HasNavPermission('attendance'), IsStaffMember(), IsSameHotel()]
+        return [
+            IsAuthenticated(),
+            CanViewAttendanceModule(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanReadAttendanceAnalytics(),
+        ]
 
     def _hotel(self, hotel_slug):
         return get_object_or_404(Hotel, slug=hotel_slug)
