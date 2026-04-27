@@ -11,7 +11,6 @@ API_ENDPOINTS = [
     ('/api/guest/', 'Guest zone (auth required)'),
     ('/api/public/', 'Public zone (no auth)'),
     ('/api/hotel/', 'Hotel management (admin)'),
-    ('/api/chat/', 'Chat endpoints'),
     ('/api/room_services/', 'Room services'),
     ('/api/bookings/', 'Restaurant bookings'),
     ('/api/notifications/', 'Notifications & Pusher auth'),
@@ -50,8 +49,8 @@ urlpatterns = [
     path('api/public/', include('public_urls')),
     # Admin hotel management endpoints (superuser only)
     path('api/hotel/', include('hotel.urls')),
-    # Chat endpoints - Direct access (legacy compatibility)
-    path('api/chat/', include('chat.urls')),
+    # Legacy /api/chat/ mount removed — canonical routes are
+    # /api/guest/hotel/<slug>/chat/... and /api/staff/hotel/<slug>/chat/...
     # Room services endpoints - Direct access
     path('api/room_services/', include('room_services.urls')),
     # Booking management endpoints - Restaurant bookings

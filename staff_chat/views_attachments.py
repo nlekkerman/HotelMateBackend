@@ -23,7 +23,13 @@ from .serializers_attachments import (
     AttachmentUploadSerializer
 )
 from .permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasChatNav, has_capability
+from staff.permissions import (
+    has_capability,
+    CanViewStaffChatModule,
+    CanReadStaffChatConversation,
+    CanUploadStaffChatAttachment,
+    CanDeleteStaffChatAttachment,
+)
 from notifications.notification_manager import notification_manager
 from .fcm_utils import send_file_attachment_notification
 
@@ -31,7 +37,11 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+    CanUploadStaffChatAttachment,
+])
 def upload_attachments(request, hotel_slug, conversation_id):
     """
     Upload file attachment(s) to a message
@@ -248,7 +258,10 @@ def upload_attachments(request, hotel_slug, conversation_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+])
 def delete_attachment(request, hotel_slug, attachment_id):
     """
     Delete a file attachment
@@ -279,13 +292,28 @@ def delete_attachment(request, hotel_slug, attachment_id):
             {'error': 'Staff profile not found'},
             status=status.HTTP_404_NOT_FOUND
         )
-    
+
+    # Participant scoping (Wave 2C)
+    if not conversation.participants.filter(id=staff.id).exists():
+        return Response(
+            {'error': 'You are not a participant in this conversation'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
     # Only sender can delete their attachments
     if message.sender.id != staff.id:
         # Moderation capability holders can delete any attachment
         if not has_capability(request.user, 'staff_chat.conversation.moderate'):
             return Response(
                 {'error': 'You can only delete your own attachments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+    else:
+        # Own attachment delete requires the staff_chat.attachment.delete
+        # capability (granted broadly via _STAFF_CHAT_BASE).
+        if not has_capability(request.user, 'staff_chat.attachment.delete'):
+            return Response(
+                {'error': 'You do not have permission to delete staff chat attachments'},
                 status=status.HTTP_403_FORBIDDEN
             )
     
@@ -348,7 +376,10 @@ def delete_attachment(request, hotel_slug, attachment_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+])
 def get_attachment_url(request, hotel_slug, attachment_id):
     """
     Get download URL for an attachment

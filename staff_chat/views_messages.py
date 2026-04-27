@@ -33,7 +33,13 @@ from .permissions import (
     IsSameHotel,
     CanDeleteMessage
 )
-from staff.permissions import HasChatNav, has_capability
+from staff.permissions import (
+    has_capability,
+    CanViewStaffChatModule,
+    CanReadStaffChatConversation,
+    CanSendStaffChatMessage,
+    CanManageStaffChatReaction,
+)
 from notifications.notification_manager import notification_manager
 from .fcm_utils import notify_conversation_participants
 from staff.models import Staff
@@ -42,7 +48,10 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+])
 def mark_message_as_read(request, hotel_slug, message_id):
     """
     Mark a specific message as read by current user
@@ -111,7 +120,11 @@ def mark_message_as_read(request, hotel_slug, message_id):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+    CanSendStaffChatMessage,
+])
 def send_message(request, hotel_slug, conversation_id):
     """
     Send a new message in a conversation
@@ -296,7 +309,10 @@ def send_message(request, hotel_slug, conversation_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+])
 def get_conversation_messages(request, hotel_slug, conversation_id):
     """
     Get messages for a conversation with pagination
@@ -363,7 +379,10 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 
 
 @api_view(['PATCH'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanSendStaffChatMessage,
+])
 def edit_message(request, hotel_slug, message_id):
     """
     Edit/update a message
@@ -393,6 +412,13 @@ def edit_message(request, hotel_slug, message_id):
     if message.sender.id != staff.id:
         return Response(
             {'error': 'You can only edit your own messages'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
+    # Participant scoping (Wave 2C)
+    if not message.conversation.participants.filter(id=staff.id).exists():
+        return Response(
+            {'error': 'You are not a participant in this conversation'},
             status=status.HTTP_403_FORBIDDEN
         )
     
@@ -450,7 +476,10 @@ def edit_message(request, hotel_slug, message_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+])
 def delete_message(request, hotel_slug, message_id):
     """
     Delete a message (soft or hard delete)
@@ -476,7 +505,15 @@ def delete_message(request, hotel_slug, message_id):
     
     conversation = message.conversation
     hard_delete = request.query_params.get('hard_delete') == 'true'
-    
+
+    # Participant scoping (Wave 2C): moderation actions are still scoped
+    # to conversations the moderator is a participant of.
+    if not conversation.participants.filter(id=staff.id).exists():
+        return Response(
+            {'error': 'You are not a participant in this conversation'},
+            status=status.HTTP_403_FORBIDDEN
+        )
+
     # Permission check for deletion
     if message.sender.id != staff.id:
         # Only holders of staff_chat.conversation.moderate can delete others' messages
@@ -599,7 +636,11 @@ def delete_message(request, hotel_slug, message_id):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+    CanManageStaffChatReaction,
+])
 def add_reaction(request, hotel_slug, message_id):
     """
     Add an emoji reaction to a message
@@ -721,7 +762,11 @@ def add_reaction(request, hotel_slug, message_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+    CanManageStaffChatReaction,
+])
 def remove_reaction(request, hotel_slug, message_id, emoji):
     """
     Remove an emoji reaction from a message
@@ -740,6 +785,13 @@ def remove_reaction(request, hotel_slug, message_id, emoji):
         return Response(
             {'error': 'Staff profile not found'},
             status=status.HTTP_404_NOT_FOUND
+        )
+
+    # Participant scoping (Wave 2C)
+    if not message.conversation.participants.filter(id=staff.id).exists():
+        return Response(
+            {'error': 'You are not a participant in this conversation'},
+            status=status.HTTP_403_FORBIDDEN
         )
     
     # Find and delete reaction
@@ -796,7 +848,11 @@ def remove_reaction(request, hotel_slug, message_id, emoji):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+    CanSendStaffChatMessage,
+])
 def forward_message(request, hotel_slug, message_id):
     """
     Forward a message to multiple conversations

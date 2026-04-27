@@ -1,5 +1,5 @@
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.db.models import Count
@@ -13,7 +13,15 @@ from .serializers import ConversationSerializer, RoomMessageSerializer
 from .utils import pusher_client
 from notifications.fcm_service import send_fcm_notification
 from notifications.notification_manager import notification_manager
-from staff.permissions import HasNavPermission, has_capability, staff_with_capability
+from staff.permissions import (
+    has_capability,
+    staff_with_capability,
+    CanViewChatModule,
+    CanReadChatConversation,
+    CanSendChatMessage,
+    CanUploadChatAttachment,
+    CanAssignChatConversation,
+)
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 import json
 from django.core.serializers.json import DjangoJSONEncoder
@@ -49,15 +57,11 @@ def _require_staff_or_guest(request):
 
 # Fetch all conversations (rooms with messages) for a hotel
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanReadChatConversation,
+])
 def get_active_conversations(request, hotel_slug):
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
-    # RBAC: hotel scoping
-    staff = getattr(request.user, 'staff_profile', None)
-    if not staff or staff.hotel.slug != hotel_slug:
-        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     
     conversations = Conversation.objects.filter(
@@ -70,15 +74,11 @@ def get_active_conversations(request, hotel_slug):
 
 # Fetch all messages for a conversation
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanReadChatConversation,
+])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
 def get_conversation_messages(request, hotel_slug, conversation_id):
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
-    # RBAC: hotel scoping
-    staff = getattr(request.user, 'staff_profile', None)
-    if not staff or staff.hotel.slug != hotel_slug:
-        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     conversation = get_object_or_404(Conversation, id=conversation_id)
     if conversation.room.hotel.slug != hotel_slug:
         return Response({"error": "Conversation does not belong to this hotel"}, status=400)
@@ -101,15 +101,11 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 
 # Send (or start) a conversation message
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanSendChatMessage,
+])  # Staff-only — guests use /api/guest/hotel/{slug}/chat/messages
 def send_conversation_message(request, hotel_slug, conversation_id):
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
-    # RBAC: hotel scoping
-    _staff_check = getattr(request.user, 'staff_profile', None)
-    if not _staff_check or _staff_check.hotel.slug != hotel_slug:
-        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
     hotel = room.hotel
@@ -348,15 +344,11 @@ def send_conversation_message(request, hotel_slug, conversation_id):
 
 # Get or create a conversation for a room (first message)
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])  # Staff-only — guests use canonical chat bootstrap
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanReadChatConversation,
+])  # Staff-only — guests use canonical chat bootstrap
 def get_or_create_conversation_from_room(request, hotel_slug, room_number):
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
-    # RBAC: hotel scoping
-    staff = getattr(request.user, 'staff_profile', None)
-    if not staff or staff.hotel.slug != hotel_slug:
-        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     room = get_object_or_404(Room, room_number=room_number, hotel=hotel)
 
@@ -377,31 +369,22 @@ def get_or_create_conversation_from_room(request, hotel_slug, room_number):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanReadChatConversation,
+])
 def get_active_rooms(request, hotel_slug):
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
-    # RBAC: hotel scoping
-    staff = getattr(request.user, 'staff_profile', None)
-    if not staff or staff.hotel.slug != hotel_slug:
-        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
     conversations = Conversation.objects.filter(room__hotel=hotel).select_related('room').prefetch_related('room__guests', 'messages').order_by('-updated_at')
     serializer = ConversationSerializer(conversations, many=True)
     return Response(serializer.data)
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanReadChatConversation,
+])
 def get_unread_count(request, hotel_slug):
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
-    # RBAC: hotel scoping
-    staff = getattr(request.user, 'staff_profile', None)
-    if not staff or staff.hotel.slug != hotel_slug:
-        return Response({'detail': 'You do not have access to this hotel.'}, status=403)
-
     hotel = get_object_or_404(Hotel, slug=hotel_slug)
 
     # Annotate counts of unread guest messages per room
@@ -422,7 +405,10 @@ def get_unread_count(request, hotel_slug):
     return Response({"unread_counts": counts_dict})
 
 @api_view(['POST'])
-@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanReadChatConversation,
+])
 def mark_conversation_read(request, hotel_slug, conversation_id):
     """Mark messages as read with detailed tracking for staff and guests"""
     staff = getattr(request.user, "staff_profile", None)
@@ -431,6 +417,8 @@ def mark_conversation_read(request, hotel_slug, conversation_id):
     conversation = get_object_or_404(Conversation, id=conversation_id)
     room = conversation.room
     hotel = room.hotel
+    if hotel.slug != hotel_slug:
+        return Response({"error": "Conversation does not belong to this hotel"}, status=400)
 
     if is_staff:
         # Staff reading guest messages
@@ -514,11 +502,11 @@ def mark_conversation_read(request, hotel_slug, conversation_id):
 
 
 @api_view(['GET'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanReadChatConversation,
+])
 def get_unread_conversation_count(request, hotel_slug):
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
         return Response({"unread_count": 0, "rooms": []})
@@ -592,7 +580,10 @@ def get_client_ip(request):
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanAssignChatConversation,
+])
 def assign_staff_to_conversation(request, hotel_slug, conversation_id):
     """
     Assign the authenticated staff member as the current handler when they
@@ -602,9 +593,6 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
     This allows any staff member to take over a conversation at any time,
     and the guest will see the new staff member's name in their chat window.
     """
-    # RBAC: module visibility
-    if not HasNavPermission('chat').has_permission(request, None):
-        return Response({'detail': 'You do not have access to the chat module.'}, status=403)
     staff = getattr(request.user, "staff_profile", None)
     if not staff:
         return Response(
@@ -746,34 +734,28 @@ def assign_staff_to_conversation(request, hotel_slug, conversation_id):
 # ==================== MESSAGE CRUD OPERATIONS ====================
 
 @api_view(['PATCH'])
-@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
+@permission_classes([
+    IsAuthenticated, IsStaffMember,
+    CanViewChatModule, CanSendChatMessage,
+])
 def update_message(request, message_id):
     """
     Update/edit a message. Only the sender can edit their own messages.
-    Staff can edit their messages, guests can edit their messages.
+    Hard-rule: staff-only — guests use the canonical guest endpoint.
     """
     message = get_object_or_404(RoomMessage, id=message_id)
     
-    # Check permissions
+    # Same-hotel scoping (URL has no hotel_slug)
     staff = getattr(request.user, "staff_profile", None)
-    is_staff = staff is not None
+    if not staff or message.room.hotel_id != staff.hotel_id:
+        return Response({"error": "Message not in your hotel"}, status=403)
+    is_staff = True
     
     # Staff can only edit their own messages
-    if is_staff and message.sender_type == "staff":
-        if message.staff != staff:
-            return Response(
-                {"error": "You can only edit your own messages"},
-                status=403
-            )
-    # Guest messages can only be edited if sender is guest
-    elif not is_staff and message.sender_type == "guest":
-        # For guests, we allow editing if they're in the same room
-        # (more permissive since guests don't have accounts)
-        pass
-    else:
+    if message.sender_type != "staff" or message.staff_id != staff.id:
         return Response(
-            {"error": "You don't have permission to edit this message"},
-            status=403
+            {"error": "You can only edit your own messages"},
+            status=403,
         )
     
     # Check if message is already deleted
@@ -819,64 +801,43 @@ def update_message(request, message_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
+@permission_classes([
+    IsAuthenticated, IsStaffMember,
+    CanViewChatModule,
+])
 def delete_message(request, message_id):
     """
     Soft delete a message. Only the sender can delete their own messages.
-    Hard delete is available for staff with admin permissions.
+    Hard delete requires the chat.message.moderate capability.
+    Hard-rule: staff-only — guests use the canonical guest endpoint.
     """
     message = get_object_or_404(RoomMessage, id=message_id)
     
-    # Check permissions
+    # Same-hotel scoping (URL has no hotel_slug)
     staff = getattr(request.user, "staff_profile", None)
-    is_staff = staff is not None
+    if not staff or message.room.hotel_id != staff.hotel_id:
+        return Response({"error": "Message not in your hotel"}, status=403)
+    is_staff = True
     hard_delete = request.query_params.get('hard_delete') == 'true'
+
+    # Capability gate: own-message soft delete only needs IsStaffMember
+    # (already checked above). Hard-delete or deleting another sender's
+    # message requires chat.message.moderate.
+    own_staff_message = (
+        message.sender_type == 'staff' and message.staff_id == staff.id
+    )
+    if hard_delete or not own_staff_message:
+        if not has_capability(request.user, 'chat.message.moderate'):
+            return Response(
+                {"error": "You do not have permission to moderate guest chat messages"},
+                status=403,
+            )
     
     logger.info(
         f"DELETE request: message_id={message_id}, "
         f"is_authenticated={request.user.is_authenticated}, "
         f"is_staff={is_staff}, sender_type={message.sender_type}"
     )
-    
-    # Permission logic:
-    # 1. Staff can delete their own staff messages
-    # 2. Staff can delete ANY guest messages (moderation)
-    # 3. Guest (anonymous) can delete their own guest messages
-    # 4. Guest CANNOT delete staff messages
-    
-    if is_staff:
-        # Staff user (authenticated)
-        if message.sender_type == "staff":
-            # Staff deleting a staff message - must be their own
-            if message.staff != staff:
-                # Hard-delete on another staff member's message requires the
-                # chat.message.moderate capability.
-                if hard_delete and not has_capability(
-                    request.user, 'chat.message.moderate'
-                ):
-                    return Response(
-                        {"error": "You do not have permission to hard delete other staff messages"},
-                        status=403
-                    )
-                elif not hard_delete:
-                    return Response(
-                        {"error": "You can only delete your own messages"},
-                        status=403
-                    )
-        # else: Staff deleting guest message - ALLOWED (moderation)
-    else:
-        # Guest user (anonymous via QR/PIN)
-        if message.sender_type == "staff":
-            # Guest cannot delete staff messages
-            return Response(
-                {"error": "Guests cannot delete staff messages"},
-                status=403
-            )
-        
-        # Guest deleting guest message - verify they have access to this room
-        # Guests can delete ANY guest message in their room (since they're anonymous)
-        # We verify room access by checking the message is in their conversation
-        print(f"✅ Guest deleting guest message in room {message.room.room_number}")
     
     hotel = message.room.hotel
     room = message.room
@@ -1013,11 +974,15 @@ def delete_message(request, message_id):
 # ==================== FILE ATTACHMENT OPERATIONS ====================
 
 @api_view(['POST'])
-@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule, CanUploadChatAttachment,
+])
 def upload_message_attachment(request, hotel_slug, conversation_id):
     """
     Upload file attachment(s) to a message.
     Supports multiple files per message.
+    Hard-rule: staff-only — guests use the canonical guest endpoint.
     """
     from .models import MessageAttachment
     from .serializers import MessageAttachmentSerializer
@@ -1185,34 +1150,44 @@ def upload_message_attachment(request, hotel_slug, conversation_id):
 
 
 @api_view(['DELETE'])
-@permission_classes([AllowAny])  # AllowAny because guests are not Django-authenticated
+@permission_classes([
+    IsAuthenticated, IsStaffMember,
+    CanViewChatModule,
+])
 def delete_attachment(request, attachment_id):
     """
     Delete a file attachment.
-    Only the message sender can delete attachments.
+    Sender of the parent message can delete their own attachment with
+    chat.attachment.delete; deleting other senders' attachments requires
+    chat.message.moderate.
+    Hard-rule: staff-only — guests use the canonical guest endpoint.
     """
     from .models import MessageAttachment
     
     attachment = get_object_or_404(MessageAttachment, id=attachment_id)
     message = attachment.message
     
-    # Check permissions
+    # Same-hotel scoping (URL has no hotel_slug)
     staff = getattr(request.user, "staff_profile", None)
-    is_staff = staff is not None
-    
-    if is_staff and message.sender_type == "staff":
-        if message.staff != staff:
+    if not staff or message.room.hotel_id != staff.hotel_id:
+        return Response({"error": "Attachment not in your hotel"}, status=403)
+    is_staff = True
+
+    own_staff_attachment = (
+        message.sender_type == 'staff' and message.staff_id == staff.id
+    )
+    if own_staff_attachment:
+        if not has_capability(request.user, 'chat.attachment.delete'):
             return Response(
-                {"error": "You can only delete your own attachments"},
-                status=403
+                {"error": "You do not have permission to delete guest chat attachments"},
+                status=403,
             )
-    elif not is_staff and message.sender_type == "guest":
-        pass
     else:
-        return Response(
-            {"error": "You don't have permission to delete this attachment"},
-            status=403
-        )
+        if not has_capability(request.user, 'chat.message.moderate'):
+            return Response(
+                {"error": "You do not have permission to moderate guest chat messages"},
+                status=403,
+            )
     
     # Delete the file from storage
     if attachment.file:
@@ -1293,7 +1268,10 @@ def delete_attachment(request, attachment_id):
 # ==================== FCM TOKEN MANAGEMENT ====================
 
 @api_view(['POST'])
-@permission_classes([AllowAny])
+@permission_classes([
+    IsAuthenticated, IsStaffMember, IsSameHotel,
+    CanViewChatModule,
+])
 def save_fcm_token(request, hotel_slug):
     """
     Save FCM token for guest chat notifications.

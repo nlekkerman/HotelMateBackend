@@ -52,8 +52,27 @@ from typing import Iterable
 # ---------------------------------------------------------------------------
 
 # --- Guest chat (chat app) ---
+CHAT_MODULE_VIEW = 'chat.module.view'
+"""See the guest-chat module (navigation + module-level visibility)."""
+
+CHAT_CONVERSATION_READ = 'chat.conversation.read'
+"""Read guest-chat conversations / messages / unread counts scoped to
+the current hotel."""
+
+CHAT_MESSAGE_SEND = 'chat.message.send'
+"""Send a staff message into a guest-chat conversation."""
+
 CHAT_MESSAGE_MODERATE = 'chat.message.moderate'
 """Hard-delete guest-chat messages authored by other senders (moderation)."""
+
+CHAT_ATTACHMENT_UPLOAD = 'chat.attachment.upload'
+"""Upload a file attachment to a guest-chat message."""
+
+CHAT_ATTACHMENT_DELETE = 'chat.attachment.delete'
+"""Delete a guest-chat attachment that the staff member authored."""
+
+CHAT_CONVERSATION_ASSIGN = 'chat.conversation.assign'
+"""Assign / handoff a guest-chat conversation to a staff handler."""
 
 CHAT_GUEST_RESPOND = 'chat.guest.respond'
 """Eligible to be routed inbound guest-chat traffic and to act on it.
@@ -64,9 +83,33 @@ by any future staff-reply eligibility check. Historically carried by
 """
 
 # --- Staff-to-staff chat ---
+STAFF_CHAT_MODULE_VIEW = 'staff_chat.module.view'
+"""See the staff-chat module (navigation + module-level visibility)."""
+
+STAFF_CHAT_CONVERSATION_READ = 'staff_chat.conversation.read'
+"""Read staff-chat conversations (list / retrieve / messages / unread)."""
+
+STAFF_CHAT_CONVERSATION_CREATE = 'staff_chat.conversation.create'
+"""Create a staff-chat conversation."""
+
+STAFF_CHAT_CONVERSATION_DELETE = 'staff_chat.conversation.delete'
+"""Delete a staff-chat conversation. Reserved for moderation/admin."""
+
+STAFF_CHAT_MESSAGE_SEND = 'staff_chat.message.send'
+"""Send / forward a message in a staff-chat conversation."""
+
 STAFF_CHAT_CONVERSATION_MODERATE = 'staff_chat.conversation.moderate'
 """Moderate staff-chat conversations (hard-delete others' messages and
 attachments, manage any conversation as non-creator)."""
+
+STAFF_CHAT_ATTACHMENT_UPLOAD = 'staff_chat.attachment.upload'
+"""Upload an attachment to a staff-chat message."""
+
+STAFF_CHAT_ATTACHMENT_DELETE = 'staff_chat.attachment.delete'
+"""Delete a staff-chat attachment that the staff member authored."""
+
+STAFF_CHAT_REACTION_MANAGE = 'staff_chat.reaction.manage'
+"""Add or remove a reaction on a staff-chat message."""
 
 # --- Housekeeping (Phase 6C) ---
 HOUSEKEEPING_MODULE_VIEW = 'housekeeping.module.view'
@@ -452,9 +495,23 @@ HOTEL_INFO_QR_GENERATE = 'hotel_info.qr.generate'
 
 
 CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
+    CHAT_MODULE_VIEW,
+    CHAT_CONVERSATION_READ,
+    CHAT_MESSAGE_SEND,
     CHAT_MESSAGE_MODERATE,
+    CHAT_ATTACHMENT_UPLOAD,
+    CHAT_ATTACHMENT_DELETE,
+    CHAT_CONVERSATION_ASSIGN,
     CHAT_GUEST_RESPOND,
+    STAFF_CHAT_MODULE_VIEW,
+    STAFF_CHAT_CONVERSATION_READ,
+    STAFF_CHAT_CONVERSATION_CREATE,
+    STAFF_CHAT_CONVERSATION_DELETE,
+    STAFF_CHAT_MESSAGE_SEND,
     STAFF_CHAT_CONVERSATION_MODERATE,
+    STAFF_CHAT_ATTACHMENT_UPLOAD,
+    STAFF_CHAT_ATTACHMENT_DELETE,
+    STAFF_CHAT_REACTION_MANAGE,
     # Housekeeping (Phase 6C)
     HOUSEKEEPING_MODULE_VIEW,
     HOUSEKEEPING_DASHBOARD_READ,
@@ -639,7 +696,51 @@ _ROOM_MANAGE: frozenset[str] = _ROOM_SUPERVISE | frozenset({
 # presets so tier never doubles as the housekeeping permission engine.
 _SUPERVISOR_AUTHORITY: frozenset[str] = frozenset({
     CHAT_MESSAGE_MODERATE,
+    CHAT_CONVERSATION_ASSIGN,
     STAFF_CHAT_CONVERSATION_MODERATE,
+    STAFF_CHAT_CONVERSATION_DELETE,
+})
+
+
+# ---------------------------------------------------------------------------
+# Guest chat (chat app) preset bundles (Wave 2A)
+#
+# Product rule: any authenticated same-hotel staff can use guest chat.
+# The base bundle (view/read/send/upload/delete-own) is granted across
+# every tier so all staff personas pick it up. Moderation, assign, and
+# guest-routing capabilities remain reserved (moderation+assign on the
+# supervisor authority bundle; guest_respond on front_office department).
+# ---------------------------------------------------------------------------
+
+_CHAT_BASE: frozenset[str] = frozenset({
+    CHAT_MODULE_VIEW,
+    CHAT_CONVERSATION_READ,
+    CHAT_MESSAGE_SEND,
+    CHAT_ATTACHMENT_UPLOAD,
+    CHAT_ATTACHMENT_DELETE,
+})
+
+
+# ---------------------------------------------------------------------------
+# Staff-to-staff chat preset bundle (Wave 2C)
+#
+# Product rule: any authenticated same-hotel staff can use staff chat.
+# Module visibility, read, conversation create, message send, attachment
+# upload/delete (own), and reaction add/remove are granted broadly to
+# every tier. Conversation delete and moderation remain reserved on the
+# supervisor authority bundle (already carries
+# STAFF_CHAT_CONVERSATION_MODERATE; gets STAFF_CHAT_CONVERSATION_DELETE
+# added below).
+# ---------------------------------------------------------------------------
+
+_STAFF_CHAT_BASE: frozenset[str] = frozenset({
+    STAFF_CHAT_MODULE_VIEW,
+    STAFF_CHAT_CONVERSATION_READ,
+    STAFF_CHAT_CONVERSATION_CREATE,
+    STAFF_CHAT_MESSAGE_SEND,
+    STAFF_CHAT_ATTACHMENT_UPLOAD,
+    STAFF_CHAT_ATTACHMENT_DELETE,
+    STAFF_CHAT_REACTION_MANAGE,
 })
 
 
@@ -830,9 +931,14 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     #   super_staff_admin → supervisor authority + booking supervise (overrides)
     #   staff_admin       → supervisor authority only (no booking caps)
     #   regular_staff     → no tier-level caps (role/dept presets only)
-    'super_staff_admin': _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE,
-    'staff_admin': _SUPERVISOR_AUTHORITY,
-    'regular_staff': frozenset(),
+    # Wave 2A: guest-chat base bundle granted broadly to every tier so any
+    # authenticated same-hotel staff can use guest chat.
+    'super_staff_admin': (
+        _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE
+        | _CHAT_BASE | _STAFF_CHAT_BASE
+    ),
+    'staff_admin': _SUPERVISOR_AUTHORITY | _CHAT_BASE | _STAFF_CHAT_BASE,
+    'regular_staff': _CHAT_BASE | _STAFF_CHAT_BASE,
 }
 
 
@@ -925,6 +1031,7 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # NOT operate the turnover state machine.
     'front_office': frozenset({
         CHAT_GUEST_RESPOND,
+        CHAT_CONVERSATION_ASSIGN,
         HOUSEKEEPING_MODULE_VIEW,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
         HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,

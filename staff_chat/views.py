@@ -15,8 +15,25 @@ from .serializers import (
 )
 from staff.models import Staff
 from hotel.models import Hotel
-from staff.permissions import HasChatNav
-from .permissions import IsStaffMember, IsSameHotel
+from staff.permissions import (
+    CanViewStaffChatModule,
+    CanReadStaffChatConversation,
+    CanCreateStaffChatConversation,
+    CanDeleteStaffChatConversation,
+    CanSendStaffChatMessage,
+)
+from .permissions import IsStaffMember, IsSameHotel, IsConversationParticipant
+
+
+class _DenyAll(permissions.BasePermission):
+    """Hard-deny gate used for unsupported viewset actions (Wave 2C)."""
+    message = "This action is not available."
+
+    def has_permission(self, request, view):
+        return False
+
+    def has_object_permission(self, request, view, obj):
+        return False
 
 
 class StaffListPagination(PageNumberPagination):
@@ -40,7 +57,10 @@ class StaffListViewSet(viewsets.ReadOnlyModelViewSet):
     - Search: ?search=John
     """
     serializer_class = StaffListSerializer
-    permission_classes = [permissions.IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel]
+    permission_classes = [
+        permissions.IsAuthenticated, IsStaffMember, IsSameHotel,
+        CanViewStaffChatModule, CanReadStaffChatConversation,
+    ]
     pagination_class = StaffListPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = [
@@ -88,7 +108,10 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
     - POST /api/staff-chat/<hotel_slug>/conversations/{id}/send_message/
     - POST /api/staff-chat/<hotel_slug>/conversations/{id}/mark_as_read/
     """
-    permission_classes = [permissions.IsAuthenticated, HasChatNav, IsStaffMember, IsSameHotel]
+    permission_classes = [
+        permissions.IsAuthenticated, IsStaffMember, IsSameHotel,
+        CanViewStaffChatModule, CanReadStaffChatConversation,
+    ]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['title', 'participants__first_name']
     ordering_fields = ['updated_at', 'created_at']
@@ -98,6 +121,55 @@ class StaffConversationViewSet(viewsets.ModelViewSet):
         if self.action == 'retrieve':
             return StaffConversationDetailSerializer
         return StaffConversationSerializer
+
+    def get_permissions(self):
+        """
+        Per-action capability gating (Wave 2C).
+
+        Read surfaces (list / retrieve / messages / unread / for_forwarding /
+        mark_as_read / bulk_mark_as_read / sync_unread_counts) require
+        CanReadStaffChatConversation. Mutations override the bundle.
+
+        Object-level participant scoping is enforced via
+        IsConversationParticipant on detail actions.
+        """
+        base = [
+            permissions.IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewStaffChatModule(),
+        ]
+        if self.action == 'create':
+            return base + [CanCreateStaffChatConversation()]
+        if self.action == 'destroy':
+            return base + [
+                CanReadStaffChatConversation(),
+                IsConversationParticipant(),
+                CanDeleteStaffChatConversation(),
+            ]
+        if self.action in ('update', 'partial_update'):
+            # Conversation update/partial_update is not a documented
+            # product surface for staff_chat. Block at the permission
+            # layer until a clear use case lands.
+            return base + [_DenyAll()]
+        if self.action == 'send_message':
+            return base + [
+                CanReadStaffChatConversation(),
+                IsConversationParticipant(),
+                CanSendStaffChatMessage(),
+            ]
+        if self.action in (
+            'retrieve', 'mark_as_read',
+        ):
+            return base + [
+                CanReadStaffChatConversation(),
+                IsConversationParticipant(),
+            ]
+        # list / messages / unread_count / for_forwarding /
+        # bulk_mark_as_read / sync_unread_counts /
+        # conversations_with_unread_count — list-style or
+        # filtered-by-participant queryset, no object lookup.
+        return base + [CanReadStaffChatConversation()]
 
     def get_queryset(self):
         """

@@ -1482,3 +1482,144 @@ class CanGenerateHotelInfoQR(HasCapability):
 
 
 
+
+
+
+
+# ---------------------------------------------------------------------------
+# Guest chat (chat app) capability permission classes (Wave 2A)
+#
+# Single source of truth for endpoint enforcement in the guest-chat
+# module. Stays in lock-step with staff.module_policy MODULE_POLICY['chat'].
+# Read/visibility gates set safe_methods_bypass = False so GETs are
+# gated. Mutation gates inherit the default (pass GET, enforce non-safe
+# methods) and are chained on top of CanViewChatModule by the views.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    CHAT_ATTACHMENT_DELETE,
+    CHAT_ATTACHMENT_UPLOAD,
+    CHAT_CONVERSATION_ASSIGN,
+    CHAT_CONVERSATION_READ,
+    CHAT_GUEST_RESPOND,
+    CHAT_MESSAGE_MODERATE,
+    CHAT_MESSAGE_SEND,
+    CHAT_MODULE_VIEW,
+)
+
+
+class CanViewChatModule(HasCapability):
+    """Module visibility gate for the guest-chat module (all methods)."""
+    required_capability = CHAT_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the chat module."
+
+
+class CanReadChatConversation(HasCapability):
+    """Read access gate for guest-chat conversations / messages."""
+    required_capability = CHAT_CONVERSATION_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read guest chat conversations."
+
+
+class CanSendChatMessage(HasCapability):
+    required_capability = CHAT_MESSAGE_SEND
+    message = "You do not have permission to send guest chat messages."
+
+
+class CanModerateChatMessage(HasCapability):
+    required_capability = CHAT_MESSAGE_MODERATE
+    message = "You do not have permission to moderate guest chat messages."
+
+
+class CanUploadChatAttachment(HasCapability):
+    required_capability = CHAT_ATTACHMENT_UPLOAD
+    message = "You do not have permission to upload guest chat attachments."
+
+
+class CanDeleteChatAttachment(HasCapability):
+    required_capability = CHAT_ATTACHMENT_DELETE
+    message = "You do not have permission to delete guest chat attachments."
+
+
+class CanAssignChatConversation(HasCapability):
+    required_capability = CHAT_CONVERSATION_ASSIGN
+    message = "You do not have permission to assign guest chat conversations."
+
+
+class CanRespondToGuest(HasCapability):
+    required_capability = CHAT_GUEST_RESPOND
+    message = "You do not have permission to respond to guest chat traffic."
+
+# ---------------------------------------------------------------------------
+# Staff-to-staff chat (staff_chat app) capability permission classes
+# (Wave 2C)
+#
+# Single source of truth for endpoint enforcement in the staff-chat
+# module. Stays in lock-step with staff.module_policy MODULE_POLICY['staff_chat'].
+# Module visibility / read gates set safe_methods_bypass = False so GETs
+# are gated. Mutation gates inherit the default (pass GET, enforce
+# non-safe methods) and are chained on top of CanViewStaffChatModule by
+# the views. No role / nav / tier checks.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    STAFF_CHAT_ATTACHMENT_DELETE,
+    STAFF_CHAT_ATTACHMENT_UPLOAD,
+    STAFF_CHAT_CONVERSATION_CREATE,
+    STAFF_CHAT_CONVERSATION_DELETE,
+    STAFF_CHAT_CONVERSATION_MODERATE,
+    STAFF_CHAT_CONVERSATION_READ,
+    STAFF_CHAT_MESSAGE_SEND,
+    STAFF_CHAT_MODULE_VIEW,
+    STAFF_CHAT_REACTION_MANAGE,
+)
+
+
+class CanViewStaffChatModule(HasCapability):
+    """Module visibility gate for the staff-chat module (all methods)."""
+    required_capability = STAFF_CHAT_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the staff chat module."
+
+
+class CanReadStaffChatConversation(HasCapability):
+    """Read access gate for staff-chat conversations / messages."""
+    required_capability = STAFF_CHAT_CONVERSATION_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read staff chat conversations."
+
+
+class CanCreateStaffChatConversation(HasCapability):
+    required_capability = STAFF_CHAT_CONVERSATION_CREATE
+    message = "You do not have permission to create staff chat conversations."
+
+
+class CanDeleteStaffChatConversation(HasCapability):
+    required_capability = STAFF_CHAT_CONVERSATION_DELETE
+    message = "You do not have permission to delete staff chat conversations."
+
+
+class CanSendStaffChatMessage(HasCapability):
+    required_capability = STAFF_CHAT_MESSAGE_SEND
+    message = "You do not have permission to send staff chat messages."
+
+
+class CanModerateStaffChatMessage(HasCapability):
+    required_capability = STAFF_CHAT_CONVERSATION_MODERATE
+    message = "You do not have permission to moderate staff chat messages."
+
+
+class CanUploadStaffChatAttachment(HasCapability):
+    required_capability = STAFF_CHAT_ATTACHMENT_UPLOAD
+    message = "You do not have permission to upload staff chat attachments."
+
+
+class CanDeleteStaffChatAttachment(HasCapability):
+    required_capability = STAFF_CHAT_ATTACHMENT_DELETE
+    message = "You do not have permission to delete staff chat attachments."
+
+
+class CanManageStaffChatReaction(HasCapability):
+    required_capability = STAFF_CHAT_REACTION_MANAGE
+    message = "You do not have permission to manage staff chat reactions."

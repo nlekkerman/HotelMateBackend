@@ -9,6 +9,7 @@ import hashlib
 import logging
 from django.conf import settings
 from staff.models import Staff
+from staff.permissions import has_capability
 from common.guest_access import (
     resolve_guest_access,
     resolve_guest_access_without_slug,
@@ -91,6 +92,20 @@ class PusherAuthView(APIView):
         if not any(channel_name.startswith(pattern) for pattern in allowed_patterns):
             logger.warning(f"Staff auth failed: channel access denied for {channel_name} (hotel: {hotel_slug})")
             return Response({"error": "Channel access denied for staff"}, status=403)
+        
+        # Capability gate: subscribing to a guest-chat booking channel requires
+        # chat.guest.respond (Wave 2A).
+        guest_chat_prefix = f"private-hotel-{hotel_slug}-guest-chat-booking-"
+        if channel_name.startswith(guest_chat_prefix):
+            if not has_capability(request.user, 'chat.guest.respond'):
+                logger.warning(
+                    f"Staff auth failed: missing chat.guest.respond for "
+                    f"channel {channel_name} (staff={staff.id})"
+                )
+                return Response(
+                    {"error": "You do not have permission to respond to guest chat traffic"},
+                    status=403,
+                )
         
         # Generate Pusher auth signature
         auth = self._generate_pusher_auth(socket_id, channel_name, {
