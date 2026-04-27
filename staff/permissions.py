@@ -434,9 +434,6 @@ class HasStaffManagementNav(HasNavPermission):
 class HasHousekeepingNav(HasNavPermission):
     def __init__(self): super().__init__('housekeeping')
 
-class HasRoomServicesNav(HasNavPermission):
-    def __init__(self): super().__init__('room_services')
-
 class HasChatNav(HasNavPermission):
     def __init__(self): super().__init__('chat')
 
@@ -470,20 +467,6 @@ class CanManageMaintenance(BasePermission):
     Required tier: staff_admin or above.
     """
     message = "You do not have permission to manage maintenance tickets."
-
-    def has_permission(self, request, view):
-        if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return True
-        tier = resolve_tier(request.user)
-        return _tier_at_least(tier, 'staff_admin')
-
-
-class CanManageRoomServices(BasePermission):
-    """
-    Gates room-service order status updates and item CUD (staff-side mutations).
-    Required tier: staff_admin or above.
-    """
-    message = "You do not have permission to manage room services."
 
     def has_permission(self, request, view):
         if request.method in ('GET', 'HEAD', 'OPTIONS'):
@@ -1866,3 +1849,137 @@ class CanReadAttendanceFaceAudit(HasCapability):
     required_capability = ATTENDANCE_FACE_AUDIT_READ
     safe_methods_bypass = False
     message = "You do not have permission to read attendance face audit logs."
+
+
+# ---------------------------------------------------------------------------
+# Room services capability permission classes
+#
+# Single source of truth for endpoint enforcement in the room-services
+# module. Stays in lock-step with MODULE_POLICY['room_services'] so the
+# frontend rbac.room_services object and backend enforcement derive from
+# the same capability slugs.
+#
+# Read/visibility gates set safe_methods_bypass = False so GETs are gated.
+# Mutation gates inherit the default (pass GET, enforce non-safe methods)
+# and are chained on top of CanViewRoomServicesModule by the views.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    ROOM_SERVICE_BREAKFAST_ORDER_ACCEPT,
+    ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE,
+    ROOM_SERVICE_BREAKFAST_ORDER_CREATE,
+    ROOM_SERVICE_BREAKFAST_ORDER_DELETE,
+    ROOM_SERVICE_BREAKFAST_ORDER_READ,
+    ROOM_SERVICE_BREAKFAST_ORDER_UPDATE,
+    ROOM_SERVICE_MENU_ITEM_CREATE,
+    ROOM_SERVICE_MENU_ITEM_DELETE,
+    ROOM_SERVICE_MENU_ITEM_IMAGE_MANAGE,
+    ROOM_SERVICE_MENU_ITEM_UPDATE,
+    ROOM_SERVICE_MENU_READ,
+    ROOM_SERVICE_MODULE_VIEW,
+    ROOM_SERVICE_ORDER_ACCEPT,
+    ROOM_SERVICE_ORDER_COMPLETE,
+    ROOM_SERVICE_ORDER_CREATE,
+    ROOM_SERVICE_ORDER_DELETE,
+    ROOM_SERVICE_ORDER_READ,
+    ROOM_SERVICE_ORDER_UPDATE,
+)
+
+
+class CanViewRoomServicesModule(HasCapability):
+    """Module visibility gate for the room-services module (all methods)."""
+    required_capability = ROOM_SERVICE_MODULE_VIEW
+    safe_methods_bypass = False
+    message = "You do not have permission to view the room services module."
+
+
+class CanReadRoomServiceMenu(HasCapability):
+    required_capability = ROOM_SERVICE_MENU_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read the room service menu."
+
+
+class CanCreateRoomServiceMenuItem(HasCapability):
+    required_capability = ROOM_SERVICE_MENU_ITEM_CREATE
+    message = "You do not have permission to create room service menu items."
+
+
+class CanUpdateRoomServiceMenuItem(HasCapability):
+    required_capability = ROOM_SERVICE_MENU_ITEM_UPDATE
+    message = "You do not have permission to update room service menu items."
+
+
+class CanDeleteRoomServiceMenuItem(HasCapability):
+    required_capability = ROOM_SERVICE_MENU_ITEM_DELETE
+    message = "You do not have permission to delete room service menu items."
+
+
+class CanManageRoomServiceMenuItemImage(HasCapability):
+    required_capability = ROOM_SERVICE_MENU_ITEM_IMAGE_MANAGE
+    message = (
+        "You do not have permission to manage room service menu item images."
+    )
+
+
+class CanReadRoomServiceOrder(HasCapability):
+    required_capability = ROOM_SERVICE_ORDER_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read room service orders."
+
+
+class CanCreateRoomServiceOrder(HasCapability):
+    required_capability = ROOM_SERVICE_ORDER_CREATE
+    message = "You do not have permission to create room service orders."
+
+
+class CanUpdateRoomServiceOrder(HasCapability):
+    required_capability = ROOM_SERVICE_ORDER_UPDATE
+    message = "You do not have permission to update room service orders."
+
+
+class CanDeleteRoomServiceOrder(HasCapability):
+    required_capability = ROOM_SERVICE_ORDER_DELETE
+    message = "You do not have permission to delete room service orders."
+
+
+class CanAcceptRoomServiceOrder(HasCapability):
+    required_capability = ROOM_SERVICE_ORDER_ACCEPT
+    message = "You do not have permission to accept room service orders."
+
+
+class CanCompleteRoomServiceOrder(HasCapability):
+    required_capability = ROOM_SERVICE_ORDER_COMPLETE
+    message = "You do not have permission to complete room service orders."
+
+
+class CanReadBreakfastOrder(HasCapability):
+    required_capability = ROOM_SERVICE_BREAKFAST_ORDER_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read breakfast orders."
+
+
+class CanCreateBreakfastOrder(HasCapability):
+    required_capability = ROOM_SERVICE_BREAKFAST_ORDER_CREATE
+    message = "You do not have permission to create breakfast orders."
+
+
+class CanUpdateBreakfastOrder(HasCapability):
+    required_capability = ROOM_SERVICE_BREAKFAST_ORDER_UPDATE
+    message = "You do not have permission to update breakfast orders."
+
+
+class CanDeleteBreakfastOrder(HasCapability):
+    required_capability = ROOM_SERVICE_BREAKFAST_ORDER_DELETE
+    message = "You do not have permission to delete breakfast orders."
+
+
+class CanAcceptBreakfastOrder(HasCapability):
+    required_capability = ROOM_SERVICE_BREAKFAST_ORDER_ACCEPT
+    message = "You do not have permission to accept breakfast orders."
+
+
+class CanCompleteBreakfastOrder(HasCapability):
+    required_capability = ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE
+    message = "You do not have permission to complete breakfast orders."
+
+

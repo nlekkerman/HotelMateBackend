@@ -178,6 +178,66 @@ ROOM_SERVICE_ORDER_FULFILL_KITCHEN = 'room_service.order.fulfill_kitchen'
 Historically carried by staff in the `kitchen` department.
 """
 
+# Module visibility (capability-based; replaces HasNavPermission gate).
+ROOM_SERVICE_MODULE_VIEW = 'room_service.module.view'
+"""See the room-services module (navigation + module-level reads)."""
+
+# Menu (RoomServiceItem + BreakfastItem catalogs).
+ROOM_SERVICE_MENU_READ = 'room_service.menu.read'
+"""Read room-service / breakfast menu items (staff side)."""
+
+ROOM_SERVICE_MENU_ITEM_CREATE = 'room_service.menu.item.create'
+"""Create room-service / breakfast menu items."""
+
+ROOM_SERVICE_MENU_ITEM_UPDATE = 'room_service.menu.item.update'
+"""Update room-service / breakfast menu items."""
+
+ROOM_SERVICE_MENU_ITEM_DELETE = 'room_service.menu.item.delete'
+"""Delete room-service / breakfast menu items."""
+
+ROOM_SERVICE_MENU_ITEM_IMAGE_MANAGE = 'room_service.menu.item.image_manage'
+"""Upload / replace images on menu items."""
+
+# Orders (room-service Order model).
+ROOM_SERVICE_ORDER_READ = 'room_service.order.read'
+"""Read room-service orders (list / detail / history / summaries)."""
+
+ROOM_SERVICE_ORDER_CREATE = 'room_service.order.create'
+"""Create a room-service order from a staff context (dashboard)."""
+
+ROOM_SERVICE_ORDER_UPDATE = 'room_service.order.update'
+"""Update mutable fields on a room-service order."""
+
+ROOM_SERVICE_ORDER_DELETE = 'room_service.order.delete'
+"""Delete a room-service order."""
+
+ROOM_SERVICE_ORDER_ACCEPT = 'room_service.order.accept'
+"""Transition a room-service order pending → accepted."""
+
+ROOM_SERVICE_ORDER_COMPLETE = 'room_service.order.complete'
+"""Transition a room-service order accepted → completed."""
+
+# Breakfast orders (BreakfastOrder model).
+ROOM_SERVICE_BREAKFAST_ORDER_READ = 'room_service.breakfast_order.read'
+"""Read breakfast orders (list / detail / pending count)."""
+
+ROOM_SERVICE_BREAKFAST_ORDER_CREATE = 'room_service.breakfast_order.create'
+"""Create a breakfast order from a staff context (dashboard)."""
+
+ROOM_SERVICE_BREAKFAST_ORDER_UPDATE = 'room_service.breakfast_order.update'
+"""Update mutable fields on a breakfast order."""
+
+ROOM_SERVICE_BREAKFAST_ORDER_DELETE = 'room_service.breakfast_order.delete'
+"""Delete a breakfast order."""
+
+ROOM_SERVICE_BREAKFAST_ORDER_ACCEPT = 'room_service.breakfast_order.accept'
+"""Transition a breakfast order pending → accepted."""
+
+ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE = (
+    'room_service.breakfast_order.complete'
+)
+"""Transition a breakfast order accepted → completed."""
+
 # --- Room bookings (Phase 6A) ---
 # Module policy shape for bookings (see staff/module_policy.py):
 #   visible  → BOOKING_MODULE_VIEW
@@ -662,6 +722,24 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     HOUSEKEEPING_TASK_ASSIGN,
     ROOM_SERVICE_ORDER_FULFILL_PORTER,
     ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
+    ROOM_SERVICE_MODULE_VIEW,
+    ROOM_SERVICE_MENU_READ,
+    ROOM_SERVICE_MENU_ITEM_CREATE,
+    ROOM_SERVICE_MENU_ITEM_UPDATE,
+    ROOM_SERVICE_MENU_ITEM_DELETE,
+    ROOM_SERVICE_MENU_ITEM_IMAGE_MANAGE,
+    ROOM_SERVICE_ORDER_READ,
+    ROOM_SERVICE_ORDER_CREATE,
+    ROOM_SERVICE_ORDER_UPDATE,
+    ROOM_SERVICE_ORDER_DELETE,
+    ROOM_SERVICE_ORDER_ACCEPT,
+    ROOM_SERVICE_ORDER_COMPLETE,
+    ROOM_SERVICE_BREAKFAST_ORDER_READ,
+    ROOM_SERVICE_BREAKFAST_ORDER_CREATE,
+    ROOM_SERVICE_BREAKFAST_ORDER_UPDATE,
+    ROOM_SERVICE_BREAKFAST_ORDER_DELETE,
+    ROOM_SERVICE_BREAKFAST_ORDER_ACCEPT,
+    ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE,
     # Bookings (Phase 6A)
     BOOKING_MODULE_VIEW,
     BOOKING_RECORD_READ,
@@ -1151,6 +1229,47 @@ _ATTENDANCE_MANAGE: frozenset[str] = _ATTENDANCE_SELF_SERVICE | frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# Room services preset bundles.
+#
+# Mirrors bookings/rooms/housekeeping/maintenance shape:
+#   manage ⊃ operate ⊃ base.
+#
+# Tier no longer doubles as the room-services permission engine: legacy
+# `CanManageRoomServices` (tier ≥ staff_admin) is replaced by capability
+# gates on the canonical actions (accept, complete, update, delete, menu
+# CUD, image manage). Read/visibility caps are granted broadly to every
+# tier so any authenticated same-hotel staff can see the module.
+# ---------------------------------------------------------------------------
+
+_ROOM_SERVICE_BASE: frozenset[str] = frozenset({
+    ROOM_SERVICE_MODULE_VIEW,
+    ROOM_SERVICE_MENU_READ,
+    ROOM_SERVICE_ORDER_READ,
+    ROOM_SERVICE_BREAKFAST_ORDER_READ,
+})
+
+_ROOM_SERVICE_OPERATE: frozenset[str] = _ROOM_SERVICE_BASE | frozenset({
+    ROOM_SERVICE_ORDER_CREATE,
+    ROOM_SERVICE_ORDER_UPDATE,
+    ROOM_SERVICE_ORDER_ACCEPT,
+    ROOM_SERVICE_ORDER_COMPLETE,
+    ROOM_SERVICE_BREAKFAST_ORDER_CREATE,
+    ROOM_SERVICE_BREAKFAST_ORDER_UPDATE,
+    ROOM_SERVICE_BREAKFAST_ORDER_ACCEPT,
+    ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE,
+})
+
+_ROOM_SERVICE_MANAGE: frozenset[str] = _ROOM_SERVICE_OPERATE | frozenset({
+    ROOM_SERVICE_ORDER_DELETE,
+    ROOM_SERVICE_BREAKFAST_ORDER_DELETE,
+    ROOM_SERVICE_MENU_ITEM_CREATE,
+    ROOM_SERVICE_MENU_ITEM_UPDATE,
+    ROOM_SERVICE_MENU_ITEM_DELETE,
+    ROOM_SERVICE_MENU_ITEM_IMAGE_MANAGE,
+})
+
+
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6A.2: tier carries only cross-cutting supervisor authority.
     # Booking operate/manage live on department/role presets so tier is
@@ -1163,13 +1282,15 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     'super_staff_admin': (
         _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE
         | _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
+        | _ROOM_SERVICE_MANAGE
     ),
     'staff_admin': (
         _SUPERVISOR_AUTHORITY | _CHAT_BASE | _STAFF_CHAT_BASE
-        | _ATTENDANCE_SELF_SERVICE
+        | _ATTENDANCE_SELF_SERVICE | _ROOM_SERVICE_MANAGE
     ),
     'regular_staff': (
         _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
+        | _ROOM_SERVICE_BASE
     ),
 }
 

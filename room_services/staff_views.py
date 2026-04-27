@@ -13,19 +13,64 @@ import logging
 logger = logging.getLogger(__name__)
 
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasRoomServicesNav
+from staff.permissions import (
+    CanCreateRoomServiceMenuItem,
+    CanDeleteRoomServiceMenuItem,
+    CanManageRoomServiceMenuItemImage,
+    CanReadRoomServiceMenu,
+    CanUpdateRoomServiceMenuItem,
+    CanViewRoomServicesModule,
+)
 from notifications.notification_manager import notification_manager
 from .models import RoomServiceItem, BreakfastItem
 from .serializers import RoomServiceItemStaffSerializer, BreakfastItemStaffSerializer
 
 
-class StaffRoomServiceItemViewSet(viewsets.ModelViewSet):
+# Per-action capability map for both menu viewsets. The DRF action name
+# (set on `view.action`) is the dispatch key. Unknown / unmapped actions
+# fail closed via the `_DenyAll` fallback.
+_MENU_ACTION_PERMISSIONS = {
+    'list': [CanReadRoomServiceMenu],
+    'retrieve': [CanReadRoomServiceMenu],
+    'create': [CanCreateRoomServiceMenuItem],
+    'update': [CanUpdateRoomServiceMenuItem],
+    'partial_update': [CanUpdateRoomServiceMenuItem],
+    'destroy': [CanDeleteRoomServiceMenuItem],
+    'upload_image': [CanManageRoomServiceMenuItemImage],
+}
+
+
+class _DenyAll(IsAuthenticated):
+    """Fail-closed fallback for any unmapped action."""
+
+    def has_permission(self, request, view):
+        return False
+
+
+class _StaffMenuPermissionMixin:
+    """Resolve per-action capability gate on top of the module chain."""
+
+    def get_permissions(self):
+        base = [
+            IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewRoomServicesModule(),
+        ]
+        action_classes = _MENU_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
+
+
+class StaffRoomServiceItemViewSet(
+    _StaffMenuPermissionMixin, viewsets.ModelViewSet
+):
     """
     Staff CRUD for room service menu items.
     Scoped to staff's hotel only.
     """
     serializer_class = RoomServiceItemStaffSerializer
-    permission_classes = [IsAuthenticated, HasRoomServicesNav, IsStaffMember, IsSameHotel]
     
     def get_queryset(self):
         """Only return room service items for staff's hotel"""
@@ -152,13 +197,14 @@ class StaffRoomServiceItemViewSet(viewsets.ModelViewSet):
             )
 
 
-class StaffBreakfastItemViewSet(viewsets.ModelViewSet):
+class StaffBreakfastItemViewSet(
+    _StaffMenuPermissionMixin, viewsets.ModelViewSet
+):
     """
     Staff CRUD for breakfast menu items.
     Scoped to staff's hotel only.
     """
     serializer_class = BreakfastItemStaffSerializer
-    permission_classes = [IsAuthenticated, HasRoomServicesNav, IsStaffMember, IsSameHotel]
     
     def get_queryset(self):
         """Only return breakfast items for staff's hotel"""

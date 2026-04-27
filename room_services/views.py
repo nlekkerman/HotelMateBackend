@@ -24,7 +24,50 @@ from common.guest_access import (
     GuestAccessError,
 )
 from staff_chat.permissions import IsStaffMember, IsSameHotel
-from staff.permissions import HasNavPermission
+from staff.permissions import (
+    CanAcceptBreakfastOrder,
+    CanAcceptRoomServiceOrder,
+    CanCompleteBreakfastOrder,
+    CanCompleteRoomServiceOrder,
+    CanCreateBreakfastOrder,
+    CanCreateRoomServiceOrder,
+    CanDeleteBreakfastOrder,
+    CanDeleteRoomServiceOrder,
+    CanReadBreakfastOrder,
+    CanReadRoomServiceOrder,
+    CanUpdateBreakfastOrder,
+    CanUpdateRoomServiceOrder,
+    CanViewRoomServicesModule,
+    has_capability,
+)
+from staff.capability_catalog import (
+    ROOM_SERVICE_BREAKFAST_ORDER_ACCEPT,
+    ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE,
+    ROOM_SERVICE_BREAKFAST_ORDER_CREATE,
+    ROOM_SERVICE_BREAKFAST_ORDER_READ,
+    ROOM_SERVICE_BREAKFAST_ORDER_UPDATE,
+    ROOM_SERVICE_ORDER_ACCEPT,
+    ROOM_SERVICE_ORDER_COMPLETE,
+    ROOM_SERVICE_ORDER_CREATE,
+    ROOM_SERVICE_ORDER_READ,
+    ROOM_SERVICE_ORDER_UPDATE,
+)
+
+
+class _DenyAll(IsAuthenticated):
+    """Fail-closed fallback for any unmapped staff action."""
+
+    def has_permission(self, request, view):
+        return False
+
+
+def _staff_hotel_matches(request, hotel):
+    """Return True if the requesting staff belongs to ``hotel``."""
+    staff = getattr(getattr(request, 'user', None), 'staff_profile', None)
+    if staff is None:
+        return False
+    return getattr(staff, 'hotel_id', None) == getattr(hotel, 'id', None)
+
 
 logger = logging.getLogger(__name__)
 
@@ -86,19 +129,38 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
 
     # ---- Per-action permission dispatch ----
     # Guest-facing actions (create, room_order_history) use AllowAny at the
-    # DRF layer; actual auth is enforced via guest-token validation in the
-    # view body.  All other actions are staff-only.
+    # DRF layer; the staff/guest split is enforced inside the action body
+    # (capability + IsSameHotel for the staff path; guest-token resolver
+    # for the guest path).  All other actions are staff-only and gated by
+    # the canonical capability chain below.
     _GUEST_ACTIONS = {'create', 'room_order_history'}
+
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadRoomServiceOrder],
+        'retrieve': [CanReadRoomServiceOrder],
+        'pending_count': [CanReadRoomServiceOrder],
+        'all_orders_summary': [CanReadRoomServiceOrder],
+        'order_history': [CanReadRoomServiceOrder],
+        'update': [CanUpdateRoomServiceOrder],
+        # partial_update: status transitions (accept/complete) are
+        # enforced with their own capabilities inside the action body.
+        'partial_update': [CanUpdateRoomServiceOrder],
+        'destroy': [CanDeleteRoomServiceOrder],
+    }
 
     def get_permissions(self):
         if self.action in self._GUEST_ACTIONS:
             return [AllowAny()]
-        # RBAC: staff mutations require manage permission; reads require nav only
-        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
-            from staff.permissions import CanManageRoomServices
-            return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel(), CanManageRoomServices()]
-        # RBAC: staff reads require nav visibility + staff membership
-        return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel()]
+        base = [
+            IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewRoomServicesModule(),
+        ]
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
     # ------------------------------------------------------------------
     # Helpers
@@ -144,8 +206,27 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         hotel = get_hotel_from_request(self.request)
 
-        # Staff bypass: authenticated staff can create orders (dashboard use)
+        # Staff bypass: authenticated staff can create orders (dashboard use).
+        # Capability + same-hotel are enforced explicitly here because the
+        # action runs under AllowAny at the permission layer (the guest
+        # path needs that). Failing closed on staff without the
+        # `room_service.order.create` capability protects the dashboard
+        # endpoint from any logged-in user being able to create orders.
         if self._is_staff_request(self.request):
+            from rest_framework.exceptions import PermissionDenied
+            if not _staff_hotel_matches(self.request, hotel):
+                raise PermissionDenied(
+                    detail="Cross-hotel order creation is not permitted."
+                )
+            if not has_capability(
+                self.request.user, ROOM_SERVICE_ORDER_CREATE
+            ):
+                raise PermissionDenied(
+                    detail=(
+                        "You do not have permission to create room "
+                        "service orders."
+                    )
+                )
             order = serializer.save(hotel=hotel)
         else:
             # Guest path: validate token → derive room from booking
@@ -201,8 +282,27 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
         hotel_slug = request.query_params.get("hotel_slug")
         hotel = get_object_or_404(Hotel, slug=hotel_slug) if hotel_slug else get_hotel_from_request(request)
 
-        # Staff bypass
+        # Staff bypass — capability + same-hotel are enforced explicitly
+        # here because the action runs under AllowAny at the permission
+        # layer (the guest path needs that). Failing closed on staff
+        # without `room_service.order.read` protects this surface from
+        # any logged-in user pulling order history for arbitrary rooms.
         if self._is_staff_request(request):
+            if not _staff_hotel_matches(request, hotel):
+                return Response(
+                    {"error": "Cross-hotel access is not permitted."},
+                    status=403,
+                )
+            if not has_capability(request.user, ROOM_SERVICE_ORDER_READ):
+                return Response(
+                    {
+                        "error": (
+                            "You do not have permission to read room "
+                            "service orders."
+                        )
+                    },
+                    status=403,
+                )
             room_number = request.query_params.get("room_number")
             if not room_number:
                 return Response({"error": "room_number query param required"}, status=400)
@@ -431,6 +531,24 @@ class OrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
                     status=400
                 )
 
+            # Capability gating per-transition. Replaces the legacy
+            # tier-based CanManageRoomServices check: each status
+            # transition has its own canonical capability.
+            from rest_framework.exceptions import PermissionDenied
+            transition_capability = {
+                ("pending", "accepted"): ROOM_SERVICE_ORDER_ACCEPT,
+                ("accepted", "completed"): ROOM_SERVICE_ORDER_COMPLETE,
+            }.get((instance.status, new_status))
+            if transition_capability and not has_capability(
+                request.user, transition_capability
+            ):
+                raise PermissionDenied(
+                    detail=(
+                        f"You do not have the '{transition_capability}' "
+                        f"capability required for this transition."
+                    )
+                )
+
         logger.info(
             f"🔄 Order {instance.id} status update: "
             f"{old_status} → {new_status} (Room {instance.room_number})"
@@ -468,18 +586,32 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
 
     # ---- Per-action permission dispatch ----
     # Guest-facing: create (token validated in perform_create).
-    # All other actions are staff-only.
+    # All other actions are staff-only and gated by the canonical
+    # capability chain below.
     _GUEST_ACTIONS = {'create'}
+
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadBreakfastOrder],
+        'retrieve': [CanReadBreakfastOrder],
+        'pending_count': [CanReadBreakfastOrder],
+        'update': [CanUpdateBreakfastOrder],
+        'partial_update': [CanUpdateBreakfastOrder],
+        'destroy': [CanDeleteBreakfastOrder],
+    }
 
     def get_permissions(self):
         if self.action in self._GUEST_ACTIONS:
             return [AllowAny()]
-        # RBAC: staff mutations require manage permission; reads require nav only
-        if self.request.method not in ('GET', 'HEAD', 'OPTIONS'):
-            from staff.permissions import CanManageRoomServices
-            return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel(), CanManageRoomServices()]
-        # RBAC: staff reads require nav visibility + staff membership
-        return [IsAuthenticated(), HasNavPermission('room_services'), IsStaffMember(), IsSameHotel()]
+        base = [
+            IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewRoomServicesModule(),
+        ]
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
     def _resolve_guest_context(self, request, hotel):
         token_str = self.get_token_from_request(request)
@@ -523,8 +655,27 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
     def perform_create(self, serializer):
         hotel = self.get_serializer_context()['hotel']
 
-        # Staff bypass: authenticated staff can create orders (dashboard use)
+        # Staff bypass: authenticated staff can create orders (dashboard use).
+        # Capability + same-hotel are enforced explicitly here because the
+        # action runs under AllowAny at the permission layer (the guest
+        # path needs that). Failing closed on staff without the
+        # `room_service.breakfast_order.create` capability protects the
+        # dashboard endpoint.
         if self._is_staff_request(self.request):
+            from rest_framework.exceptions import PermissionDenied
+            if not _staff_hotel_matches(self.request, hotel):
+                raise PermissionDenied(
+                    detail="Cross-hotel order creation is not permitted."
+                )
+            if not has_capability(
+                self.request.user, ROOM_SERVICE_BREAKFAST_ORDER_CREATE
+            ):
+                raise PermissionDenied(
+                    detail=(
+                        "You do not have permission to create breakfast "
+                        "orders."
+                    )
+                )
             order = serializer.save(hotel=hotel)
         else:
             # Guest path: validate token → derive room from booking
@@ -585,6 +736,27 @@ class BreakfastOrderViewSet(TokenAuthenticationMixin, viewsets.ModelViewSet):
                 return Response(
                     {"error": f"Invalid status transition from '{instance.status}' to '{new_status}'."},
                     status=400
+                )
+
+            # Capability gating per-transition. Replaces the legacy
+            # tier-based CanManageRoomServices check.
+            from rest_framework.exceptions import PermissionDenied
+            transition_capability = {
+                ("pending", "accepted"): (
+                    ROOM_SERVICE_BREAKFAST_ORDER_ACCEPT
+                ),
+                ("accepted", "completed"): (
+                    ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE
+                ),
+            }.get((instance.status, new_status))
+            if transition_capability and not has_capability(
+                request.user, transition_capability
+            ):
+                raise PermissionDenied(
+                    detail=(
+                        f"You do not have the '{transition_capability}' "
+                        f"capability required for this transition."
+                    )
                 )
 
         return super().partial_update(request, *args, **kwargs)
