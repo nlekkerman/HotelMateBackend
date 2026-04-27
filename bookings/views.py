@@ -1,7 +1,7 @@
 from rest_framework import viewsets
 from rest_framework.decorators import api_view, permission_classes
 
-from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 # Add this at the top of your views.py
 from rest_framework.exceptions import PermissionDenied
 from chat.utils import pusher_client
@@ -11,8 +11,33 @@ from django.utils.text import slugify
 from staff.models import Staff
 from staff_chat.permissions import IsStaffMember, IsSameHotel
 from staff.permissions import (
-    HasNavPermission, HasRestaurantBookingsNav, CanManageRestaurantBookings,
+    CanAssignRestaurantBooking,
+    CanCreateRestaurant,
+    CanCreateRestaurantBooking,
+    CanDeleteRestaurant,
+    CanDeleteRestaurantBooking,
+    CanManageBookingCategory,
+    CanManageDiningTable,
+    CanManageRestaurantBlueprint,
+    CanMarkRestaurantBookingsSeen,
+    CanReadBookingCategory,
+    CanReadDiningTable,
+    CanReadRestaurant,
+    CanReadRestaurantBlueprint,
+    CanReadRestaurantBooking,
+    CanUnseatRestaurantBooking,
+    CanUpdateRestaurant,
+    CanUpdateRestaurantBooking,
+    CanViewRestaurantBookingsModule,
 )
+
+
+class _DenyAll(IsAuthenticated):
+    """Fail-closed fallback for any unmapped staff action."""
+
+    def has_permission(self, request, view):  # pragma: no cover - fail closed
+        return False
+
 from .models import (Booking, BookingCategory, BookingTable,
                      RestaurantBlueprint,
                      Restaurant, BookingSubcategory,
@@ -46,16 +71,26 @@ class BookingViewSet(viewsets.ModelViewSet):
     queryset = Booking.objects.select_related('hotel', 'category', 'restaurant').all()
     serializer_class = BookingSerializer
 
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadRestaurantBooking],
+        'retrieve': [CanReadRestaurantBooking],
+        'create': [CanCreateRestaurantBooking],
+        'update': [CanUpdateRestaurantBooking],
+        'partial_update': [CanUpdateRestaurantBooking],
+        'destroy': [CanDeleteRestaurantBooking],
+    }
+
     def get_permissions(self):
-        perms = [
+        base = [
             IsAuthenticated(),
-            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
+            CanViewRestaurantBookingsModule(),
         ]
-        if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageRestaurantBookings())
-        return perms
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
 
 class BookingCategoryViewSet(viewsets.ModelViewSet):
@@ -65,16 +100,26 @@ class BookingCategoryViewSet(viewsets.ModelViewSet):
     queryset = BookingCategory.objects.all().select_related("subcategory")
     serializer_class = BookingCategorySerializer
 
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadBookingCategory],
+        'retrieve': [CanReadBookingCategory],
+        'create': [CanManageBookingCategory],
+        'update': [CanManageBookingCategory],
+        'partial_update': [CanManageBookingCategory],
+        'destroy': [CanManageBookingCategory],
+    }
+
     def get_permissions(self):
-        perms = [
+        base = [
             IsAuthenticated(),
-            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
+            CanViewRestaurantBookingsModule(),
         ]
-        if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageRestaurantBookings())
-        return perms
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
     def get_queryset(self):
         # Start from the class‐level queryset, then filter by hotel_slug if present
@@ -286,16 +331,26 @@ class RestaurantViewSet(viewsets.ModelViewSet):
     serializer_class = RestaurantSerializer
     lookup_field = 'slug'
 
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadRestaurant],
+        'retrieve': [CanReadRestaurant],
+        'create': [CanCreateRestaurant],
+        'update': [CanUpdateRestaurant],
+        'partial_update': [CanUpdateRestaurant],
+        'destroy': [CanDeleteRestaurant],
+    }
+
     def get_permissions(self):
-        perms = [
+        base = [
             IsAuthenticated(),
-            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
+            CanViewRestaurantBookingsModule(),
         ]
-        if self.action not in ('list', 'retrieve'):
-            perms.append(CanManageRestaurantBookings())
-        return perms
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
     def get_queryset(self):
         """
@@ -358,18 +413,27 @@ class RestaurantViewSet(viewsets.ModelViewSet):
 
 class RestaurantBlueprintViewSet(viewsets.ModelViewSet):
     serializer_class = RestaurantBlueprintSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]  # read-only for guests
+
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadRestaurantBlueprint],
+        'retrieve': [CanReadRestaurantBlueprint],
+        'create': [CanManageRestaurantBlueprint],
+        'update': [CanManageRestaurantBlueprint],
+        'partial_update': [CanManageRestaurantBlueprint],
+        'destroy': [CanManageRestaurantBlueprint],
+    }
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [AllowAny()]
-        return [
+        base = [
             IsAuthenticated(),
-            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
-            CanManageRestaurantBookings(),
+            CanViewRestaurantBookingsModule(),
         ]
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -404,19 +468,28 @@ class RestaurantBlueprintViewSet(viewsets.ModelViewSet):
 
 class DiningTableViewSet(viewsets.ModelViewSet):
     serializer_class = DiningTableSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly]
     pagination_class = NoPagination
 
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadDiningTable],
+        'retrieve': [CanReadDiningTable],
+        'create': [CanManageDiningTable],
+        'update': [CanManageDiningTable],
+        'partial_update': [CanManageDiningTable],
+        'destroy': [CanManageDiningTable],
+    }
+
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [AllowAny()]
-        return [
+        base = [
             IsAuthenticated(),
-            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
-            CanManageRestaurantBookings(),
+            CanViewRestaurantBookingsModule(),
         ]
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -437,11 +510,22 @@ class DiningTableViewSet(viewsets.ModelViewSet):
 
 class BlueprintObjectTypeViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    Returns all available object types for blueprints (e.g., Couch, Entrance, Window)
+    Returns all available object types for blueprints (e.g., Couch, Entrance, Window).
+
+    Phase 6F.x: not verified as a static public catalog — gated behind
+    the canonical restaurant-bookings module + blueprint read capability.
     """
     queryset = BlueprintObjectType.objects.all()
     serializer_class = BlueprintObjectTypeSerializer
-    permission_classes = [AllowAny]
+
+    def get_permissions(self):
+        return [
+            IsAuthenticated(),
+            IsStaffMember(),
+            IsSameHotel(),
+            CanViewRestaurantBookingsModule(),
+            CanReadRestaurantBlueprint(),
+        ]
 
 
 class BlueprintObjectViewSet(viewsets.ModelViewSet):
@@ -450,18 +534,27 @@ class BlueprintObjectViewSet(viewsets.ModelViewSet):
     Supports list, create, retrieve, update, delete.
     """
     serializer_class = BlueprintObjectSerializer
-    permission_classes = [IsAuthenticated]
+
+    _STAFF_ACTION_PERMISSIONS = {
+        'list': [CanReadRestaurantBlueprint],
+        'retrieve': [CanReadRestaurantBlueprint],
+        'create': [CanManageRestaurantBlueprint],
+        'update': [CanManageRestaurantBlueprint],
+        'partial_update': [CanManageRestaurantBlueprint],
+        'destroy': [CanManageRestaurantBlueprint],
+    }
 
     def get_permissions(self):
-        if self.action in ('list', 'retrieve'):
-            return [IsAuthenticated()]
-        return [
+        base = [
             IsAuthenticated(),
-            HasNavPermission('restaurant_bookings'),
             IsStaffMember(),
             IsSameHotel(),
-            CanManageRestaurantBookings(),
+            CanViewRestaurantBookingsModule(),
         ]
+        action_classes = self._STAFF_ACTION_PERMISSIONS.get(
+            self.action, [_DenyAll]
+        )
+        return base + [cls() for cls in action_classes]
 
     def get_queryset(self):
         hotel_slug = self.kwargs.get('hotel_slug')
@@ -549,16 +642,18 @@ class AvailableTablesView(APIView):
 
 
 @api_view(["POST"])
-@permission_classes([IsAuthenticated, IsStaffMember, IsSameHotel])
+@permission_classes([
+    IsAuthenticated,
+    IsStaffMember,
+    IsSameHotel,
+    CanViewRestaurantBookingsModule,
+    CanMarkRestaurantBookingsSeen,
+])
 def mark_bookings_seen(request, hotel_slug):
     """
     Marks all unseen dinner bookings as seen for a hotel.
     Frontend calls this when staff clicks the booking icon/button.
     """
-    # RBAC: nav visibility
-    if not HasNavPermission('restaurant_bookings').has_permission(request, None):
-        return Response({'detail': 'Restaurant bookings navigation permission required.'}, status=status.HTTP_403_FORBIDDEN)
-
     # Filter only unseen dinner bookings
     updated_count = Booking.objects.filter(
         hotel__slug=hotel_slug,
@@ -576,7 +671,13 @@ def mark_bookings_seen(request, hotel_slug):
 
 
 class AssignGuestToTableAPIView(APIView):
-    permission_classes = [IsAuthenticated, HasRestaurantBookingsNav, IsStaffMember, IsSameHotel, CanManageRestaurantBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewRestaurantBookingsModule,
+        CanAssignRestaurantBooking,
+    ]
 
     def post(self, request, hotel_slug, restaurant_slug):
         try:
@@ -612,7 +713,13 @@ from rest_framework.response import Response
 from rest_framework import status
 
 class UnseatBookingAPIView(APIView):
-    permission_classes = [IsAuthenticated, HasRestaurantBookingsNav, IsStaffMember, IsSameHotel, CanManageRestaurantBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewRestaurantBookingsModule,
+        CanUnseatRestaurantBooking,
+    ]
 
     def post(self, request, hotel_slug, restaurant_slug):
         booking_id = request.data.get("booking_id")
@@ -647,7 +754,13 @@ class UnseatBookingAPIView(APIView):
 
 
 class DeleteBookingAPIView(APIView):
-    permission_classes = [IsAuthenticated, HasRestaurantBookingsNav, IsStaffMember, IsSameHotel, CanManageRestaurantBookings]
+    permission_classes = [
+        IsAuthenticated,
+        IsStaffMember,
+        IsSameHotel,
+        CanViewRestaurantBookingsModule,
+        CanDeleteRestaurantBooking,
+    ]
 
     def delete(self, request, hotel_slug, restaurant_slug, booking_id):
         try:

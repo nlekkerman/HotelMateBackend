@@ -157,6 +157,24 @@ from staff.capability_catalog import (
     ROOM_SERVICE_ORDER_DELETE,
     ROOM_SERVICE_ORDER_READ,
     ROOM_SERVICE_ORDER_UPDATE,
+    RESTAURANT_BOOKING_ASSIGNMENT_ASSIGN,
+    RESTAURANT_BOOKING_ASSIGNMENT_UNSEAT,
+    RESTAURANT_BOOKING_BLUEPRINT_MANAGE,
+    RESTAURANT_BOOKING_BLUEPRINT_READ,
+    RESTAURANT_BOOKING_CATEGORY_MANAGE,
+    RESTAURANT_BOOKING_CATEGORY_READ,
+    RESTAURANT_BOOKING_MODULE_VIEW,
+    RESTAURANT_BOOKING_RECORD_CREATE,
+    RESTAURANT_BOOKING_RECORD_DELETE,
+    RESTAURANT_BOOKING_RECORD_MARK_SEEN,
+    RESTAURANT_BOOKING_RECORD_READ,
+    RESTAURANT_BOOKING_RECORD_UPDATE,
+    RESTAURANT_BOOKING_RESTAURANT_CREATE,
+    RESTAURANT_BOOKING_RESTAURANT_DELETE,
+    RESTAURANT_BOOKING_RESTAURANT_READ,
+    RESTAURANT_BOOKING_RESTAURANT_UPDATE,
+    RESTAURANT_BOOKING_TABLE_MANAGE,
+    RESTAURANT_BOOKING_TABLE_READ,
     STAFF_CHAT_ATTACHMENT_DELETE,
     STAFF_CHAT_ATTACHMENT_UPLOAD,
     STAFF_CHAT_CONVERSATION_CREATE,
@@ -392,6 +410,35 @@ MODULE_POLICY: dict[str, dict] = {
             'breakfast_order_complete': (
                 ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE
             ),
+        },
+    },
+    'restaurant_bookings': {
+        'view_capability': RESTAURANT_BOOKING_MODULE_VIEW,
+        'read_capability': RESTAURANT_BOOKING_RECORD_READ,
+        'actions': {
+            # Restaurant catalog
+            'restaurant_read': RESTAURANT_BOOKING_RESTAURANT_READ,
+            'restaurant_create': RESTAURANT_BOOKING_RESTAURANT_CREATE,
+            'restaurant_update': RESTAURANT_BOOKING_RESTAURANT_UPDATE,
+            'restaurant_delete': RESTAURANT_BOOKING_RESTAURANT_DELETE,
+            # Booking categories
+            'category_read': RESTAURANT_BOOKING_CATEGORY_READ,
+            'category_manage': RESTAURANT_BOOKING_CATEGORY_MANAGE,
+            # Booking records
+            'record_read': RESTAURANT_BOOKING_RECORD_READ,
+            'record_create': RESTAURANT_BOOKING_RECORD_CREATE,
+            'record_update': RESTAURANT_BOOKING_RECORD_UPDATE,
+            'record_delete': RESTAURANT_BOOKING_RECORD_DELETE,
+            'record_mark_seen': RESTAURANT_BOOKING_RECORD_MARK_SEEN,
+            # Dining tables
+            'table_read': RESTAURANT_BOOKING_TABLE_READ,
+            'table_manage': RESTAURANT_BOOKING_TABLE_MANAGE,
+            # Restaurant blueprints
+            'blueprint_read': RESTAURANT_BOOKING_BLUEPRINT_READ,
+            'blueprint_manage': RESTAURANT_BOOKING_BLUEPRINT_MANAGE,
+            # Booking-to-table assignments
+            'assignment_assign': RESTAURANT_BOOKING_ASSIGNMENT_ASSIGN,
+            'assignment_unseat': RESTAURANT_BOOKING_ASSIGNMENT_UNSEAT,
         },
     },
     'staff_management': {

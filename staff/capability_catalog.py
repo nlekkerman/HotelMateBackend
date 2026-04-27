@@ -688,6 +688,72 @@ HOTEL_INFO_QR_GENERATE = 'hotel_info.qr.generate'
 """Generate / regenerate CategoryQRCode records for the current hotel."""
 
 
+# --- Restaurant booking (F&B service bookings) ---
+# Module policy shape (see staff/module_policy.py):
+#   visible  → RESTAURANT_BOOKING_MODULE_VIEW
+#   read     → RESTAURANT_BOOKING_RECORD_READ
+#   actions  → the slugs below.
+#
+# This namespace is for the `bookings/` Django app (restaurant / dinner /
+# service bookings) and is intentionally distinct from the room-booking
+# `booking.*` namespace which lives in the canonical hotel-room bookings
+# module.
+
+RESTAURANT_BOOKING_MODULE_VIEW = 'restaurant_booking.module.view'
+"""See the restaurant-bookings module (navigation + module-level reads)."""
+
+RESTAURANT_BOOKING_RESTAURANT_READ = 'restaurant_booking.restaurant.read'
+"""Read Restaurant rows scoped to the current hotel."""
+
+RESTAURANT_BOOKING_RESTAURANT_CREATE = 'restaurant_booking.restaurant.create'
+"""Create Restaurant rows for the current hotel."""
+
+RESTAURANT_BOOKING_RESTAURANT_UPDATE = 'restaurant_booking.restaurant.update'
+"""Update Restaurant rows scoped to the current hotel."""
+
+RESTAURANT_BOOKING_RESTAURANT_DELETE = 'restaurant_booking.restaurant.delete'
+"""Delete (soft-delete) Restaurant rows scoped to the current hotel."""
+
+RESTAURANT_BOOKING_CATEGORY_READ = 'restaurant_booking.category.read'
+"""Read BookingCategory / BookingSubcategory rows."""
+
+RESTAURANT_BOOKING_CATEGORY_MANAGE = 'restaurant_booking.category.manage'
+"""Create / update / delete BookingCategory rows."""
+
+RESTAURANT_BOOKING_RECORD_READ = 'restaurant_booking.record.read'
+"""Read restaurant Booking records (list / detail)."""
+
+RESTAURANT_BOOKING_RECORD_CREATE = 'restaurant_booking.record.create'
+"""Create restaurant Booking records from a staff context."""
+
+RESTAURANT_BOOKING_RECORD_UPDATE = 'restaurant_booking.record.update'
+"""Update mutable fields on restaurant Booking records."""
+
+RESTAURANT_BOOKING_RECORD_DELETE = 'restaurant_booking.record.delete'
+"""Delete restaurant Booking records."""
+
+RESTAURANT_BOOKING_RECORD_MARK_SEEN = 'restaurant_booking.record.mark_seen'
+"""Bulk-mark unseen restaurant bookings as seen for a hotel."""
+
+RESTAURANT_BOOKING_TABLE_READ = 'restaurant_booking.table.read'
+"""Read DiningTable rows scoped to a restaurant."""
+
+RESTAURANT_BOOKING_TABLE_MANAGE = 'restaurant_booking.table.manage'
+"""Create / update / delete DiningTable rows."""
+
+RESTAURANT_BOOKING_BLUEPRINT_READ = 'restaurant_booking.blueprint.read'
+"""Read RestaurantBlueprint and BlueprintObject rows."""
+
+RESTAURANT_BOOKING_BLUEPRINT_MANAGE = 'restaurant_booking.blueprint.manage'
+"""Create / update / delete RestaurantBlueprint and BlueprintObject rows."""
+
+RESTAURANT_BOOKING_ASSIGNMENT_ASSIGN = 'restaurant_booking.assignment.assign'
+"""Assign a guest / booking to a DiningTable (BookingTable.create)."""
+
+RESTAURANT_BOOKING_ASSIGNMENT_UNSEAT = 'restaurant_booking.assignment.unseat'
+"""Remove all DiningTable assignments from a Booking (unseat)."""
+
+
 CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     CHAT_MODULE_VIEW,
     CHAT_CONVERSATION_READ,
@@ -858,6 +924,25 @@ CANONICAL_CAPABILITIES: frozenset[str] = frozenset({
     HOTEL_INFO_CATEGORY_MANAGE,
     HOTEL_INFO_QR_READ,
     HOTEL_INFO_QR_GENERATE,
+    # Restaurant bookings (F&B)
+    RESTAURANT_BOOKING_MODULE_VIEW,
+    RESTAURANT_BOOKING_RESTAURANT_READ,
+    RESTAURANT_BOOKING_RESTAURANT_CREATE,
+    RESTAURANT_BOOKING_RESTAURANT_UPDATE,
+    RESTAURANT_BOOKING_RESTAURANT_DELETE,
+    RESTAURANT_BOOKING_CATEGORY_READ,
+    RESTAURANT_BOOKING_CATEGORY_MANAGE,
+    RESTAURANT_BOOKING_RECORD_READ,
+    RESTAURANT_BOOKING_RECORD_CREATE,
+    RESTAURANT_BOOKING_RECORD_UPDATE,
+    RESTAURANT_BOOKING_RECORD_DELETE,
+    RESTAURANT_BOOKING_RECORD_MARK_SEEN,
+    RESTAURANT_BOOKING_TABLE_READ,
+    RESTAURANT_BOOKING_TABLE_MANAGE,
+    RESTAURANT_BOOKING_BLUEPRINT_READ,
+    RESTAURANT_BOOKING_BLUEPRINT_MANAGE,
+    RESTAURANT_BOOKING_ASSIGNMENT_ASSIGN,
+    RESTAURANT_BOOKING_ASSIGNMENT_UNSEAT,
 })
 
 
@@ -1270,6 +1355,51 @@ _ROOM_SERVICE_MANAGE: frozenset[str] = _ROOM_SERVICE_OPERATE | frozenset({
 })
 
 
+# ---------------------------------------------------------------------------
+# Restaurant booking preset bundles (F&B service bookings).
+#
+# Nested buckets: manage ⊃ operate ⊃ base.
+#   base    → module visibility + read across catalog/records/tables/blueprint
+#   operate → BASE + booking record CRUD, mark_seen, assign / unseat
+#   manage  → OPERATE + restaurant CUD, category manage, table manage,
+#             blueprint manage, record delete
+#
+# Tier does NOT grant any of these — manage / operate authority lives on
+# role and department presets only.
+# ---------------------------------------------------------------------------
+
+_RESTAURANT_BOOKING_BASE: frozenset[str] = frozenset({
+    RESTAURANT_BOOKING_MODULE_VIEW,
+    RESTAURANT_BOOKING_RESTAURANT_READ,
+    RESTAURANT_BOOKING_CATEGORY_READ,
+    RESTAURANT_BOOKING_RECORD_READ,
+    RESTAURANT_BOOKING_TABLE_READ,
+    RESTAURANT_BOOKING_BLUEPRINT_READ,
+})
+
+_RESTAURANT_BOOKING_OPERATE: frozenset[str] = (
+    _RESTAURANT_BOOKING_BASE | frozenset({
+        RESTAURANT_BOOKING_RECORD_CREATE,
+        RESTAURANT_BOOKING_RECORD_UPDATE,
+        RESTAURANT_BOOKING_RECORD_MARK_SEEN,
+        RESTAURANT_BOOKING_ASSIGNMENT_ASSIGN,
+        RESTAURANT_BOOKING_ASSIGNMENT_UNSEAT,
+    })
+)
+
+_RESTAURANT_BOOKING_MANAGE: frozenset[str] = (
+    _RESTAURANT_BOOKING_OPERATE | frozenset({
+        RESTAURANT_BOOKING_RECORD_DELETE,
+        RESTAURANT_BOOKING_RESTAURANT_CREATE,
+        RESTAURANT_BOOKING_RESTAURANT_UPDATE,
+        RESTAURANT_BOOKING_RESTAURANT_DELETE,
+        RESTAURANT_BOOKING_CATEGORY_MANAGE,
+        RESTAURANT_BOOKING_TABLE_MANAGE,
+        RESTAURANT_BOOKING_BLUEPRINT_MANAGE,
+    })
+)
+
+
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6A.2: tier carries only cross-cutting supervisor authority.
     # Booking operate/manage live on department/role presets so tier is
@@ -1282,11 +1412,11 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     'super_staff_admin': (
         _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE
         | _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
-        | _ROOM_SERVICE_MANAGE
+        | _ROOM_SERVICE_BASE
     ),
     'staff_admin': (
         _SUPERVISOR_AUTHORITY | _CHAT_BASE | _STAFF_CHAT_BASE
-        | _ATTENDANCE_SELF_SERVICE | _ROOM_SERVICE_MANAGE
+        | _ATTENDANCE_SELF_SERVICE | _ROOM_SERVICE_BASE
     ),
     'regular_staff': (
         _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
@@ -1332,6 +1462,8 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE
         | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_MANAGER
         | _GUESTS_OPERATE | _HOTEL_INFO_MANAGE | _ATTENDANCE_MANAGE
+        | _ROOM_SERVICE_MANAGE
+        | _RESTAURANT_BOOKING_MANAGE
     ),
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
@@ -1339,7 +1471,8 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     ),
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
-    }) | _MAINTENANCE_REPORTER | _GUESTS_OPERATE | _HOTEL_INFO_READ,
+    }) | _MAINTENANCE_REPORTER | _GUESTS_OPERATE | _HOTEL_INFO_READ
+      | _ROOM_SERVICE_OPERATE,
     # Phase 6B.1 / 6C: housekeeping authority roles. Supervisor and
     # manager bundles include HOUSEKEEPING_ROOM_STATUS_OVERRIDE which is
     # also required by the state-machine layer so complete_maintenance
@@ -1363,6 +1496,11 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         ROOM_OUT_OF_ORDER_SET,
         HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
     }) | _MAINTENANCE_MANAGE,
+    # F&B roles — restaurant booking authority lives on role/dept presets,
+    # never on tier. fnb_manager carries the full manage bundle; waiter
+    # carries the operate bundle (record CRUD, mark_seen, assign/unseat).
+    'fnb_manager': _RESTAURANT_BOOKING_MANAGE,
+    'waiter': _RESTAURANT_BOOKING_OPERATE,
 }
 
 
@@ -1399,7 +1537,7 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     ),
     'kitchen': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
-    }),
+    }) | _ROOM_SERVICE_OPERATE,
     # Phase 6B.1: maintenance department gets room READ + flag.
     # HOUSEKEEPING_ROOM_STATUS_TRANSITION is required so mark_maintenance
     # can actually flip the room to MAINTENANCE_REQUIRED via the canonical
@@ -1412,6 +1550,12 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         ROOM_MAINTENANCE_FLAG,
         HOUSEKEEPING_ROOM_STATUS_TRANSITION,
     }) | _MAINTENANCE_OPERATE,
+    # F&B department carries the restaurant-booking operate bundle so any
+    # F&B staff member can read catalogs and operate booking records
+    # (create / update / mark_seen / assign / unseat). Manage authority
+    # (delete records, restaurant CUD, blueprint manage, table manage)
+    # remains role-gated via fnb_manager / hotel_manager.
+    'food_beverage': _RESTAURANT_BOOKING_OPERATE,
 }
 
 

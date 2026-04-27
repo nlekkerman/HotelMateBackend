@@ -373,17 +373,19 @@ class CanManageRoomBookings(BasePermission):
 
 
 class CanManageRestaurantBookings(BasePermission):
-    """
-    Gates restaurant-booking CUD operations (create, unseat, delete, assign table).
-    Required tier: staff_admin or above.
-    """
-    message = "You do not have permission to manage restaurant bookings."
+    """DEPRECATED — restaurant-booking authority is now capability-based.
 
-    def has_permission(self, request, view):
-        if request.method in ('GET', 'HEAD', 'OPTIONS'):
-            return True
-        tier = resolve_tier(request.user)
-        return _tier_at_least(tier, 'staff_admin')
+    Kept only so legacy imports do not crash at import time. This class
+    fails closed for any request: callsites must migrate to the canonical
+    ``Can*RestaurantBooking*`` capability classes (see below).
+    """
+    message = (
+        "CanManageRestaurantBookings is deprecated. Use the canonical "
+        "restaurant_booking.* capability classes instead."
+    )
+
+    def has_permission(self, request, view):  # pragma: no cover - fail closed
+        return False
 
 
 class CanConfigureHotel(BasePermission):
@@ -415,9 +417,20 @@ class HasRoomBookingsNav(HasNavPermission):
     """Module visibility gate for the room-bookings domain."""
     def __init__(self): super().__init__('room_bookings')
 
-class HasRestaurantBookingsNav(HasNavPermission):
-    """Module visibility gate for the restaurant-bookings domain."""
-    def __init__(self): super().__init__('restaurant_bookings')
+class HasRestaurantBookingsNav(BasePermission):
+    """DEPRECATED — restaurant-booking visibility is now capability-based.
+
+    Replaced by ``CanViewRestaurantBookingsModule`` (gated on
+    ``restaurant_booking.module.view``). Fails closed for any request to
+    flush out lingering callsites.
+    """
+    message = (
+        "HasRestaurantBookingsNav is deprecated. Use "
+        "CanViewRestaurantBookingsModule instead."
+    )
+
+    def has_permission(self, request, view):  # pragma: no cover - fail closed
+        return False
 
 class HasHotelInfoNav(HasNavPermission):
     def __init__(self): super().__init__('hotel_info')
@@ -1981,5 +1994,142 @@ class CanAcceptBreakfastOrder(HasCapability):
 class CanCompleteBreakfastOrder(HasCapability):
     required_capability = ROOM_SERVICE_BREAKFAST_ORDER_COMPLETE
     message = "You do not have permission to complete breakfast orders."
+
+
+# ---------------------------------------------------------------------------
+# Restaurant booking capability permission classes
+#
+# Single source of truth for endpoint enforcement in the restaurant-bookings
+# module (`bookings/` Django app). Stays in lock-step with
+# MODULE_POLICY['restaurant_bookings']. Distinct from the room-booking
+# `booking.*` namespace.
+#
+# Read/visibility gates set safe_methods_bypass = False so GETs are gated.
+# Mutation gates inherit the default (pass GET, enforce non-safe methods)
+# and are chained on top of CanViewRestaurantBookingsModule by the views.
+# ---------------------------------------------------------------------------
+
+from staff.capability_catalog import (  # noqa: E402
+    RESTAURANT_BOOKING_ASSIGNMENT_ASSIGN,
+    RESTAURANT_BOOKING_ASSIGNMENT_UNSEAT,
+    RESTAURANT_BOOKING_BLUEPRINT_MANAGE,
+    RESTAURANT_BOOKING_BLUEPRINT_READ,
+    RESTAURANT_BOOKING_CATEGORY_MANAGE,
+    RESTAURANT_BOOKING_CATEGORY_READ,
+    RESTAURANT_BOOKING_MODULE_VIEW,
+    RESTAURANT_BOOKING_RECORD_CREATE,
+    RESTAURANT_BOOKING_RECORD_DELETE,
+    RESTAURANT_BOOKING_RECORD_MARK_SEEN,
+    RESTAURANT_BOOKING_RECORD_READ,
+    RESTAURANT_BOOKING_RECORD_UPDATE,
+    RESTAURANT_BOOKING_RESTAURANT_CREATE,
+    RESTAURANT_BOOKING_RESTAURANT_DELETE,
+    RESTAURANT_BOOKING_RESTAURANT_READ,
+    RESTAURANT_BOOKING_RESTAURANT_UPDATE,
+    RESTAURANT_BOOKING_TABLE_MANAGE,
+    RESTAURANT_BOOKING_TABLE_READ,
+)
+
+
+class CanViewRestaurantBookingsModule(HasCapability):
+    """Module visibility gate for the restaurant-bookings module."""
+    required_capability = RESTAURANT_BOOKING_MODULE_VIEW
+    safe_methods_bypass = False
+    message = (
+        "You do not have permission to view the restaurant bookings module."
+    )
+
+
+class CanReadRestaurant(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RESTAURANT_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read restaurants."
+
+
+class CanCreateRestaurant(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RESTAURANT_CREATE
+    message = "You do not have permission to create restaurants."
+
+
+class CanUpdateRestaurant(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RESTAURANT_UPDATE
+    message = "You do not have permission to update restaurants."
+
+
+class CanDeleteRestaurant(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RESTAURANT_DELETE
+    message = "You do not have permission to delete restaurants."
+
+
+class CanReadBookingCategory(HasCapability):
+    required_capability = RESTAURANT_BOOKING_CATEGORY_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read booking categories."
+
+
+class CanManageBookingCategory(HasCapability):
+    required_capability = RESTAURANT_BOOKING_CATEGORY_MANAGE
+    message = "You do not have permission to manage booking categories."
+
+
+class CanReadRestaurantBooking(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RECORD_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read restaurant bookings."
+
+
+class CanCreateRestaurantBooking(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RECORD_CREATE
+    message = "You do not have permission to create restaurant bookings."
+
+
+class CanUpdateRestaurantBooking(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RECORD_UPDATE
+    message = "You do not have permission to update restaurant bookings."
+
+
+class CanDeleteRestaurantBooking(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RECORD_DELETE
+    message = "You do not have permission to delete restaurant bookings."
+
+
+class CanMarkRestaurantBookingsSeen(HasCapability):
+    required_capability = RESTAURANT_BOOKING_RECORD_MARK_SEEN
+    message = (
+        "You do not have permission to mark restaurant bookings as seen."
+    )
+
+
+class CanReadDiningTable(HasCapability):
+    required_capability = RESTAURANT_BOOKING_TABLE_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read dining tables."
+
+
+class CanManageDiningTable(HasCapability):
+    required_capability = RESTAURANT_BOOKING_TABLE_MANAGE
+    message = "You do not have permission to manage dining tables."
+
+
+class CanReadRestaurantBlueprint(HasCapability):
+    required_capability = RESTAURANT_BOOKING_BLUEPRINT_READ
+    safe_methods_bypass = False
+    message = "You do not have permission to read restaurant blueprints."
+
+
+class CanManageRestaurantBlueprint(HasCapability):
+    required_capability = RESTAURANT_BOOKING_BLUEPRINT_MANAGE
+    message = "You do not have permission to manage restaurant blueprints."
+
+
+class CanAssignRestaurantBooking(HasCapability):
+    required_capability = RESTAURANT_BOOKING_ASSIGNMENT_ASSIGN
+    message = "You do not have permission to assign restaurant bookings."
+
+
+class CanUnseatRestaurantBooking(HasCapability):
+    required_capability = RESTAURANT_BOOKING_ASSIGNMENT_UNSEAT
+    message = "You do not have permission to unseat restaurant bookings."
+
 
 
