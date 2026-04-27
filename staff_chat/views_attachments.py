@@ -28,7 +28,6 @@ from staff.permissions import (
     CanViewStaffChatModule,
     CanReadStaffChatConversation,
     CanUploadStaffChatAttachment,
-    CanDeleteStaffChatAttachment,
 )
 from notifications.notification_manager import notification_manager
 from .fcm_utils import send_file_attachment_notification

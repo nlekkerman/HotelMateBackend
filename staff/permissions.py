@@ -1564,11 +1564,9 @@ class CanRespondToGuest(HasCapability):
 # ---------------------------------------------------------------------------
 
 from staff.capability_catalog import (  # noqa: E402
-    STAFF_CHAT_ATTACHMENT_DELETE,
     STAFF_CHAT_ATTACHMENT_UPLOAD,
     STAFF_CHAT_CONVERSATION_CREATE,
     STAFF_CHAT_CONVERSATION_DELETE,
-    STAFF_CHAT_CONVERSATION_MODERATE,
     STAFF_CHAT_CONVERSATION_READ,
     STAFF_CHAT_MESSAGE_SEND,
     STAFF_CHAT_MODULE_VIEW,
@@ -1605,19 +1603,9 @@ class CanSendStaffChatMessage(HasCapability):
     message = "You do not have permission to send staff chat messages."
 
 
-class CanModerateStaffChatMessage(HasCapability):
-    required_capability = STAFF_CHAT_CONVERSATION_MODERATE
-    message = "You do not have permission to moderate staff chat messages."
-
-
 class CanUploadStaffChatAttachment(HasCapability):
     required_capability = STAFF_CHAT_ATTACHMENT_UPLOAD
     message = "You do not have permission to upload staff chat attachments."
-
-
-class CanDeleteStaffChatAttachment(HasCapability):
-    required_capability = STAFF_CHAT_ATTACHMENT_DELETE
-    message = "You do not have permission to delete staff chat attachments."
 
 
 class CanManageStaffChatReaction(HasCapability):

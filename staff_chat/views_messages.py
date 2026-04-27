@@ -29,9 +29,7 @@ from .serializers_messages import (
 from .permissions import (
     IsStaffMember,
     IsConversationParticipant,
-    IsMessageSender,
     IsSameHotel,
-    CanDeleteMessage
 )
 from staff.permissions import (
     has_capability,
@@ -381,7 +379,8 @@ def get_conversation_messages(request, hotel_slug, conversation_id):
 @api_view(['PATCH'])
 @permission_classes([
     IsAuthenticated, IsStaffMember, IsSameHotel,
-    CanViewStaffChatModule, CanSendStaffChatMessage,
+    CanViewStaffChatModule, CanReadStaffChatConversation,
+    CanSendStaffChatMessage,
 ])
 def edit_message(request, hotel_slug, message_id):
     """

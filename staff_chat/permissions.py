@@ -2,7 +2,6 @@
 Custom permissions for Staff Chat
 """
 from rest_framework import permissions
-from staff.permissions import has_capability
 
 
 class IsStaffMember(permissions.BasePermission):
@@ -30,22 +29,6 @@ class IsConversationParticipant(permissions.BasePermission):
         try:
             staff = request.user.staff_profile
             return obj.participants.filter(id=staff.id).exists()
-        except AttributeError:
-            return False
-
-
-class IsMessageSender(permissions.BasePermission):
-    """
-    Permission check: User must be the sender of the message
-    Used for edit/delete operations
-    """
-    message = "You can only modify your own messages."
-
-    def has_object_permission(self, request, view, obj):
-        # obj is a StaffChatMessage
-        try:
-            staff = request.user.staff_profile
-            return obj.sender.id == staff.id
         except AttributeError:
             return False
 
@@ -81,58 +64,5 @@ class IsSameHotel(permissions.BasePermission):
                 return obj.conversation.hotel.id == staff.hotel.id
             
             return False
-        except AttributeError:
-            return False
-
-
-class CanManageConversation(permissions.BasePermission):
-    """
-    Permission check: User can manage conversation
-    (creator or manager role)
-    """
-    message = "You don't have permission to manage this conversation."
-
-    def has_object_permission(self, request, view, obj):
-        # obj is a StaffConversation
-        try:
-            staff = request.user.staff_profile
-            
-            # Creator can always manage
-            if obj.created_by and obj.created_by.id == staff.id:
-                return True
-            
-            # Moderation reach is capability-gated.
-            if has_capability(request.user, 'staff_chat.conversation.moderate'):
-                return True
-            
-            return False
-        except AttributeError:
-            return False
-
-
-class CanDeleteMessage(permissions.BasePermission):
-    """
-    Permission check: User can delete message
-    (own messages or manager role for hard delete)
-    """
-    message = "You don't have permission to delete this message."
-
-    def has_object_permission(self, request, view, obj):
-        # obj is a StaffChatMessage
-        try:
-            staff = request.user.staff_profile
-            
-            # Hard delete check
-            hard_delete = request.query_params.get('hard_delete') == 'true'
-            
-            if hard_delete:
-                # Hard delete requires the staff_chat moderation capability.
-                if has_capability(request.user, 'staff_chat.conversation.moderate'):
-                    return True
-                # Or if it's their own message
-                return obj.sender.id == staff.id
-            else:
-                # Soft delete - anyone can delete their own messages
-                return obj.sender.id == staff.id
         except AttributeError:
             return False
