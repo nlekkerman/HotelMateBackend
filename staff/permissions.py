@@ -1163,6 +1163,16 @@ class CanUpdateStaffProfile(HasCapability):
     required_capability = STAFF_MANAGEMENT_STAFF_UPDATE_PROFILE
     message = "You do not have permission to update staff profiles."
 
+    def has_object_permission(self, request, view, obj):
+        # Self-service: a staff member may always edit their own profile.
+        # The serializer (StaffProfileUpdateSerializer) restricts editable
+        # fields to non-authority profile fields, so this cannot be used
+        # for privilege escalation. Authority mutations go through
+        # dedicated @action endpoints with their own capability gates.
+        if getattr(obj, "user_id", None) == getattr(request.user, "id", None):
+            return True
+        return super().has_object_permission(request, view, obj)
+
 
 class CanDeactivateStaff(HasCapability):
     required_capability = STAFF_MANAGEMENT_STAFF_DEACTIVATE
