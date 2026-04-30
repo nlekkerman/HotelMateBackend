@@ -342,40 +342,8 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     department = serializers.CharField(allow_null=True, required=False)
     
     def to_representation(self, instance):
-        """Ensure canonical permissions are always included using resolver."""
-        # Import here to avoid circular imports
-        from .permissions import resolve_effective_access
-
-        data = super().to_representation(instance)
-
-        # Get user object for permissions resolution. `user` is not a declared
-        # field so it will not be present in validated_data; fall back to the
-        # raw initial_data and the request context.
-        user = None
-        if isinstance(instance, dict):
-            user = instance.get('user')
-        if user is None:
-            initial = getattr(self, 'initial_data', None)
-            if isinstance(initial, dict):
-                user = initial.get('user')
-        if user is None:
-            request = self.context.get('request') if self.context else None
-            if request is not None and getattr(request, 'user', None) and \
-                    getattr(request.user, 'is_authenticated', False):
-                user = request.user
-
-        if user is not None:
-            # Get canonical permissions payload and merge it. This guarantees
-            # rbac / tier / role_slug / department_slug / allowed_capabilities
-            # are always present on the response, even if validation stripped
-            # them.
-            permissions = resolve_effective_access(user)
-            data.update(permissions)
-
-            # Ensure isAdmin matches is_superuser for legacy compatibility
-            data['isAdmin'] = permissions['is_superuser']
-
-        return data
+        """Direct mapping: output-mode serializer, no user recovery needed."""
+        return super().to_representation(instance)
     
     def validate(self, data):
         """Add validation to catch data inconsistencies."""

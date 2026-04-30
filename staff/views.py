@@ -255,8 +255,7 @@ class CustomAuthToken(ObtainAuthToken):
             print(f"{key}: {value}")
         print("====================================")
 
-        output_serializer = StaffLoginOutputSerializer(data=data, context={'request': request})
-        output_serializer.is_valid(raise_exception=True)
+        output_serializer = StaffLoginOutputSerializer(instance=data, context={'request': request})
         return Response(output_serializer.data)
 
 
