@@ -325,9 +325,16 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     is_superuser = serializers.BooleanField()
     hotel_slug = serializers.CharField(allow_null=True)
     access_level = serializers.CharField(allow_null=True)
+    tier = serializers.CharField(allow_null=True, required=False)
+    department_slug = serializers.CharField(allow_null=True, required=False)
+    role_slug = serializers.CharField(allow_null=True, required=False)
     allowed_navs = serializers.ListField(child=serializers.CharField())
     navigation_items = serializers.ListField(child=serializers.DictField())
-    
+    allowed_capabilities = serializers.ListField(
+        child=serializers.CharField(), required=False
+    )
+    rbac = serializers.DictField(required=False)
+
     # Legacy and additional fields
     isAdmin = serializers.BooleanField()  # Legacy compatibility
     profile_image_url = serializers.CharField(allow_null=True, required=False)
@@ -338,19 +345,36 @@ class StaffLoginOutputSerializer(serializers.Serializer):
         """Ensure canonical permissions are always included using resolver."""
         # Import here to avoid circular imports
         from .permissions import resolve_effective_access
-        
+
         data = super().to_representation(instance)
-        
-        # Get user object for permissions resolution
-        user = instance.get('user')
-        if user:
-            # Get canonical permissions payload and merge it
+
+        # Get user object for permissions resolution. `user` is not a declared
+        # field so it will not be present in validated_data; fall back to the
+        # raw initial_data and the request context.
+        user = None
+        if isinstance(instance, dict):
+            user = instance.get('user')
+        if user is None:
+            initial = getattr(self, 'initial_data', None)
+            if isinstance(initial, dict):
+                user = initial.get('user')
+        if user is None:
+            request = self.context.get('request') if self.context else None
+            if request is not None and getattr(request, 'user', None) and \
+                    getattr(request.user, 'is_authenticated', False):
+                user = request.user
+
+        if user is not None:
+            # Get canonical permissions payload and merge it. This guarantees
+            # rbac / tier / role_slug / department_slug / allowed_capabilities
+            # are always present on the response, even if validation stripped
+            # them.
             permissions = resolve_effective_access(user)
             data.update(permissions)
-            
+
             # Ensure isAdmin matches is_superuser for legacy compatibility
             data['isAdmin'] = permissions['is_superuser']
-        
+
         return data
     
     def validate(self, data):
