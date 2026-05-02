@@ -36,6 +36,7 @@ from staff.permissions import (
     CanClockInOut,
     CanReadOwnAttendanceLog,
     CanReadAllAttendanceLogs,
+    CanReadOwnRoster,
     CanCreateAttendanceLog,
     CanUpdateAttendanceLog,
     CanDeleteAttendanceLog,
@@ -1723,6 +1724,7 @@ class StaffRosterViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
             'bulk_save': CanBulkWriteAttendanceShift(),
             'daily_pdf': CanExportAttendanceShiftPdf(),
             'staff_pdf': CanExportAttendanceShiftPdf(),
+            'mine': CanReadOwnRoster(),
         }
         action = getattr(self, 'action', None)
         base.append(action_caps.get(action, CanReadAttendanceShift()))
@@ -1753,6 +1755,45 @@ class StaffRosterViewSet(AttendanceHotelScopedMixin, viewsets.ModelViewSet):
             qs = qs.filter(shift_date__range=[start, end])
 
         return qs
+
+    @action(detail=False, methods=['get'], url_path='mine')
+    def mine(self, request, *args, **kwargs):
+        """
+        Self-scoped roster endpoint.
+
+        Returns shifts belonging to the authenticated staff user only,
+        filtered to the URL-scoped hotel. Accessible to any active
+        same-hotel staff member with `attendance.roster.read_self`
+        (granted via the self-service bundle to every tier).
+
+        Optional query params:
+          - start, end: YYYY-YYYY-MM-DD pair to bound shift_date.
+          - period:     RosterPeriod id to filter by.
+        """
+        if not hasattr(request.user, 'staff_profile'):
+            raise exceptions.PermissionDenied("User must have a staff profile")
+
+        staff_hotel = self.get_staff_hotel()
+        # Validate URL hotel_slug matches the user's hotel.
+        self.validate_hotel_access()
+
+        qs = (
+            StaffRoster.objects
+            .select_related('staff', 'hotel', 'period', 'approved_by', 'location')
+            .filter(hotel=staff_hotel, staff=request.user.staff_profile)
+        )
+
+        period_id = request.query_params.get('period')
+        start = request.query_params.get('start')
+        end = request.query_params.get('end')
+        if period_id:
+            qs = qs.filter(period_id=period_id)
+        if start and end:
+            qs = qs.filter(shift_date__range=[start, end])
+
+        qs = qs.order_by('shift_date', 'shift_start')
+        serializer = self.get_serializer(qs, many=True)
+        return Response(serializer.data)
 
     @action(detail=False, methods=['post'], url_path='bulk-save')
     def bulk_save(self, request, *args, **kwargs):

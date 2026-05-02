@@ -52,6 +52,7 @@ staff_roster_staff_pdf = StaffRosterViewSet.as_view({'get': 'staff_pdf'})
 staff_roster_list = StaffRosterViewSet.as_view({'get': 'list', 'post': 'create'})
 staff_roster_detail = StaffRosterViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})
 staff_roster_bulk_save = StaffRosterViewSet.as_view({'post': 'bulk_save'})
+staff_roster_mine = StaffRosterViewSet.as_view({'get': 'mine'})
 
 # -------------------------
 # Analytics explicit bindings (need hotel_slug)
@@ -128,6 +129,7 @@ urlpatterns = [
     
     # --------- Staff Shifts ---------
     path('shifts/', staff_roster_list, name='staff-roster-list'),
+    path('shifts/mine/', staff_roster_mine, name='staff-roster-mine'),
     path('shifts/<int:pk>/', staff_roster_detail, name='staff-roster-detail'),
     path('shifts/bulk-save/', staff_roster_bulk_save, name='staff-roster-bulk-save'),
 

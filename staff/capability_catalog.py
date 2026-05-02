@@ -1040,11 +1040,12 @@ _SUPERVISOR_AUTHORITY: frozenset[str] = frozenset({
 # ---------------------------------------------------------------------------
 # Guest chat (chat app) preset bundles (Wave 2A)
 #
-# Product rule: any authenticated same-hotel staff can use guest chat.
-# The base bundle (view/read/send/upload/delete-own) is granted across
-# every tier so all staff personas pick it up. Moderation, assign, and
-# guest-routing capabilities remain reserved (moderation+assign on the
-# supervisor authority bundle; guest_respond on front_office department).
+# Product rule (revised): guest chat is a front-office tool. Only the
+# front_office department picks up the base bundle (view/read/send/
+# upload/delete-own). Moderation + assign remain on supervisor authority;
+# guest_respond stays on the front_office department preset.
+# Tiers no longer carry _CHAT_BASE so non-front-office staff (waiters,
+# housekeepers, kitchen, maintenance) do not see the chat module icon.
 # ---------------------------------------------------------------------------
 
 _CHAT_BASE: frozenset[str] = frozenset({
@@ -1411,15 +1412,15 @@ TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
     # authenticated same-hotel staff can use guest chat.
     'super_staff_admin': (
         _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE
-        | _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
+        | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
         | _ROOM_SERVICE_BASE
     ),
     'staff_admin': (
-        _SUPERVISOR_AUTHORITY | _CHAT_BASE | _STAFF_CHAT_BASE
+        _SUPERVISOR_AUTHORITY | _STAFF_CHAT_BASE
         | _ATTENDANCE_SELF_SERVICE | _ROOM_SERVICE_BASE
     ),
     'regular_staff': (
-        _CHAT_BASE | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
+        _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
         | _ROOM_SERVICE_BASE
     ),
 }
@@ -1464,6 +1465,7 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         | _GUESTS_OPERATE | _HOTEL_INFO_MANAGE | _ATTENDANCE_MANAGE
         | _ROOM_SERVICE_MANAGE
         | _RESTAURANT_BOOKING_MANAGE
+        | _CHAT_BASE
     ),
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
@@ -1526,7 +1528,7 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         HOUSEKEEPING_MODULE_VIEW,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
         HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
-    }) | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ | _MAINTENANCE_REPORTER,
+    }) | _CHAT_BASE | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ | _MAINTENANCE_REPORTER,
     # Phase 6B.1 / 6C: housekeeping department gets full room OPERATE
     # plus the housekeeping operate bundle (read + execute + transition
     # + history read).
