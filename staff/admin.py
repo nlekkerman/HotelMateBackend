@@ -121,6 +121,49 @@ class StaffAdmin(admin.ModelAdmin):
     readonly_fields = ('profile_image_preview', 'fcm_token_preview')
     filter_horizontal = ('allowed_navigation_items',)
 
+    def _editing_staff_hotel_id(self, request):
+        """Return the hotel_id of the Staff being edited, if any."""
+        object_id = (
+            request.resolver_match.kwargs.get('object_id')
+            if request.resolver_match else None
+        )
+        if not object_id:
+            return None
+        return (
+            Staff.objects
+            .filter(pk=object_id)
+            .values_list('hotel_id', flat=True)
+            .first()
+        )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        """Filter role / department dropdowns to the staff's hotel so that
+        admins can't pick a cross-tenant role by accident (the model-level
+        ``clean()`` would reject it anyway -- this just makes the choice
+        unambiguous in the UI).
+        """
+        if db_field.name in {'role', 'department'}:
+            hotel_id = self._editing_staff_hotel_id(request)
+            if hotel_id is not None:
+                qs = db_field.related_model.objects.filter(hotel_id=hotel_id)
+                kwargs['queryset'] = qs
+        formfield = super().formfield_for_foreignkey(db_field, request, **kwargs)
+        # Always show the hotel in the dropdown label so identical role names
+        # from different hotels can be told apart on the changelist
+        # (list_editable role column) and on the add form.
+        if db_field.name in {'role', 'department'} and formfield is not None:
+            if db_field.name == 'role':
+                formfield.label_from_instance = lambda obj: (
+                    f"{obj.name} — {obj.hotel.name}" if obj.hotel_id
+                    else obj.name
+                )
+            else:
+                formfield.label_from_instance = lambda obj: (
+                    f"{obj.name} — {obj.hotel.name}" if obj.hotel_id
+                    else obj.name
+                )
+        return formfield
+
     def has_fcm_token(self, obj):
         """Display if staff has FCM token saved"""
         if obj.fcm_token:

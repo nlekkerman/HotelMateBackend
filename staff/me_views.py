@@ -39,7 +39,16 @@ class StaffMeView(APIView):
             
             # Merge canonical permissions into staff data
             staff_data.update(permissions)
-            
+
+            # Self-service flag: every authenticated staff member is
+            # always allowed to edit their own profile, regardless of the
+            # staff_management.staff.update_profile capability. This
+            # mirrors the backend self-bypass in
+            # ``staff.permissions.CanUpdateStaffProfile.has_object_permission``
+            # and lets the frontend enable the "edit my profile" UI even
+            # when the staff carries no staff_management.* capabilities.
+            staff_data['can_edit_self_profile'] = True
+
             return Response(staff_data, status=status.HTTP_200_OK)
             
         except Staff.DoesNotExist:
@@ -49,7 +58,8 @@ class StaffMeView(APIView):
             return Response(
                 {
                     "detail": "Staff profile not found for the current user and hotel.",
-                    **permissions  # Still provide canonical structure
+                    **permissions,  # Still provide canonical structure
+                    "can_edit_self_profile": False,
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
