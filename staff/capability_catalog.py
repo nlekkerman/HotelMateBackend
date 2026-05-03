@@ -1185,6 +1185,17 @@ _MAINTENANCE_MANAGE: frozenset[str] = _MAINTENANCE_SUPERVISE | frozenset({
 # distribution tests).
 # ---------------------------------------------------------------------------
 
+# Department-head read-only view: lets managers (front_office_manager,
+# housekeeping_manager, maintenance_manager, fnb_manager) list / retrieve
+# Staff rows so the Staff Management UI is functional for them. They
+# explicitly do NOT receive any update_profile / authority.* / create /
+# delete / deactivate capability — viewing only. Module visibility
+# (STAFF_MANAGEMENT_MODULE_VIEW) is granted via the Staff
+# allowed_navigation_items surface, not via this capability bundle.
+_STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW: frozenset[str] = frozenset({
+    STAFF_MANAGEMENT_STAFF_READ,
+})
+
 _STAFF_MANAGEMENT_BASIC: frozenset[str] = frozenset({
     STAFF_MANAGEMENT_MODULE_VIEW,
     STAFF_MANAGEMENT_STAFF_READ,
@@ -1470,6 +1481,7 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
         | _MAINTENANCE_REPORTER | _GUESTS_OPERATE | _HOTEL_INFO_READ
+        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
     ),
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
@@ -1484,6 +1496,7 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     ),
     'housekeeping_manager': (
         _ROOM_SUPERVISE | _HOUSEKEEPING_MANAGE
+        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
     ),
     # Phase 6B.1: maintenance authority roles carry clear-only (and,
     # for maintenance_manager, out-of-order) on top of the dept preset.
@@ -1497,11 +1510,13 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         ROOM_MAINTENANCE_CLEAR,
         ROOM_OUT_OF_ORDER_SET,
         HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }) | _MAINTENANCE_MANAGE,
+    }) | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW,
     # F&B roles — restaurant booking authority lives on role/dept presets,
     # never on tier. fnb_manager carries the full manage bundle; waiter
     # carries the operate bundle (record CRUD, mark_seen, assign/unseat).
-    'fnb_manager': _RESTAURANT_BOOKING_MANAGE,
+    'fnb_manager': (
+        _RESTAURANT_BOOKING_MANAGE | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
+    ),
     'waiter': _RESTAURANT_BOOKING_OPERATE,
 }
 
