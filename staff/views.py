@@ -366,6 +366,16 @@ class StaffViewSet(viewsets.ModelViewSet):
         - destroy: CanDeleteStaff
         - assign_* authority actions: per-field capability
         - deactivate: CanDeactivateStaff
+
+        Self-edit carve-out: ``update`` / ``partial_update`` against the
+        requester's own ``Staff`` row skips the staff-management module
+        gate. Without this, a user whose tier/role carries no
+        ``staff_management.*`` capabilities is rejected by
+        ``CanViewStaffManagementModule`` before ``CanUpdateStaffProfile``'s
+        self-bypass ever runs. ``IsStaffMember`` + ``IsSameHotel`` +
+        ``CanUpdateStaffProfile`` (with its own self-bypass) still gate
+        the request, and ``StaffProfileUpdateSerializer`` keeps the
+        editable fields locked down.
         """
         base = [
             IsAuthenticated(),
@@ -373,6 +383,26 @@ class StaffViewSet(viewsets.ModelViewSet):
             IsStaffMember(),
             IsSameHotel(),
         ]
+        if self.action in ('update', 'partial_update'):
+            user = getattr(self.request, 'user', None)
+            pk = self.kwargs.get('pk')
+            if (
+                user is not None
+                and getattr(user, 'is_authenticated', False)
+                and not getattr(user, 'is_superuser', False)
+                and pk is not None
+            ):
+                # Cheap, indexed lookup: is this row the requester's own
+                # staff profile? If so, drop the module gate.
+                is_self = Staff.objects.filter(
+                    pk=pk, user_id=user.id,
+                ).exists()
+                if is_self:
+                    base = [
+                        IsAuthenticated(),
+                        IsStaffMember(),
+                        IsSameHotel(),
+                    ]
         action_map = {
             'create': CanCreateStaff,
             'update': CanUpdateStaffProfile,
