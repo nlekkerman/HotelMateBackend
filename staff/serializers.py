@@ -340,6 +340,12 @@ class StaffLoginOutputSerializer(serializers.Serializer):
     profile_image_url = serializers.CharField(allow_null=True, required=False)
     role = serializers.CharField(allow_null=True, required=False)
     department = serializers.CharField(allow_null=True, required=False)
+    # Self-service flag: mirrors the backend self-bypass in
+    # ``CanUpdateStaffProfile`` so the frontend can show the "edit my
+    # profile" UI even for users whose tier/role carries no
+    # ``staff_management.*`` capabilities. Always ``True`` for an
+    # authenticated staff login response.
+    can_edit_self_profile = serializers.BooleanField(required=False)
     
     def to_representation(self, instance):
         """Direct mapping: output-mode serializer, no user recovery needed."""

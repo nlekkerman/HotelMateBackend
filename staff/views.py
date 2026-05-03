@@ -225,6 +225,15 @@ class CustomAuthToken(ObtainAuthToken):
         # Legacy compatibility
         data['isAdmin'] = permissions_payload['is_superuser']
 
+        # Self-service flag: every authenticated staff member is always
+        # allowed to edit their own profile, regardless of the
+        # staff_management.staff.update_profile capability. Mirrors the
+        # backend self-bypass in
+        # ``staff.permissions.CanUpdateStaffProfile.has_object_permission``
+        # so the frontend can light up the "edit my profile" UI for users
+        # whose tier/role grants no staff_management.* capabilities.
+        data['can_edit_self_profile'] = True
+
         # Comprehensive login debugging and validation
         print(f"=== LOGIN DEBUG FOR USER: {user.username} ===")
         print(f"User ID: {user.id}")
