@@ -107,3 +107,44 @@ CANONICAL_NAV_ITEMS = [
 assert {item['slug'] for item in CANONICAL_NAV_ITEMS} == CANONICAL_NAV_SLUGS, (
     "CANONICAL_NAV_ITEMS slugs do not match CANONICAL_NAV_SLUGS"
 )
+
+
+# ---------------------------------------------------------------------------
+# Nav slug -> module_policy module slug projection.
+#
+# Some navigation slugs are pure UX containers (``home``, ``admin_settings``)
+# and have no corresponding module in ``staff.module_policy.MODULE_POLICY``.
+# Those slugs are deliberately absent from this map; consumers MUST treat
+# missing keys as "no module to gate" and skip nav-vs-module checks for
+# them.
+#
+# This map is the SINGLE SOURCE OF TRUTH for the nav <-> module relation
+# used by ``validate_nav_capability_consistency`` (Phase 5). It does not
+# affect runtime authorization — frontend nav rendering still consumes
+# ``allowed_navs`` and ``rbac.<module>.visible`` independently.
+# ---------------------------------------------------------------------------
+
+NAV_TO_MODULE_SLUG: dict[str, str] = {
+    'rooms': 'rooms',
+    'room_bookings': 'bookings',
+    'restaurant_bookings': 'restaurant_bookings',
+    'chat': 'chat',
+    'housekeeping': 'housekeeping',
+    'attendance': 'attendance',
+    'staff_management': 'staff_management',
+    'room_services': 'room_services',
+    'maintenance': 'maintenance',
+    'hotel_info': 'hotel_info',
+    # 'home' and 'admin_settings' have no module_policy entry.
+}
+
+# Modules that exist in MODULE_POLICY but have no top-level nav slug
+# (surfaced inline within other modules / UX surfaces).
+MODULES_WITHOUT_NAV: frozenset[str] = frozenset({
+    'guests',
+    'staff_chat',
+})
+
+assert set(NAV_TO_MODULE_SLUG.keys()).issubset(CANONICAL_NAV_SLUGS), (
+    "NAV_TO_MODULE_SLUG keys must be a subset of CANONICAL_NAV_SLUGS"
+)

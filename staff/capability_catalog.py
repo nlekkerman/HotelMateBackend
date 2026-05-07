@@ -1192,7 +1192,12 @@ _MAINTENANCE_MANAGE: frozenset[str] = _MAINTENANCE_SUPERVISE | frozenset({
 # delete / deactivate capability — viewing only. Module visibility
 # (STAFF_MANAGEMENT_MODULE_VIEW) is granted via the Staff
 # allowed_navigation_items surface, not via this capability bundle.
+# Phase 1.1 (RBAC Operational Rebalance): include the module.view
+# capability so visibility (rbac.staff_management.visible) and read
+# (rbac.staff_management.read) agree for department heads. No write
+# authority is added by this fix.
 _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW: frozenset[str] = frozenset({
+    STAFF_MANAGEMENT_MODULE_VIEW,
     STAFF_MANAGEMENT_STAFF_READ,
 })
 
@@ -1324,6 +1329,45 @@ _ATTENDANCE_MANAGE: frozenset[str] = _ATTENDANCE_SELF_SERVICE | frozenset({
     ATTENDANCE_FACE_REVOKE,
     ATTENDANCE_FACE_AUDIT_READ,
 })
+
+# Phase 2 (RBAC Operational Rebalance): department-head attendance bundles.
+#
+# Composed exclusively from existing canonical capability slugs. These
+# bundles deliberately stop short of period lifecycle, log delete, face
+# revoke / register-other, face audit read and shift-location manage —
+# all of which remain hotel-manager-only via _ATTENDANCE_MANAGE.
+#
+# Per-row scoping ("own department only") is already enforced at the
+# view layer in attendance/views.py; these bundles do not change that.
+_ATTENDANCE_DEPARTMENT_HEAD_READ: frozenset[str] = (
+    _ATTENDANCE_SELF_SERVICE | frozenset({
+        ATTENDANCE_LOG_READ_ALL,
+        ATTENDANCE_SHIFT_READ,
+        ATTENDANCE_PERIOD_READ,
+        ATTENDANCE_DAILY_PLAN_READ,
+        ATTENDANCE_SHIFT_LOCATION_READ,
+        ATTENDANCE_ANALYTICS_READ,
+        ATTENDANCE_FACE_READ,
+    })
+)
+
+_ATTENDANCE_DEPARTMENT_HEAD_WRITE: frozenset[str] = (
+    _ATTENDANCE_DEPARTMENT_HEAD_READ | frozenset({
+        ATTENDANCE_LOG_CREATE,
+        ATTENDANCE_LOG_UPDATE,
+        ATTENDANCE_LOG_APPROVE,
+        ATTENDANCE_LOG_REJECT,
+        ATTENDANCE_LOG_RELINK,
+        ATTENDANCE_SHIFT_CREATE,
+        ATTENDANCE_SHIFT_UPDATE,
+        ATTENDANCE_SHIFT_DELETE,
+        ATTENDANCE_SHIFT_BULK_WRITE,
+        ATTENDANCE_SHIFT_COPY,
+        ATTENDANCE_SHIFT_EXPORT_PDF,
+        ATTENDANCE_DAILY_PLAN_MANAGE,
+        ATTENDANCE_DAILY_PLAN_ENTRY_MANAGE,
+    })
+)
 
 
 # ---------------------------------------------------------------------------
@@ -1477,11 +1521,31 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         | _ROOM_SERVICE_MANAGE
         | _RESTAURANT_BOOKING_MANAGE
         | _CHAT_BASE
+        # Phase 4 (RBAC Operational Rebalance): hotel_manager is
+        # eligible for inbound guest-chat routing when on duty.
+        | frozenset({CHAT_GUEST_RESPOND, CHAT_CONVERSATION_ASSIGN,
+                     CHAT_MESSAGE_MODERATE})
     ),
     'front_office_manager': (
         _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
         | _MAINTENANCE_REPORTER | _GUESTS_OPERATE | _HOTEL_INFO_READ
         | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
+        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
+        # Phase 4 (RBAC Operational Rebalance): FOM coordinates room
+        # service operationally (porter pickup / order action).
+        | _ROOM_SERVICE_OPERATE
+    ),
+    # Phase 2 + Phase 4 (RBAC Operational Rebalance): front office
+    # supervisor gains operational coordination on top of attendance
+    # read. Housekeeping read + room-service operate + maintenance
+    # reporter mirror the FO department coordination floor; no booking
+    # config manage, no destructive room actions, no period lifecycle.
+    'front_office_supervisor': (
+        _ATTENDANCE_DEPARTMENT_HEAD_READ
+        | _HOUSEKEEPING_BASE
+        | _ROOM_SERVICE_OPERATE
+        | _MAINTENANCE_REPORTER
+        | _HOTEL_INFO_READ
     ),
     'front_desk_agent': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_PORTER,
@@ -1493,10 +1557,12 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # (MAINTENANCE_REQUIRED → CHECKOUT_DIRTY / READY_FOR_GUEST) succeeds.
     'housekeeping_supervisor': (
         _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
+        | _ATTENDANCE_DEPARTMENT_HEAD_READ
     ),
     'housekeeping_manager': (
         _ROOM_SUPERVISE | _HOUSEKEEPING_MANAGE
         | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
+        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
     ),
     # Phase 6B.1: maintenance authority roles carry clear-only (and,
     # for maintenance_manager, out-of-order) on top of the dept preset.
@@ -1505,19 +1571,134 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     'maintenance_supervisor': frozenset({
         ROOM_MAINTENANCE_CLEAR,
         HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }) | _MAINTENANCE_SUPERVISE,
+    }) | _MAINTENANCE_SUPERVISE | _ATTENDANCE_DEPARTMENT_HEAD_READ,
     'maintenance_manager': frozenset({
         ROOM_MAINTENANCE_CLEAR,
         ROOM_OUT_OF_ORDER_SET,
         HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }) | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW,
+    }) | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
+      | _ATTENDANCE_DEPARTMENT_HEAD_WRITE,
     # F&B roles — restaurant booking authority lives on role/dept presets,
     # never on tier. fnb_manager carries the full manage bundle; waiter
     # carries the operate bundle (record CRUD, mark_seen, assign/unseat).
     'fnb_manager': (
         _RESTAURANT_BOOKING_MANAGE | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
+        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
+    ),
+    # Phase 4 (RBAC Operational Rebalance): F&B supervisor becomes a
+    # real shift lead — read-tier attendance + operational restaurant
+    # coordination (catalog/records reads + record CRUD via OPERATE,
+    # but no destructive authority and no guest chat).
+    'fb_supervisor': (
+        _ATTENDANCE_DEPARTMENT_HEAD_READ
+        | _RESTAURANT_BOOKING_OPERATE
+        | _MAINTENANCE_REPORTER
+        | _HOTEL_INFO_READ
+        | _GUESTS_READ
+        | _BOOKING_READ
     ),
     'waiter': _RESTAURANT_BOOKING_OPERATE,
+    # Phase 4 (RBAC Operational Rebalance): kitchen role presets.
+    # Kitchen roles never carry _CHAT_BASE — guest chat stays scoped to
+    # front office / guest relations / duty manager / hotel manager.
+    'kitchen_manager': (
+        _ROOM_SERVICE_OPERATE
+        | frozenset({
+            ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
+            # Chef edits the menu but cannot delete items — DELETE
+            # remains hotel_manager-only via _ROOM_SERVICE_MANAGE.
+            ROOM_SERVICE_MENU_ITEM_CREATE,
+            ROOM_SERVICE_MENU_ITEM_UPDATE,
+            ROOM_SERVICE_MENU_ITEM_IMAGE_MANAGE,
+        })
+        | _MAINTENANCE_REPORTER
+        | _HOTEL_INFO_READ
+        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
+        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
+    ),
+    'kitchen_supervisor': (
+        _ROOM_SERVICE_OPERATE
+        | frozenset({ROOM_SERVICE_ORDER_FULFILL_KITCHEN})
+        | _MAINTENANCE_REPORTER
+        | _HOTEL_INFO_READ
+        | _ATTENDANCE_DEPARTMENT_HEAD_READ
+    ),
+    # Execution-only kitchen line. Department preset already grants
+    # room-service operate + maintenance reporter; explicit role entry
+    # avoids an empty preset and grants a meaningful hotel-info read
+    # floor regardless of department assignment edge cases.
+    'kitchen_staff': (
+        _MAINTENANCE_REPORTER
+        | _HOTEL_INFO_READ
+    ),
+    # Maintenance execution staff — hotel-info read floor; department
+    # preset covers maintenance operate. No guest chat (product rule).
+    'maintenance_staff': _HOTEL_INFO_READ,
+    # Housekeeping execution staff — hotel-info read floor; department
+    # preset covers housekeeping operate + maintenance reporter. No
+    # guest chat (product rule).
+    'housekeeper': _HOTEL_INFO_READ,
+    # Phase 4 (RBAC Operational Rebalance): guest relations roles.
+    # Guest chat IS exposed to GR (product rule: FO + GR + duty +
+    # hotel manager only).
+    'guest_relations_agent': (
+        _CHAT_BASE
+        | frozenset({CHAT_GUEST_RESPOND, CHAT_CONVERSATION_ASSIGN})
+        | _GUESTS_OPERATE
+        | _HOTEL_INFO_READ
+        | _BOOKING_READ
+        | _MAINTENANCE_REPORTER
+    ),
+    'guest_relations_supervisor': (
+        _CHAT_BASE
+        | frozenset({
+            CHAT_GUEST_RESPOND,
+            CHAT_CONVERSATION_ASSIGN,
+            BOOKING_GUEST_COMMUNICATE,
+        })
+        | _GUESTS_OPERATE
+        | _HOTEL_INFO_READ
+        | _BOOKING_READ
+        | _MAINTENANCE_REPORTER
+        | _ATTENDANCE_DEPARTMENT_HEAD_READ
+    ),
+    'guest_relations_manager': (
+        _CHAT_BASE
+        | frozenset({
+            CHAT_GUEST_RESPOND,
+            CHAT_CONVERSATION_ASSIGN,
+            CHAT_MESSAGE_MODERATE,
+            BOOKING_GUEST_COMMUNICATE,
+            BOOKING_RECORD_UPDATE,
+            GUEST_RECORD_UPDATE,
+        })
+        | _GUESTS_OPERATE
+        | _HOTEL_INFO_MANAGE
+        | _BOOKING_READ
+        | _MAINTENANCE_REPORTER
+        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
+        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
+    ),
+    # Phase 4 (RBAC Operational Rebalance): duty manager becomes
+    # operationally aware hotel-wide. READ-heavy bundle plus guest-chat
+    # moderation/assign and attendance department-head READ. Excludes
+    # all destructive / config / staff-management / period lifecycle
+    # authority — those stay on hotel_manager + super_user.
+    'duty_manager': (
+        _ROOM_READ
+        | _HOUSEKEEPING_BASE
+        | _MAINTENANCE_READ
+        | _CHAT_BASE
+        | frozenset({
+            CHAT_GUEST_RESPOND,
+            CHAT_CONVERSATION_ASSIGN,
+            CHAT_MESSAGE_MODERATE,
+        })
+        | _GUESTS_READ
+        | _HOTEL_INFO_READ
+        | _RESTAURANT_BOOKING_BASE
+        | _ATTENDANCE_DEPARTMENT_HEAD_READ
+    ),
 }
 
 
@@ -1541,6 +1722,11 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         CHAT_GUEST_RESPOND,
         CHAT_CONVERSATION_ASSIGN,
         HOUSEKEEPING_MODULE_VIEW,
+        # Phase 1.2 (RBAC Operational Rebalance): close the
+        # visible-but-unreadable housekeeping mismatch on front_office.
+        # Read-only — write authority remains role-gated.
+        HOUSEKEEPING_TASK_READ,
+        HOUSEKEEPING_DASHBOARD_READ,
         HOUSEKEEPING_ROOM_STATUS_FRONT_DESK,
         HOUSEKEEPING_ROOM_STATUS_HISTORY_READ,
     }) | _CHAT_BASE | _BOOKING_READ | _BOOKING_OPERATE | _ROOM_READ | _MAINTENANCE_REPORTER,
@@ -1552,9 +1738,12 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     'housekeeping': (
         _ROOM_OPERATE | _HOUSEKEEPING_OPERATE | _MAINTENANCE_REPORTER
     ),
+    # Phase 3 (RBAC Operational Rebalance): kitchen department gains
+    # maintenance-reporter (file tickets) and hotel-info read. Guest
+    # chat is intentionally NOT exposed to kitchen (product rule).
     'kitchen': frozenset({
         ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
-    }) | _ROOM_SERVICE_OPERATE,
+    }) | _ROOM_SERVICE_OPERATE | _MAINTENANCE_REPORTER | _HOTEL_INFO_READ,
     # Phase 6B.1: maintenance department gets room READ + flag.
     # HOUSEKEEPING_ROOM_STATUS_TRANSITION is required so mark_maintenance
     # can actually flip the room to MAINTENANCE_REQUIRED via the canonical
@@ -1566,13 +1755,79 @@ DEPARTMENT_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     'maintenance': _ROOM_READ | frozenset({
         ROOM_MAINTENANCE_FLAG,
         HOUSEKEEPING_ROOM_STATUS_TRANSITION,
+        # Phase 1.3 (RBAC Operational Rebalance): give the already-granted
+        # HOUSEKEEPING_ROOM_STATUS_TRANSITION a UI surface and let
+        # technicians read room/turnover state. Read-only on the
+        # housekeeping namespace — supervise / manage stays role-gated.
+        HOUSEKEEPING_MODULE_VIEW,
+        HOUSEKEEPING_TASK_READ,
+        HOUSEKEEPING_DASHBOARD_READ,
+        # Phase 3 (RBAC Operational Rebalance): give technicians room
+        # context — who is in the room and which booking it belongs to.
+        # Read-only on the guests + bookings namespaces. Guest chat is
+        # intentionally NOT exposed to maintenance (product rule).
+        GUEST_RECORD_READ,
+        BOOKING_RECORD_READ,
+        BOOKING_MODULE_VIEW,
     }) | _MAINTENANCE_OPERATE,
     # F&B department carries the restaurant-booking operate bundle so any
     # F&B staff member can read catalogs and operate booking records
     # (create / update / mark_seen / assign / unseat). Manage authority
     # (delete records, restaurant CUD, blueprint manage, table manage)
     # remains role-gated via fnb_manager / hotel_manager.
-    'food_beverage': _RESTAURANT_BOOKING_OPERATE,
+    # Phase 3 (RBAC Operational Rebalance): F&B coordination floor —
+    # maintenance reporter (file tickets), hotel-info read, guests
+    # read (charge-to-room lookup), bookings read. Guest chat is
+    # intentionally NOT exposed to F&B execution staff (product rule);
+    # supervisors / managers do not pick it up here either.
+    'food_beverage': (
+        _RESTAURANT_BOOKING_OPERATE
+        | _MAINTENANCE_REPORTER
+        | _HOTEL_INFO_READ
+        | _GUESTS_READ
+        | _BOOKING_READ
+    ),
+    # Phase 3 (RBAC Operational Rebalance): guest_relations department
+    # gains a real operational preset. Guest chat IS exposed to GR
+    # (product rule); CHAT_GUEST_RESPOND lets GR be auto-routed inbound
+    # guest pings, CHAT_CONVERSATION_ASSIGN lets them hand a thread
+    # back to front office. No room/housekeeping write authority, no
+    # attendance period lifecycle, no staff management.
+    'guest_relations': (
+        _CHAT_BASE
+        | frozenset({
+            CHAT_GUEST_RESPOND,
+            CHAT_CONVERSATION_ASSIGN,
+        })
+        | _GUESTS_OPERATE
+        | _HOTEL_INFO_READ
+        | _BOOKING_READ
+        | _MAINTENANCE_REPORTER
+    ),
+    # Phase 3 (RBAC Operational Rebalance): management department gets
+    # the duty-manager read bundle. READ-heavy across every operational
+    # module + guest-chat moderation/assign + attendance dept-head
+    # READ. NO destructive authority, NO staff management, NO period
+    # lifecycle. Powers duty_manager and any future management-dept
+    # personas.
+    'management': (
+        _ROOM_READ
+        | _HOUSEKEEPING_BASE
+        | _MAINTENANCE_READ
+        | _CHAT_BASE
+        | frozenset({
+            CHAT_CONVERSATION_ASSIGN,
+            CHAT_MESSAGE_MODERATE,
+        })
+        | _GUESTS_READ
+        | _HOTEL_INFO_READ
+        | _RESTAURANT_BOOKING_BASE
+        | _ATTENDANCE_DEPARTMENT_HEAD_READ
+    ),
+    # Phase 3 (RBAC Operational Rebalance): administration department
+    # naturally sees staff-management surfaces. Mirrors the staff_admin
+    # role persona's authority floor at department level.
+    'administration': _STAFF_MANAGEMENT_BASIC,
 }
 
 
@@ -1642,5 +1897,190 @@ def validate_preset_maps() -> list[str]:
     _check('TIER_DEFAULT_CAPABILITIES', TIER_DEFAULT_CAPABILITIES)
     _check('ROLE_PRESET_CAPABILITIES', ROLE_PRESET_CAPABILITIES)
     _check('DEPARTMENT_PRESET_CAPABILITIES', DEPARTMENT_PRESET_CAPABILITIES)
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 — nav / capability consistency validators.
+#
+# These validators are diagnostic only. They do NOT mutate data and they
+# do NOT participate in runtime authorization. They exist so tests and
+# operators can detect drift between:
+#   - the navigation surface (TIER_DEFAULT_NAVS / Role.default_navigation_items)
+#   - the projected module policy (MODULE_POLICY[<module>].view_capability /
+#     .read_capability)
+#   - the resolved capability bundle for a (tier, role, department) triple.
+#
+# Architecturally, the runtime contract is:
+#   "frontend renders nav iff slug ∈ allowed_navs AND rbac[module].visible"
+# The validators below check that the BACKEND-emitted nav set never
+# *promises* a slug whose module would render hidden in the same payload.
+# Tier-level drift (a tier nav slug whose view_capability is not on the
+# tier baseline) is acceptable iff the role / department preset always
+# fills the gap; the validator surfaces such cases for review without
+# treating them as runtime failures.
+# ---------------------------------------------------------------------------
+
+
+def validate_nav_capability_consistency(
+    *,
+    role_default_navs: Iterable[tuple[str, str | None, Iterable[str]]] | None = None,
+) -> list[str]:
+    """
+    Return a list of nav-vs-capability drift findings.
+
+    Static (data-only) checks performed:
+
+    1. **Tier nav drift.** For every nav slug N in
+       ``TIER_DEFAULT_NAVS[tier]`` that maps to a module M via
+       ``NAV_TO_MODULE_SLUG``, assert that
+       ``MODULE_POLICY[M]['view_capability']`` is in the tier capability
+       bundle alone. (Tier defaults are emitted before role / department
+       presets union in; a slug present at tier level but invisible at
+       tier level is mitigated only by an accompanying role / department
+       preset. Such drift is reported so it can be reviewed.)
+
+    2. **Stale tier nav.** Any nav slug in ``TIER_DEFAULT_NAVS`` that is
+       not in ``CANONICAL_NAV_SLUGS``.
+
+    3. **Canonical-role coverage.** For every canonical role, build the
+       resolved capability set as
+       ``regular_staff tier ∪ role preset ∪ canonical-dept preset`` and
+       assert that, for every nav slug projected to a module M, the role
+       either grants ``MODULE_POLICY[M]['view_capability']`` (visible) or
+       does not list the slug. Since canonical roles do not currently
+       seed ``Role.default_navigation_items`` (verified empty in DB),
+       this check is run against the union of tier defaults plus any
+       caller-supplied per-role nav set via ``role_default_navs``.
+
+    Optional input ``role_default_navs`` is a sequence of
+    ``(role_slug, department_slug, nav_slugs)`` tuples representing
+    DB-resident ``Role.default_navigation_items`` snapshots. Pass it
+    from a Django test that loads canonical role rows.
+
+    The validator is fail-open: it returns drift findings as a flat list
+    of strings. Empty list ⇒ no drift.
+    """
+    # Local imports keep this validator independent of cyclic boot order.
+    from staff.nav_catalog import CANONICAL_NAV_SLUGS, NAV_TO_MODULE_SLUG
+    from staff.module_policy import MODULE_POLICY
+    # ``TIER_DEFAULT_NAVS`` lives in staff.permissions; importing here
+    # avoids a circular import at module-load time.
+    from staff.permissions import TIER_DEFAULT_NAVS
+
+    errors: list[str] = []
+
+    # 2. Stale slug drift
+    for tier, navs in TIER_DEFAULT_NAVS.items():
+        for n in sorted(navs):
+            if n not in CANONICAL_NAV_SLUGS:
+                errors.append(
+                    f"TIER_DEFAULT_NAVS[{tier!r}] contains stale nav slug "
+                    f"{n!r} (not in CANONICAL_NAV_SLUGS)"
+                )
+
+    # 1. Tier nav drift (slug at tier level but module.view not in tier bundle)
+    for tier, navs in TIER_DEFAULT_NAVS.items():
+        tier_caps = set(TIER_DEFAULT_CAPABILITIES.get(tier, frozenset()))
+        for n in sorted(navs):
+            module = NAV_TO_MODULE_SLUG.get(n)
+            if module is None:
+                continue
+            policy = MODULE_POLICY.get(module)
+            if not policy:
+                errors.append(
+                    f"TIER_DEFAULT_NAVS[{tier!r}] nav={n!r} maps to "
+                    f"module={module!r} which is missing from MODULE_POLICY"
+                )
+                continue
+            view_cap = policy['view_capability']
+            if view_cap not in tier_caps:
+                errors.append(
+                    f"TIER_DEFAULT_NAVS[{tier!r}] nav={n!r} -> "
+                    f"module={module!r}: view_capability {view_cap!r} not "
+                    f"granted by tier bundle (relies on role/department "
+                    f"preset to be visible)"
+                )
+
+    # 3. Canonical-role coverage (only when caller supplies DB snapshot)
+    if role_default_navs is not None:
+        for role_slug, dept_slug, nav_slugs in role_default_navs:
+            caps = set(resolve_capabilities(
+                tier='regular_staff',
+                role_slug=role_slug,
+                department_slug=dept_slug,
+                is_superuser=False,
+            ))
+            for n in sorted(nav_slugs):
+                if n not in CANONICAL_NAV_SLUGS:
+                    errors.append(
+                        f"Role[{role_slug!r}].default_navigation_items "
+                        f"contains stale nav slug {n!r}"
+                    )
+                    continue
+                module = NAV_TO_MODULE_SLUG.get(n)
+                if module is None:
+                    continue
+                policy = MODULE_POLICY.get(module)
+                if not policy:
+                    continue
+                view_cap = policy['view_capability']
+                if view_cap not in caps:
+                    errors.append(
+                        f"Role[{role_slug!r}, dept={dept_slug!r}] nav={n!r}"
+                        f" -> module={module!r}: view_capability "
+                        f"{view_cap!r} not granted by role+dept+regular_staff"
+                        f" tier (orphaned nav entry)"
+                    )
+
+    return errors
+
+
+def validate_visibility_read_coherence() -> list[str]:
+    """
+    Return a list of visible/read mismatch findings across preset bundles.
+
+    For every preset bundle (tier, role, department) and every module M:
+        if either ``MODULE_POLICY[M]['view_capability']`` or
+        ``MODULE_POLICY[M]['read_capability']`` is in the bundle but the
+        other is not, report the mismatch.
+
+    Intentional architectural exceptions (documented):
+      - ``_SUPERVISOR_AUTHORITY`` adds ``chat.message.moderate`` /
+        ``chat.conversation.assign`` (and ``staff_chat.conversation.*``)
+        without granting ``chat.module.view`` /
+        ``chat.conversation.read``. These are routing / moderation-
+        authority capabilities; module visibility is granted separately
+        via ``_CHAT_BASE`` on role / department presets. The bundle
+        check below ignores authority-only caps when they are present
+        without the corresponding view/read pair.
+
+    Returns drift findings only — does not mutate data.
+    """
+    from staff.module_policy import MODULE_POLICY
+
+    errors: list[str] = []
+
+    def _check(label: str, caps: Iterable[str]) -> None:
+        cap_set = set(caps)
+        for module, policy in MODULE_POLICY.items():
+            view_cap = policy['view_capability']
+            read_cap = policy['read_capability']
+            visible = view_cap in cap_set
+            readable = read_cap in cap_set
+            if visible != readable:
+                errors.append(
+                    f"{label}: module={module!r} visible={visible} "
+                    f"read={readable} (view_cap={view_cap!r}, "
+                    f"read_cap={read_cap!r})"
+                )
+
+    for tier, caps in TIER_DEFAULT_CAPABILITIES.items():
+        _check(f'TIER[{tier!r}]', caps)
+    for role_slug, caps in ROLE_PRESET_CAPABILITIES.items():
+        _check(f'ROLE[{role_slug!r}]', caps)
+    for dept_slug, caps in DEPARTMENT_PRESET_CAPABILITIES.items():
+        _check(f'DEPT[{dept_slug!r}]', caps)
 
     return errors
