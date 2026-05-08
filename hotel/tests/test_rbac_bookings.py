@@ -137,8 +137,9 @@ class BookingPolicyRegistryTest(TestCase):
 class BookingPolicyResolutionTest(TestCase):
     """Tier-driven resolution of the bookings policy object."""
 
-    def test_super_staff_admin_gets_supervise_not_manage(self):
-        """Phase 6A.2: tier grants supervise, not manage."""
+    def test_super_staff_admin_gets_full_hotel_authority(self):
+        """Manager-role rebalance: super_staff_admin tier alone carries
+        the full hotel-scoped authority bundle, including manage."""
         caps = resolve_capabilities('super_staff_admin', None, None)
         pol = resolve_module_policy(caps)['bookings']
         self.assertTrue(pol['visible'])
@@ -149,8 +150,8 @@ class BookingPolicyResolutionTest(TestCase):
             'resolve_overstay', 'modify_locked',
         ):
             self.assertTrue(pol['actions'][action], action)
-        # Manage bucket — denied (role preset only)
-        self.assertFalse(pol['actions']['manage_rules'])
+        # Manage bucket — also granted (full hotel authority via tier).
+        self.assertTrue(pol['actions']['manage_rules'])
 
     def test_staff_admin_has_no_booking_caps(self):
         """Phase 6A.2: staff_admin tier no longer carries booking operate.
@@ -414,13 +415,14 @@ class BookingEndpointEnforcementTest(TestCase):
 
     # ----- rate plans (manage config) -----
 
-    def test_rate_plans_post_forbidden_for_super_staff_admin(self):
-        """Phase 6A.2: manage_rules is no longer granted by tier.
-        super_staff_admin alone must not be able to write rate plans."""
+    def test_rate_plans_post_allowed_for_super_staff_admin(self):
+        """Manager-role rebalance: super_staff_admin tier carries
+        BOOKING_CONFIG_MANAGE via _HOTEL_FULL_AUTHORITY."""
         c = _authed_client(self.super_admin.user)
         url = f"/api/staff/hotel/{self.hotel.slug}/rate-plans/"
-        resp = c.post(url, data={'name': 'Nope'}, format='json')
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        resp = c.post(url, data={'name': 'Mgr'}, format='json')
+        # Past RBAC (400 from serializer is fine, 403 is not).
+        self.assertNotEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_rate_plans_post_allowed_for_hotel_manager(self):
         c = _authed_client(self.hotel_manager.user)
@@ -501,8 +503,8 @@ class BookingPayloadEmissionTest(TestCase):
         self.assertTrue(pol['read'])
         self.assertTrue(pol['actions']['checkin'])
         self.assertTrue(pol['actions']['resolve_overstay'])
-        # Phase 6A.2: manage_rules not granted by tier.
-        self.assertFalse(pol['actions']['manage_rules'])
+        # Manager-role rebalance: tier now grants manage_rules.
+        self.assertTrue(pol['actions']['manage_rules'])
 
     def test_staff_admin_payload(self):
         pol = self._fetch_rbac(self.staff_admin.user)

@@ -266,11 +266,13 @@ class MaintenancePolicyPersonaTest(TestCase):
         for key, granted in pol['actions'].items():
             self.assertFalse(granted, key)
 
-    def test_tier_only_super_staff_admin_has_no_maintenance_authority(self):
+    def test_tier_only_super_staff_admin_has_full_maintenance_authority(self):
+        """Manager-role rebalance: super_staff_admin tier alone grants
+        the full hotel-scoped maintenance bundle."""
         pol = self._policy('super_staff_admin', None, None)
-        self.assertFalse(pol['visible'])
-        for key, granted in pol['actions'].items():
-            self.assertFalse(granted, key)
+        self.assertTrue(pol['visible'])
+        for key in pol['actions']:
+            self.assertTrue(pol['actions'][key], key)
 
     def test_non_maintenance_regular_staff_only_gets_reporter_caps(self):
         # front_office dept carries reporter bundle — view + read + create.

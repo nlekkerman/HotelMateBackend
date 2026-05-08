@@ -149,11 +149,17 @@ class HousekeepingPolicyRegistryTest(TestCase):
                 f"Action {action!r} capability drifted",
             )
 
-    def test_no_housekeeping_capability_in_any_tier_preset(self):
+    def test_no_housekeeping_capability_in_lower_tier_presets(self):
+        """Manager-role rebalance: super_staff_admin tier carries the
+        full hotel-scoped bundle including housekeeping. Lower tiers
+        (staff_admin, regular_staff) must still NOT leak housekeeping
+        capabilities — only super_staff_admin earns them by tier."""
         hk_caps = {
             c for c in CANONICAL_CAPABILITIES if c.startswith('housekeeping.')
         }
         for tier, caps in TIER_DEFAULT_CAPABILITIES.items():
+            if tier == 'super_staff_admin':
+                continue
             leaked = caps & hk_caps
             self.assertFalse(
                 leaked,
@@ -237,19 +243,27 @@ class HousekeepingPolicyPersonaTest(TestCase):
                 continue
             self.assertTrue(pol['actions'][action], action)
 
-    def test_front_office_manager_supervises(self):
+    def test_front_office_manager_manages(self):
+        """Manager-role rebalance: front_office_manager now carries the
+        full hotel-scoped authority bundle, identical to hotel_manager."""
         pol = self._policy('regular_staff', 'front_office_manager',
                            'front_office')
         self.assertTrue(pol['actions']['task_create'])
         self.assertTrue(pol['actions']['task_assign'])
         self.assertTrue(pol['actions']['status_override'])
-        self.assertFalse(pol['actions']['task_delete'])
+        self.assertTrue(pol['actions']['task_delete'])
 
-    def test_tier_only_super_staff_admin_has_no_housekeeping_caps(self):
+    def test_tier_only_super_staff_admin_has_full_housekeeping_caps(self):
+        """Manager-role rebalance: tier alone now grants full
+        housekeeping authority via _HOTEL_FULL_AUTHORITY."""
         pol = self._policy('super_staff_admin', None, None)
-        self.assertFalse(pol['visible'])
+        self.assertTrue(pol['visible'])
+        # Every housekeeping action except status_front_desk (department
+        # scoped to front_office) is granted by the tier bundle.
         for action, granted in pol['actions'].items():
-            self.assertFalse(granted, action)
+            if action == 'status_front_desk':
+                continue
+            self.assertTrue(granted, action)
 
     def test_tier_only_staff_admin_has_no_housekeeping_caps(self):
         pol = self._policy('staff_admin', None, None)
@@ -369,25 +383,34 @@ class HousekeepingEndpointEnforcementTest(TestCase):
                 f"{method.upper()} {url} expected 403, got {resp.status_code}",
             )
 
-    def test_tier_only_super_admin_is_denied_everywhere(self):
-        """Tier alone must NOT grant housekeeping action authority."""
+    def test_tier_only_super_admin_has_full_housekeeping_authority(self):
+        """Manager-role rebalance: super_staff_admin tier alone now
+        grants the full hotel-scoped housekeeping authority."""
         task = self._make_task()
         c = _authed_client(self.tier_only_super.user)
-        endpoints = [
-            ('get', f'{self.base}/dashboard/', {}),
-            ('get', f'{self.base}/tasks/', {}),
-            ('post', f'{self.base}/tasks/{task.id}/assign/',
-             {'assigned_to_id': self.housekeeper.id}),
-            ('post',
-             f'{self.base}/rooms/{self.room.id}/manager_override/',
-             {'to_status': 'READY_FOR_GUEST', 'note': 'x'}),
-        ]
-        for method, url, body in endpoints:
-            resp = getattr(c, method)(url, data=body, format='json')
+        # READ endpoints succeed.
+        for method, url in (
+            ('get', f'{self.base}/dashboard/'),
+            ('get', f'{self.base}/tasks/'),
+        ):
+            resp = getattr(c, method)(url)
             self.assertEqual(
-                resp.status_code, status.HTTP_403_FORBIDDEN,
-                f"{method.upper()} {url} expected 403, got {resp.status_code}",
+                resp.status_code, status.HTTP_200_OK,
+                f"{method.upper()} {url} expected 200, got {resp.status_code}",
             )
+        # WRITE endpoints succeed (assign + manager override).
+        resp = c.post(
+            f'{self.base}/tasks/{task.id}/assign/',
+            data={'assigned_to_id': self.housekeeper.id},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        resp = c.post(
+            f'{self.base}/rooms/{self.room.id}/manager_override/',
+            data={'to_status': 'READY_FOR_GUEST', 'note': 'x'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # Dashboard
@@ -608,15 +631,16 @@ class HousekeepingEndpointEnforcementTest(TestCase):
     # ------------------------------------------------------------------
 
     def test_manager_override_not_tier_gated(self):
-        """tier-only super_staff_admin must NOT pass the override gate
-        (they hold no housekeeping capability)."""
+        """Manager-role rebalance: tier-only super_staff_admin now
+        carries the full hotel-scoped housekeeping authority and may
+        invoke manager_override."""
         c = _authed_client(self.tier_only_super.user)
         resp = c.post(
             f'{self.base}/rooms/{self.room.id}/manager_override/',
             data={'to_status': 'READY_FOR_GUEST', 'note': 'x'},
             format='json',
         )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_manager_override_allowed_for_supervisor(self):
         c = _authed_client(self.hk_supervisor.user)
