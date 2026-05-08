@@ -50,33 +50,9 @@ from staff.module_policy import validate_module_policy
 # rendering contract (frontend gates on ``rbac.<module>.visible`` AND
 # ``allowed_navs`` — see ``RBAC_OPERATIONAL_REBALANCE_AUDIT.md`` §4.4).
 EXPECTED_TIER_NAV_DRIFT: frozenset[str] = frozenset({
-    # super_staff_admin — relies on hotel_manager / dept presets.
-    "TIER_DEFAULT_NAVS['super_staff_admin'] nav='chat' -> module='chat':"
-    " view_capability 'chat.module.view' not granted by tier bundle"
-    " (relies on role/department preset to be visible)",
-    "TIER_DEFAULT_NAVS['super_staff_admin'] nav='hotel_info' ->"
-    " module='hotel_info': view_capability 'hotel_info.module.view' not"
-    " granted by tier bundle (relies on role/department preset to be"
-    " visible)",
-    "TIER_DEFAULT_NAVS['super_staff_admin'] nav='housekeeping' ->"
-    " module='housekeeping': view_capability 'housekeeping.module.view'"
-    " not granted by tier bundle (relies on role/department preset to"
-    " be visible)",
-    "TIER_DEFAULT_NAVS['super_staff_admin'] nav='maintenance' ->"
-    " module='maintenance': view_capability 'maintenance.module.view'"
-    " not granted by tier bundle (relies on role/department preset to"
-    " be visible)",
-    "TIER_DEFAULT_NAVS['super_staff_admin'] nav='restaurant_bookings' ->"
-    " module='restaurant_bookings': view_capability"
-    " 'restaurant_booking.module.view' not granted by tier bundle"
-    " (relies on role/department preset to be visible)",
-    "TIER_DEFAULT_NAVS['super_staff_admin'] nav='rooms' -> module='rooms':"
-    " view_capability 'room.module.view' not granted by tier bundle"
-    " (relies on role/department preset to be visible)",
-    "TIER_DEFAULT_NAVS['super_staff_admin'] nav='staff_management' ->"
-    " module='staff_management': view_capability"
-    " 'staff_management.module.view' not granted by tier bundle"
-    " (relies on role/department preset to be visible)",
+    # super_staff_admin tier carries _HOTEL_FULL_AUTHORITY (Manager-role
+    # rebalance) so every hotel-scoped nav slug projects from the tier
+    # bundle. No drift entries are expected for super_staff_admin.
     # staff_admin — relies on department-head role presets.
     "TIER_DEFAULT_NAVS['staff_admin'] nav='chat' -> module='chat':"
     " view_capability 'chat.module.view' not granted by tier bundle"

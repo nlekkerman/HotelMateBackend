@@ -1456,19 +1456,58 @@ _RESTAURANT_BOOKING_MANAGE: frozenset[str] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Full hotel-scoped authority bundle.
+#
+# This is the explicit allowlist of every hotel-scoped management bundle
+# granted to any persona that runs a hotel: the `super_staff_admin` tier
+# and every manager role (hotel_manager, duty_manager, front_office_manager,
+# housekeeping_manager, maintenance_manager, kitchen_manager, fnb_manager,
+# guest_relations_manager).
+#
+# Explicitly EXCLUDED (platform / cross-hotel surfaces):
+#   - HOTEL_INFO_CATEGORY_MANAGE  (global category rows; superuser-only)
+#   - any capability not in CANONICAL_CAPABILITIES (filtered by the
+#     resolver as a drift guard, not by this bundle)
+#
+# This bundle MUST be built from named hotel-scoped preset bundles —
+# never from ``CANONICAL_CAPABILITIES - {…}``. Adding a new global /
+# platform capability must default to NOT being part of this bundle.
+# ---------------------------------------------------------------------------
+
+_HOTEL_FULL_AUTHORITY: frozenset[str] = (
+    _BOOKING_MANAGE
+    | _ROOM_MANAGE
+    | _HOUSEKEEPING_MANAGE
+    | _MAINTENANCE_MANAGE
+    | _STAFF_MANAGEMENT_MANAGER
+    | _GUESTS_OPERATE
+    | _HOTEL_INFO_MANAGE
+    | _ATTENDANCE_MANAGE
+    | _ROOM_SERVICE_MANAGE
+    | _RESTAURANT_BOOKING_MANAGE
+    | _CHAT_BASE
+    | _STAFF_CHAT_BASE
+    | frozenset({
+        CHAT_GUEST_RESPOND,
+        CHAT_CONVERSATION_ASSIGN,
+        CHAT_MESSAGE_MODERATE,
+    })
+)
+
+
 TIER_DEFAULT_CAPABILITIES: dict[str, frozenset[str]] = {
-    # Phase 6A.2: tier carries only cross-cutting supervisor authority.
-    # Booking operate/manage live on department/role presets so tier is
-    # NOT the permission engine.
-    #   super_staff_admin → supervisor authority + booking supervise (overrides)
-    #   staff_admin       → supervisor authority only (no booking caps)
-    #   regular_staff     → no tier-level caps (role/dept presets only)
-    # Wave 2A: guest-chat base bundle granted broadly to every tier so any
-    # authenticated same-hotel staff can use guest chat.
+    # Manager-role rebalance: super_staff_admin tier means
+    # "top admin inside one hotel" and now contributes the full
+    # hotel-scoped authority bundle. Lower tiers are unchanged.
+    #   super_staff_admin → supervisor authority + full hotel authority
+    #   staff_admin       → supervisor authority only (no hotel mgmt)
+    #   regular_staff     → no tier-level mgmt caps (role/dept presets only)
     'super_staff_admin': (
-        _SUPERVISOR_AUTHORITY | _BOOKING_SUPERVISE
-        | _STAFF_CHAT_BASE | _ATTENDANCE_SELF_SERVICE
-        | _ROOM_SERVICE_BASE
+        _SUPERVISOR_AUTHORITY
+        | _STAFF_CHAT_BASE
+        | _ATTENDANCE_SELF_SERVICE
+        | _HOTEL_FULL_AUTHORITY
     ),
     'staff_admin': (
         _SUPERVISOR_AUTHORITY | _STAFF_CHAT_BASE
@@ -1514,27 +1553,21 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     # Phase 6C: hotel_manager carries the full housekeeping manage bundle.
     # Phase 6D.1: hotel_manager carries the full maintenance manage bundle.
     # Phase 6E.1: carries full staff-management manager bundle (supervise).
-    'hotel_manager': (
-        _BOOKING_MANAGE | _ROOM_MANAGE | _HOUSEKEEPING_MANAGE
-        | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_MANAGER
-        | _GUESTS_OPERATE | _HOTEL_INFO_MANAGE | _ATTENDANCE_MANAGE
-        | _ROOM_SERVICE_MANAGE
-        | _RESTAURANT_BOOKING_MANAGE
-        | _CHAT_BASE
-        # Phase 4 (RBAC Operational Rebalance): hotel_manager is
-        # eligible for inbound guest-chat routing when on duty.
-        | frozenset({CHAT_GUEST_RESPOND, CHAT_CONVERSATION_ASSIGN,
-                     CHAT_MESSAGE_MODERATE})
-    ),
-    'front_office_manager': (
-        _BOOKING_MANAGE | _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
-        | _MAINTENANCE_REPORTER | _GUESTS_OPERATE | _HOTEL_INFO_READ
-        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
-        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
-        # Phase 4 (RBAC Operational Rebalance): FOM coordinates room
-        # service operationally (porter pickup / order action).
-        | _ROOM_SERVICE_OPERATE
-    ),
+    #
+    # Manager-role rebalance: every manager role (hotel_manager,
+    # duty_manager, front_office_manager, housekeeping_manager,
+    # maintenance_manager, kitchen_manager, fnb_manager,
+    # guest_relations_manager) now resolves to the same hotel-scoped
+    # authority bundle. Department / role names remain useful for nav,
+    # job labels and reporting but are no longer permission walls.
+    'hotel_manager': _HOTEL_FULL_AUTHORITY,
+    'front_office_manager': _HOTEL_FULL_AUTHORITY,
+    'housekeeping_manager': _HOTEL_FULL_AUTHORITY,
+    'maintenance_manager': _HOTEL_FULL_AUTHORITY,
+    'kitchen_manager': _HOTEL_FULL_AUTHORITY,
+    'fnb_manager': _HOTEL_FULL_AUTHORITY,
+    'duty_manager': _HOTEL_FULL_AUTHORITY,
+    'guest_relations_manager': _HOTEL_FULL_AUTHORITY,
     # Phase 2 + Phase 4 (RBAC Operational Rebalance): front office
     # supervisor gains operational coordination on top of attendance
     # read. Housekeeping read + room-service operate + maintenance
@@ -1559,32 +1592,21 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         _ROOM_SUPERVISE | _HOUSEKEEPING_SUPERVISE
         | _ATTENDANCE_DEPARTMENT_HEAD_READ
     ),
-    'housekeeping_manager': (
-        _ROOM_SUPERVISE | _HOUSEKEEPING_MANAGE
-        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
-        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
-    ),
-    # Phase 6B.1: maintenance authority roles carry clear-only (and,
-    # for maintenance_manager, out-of-order) on top of the dept preset.
-    # OVERRIDE is required so complete_maintenance can flip the room out
-    # of MAINTENANCE_REQUIRED via the canonical housekeeping service.
+    # Manager-role rebalance: housekeeping_manager declared above as
+    # _HOTEL_FULL_AUTHORITY (single source for every manager slug).
+    # Phase 6B.1: maintenance authority roles carry clear-only on top
+    # of the dept preset. OVERRIDE is required so complete_maintenance
+    # can flip the room out of MAINTENANCE_REQUIRED via the canonical
+    # housekeeping service.
     'maintenance_supervisor': frozenset({
         ROOM_MAINTENANCE_CLEAR,
         HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
     }) | _MAINTENANCE_SUPERVISE | _ATTENDANCE_DEPARTMENT_HEAD_READ,
-    'maintenance_manager': frozenset({
-        ROOM_MAINTENANCE_CLEAR,
-        ROOM_OUT_OF_ORDER_SET,
-        HOUSEKEEPING_ROOM_STATUS_OVERRIDE,
-    }) | _MAINTENANCE_MANAGE | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
-      | _ATTENDANCE_DEPARTMENT_HEAD_WRITE,
-    # F&B roles — restaurant booking authority lives on role/dept presets,
-    # never on tier. fnb_manager carries the full manage bundle; waiter
-    # carries the operate bundle (record CRUD, mark_seen, assign/unseat).
-    'fnb_manager': (
-        _RESTAURANT_BOOKING_MANAGE | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
-        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
-    ),
+    # Manager-role rebalance: maintenance_manager declared above as
+    # _HOTEL_FULL_AUTHORITY.
+    # F&B roles — fnb_manager declared above as _HOTEL_FULL_AUTHORITY.
+    # waiter carries the operate bundle (record CRUD, mark_seen,
+    # assign/unseat).
     # Phase 4 (RBAC Operational Rebalance): F&B supervisor becomes a
     # real shift lead — read-tier attendance + operational restaurant
     # coordination (catalog/records reads + record CRUD via OPERATE,
@@ -1599,23 +1621,8 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
     ),
     'waiter': _RESTAURANT_BOOKING_OPERATE,
     # Phase 4 (RBAC Operational Rebalance): kitchen role presets.
-    # Kitchen roles never carry _CHAT_BASE — guest chat stays scoped to
-    # front office / guest relations / duty manager / hotel manager.
-    'kitchen_manager': (
-        _ROOM_SERVICE_OPERATE
-        | frozenset({
-            ROOM_SERVICE_ORDER_FULFILL_KITCHEN,
-            # Chef edits the menu but cannot delete items — DELETE
-            # remains hotel_manager-only via _ROOM_SERVICE_MANAGE.
-            ROOM_SERVICE_MENU_ITEM_CREATE,
-            ROOM_SERVICE_MENU_ITEM_UPDATE,
-            ROOM_SERVICE_MENU_ITEM_IMAGE_MANAGE,
-        })
-        | _MAINTENANCE_REPORTER
-        | _HOTEL_INFO_READ
-        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
-        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
-    ),
+    # Manager-role rebalance: kitchen_manager declared above as
+    # _HOTEL_FULL_AUTHORITY.
     'kitchen_supervisor': (
         _ROOM_SERVICE_OPERATE
         | frozenset({ROOM_SERVICE_ORDER_FULFILL_KITCHEN})
@@ -1662,43 +1669,9 @@ ROLE_PRESET_CAPABILITIES: dict[str, frozenset[str]] = {
         | _MAINTENANCE_REPORTER
         | _ATTENDANCE_DEPARTMENT_HEAD_READ
     ),
-    'guest_relations_manager': (
-        _CHAT_BASE
-        | frozenset({
-            CHAT_GUEST_RESPOND,
-            CHAT_CONVERSATION_ASSIGN,
-            CHAT_MESSAGE_MODERATE,
-            BOOKING_GUEST_COMMUNICATE,
-            BOOKING_RECORD_UPDATE,
-            GUEST_RECORD_UPDATE,
-        })
-        | _GUESTS_OPERATE
-        | _HOTEL_INFO_MANAGE
-        | _BOOKING_READ
-        | _MAINTENANCE_REPORTER
-        | _STAFF_MANAGEMENT_DEPARTMENT_HEAD_VIEW
-        | _ATTENDANCE_DEPARTMENT_HEAD_WRITE
-    ),
-    # Phase 4 (RBAC Operational Rebalance): duty manager becomes
-    # operationally aware hotel-wide. READ-heavy bundle plus guest-chat
-    # moderation/assign and attendance department-head READ. Excludes
-    # all destructive / config / staff-management / period lifecycle
-    # authority — those stay on hotel_manager + super_user.
-    'duty_manager': (
-        _ROOM_READ
-        | _HOUSEKEEPING_BASE
-        | _MAINTENANCE_READ
-        | _CHAT_BASE
-        | frozenset({
-            CHAT_GUEST_RESPOND,
-            CHAT_CONVERSATION_ASSIGN,
-            CHAT_MESSAGE_MODERATE,
-        })
-        | _GUESTS_READ
-        | _HOTEL_INFO_READ
-        | _RESTAURANT_BOOKING_BASE
-        | _ATTENDANCE_DEPARTMENT_HEAD_READ
-    ),
+    # Manager-role rebalance: guest_relations_manager and duty_manager
+    # declared above as _HOTEL_FULL_AUTHORITY (single source for every
+    # manager slug).
 }
 
 
