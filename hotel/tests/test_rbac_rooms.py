@@ -161,10 +161,15 @@ class RoomPolicyRegistryTest(TestCase):
                 f"Action {action!r} capability drifted",
             )
 
-    def test_no_room_capability_in_any_tier_preset(self):
-        """Tier must never carry a room.* capability (contract rule)."""
+    def test_no_room_capability_in_lower_tier_presets(self):
+        """Manager-role rebalance: super_staff_admin tier carries the
+        full hotel-scoped bundle including rooms. Lower tiers
+        (staff_admin, regular_staff) must still NOT leak room.*
+        capabilities by tier."""
         room_caps = {c for c in CANONICAL_CAPABILITIES if c.startswith('room.')}
         for tier, caps in TIER_DEFAULT_CAPABILITIES.items():
+            if tier == 'super_staff_admin':
+                continue
             leaked = caps & room_caps
             self.assertFalse(
                 leaked,
@@ -219,13 +224,15 @@ class RoomPolicyPersonaTest(TestCase):
         self.assertFalse(pol['actions']['out_of_order_set'])
         self.assertFalse(pol['actions']['checkout_destructive'])
 
-    def test_housekeeping_manager_supervises(self):
+    def test_housekeeping_manager_manages(self):
+        """Manager-role rebalance: housekeeping_manager now carries
+        full hotel authority including the rooms manage bundle."""
         pol = self._policy('regular_staff', 'housekeeping_manager',
                            'housekeeping')
         self.assertTrue(pol['actions']['inspect'])
         self.assertTrue(pol['actions']['maintenance_clear'])
         self.assertTrue(pol['actions']['checkout_bulk'])
-        self.assertFalse(pol['actions']['inventory_create'])
+        self.assertTrue(pol['actions']['inventory_create'])
 
     def test_maintenance_regular_staff_can_flag_not_clear(self):
         pol = self._policy('regular_staff', None, 'maintenance')
@@ -242,14 +249,16 @@ class RoomPolicyPersonaTest(TestCase):
         self.assertTrue(pol['actions']['maintenance_clear'])
         self.assertFalse(pol['actions']['out_of_order_set'])
 
-    def test_maintenance_manager_clears_and_out_of_order(self):
+    def test_maintenance_manager_full_room_manage(self):
+        """Manager-role rebalance: maintenance_manager now carries the
+        full rooms manage bundle (clear + out_of_order + inventory)."""
         pol = self._policy('regular_staff', 'maintenance_manager',
                            'maintenance')
         self.assertTrue(pol['actions']['maintenance_clear'])
         self.assertTrue(pol['actions']['out_of_order_set'])
-        # Still not manage bucket
-        self.assertFalse(pol['actions']['inventory_create'])
-        self.assertFalse(pol['actions']['checkout_destructive'])
+        # Manager-role rebalance: full manage bucket now granted.
+        self.assertTrue(pol['actions']['inventory_create'])
+        self.assertTrue(pol['actions']['checkout_destructive'])
 
     def test_food_beverage_has_no_room_visibility(self):
         pol = self._policy('regular_staff', 'waiter', 'food_beverage')
@@ -270,11 +279,14 @@ class RoomPolicyPersonaTest(TestCase):
         for action, granted in pol['actions'].items():
             self.assertFalse(granted, action)
 
-    def test_super_staff_admin_tier_alone_has_no_room_caps(self):
+    def test_super_staff_admin_tier_alone_has_full_room_authority(self):
+        """Manager-role rebalance: super_staff_admin tier alone now
+        carries the full rooms manage bundle via _HOTEL_FULL_AUTHORITY."""
         pol = self._policy('super_staff_admin', None, None)
-        self.assertFalse(pol['visible'])
-        for action, granted in pol['actions'].items():
-            self.assertFalse(granted, action)
+        self.assertTrue(pol['visible'])
+        self.assertTrue(pol['read'])
+        for action in pol['actions']:
+            self.assertTrue(pol['actions'][action], action)
 
     def test_hotel_manager_role_gets_full_manage(self):
         pol = self._policy('regular_staff', 'hotel_manager', 'management')
@@ -283,12 +295,14 @@ class RoomPolicyPersonaTest(TestCase):
         for action in pol['actions']:
             self.assertTrue(pol['actions'][action], action)
 
-    def test_front_office_manager_role_supervises(self):
+    def test_front_office_manager_role_manages(self):
+        """Manager-role rebalance: front_office_manager carries the
+        full rooms manage bundle."""
         pol = self._policy('regular_staff', 'front_office_manager',
                            'front_office')
         self.assertTrue(pol['actions']['inspect'])
         self.assertTrue(pol['actions']['checkout_bulk'])
-        self.assertFalse(pol['actions']['inventory_create'])
+        self.assertTrue(pol['actions']['inventory_create'])
 
 
 # ---------------------------------------------------------------------------
@@ -472,9 +486,10 @@ class RoomEndpointEnforcementTest(TestCase):
         self.room.refresh_from_db()
         self.assertTrue(self.room.is_out_of_order)
 
-    def test_ooo_setter_cannot_patch_non_ooo_fields(self):
-        """maintenance_manager lacks inventory.update; touching any
-        other writable field must still 403."""
+    def test_ooo_setter_can_patch_non_ooo_fields(self):
+        """Manager-role rebalance: maintenance_manager now carries the
+        full rooms manage bundle (including inventory.update), so a
+        PATCH on any writable field succeeds."""
         c = _authed_client(self.ooo_setter.user)
         resp = c.patch(
             f'/api/staff/hotel/{self.hotel.slug}'
@@ -482,12 +497,12 @@ class RoomEndpointEnforcementTest(TestCase):
             data={'is_active': True},
             format='json',
         )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    def test_ooo_setter_mixed_payload_requires_inventory_update(self):
-        """Mixed payload (is_out_of_order + other fields) must require
-        BOTH capabilities — maintenance_manager lacks inventory.update
-        → 403."""
+    def test_ooo_setter_mixed_payload_allowed(self):
+        """Manager-role rebalance: maintenance_manager carries both
+        out_of_order.set and inventory.update, so a mixed payload
+        succeeds."""
         c = _authed_client(self.ooo_setter.user)
         resp = c.patch(
             f'/api/staff/hotel/{self.hotel.slug}'
@@ -495,7 +510,7 @@ class RoomEndpointEnforcementTest(TestCase):
             data={'is_out_of_order': True, 'is_active': True},
             format='json',
         )
-        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
     def test_hk_supervisor_cannot_toggle_out_of_order(self):
         """Housekeeping supervisor carries neither inventory.update nor

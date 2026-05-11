@@ -187,13 +187,18 @@ class StaffManagementPolicyRegistryTest(TestCase):
                 f"Action {action!r} capability drifted",
             )
 
-    def test_no_staff_management_capability_in_any_tier_preset(self):
-        """Staff-management authority must NEVER be tier-granted."""
+    def test_no_staff_management_capability_in_lower_tier_presets(self):
+        """Manager-role rebalance: super_staff_admin tier carries the
+        full hotel-scoped bundle including staff_management. Lower
+        tiers (staff_admin, regular_staff) must still NOT leak
+        staff_management.* capabilities by tier."""
         sm_caps = {
             c for c in CANONICAL_CAPABILITIES
             if c.startswith('staff_management.')
         }
         for tier, caps in TIER_DEFAULT_CAPABILITIES.items():
+            if tier == 'super_staff_admin':
+                continue
             leaked = caps & sm_caps
             self.assertFalse(
                 leaked,

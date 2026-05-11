@@ -179,12 +179,18 @@ class MaintenancePolicyRegistryTest(TestCase):
                 f"Action {action!r} capability drifted",
             )
 
-    def test_no_maintenance_capability_in_any_tier_preset(self):
+    def test_no_maintenance_capability_in_lower_tier_presets(self):
+        """Manager-role rebalance: super_staff_admin tier carries the
+        full hotel-scoped bundle including maintenance. Lower tiers
+        (staff_admin, regular_staff) must still NOT leak
+        maintenance.* capabilities by tier."""
         maint_caps = {
             c for c in CANONICAL_CAPABILITIES
             if c.startswith('maintenance.')
         }
         for tier, caps in TIER_DEFAULT_CAPABILITIES.items():
+            if tier == 'super_staff_admin':
+                continue
             leaked = caps & maint_caps
             self.assertFalse(
                 leaked,
@@ -408,20 +414,24 @@ class MaintenanceEndpointEnforcementTest(TestCase):
                 f"{method.upper()} {url} → {resp.status_code}",
             )
 
-    def test_tier_only_super_admin_is_denied_everywhere(self):
+    def test_tier_only_super_admin_has_full_maintenance_authority(self):
+        """Manager-role rebalance: super_staff_admin tier alone now
+        grants the full hotel-scoped maintenance authority."""
         req = self._make_request()
         c = _authed_client(self.tier_only_super.user)
-        endpoints = [
-            ('get', f'{self.base}/requests/'),
+        # Read endpoints succeed.
+        resp = c.get(f'{self.base}/requests/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        # Action endpoints succeed (or at least are not RBAC-forbidden).
+        for method, url in [
             ('post', f'{self.base}/requests/{req.id}/accept/'),
             ('post', f'{self.base}/requests/{req.id}/close/'),
             ('delete', f'{self.base}/requests/{req.id}/'),
-        ]
-        for method, url in endpoints:
+        ]:
             resp = getattr(c, method)(url, data={}, format='json')
-            self.assertEqual(
+            self.assertNotEqual(
                 resp.status_code, status.HTTP_403_FORBIDDEN,
-                f"{method.upper()} {url} → {resp.status_code}",
+                f"{method.upper()} {url} unexpectedly 403",
             )
 
     # ------------------------------------------------------------------
